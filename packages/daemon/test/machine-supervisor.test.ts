@@ -1088,8 +1088,8 @@ test("a restart queued before a stop never runs", async () => {
   // The queued one is recorded too, so a replay of it (a cloud restart request) can neither run
   // nor enable the Workspace the operator stopped.
   expect(fixture.saved()[0]?.restartResults).toEqual([
-    { requestId: "second", status: "cancelled", by: "stop" },
     { requestId: "first", status: "cancelled", by: "stop" },
+    { requestId: "second", status: "cancelled", by: "stop" },
   ]);
   await expect(fixture.supervisor.command("restart", "a", "second")).rejects.toThrow(
     "Workspace a restart was superseded by a stop. Run 'coforge-computer start --workspace a' to start it again.",
@@ -1245,4 +1245,38 @@ test("a failure without a message is still recorded, with a reason that says so"
   expect(fixture.saved()[0]?.lastFailure?.message).toBe(
     "The start failed without a reason; the Computer log has the details.",
   );
+});
+
+test("a stop that answers before its turn has already persisted the Workspace as stopped", async () => {
+  const fixture = gatedFixture([binding("a"), binding("b", false)]);
+  await fixture.supervisor.recover();
+  const startB = fixture.supervisor.command("start", "b");
+  await untilStarted(fixture);
+
+  expect(
+    await fixture.supervisor.command("stop", "a", undefined, { deadline: Date.now() + 20 }),
+  ).toEqual({ started: [], pending: ["a"] });
+
+  // A Coordinator that dies now still comes back with "a" stopped, as the CLI was told.
+  expect(fixture.saved()[0]).toMatchObject({ workspaceId: "a", enabled: false });
+  fixture.open();
+  await startB;
+});
+
+test("a stop marked while a restart is under way records that restart cancelled at once", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+  const restart = fixture.supervisor.command("restart", "a", "first");
+  await untilStarted(fixture);
+
+  await fixture.supervisor.command("stop", "a", undefined, { deadline: Date.now() });
+
+  expect(fixture.saved()[0]).toMatchObject({
+    enabled: false,
+    restartResults: [{ requestId: "first", status: "cancelled", by: "stop" }],
+  });
+  expect(fixture.saved()[0]?.restart).toBeUndefined();
+  await expect(restart).rejects.toThrow("superseded by a stop");
+  await fixture.supervisor.snapshot();
+  expect(fixture.saved()[0]?.restartResults).toHaveLength(1);
 });

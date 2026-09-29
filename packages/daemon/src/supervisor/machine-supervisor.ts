@@ -169,6 +169,11 @@ export class MachineSupervisor {
   /** Start/restart/configure requests per Workspace, from request until handled: queued or
    * running, what the view reports as under way. */
   #underWay = new Map<string, number>();
+  /** Workspaces a stop has already persisted as stopped while its own turn in the queue is still
+   * to come (the sequence of that stop). Any save of them meanwhile keeps them stopped. */
+  #stopIntents = new Map<string, number>();
+  /** Store writes, one at a time: a stop's intent is written outside the lifecycle queue. */
+  #writing = Promise.resolve();
   #mutation = Promise.resolve();
   #paused = false;
   #reloadRequired = false;
@@ -245,21 +250,56 @@ export class MachineSupervisor {
     const sequence = operation === "stop" ? this.#supersede(requested, "stop") : ++this.#sequence;
     const settle = this.#markUnderWay(operation === "stop" ? [] : requested);
     const progress: CommandProgress = { done: 0, started: [], settle: settle.one };
-    const work = this.#serialize(() =>
-      this.#command(operation, workspaceId, requestId, sequence, progress),
-    ).finally(settle.all);
-    if (options.deadline === undefined) return work;
+    // A stop is persisted before it answers, so a Coordinator that dies before the stop's turn
+    // comes back with the Workspace stopped, as the CLI was told.
+    const intent = operation === "stop" ? this.#persistStopIntent(requested, sequence) : undefined;
+    const work = this.#serialize(async () => {
+      await intent;
+      return this.#command(operation, workspaceId, requestId, sequence, progress);
+    }).finally(() => {
+      settle.all();
+      if (operation === "stop")
+        for (const id of requested)
+          if (this.#stopIntents.get(id) === sequence) this.#stopIntents.delete(id);
+    });
+    const { deadline } = options;
+    if (deadline === undefined) return work;
     const unhandled = () => (progress.targets ?? requested).slice(progress.done);
-    return this.#answerBy(
-      options.deadline,
-      work,
-      () => {
-        if (progress.refused) throw progress.refused;
-        if (progress.superseded) throw progress.superseded;
-        return { started: [...progress.started], pending: unhandled() };
-      },
-      (error) => this.#failedAfterAnswer(operation, unhandled(), error),
-    );
+    const answer = () =>
+      this.#answerBy(
+        deadline,
+        work,
+        () => {
+          if (progress.refused) throw progress.refused;
+          if (progress.superseded) throw progress.superseded;
+          return { started: [...progress.started], pending: unhandled() };
+        },
+        (error) => this.#failedAfterAnswer(operation, unhandled(), error),
+      );
+    if (!intent) return answer();
+    return intent.then(answer, (error: unknown) => {
+      work.catch(() => {});
+      throw error;
+    });
+  }
+
+  /** Persists these Workspaces as stopped now, ahead of the stop's turn in the queue. */
+  async #persistStopIntent(workspaceIds: readonly string[], sequence: number): Promise<void> {
+    for (const id of workspaceIds) this.#stopIntents.set(id, sequence);
+    try {
+      await this.#exclusive(async () => {
+        await this.#reloadIfRequired();
+        const next = this.#bindings.map((binding) =>
+          this.#stopIntents.has(binding.workspaceId) ? stopped(binding) : binding,
+        );
+        await this.#store(next);
+      });
+    } catch (error) {
+      // The stop fails as a whole (its queued turn sees the same error), so nothing stays forced.
+      for (const id of workspaceIds)
+        if (this.#stopIntents.get(id) === sequence) this.#stopIntents.delete(id);
+      throw error;
+    }
   }
 
   /**
@@ -386,12 +426,7 @@ export class MachineSupervisor {
     for (let binding of targets) {
       const id = binding.workspaceId;
       if (operation === "stop") {
-        binding = await this.#saveBinding({
-          ...binding,
-          enabled: false,
-          restart: undefined,
-          restartResults: cancelledRestartResults(binding, "stop"),
-        });
+        binding = await this.#saveBinding(stopped(binding));
         await this.#stop(binding);
         await this.#clearFailure(id);
       } else {
@@ -739,9 +774,17 @@ export class MachineSupervisor {
     });
   }
   async #saveBinding(binding: ManagedBinding): Promise<ManagedBinding> {
-    const next = this.#bindings.filter((entry) => entry.workspaceId !== binding.workspaceId);
-    const index = this.#bindings.findIndex((entry) => entry.workspaceId === binding.workspaceId);
-    next.splice(index < 0 ? next.length : index, 0, binding);
+    // A Workspace a stop already persisted stays stopped, whatever older work saves meanwhile.
+    const stored = this.#stopIntents.has(binding.workspaceId) ? stopped(binding) : binding;
+    await this.#exclusive(async () => {
+      const next = this.#bindings.filter((entry) => entry.workspaceId !== stored.workspaceId);
+      const index = this.#bindings.findIndex((entry) => entry.workspaceId === stored.workspaceId);
+      next.splice(index < 0 ? next.length : index, 0, stored);
+      await this.#store(next);
+    });
+    return stored;
+  }
+  async #store(next: ManagedBinding[]): Promise<void> {
     try {
       await this.store.save(next);
     } catch (error) {
@@ -750,12 +793,22 @@ export class MachineSupervisor {
       throw error;
     }
     this.#bindings = next;
-    return binding;
   }
   async #refresh() {
+    await this.#exclusive(() => this.#reloadIfRequired());
+  }
+  async #reloadIfRequired() {
     if (!this.#reloadRequired) return;
     this.#bindings = await this.store.load();
     this.#reloadRequired = false;
+  }
+  #exclusive<T>(write: () => Promise<T>): Promise<T> {
+    const result = this.#writing.then(write);
+    this.#writing = result.then(
+      () => {},
+      () => {},
+    );
+    return result;
   }
   async #start(binding: ManagedBinding, signal?: AbortSignal): Promise<string> {
     const expected = this.#instances.get(binding.workspaceId);
@@ -791,6 +844,17 @@ const workspaceIdOf = (binding: ManagedBinding) => binding.workspaceId;
 
 /** A binding's restart receipts with its unfinished restart, if any, recorded as cancelled: a
  * stop or a configure replaced it, and a replay of that request must not restart it again. */
+/** A binding as a stop leaves it: disabled, its unfinished restart recorded cancelled. */
+function stopped(binding: ManagedBinding): ManagedBinding {
+  if (!binding.enabled && !binding.restart) return binding;
+  return {
+    ...binding,
+    enabled: false,
+    restart: undefined,
+    restartResults: cancelledRestartResults(binding, "stop"),
+  };
+}
+
 function cancelledRestartResults(
   binding: ManagedBinding,
   by: "stop" | "configure",
