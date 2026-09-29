@@ -8,9 +8,8 @@ import {
   channelManagementErrorResponse,
   readJsonBody,
   idempotencyKeyFrom,
+  type AgentChannelManagementPrincipal,
 } from "#src/server/agents/agent-channel-routes.server";
-
-export type AgentChannelManagementPrincipal = { workspaceId: string; agentId: string };
 
 export async function handleAgentChannelLeavePost(
   request: Request,
