@@ -15,7 +15,8 @@ export type RestartProgress = {
 };
 export type RestartResult =
   | { requestId: string; status: "completed"; instanceId: string }
-  | { requestId: string; status: "cancelled" };
+  /** `by`: what took it over; older receipts without it were cancelled by a stop. */
+  | { requestId: string; status: "cancelled"; by?: "stop" | "configure" };
 
 /**
  * The canonical local Computer upgrade operation. `pending` means an external one-shot job was
@@ -219,7 +220,7 @@ export class MachineSupervisor {
       const binding = {
         ...config,
         enabled: true,
-        restartResults: previous ? cancelledRestartResults(previous) : undefined,
+        restartResults: previous ? cancelledRestartResults(previous, "configure") : undefined,
       };
       await this.processes.clearParked?.(binding);
       await this.#saveBinding(binding);
@@ -389,7 +390,7 @@ export class MachineSupervisor {
           ...binding,
           enabled: false,
           restart: undefined,
-          restartResults: cancelledRestartResults(binding),
+          restartResults: cancelledRestartResults(binding, "stop"),
         });
         await this.#stop(binding);
         await this.#clearFailure(id);
@@ -404,6 +405,21 @@ export class MachineSupervisor {
           // A stop or configure requested after this command takes precedence.
           const { by } = this.#supersededAt.get(id)!;
           progress.superseded ??= new WorkspaceLifecycleSupersededError(id, by, operation);
+          // Record it like one taken over while running, so a replay neither runs nor re-enables.
+          if (
+            operation === "restart" &&
+            requestId &&
+            binding.restart?.requestId !== requestId &&
+            !binding.restartResults?.some((entry) => entry.requestId === requestId)
+          )
+            await this.#saveBinding({
+              ...binding,
+              restartResults: appendRestartResult(binding, {
+                requestId,
+                status: "cancelled",
+                by,
+              }),
+            });
         } else {
           try {
             const current = binding;
@@ -472,7 +488,11 @@ export class MachineSupervisor {
       const id = requestId ?? crypto.randomUUID();
       const result = binding.restartResults?.find((entry) => entry.requestId === id);
       if (result?.status === "cancelled")
-        throw new Error("Workspace restart was cancelled by stop");
+        throw new WorkspaceLifecycleSupersededError(
+          binding.workspaceId,
+          result.by ?? "stop",
+          "restart",
+        );
       if (result) return false;
       if (binding.restart && binding.restart.requestId !== id)
         throw new Error(
@@ -771,11 +791,15 @@ const workspaceIdOf = (binding: ManagedBinding) => binding.workspaceId;
 
 /** A binding's restart receipts with its unfinished restart, if any, recorded as cancelled: a
  * stop or a configure replaced it, and a replay of that request must not restart it again. */
-function cancelledRestartResults(binding: ManagedBinding): RestartResult[] | undefined {
+function cancelledRestartResults(
+  binding: ManagedBinding,
+  by: "stop" | "configure",
+): RestartResult[] | undefined {
   if (!binding.restart) return binding.restartResults;
   return appendRestartResult(binding, {
     requestId: binding.restart.requestId,
     status: "cancelled",
+    by,
   });
 }
 

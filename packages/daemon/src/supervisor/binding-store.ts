@@ -134,7 +134,8 @@ function validateBindings(value: unknown): asserts value is ManagedBinding[] {
           !text(result.requestId) ||
           requests.has(result.requestId) ||
           !(
-            result.status === "cancelled" ||
+            (result.status === "cancelled" &&
+              (result.by === undefined || result.by === "stop" || result.by === "configure")) ||
             (result.status === "completed" && text(result.instanceId))
           )
         )
