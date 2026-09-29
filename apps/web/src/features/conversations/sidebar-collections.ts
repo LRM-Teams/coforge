@@ -219,8 +219,8 @@ export function createSidebar(
     },
   });
 
-  // Marking unread anchors on the newest top-level message, so the badge shows at least one; the
-  // re-read afterwards brings the true count.
+  // The badge shows at least one at once; the re-read afterwards brings the server's count, which
+  // stays zero when only the viewer has spoken.
   const markUnreadAtOnce = createOptimisticAction<PinRef>({
     onMutate: (target) =>
       edit(target, (row) => {

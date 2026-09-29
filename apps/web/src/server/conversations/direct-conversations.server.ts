@@ -142,7 +142,8 @@ export class DirectConversations {
     return this.preferences.setPinned(workspaceId, viewerId, { conversationId, memberId }, pinned);
   }
 
-  /** Marks the DM unread from its newest top-level message, or clears the marker. */
+  /** Marks the DM unread from the newest top-level message someone else sent, or clears the
+   * marker. */
   async setUnread(workspaceId: string, viewerId: string, conversationId: string, unread: boolean) {
     const memberId = await this.viewerMember(workspaceId, viewerId, conversationId);
     return this.preferences.setUnread({ conversationId, memberId }, unread);

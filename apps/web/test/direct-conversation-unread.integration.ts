@@ -133,7 +133,7 @@ test("a closed DM with an Agent stays closed until the Agent posts a top-level m
   }
 });
 
-test("a DM marked unread below its read cursor counts from the marker until a read clears it", async () => {
+test("a DM marked unread counts from the newest message someone else sent until a read clears it", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -160,6 +160,19 @@ test("a DM marked unread below its read cursor counts from the marker until a re
     const badges = () => new DirectConversations(db).unreadCounts(workspace.id, alice.id);
     const counted = (unread: number) => [{ conversationId: conversation.id, unread }];
 
+    const aliceMember = await db.conversationMember.findUniqueOrThrow({
+      where: { conversationId_userId: { conversationId: conversation.id, userId: alice.id } },
+      select: { id: true },
+    });
+    const aliceMessage = (body: string) =>
+      conversations.sendMessage(conversation.id, aliceMember.id, alice.id, body);
+
+    // Only Alice has spoken: there is nothing to mark.
+    await aliceMessage("hello");
+    expect(
+      await new DirectConversations(db).setUnread(workspace.id, alice.id, conversation.id, true),
+    ).toEqual({ unread: false });
+
     await agentMessage("one");
     await agentMessage("two");
     await conversations.markReadForUser(alice.id, conversation.id, 10_000);
@@ -174,6 +187,14 @@ test("a DM marked unread below its read cursor counts from the marker until a re
     // Reading through the end clears the marker.
     await conversations.markReadForUser(alice.id, conversation.id, 10_000);
     expect(await badges()).toEqual(counted(0));
+
+    // With Alice's own message newest, marking reopens the Agent's newest message.
+    await aliceMessage("four");
+    await conversations.markReadForUser(alice.id, conversation.id, 10_000);
+    expect(
+      await new DirectConversations(db).setUnread(workspace.id, alice.id, conversation.id, true),
+    ).toEqual({ unread: true });
+    expect(await badges()).toEqual(counted(1));
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.user.deleteMany({ where: { id: alice.id } });

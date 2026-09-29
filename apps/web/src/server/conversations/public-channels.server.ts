@@ -5,7 +5,7 @@ import { AppError, isAppError } from "#src/lib/app-error";
 import { CHANNEL_NAME_PATTERN } from "@lrm/coforge-sdk/internal";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
-import { HUMAN_UNREAD_MESSAGE_SQL } from "./human-unread.server";
+import { HUMAN_UNREAD_MESSAGE_SQL, markUnreadAnchor } from "./human-unread.server";
 import {
   channelActorMemberWhere,
   deriveChannelAdminBasis,
@@ -453,23 +453,22 @@ export class PublicChannels {
   }
 
   /** Marks the conversation unread for this member, or clears the marker. Marking is anchored on
-   * the newest top-level message, so the badge is at least one; a conversation with no messages
-   * has nothing to mark. */
+   * the newest top-level message someone else sent, so the badge is at least one; a conversation
+   * where only this member has spoken has nothing to mark. */
   async setUserUnread(workspaceId: string, userId: string, channelId: string, unread: boolean) {
     const channel = await this.channel(workspaceId, userId, channelId);
     let marker: number | null = null;
     await this.db.$transaction(async (tx) => {
       await lockConversation(tx, channel.id);
-      if (unread) {
-        const newest = await tx.message.findFirst({
-          where: { conversationId: channel.id, threadRootId: null },
-          orderBy: { sequence: "desc" },
-          select: { sequence: true },
-        });
-        marker = newest?.sequence ?? null;
-      }
-      const updated = await tx.conversationMember.updateMany({
+      const member = await tx.conversationMember.findFirst({
         where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
+        select: { id: true },
+      });
+      if (!member) throw new AppError("ACCESS_DENIED");
+      if (unread) marker = await markUnreadAnchor(tx, channel.id, member.id);
+      // Re-checks membership: leaving does not take the conversation lock.
+      const updated = await tx.conversationMember.updateMany({
+        where: { id: member.id, ...ACTIVE_MEMBER_WHERE },
         data: { unreadFromSequence: marker },
       });
       if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
