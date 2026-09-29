@@ -56,7 +56,12 @@ export type WorkspaceMemberDirectoryStore = {
     expiresAt: Date;
   }): Promise<WorkspaceInvitationRecord>;
   getInvitation(invitationId: string): Promise<WorkspaceInvitationRecord | null>;
-  acceptInvitation(input: { invitationId: string; userId: string }): Promise<WorkspaceMemberRecord>;
+  /** Accepts the invitation and admits the invitee; reports the channels they joined (`#general`),
+   * whose member lists now changed. */
+  acceptInvitation(input: {
+    invitationId: string;
+    userId: string;
+  }): Promise<{ member: WorkspaceMemberRecord; joinedChannelIds: string[] }>;
   revokeInvitation(invitationId: string): Promise<WorkspaceInvitationRecord>;
   listPendingInvitations(workspaceId: string): Promise<WorkspaceInvitationRecord[]>;
   updateRole(
@@ -126,7 +131,12 @@ export class WorkspaceMemberDirectory {
     if (invitation.expiresAt <= this.now()) throw new AppError("CONFLICT");
     const existing = await this.store.findMembership(invitation.workspaceId, input.userId);
     if (existing) throw new AppError("CONFLICT");
-    return this.store.acceptInvitation(input);
+    const { member, joinedChannelIds } = await this.store.acceptInvitation(input);
+    await announceMemberChanged(this.realtime, {
+      workspaceId: member.workspaceId,
+      conversationIds: joinedChannelIds,
+    });
+    return member;
   }
 
   /** The invitee turning down their own pending invitation (no workspace membership required). */

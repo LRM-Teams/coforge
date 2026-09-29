@@ -14,12 +14,15 @@ const ownerId = "11111111-1111-4111-8111-111111111111";
 const adminId = "22222222-2222-4222-8222-222222222222";
 const memberId = "33333333-3333-4333-8333-333333333333";
 const outsiderId = "44444444-4444-4444-8444-444444444444";
+const GENERAL_CHANNEL_ID = "general-channel";
 
 test("owner invites by username and invitee accepts into membership", async () => {
   const store = memoryStore();
   store.seedMember({ workspaceId, userId: ownerId, role: "owner", username: "ada" });
   store.seedUser(outsiderId, "grace");
-  const directory = new WorkspaceMemberDirectory(store);
+  const directory = new WorkspaceMemberDirectory(store, undefined, {
+    memberChanged: async () => {},
+  });
 
   const invitation = await directory.invite({
     workspaceId,
@@ -141,6 +144,32 @@ test("leaving or being removed tells each of the person's channels that its memb
   ]);
 });
 
+test("accepting an invitation tells #general that its member list changed", async () => {
+  const store = memoryStore();
+  store.seedMember({ workspaceId, userId: ownerId, role: "owner", username: "ada" });
+  store.seedUser(outsiderId, "grace");
+  const announced: Array<{ workspaceId: string; conversationIds: readonly string[] }> = [];
+  const directory = new WorkspaceMemberDirectory(store, undefined, {
+    memberChanged: async (input) => {
+      announced.push(input);
+    },
+  });
+  const invitation = await directory.invite({
+    workspaceId,
+    actorUserId: ownerId,
+    inviteeUsername: "grace",
+    role: "admin",
+  });
+
+  const accepted = await directory.acceptInvitation({
+    invitationId: invitation.id,
+    userId: outsiderId,
+  });
+
+  expect(accepted).toMatchObject({ workspaceId, userId: outsiderId, role: "admin" });
+  expect(announced).toEqual([{ workspaceId, conversationIds: [GENERAL_CHANNEL_ID] }]);
+});
+
 test("ordinary members can list peers but cannot invite", async () => {
   const store = memoryStore();
   store.seedMember({ workspaceId, userId: ownerId, role: "owner", username: "ada" });
@@ -253,7 +282,7 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
         avatarUrl: null,
       };
       members.set(`${member.workspaceId}:${member.userId}`, member);
-      return member;
+      return { member, joinedChannelIds: [GENERAL_CHANNEL_ID] };
     },
     async revokeInvitation(invitationId) {
       const invitation = invitations.get(invitationId);
