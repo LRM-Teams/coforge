@@ -842,13 +842,13 @@ function decodeUsageSnapshot(
 /** A masked account email: at most 80 characters, no control characters, and containing at
  * least one `*` — a raw, unmasked address never passes this check. */
 function isValidAccountLabel(value: unknown): value is string {
-  // oxlint-disable-next-line no-control-regex
   return (
     typeof value === "string" &&
     value.length > 0 &&
     value.length <= 80 &&
     value.includes("*") &&
-    !/[ -]/u.test(value)
+    // oxlint-disable-next-line no-control-regex -- Reject control bytes in a masked address.
+    !/[\x00-\x1f\x7f]/u.test(value)
   );
 }
 
