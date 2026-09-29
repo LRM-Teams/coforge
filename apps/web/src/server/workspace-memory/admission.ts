@@ -84,6 +84,28 @@ export function decodeAdmittedPublicChannelSegment(
   });
 }
 
+/**
+ * The one definition of "the same admitted segment" for replay checks: every immutable field
+ * matches. Both stores compare through this — the Prisma repository and the in-memory dispatch
+ * store — so a replay can never be accepted by one and rejected by the other. `segmentId` and
+ * `workspaceId` are absent because they are the lookup key the caller already matched on.
+ */
+export function sameAdmittedSegmentLineage(
+  stored: AdmittedPublicChannelSegment,
+  incoming: AdmittedPublicChannelSegment,
+): boolean {
+  return (
+    stored.kind === incoming.kind &&
+    stored.conversationKind === incoming.conversationKind &&
+    stored.sourcePayloadHash === incoming.sourcePayloadHash &&
+    stored.profileGeneration === incoming.profileGeneration &&
+    stored.closedAt === incoming.closedAt &&
+    stored.workspace.channelId === incoming.workspace.channelId &&
+    stored.sourceMessageIds.length === incoming.sourceMessageIds.length &&
+    stored.sourceMessageIds.every((id, index) => id === incoming.sourceMessageIds[index])
+  );
+}
+
 export function isAfterActivationCursor(
   cursor: ActivationCursor | null,
   occurredAt: string,

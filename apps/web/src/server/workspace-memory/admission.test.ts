@@ -3,6 +3,7 @@ import {
   canAdmitSegment,
   decodeAdmittedPublicChannelSegment,
   isAfterActivationCursor,
+  sameAdmittedSegmentLineage,
 } from "./admission";
 import { applyWorkspaceMemoryCommand, createDefaultWorkspaceMemoryProfile } from "./profile";
 
@@ -55,6 +56,38 @@ test("an admitted segment keeps immutable source lineage and Workspace metadata"
   expect(() => {
     (decoded.sourceMessageIds as string[]).push("m-3");
   }).toThrow();
+});
+
+function admitted(overrides: Record<string, unknown> = {}) {
+  const decoded = decodeAdmittedPublicChannelSegment(segment(overrides));
+  if ("code" in decoded) throw new Error(decoded.code);
+  return decoded;
+}
+
+test("the shared lineage comparator names every immutable field", () => {
+  const stored = admitted();
+  expect(sameAdmittedSegmentLineage(stored, admitted())).toBe(true);
+  for (const overrides of [
+    { kind: "completed_task" },
+    { sourcePayloadHash: "sha256:def" },
+    { profileGeneration: 2 },
+    { closedAt: "2026-09-21T12:06:00.000Z" },
+    { workspace: { workspaceId: "ws-a", channelId: "ch-ops" } },
+    { sourceMessageIds: ["m-1"] },
+    { sourceMessageIds: ["m-2", "m-1"] },
+  ]) {
+    expect(sameAdmittedSegmentLineage(stored, admitted(overrides))).toBe(false);
+  }
+});
+
+test("the shared lineage comparator leaves the lookup key (workspaceId, segmentId) to the caller", () => {
+  const stored = admitted();
+  expect(
+    sameAdmittedSegmentLineage(
+      stored,
+      admitted({ workspace: { workspaceId: "ws-b", channelId: "ch-eng" } }),
+    ),
+  ).toBe(true);
 });
 
 test("DirectConversation and incomplete lineage never become admitted segments", () => {

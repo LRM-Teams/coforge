@@ -1,6 +1,7 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import {
   decodeAdmittedPublicChannelSegment,
+  sameAdmittedSegmentLineage,
   type AdmittedPublicChannelSegment,
 } from "../../workspace-memory/admission";
 import {
@@ -97,7 +98,7 @@ export class PrismaWorkspaceMemoryAdmissionStore implements WorkspaceMemoryAdmis
       include: { sourceMessages: { orderBy: { createdAt: "asc" } } },
     });
     if (existing) {
-      if (!sameLineage(existing, decoded)) {
+      if (!sameAdmittedSegmentLineage(toSegment(existing), decoded)) {
         throw new WorkspaceMemoryReplayConflictError(decoded.segmentId);
       }
       return { outcome: "replay", segment: toSegment(existing) };
@@ -127,7 +128,7 @@ export class PrismaWorkspaceMemoryAdmissionStore implements WorkspaceMemoryAdmis
       if (!isUniqueConstraintError(error)) throw error;
       const replayed = await this.getSegment(decoded.workspace.workspaceId, decoded.segmentId);
       if (!replayed) throw new WorkspaceMemoryScopeError();
-      if (!sameDecodedLineage(replayed, decoded)) {
+      if (!sameAdmittedSegmentLineage(replayed, decoded)) {
         throw new WorkspaceMemoryReplayConflictError(decoded.segmentId);
       }
       return { outcome: "replay", segment: replayed };
@@ -239,26 +240,6 @@ function replayOrConflict(
     return { outcome: "replay", dispatch: existing };
   }
   throw new WorkspaceMemoryReplayConflictError(input.operationId);
-}
-
-function sameLineage(row: SegmentRow, segment: AdmittedPublicChannelSegment): boolean {
-  return sameDecodedLineage(toSegment(row), segment);
-}
-
-function sameDecodedLineage(
-  stored: AdmittedPublicChannelSegment,
-  incoming: AdmittedPublicChannelSegment,
-): boolean {
-  return (
-    stored.kind === incoming.kind &&
-    stored.conversationKind === incoming.conversationKind &&
-    stored.sourcePayloadHash === incoming.sourcePayloadHash &&
-    stored.profileGeneration === incoming.profileGeneration &&
-    stored.closedAt === incoming.closedAt &&
-    stored.workspace.channelId === incoming.workspace.channelId &&
-    stored.sourceMessageIds.length === incoming.sourceMessageIds.length &&
-    stored.sourceMessageIds.every((id, index) => id === incoming.sourceMessageIds[index])
-  );
 }
 
 function toSegment(row: SegmentRow): AdmittedPublicChannelSegment {
