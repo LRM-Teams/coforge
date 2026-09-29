@@ -22,6 +22,7 @@ import type {
 import { DaemonConfigStore } from "#src/persistence/daemon-config";
 import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
 import { FileBindingStore } from "#src/supervisor/binding-store";
+import type { WorkspaceCloudConnectionReport } from "#src/supervisor/workspace-start-outcome";
 
 export interface DaemonLauncher {
   preflight?(): Promise<void>;
@@ -46,7 +47,8 @@ export type DaemonWorkspaceConfig = {
 };
 
 export type LocalDaemonConnection = {
-  request(payload: Uint8Array): Promise<Uint8Array>;
+  /** Rejects and closes the socket when no answer arrives within `timeoutMs` (35 s by default). */
+  request(payload: Uint8Array, timeoutMs?: number): Promise<Uint8Array>;
   close(): void;
 };
 
@@ -249,7 +251,19 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
     }
   }
 
-  async identity(): Promise<DaemonHandshakeResponse> {
+  /**
+   * Where a Workspace daemon's cloud connection stands, from its own handshake, or null when it
+   * does not answer within `timeoutMs`. The socket is closed at the deadline, so an abandoned read
+   * never keeps its caller's process alive.
+   */
+  async cloudConnection(timeoutMs: number): Promise<WorkspaceCloudConnectionReport | null> {
+    const reported = await this.identity(timeoutMs).catch(() => null);
+    if (!reported?.cloudConnection) return null;
+    const error = reported.cloudConnectionError;
+    return { state: reported.cloudConnection, ...(error ? { error } : {}) };
+  }
+
+  async identity(timeoutMs?: number): Promise<DaemonHandshakeResponse> {
     const connection = await this.#connect(this.options.socketPath);
     try {
       const requestId = crypto.randomUUID();
@@ -261,6 +275,7 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
               payload: encodeDaemonHandshakeRequest({ protocolMajor: 1, requestId }),
             }),
           ),
+          timeoutMs,
         ),
       );
       const result = decodeDaemonHandshakeResponse(envelope.payload);
@@ -397,7 +412,7 @@ async function connectWithBun(socketPath: string): Promise<LocalDaemonConnection
     },
   });
   return {
-    request(payload) {
+    request(payload, timeoutMs = 35_000) {
       let timeout: ReturnType<typeof setTimeout>;
       return new Promise<Uint8Array>((resolve, reject) => {
         resolveResponse = resolve;
@@ -405,7 +420,7 @@ async function connectWithBun(socketPath: string): Promise<LocalDaemonConnection
         timeout = setTimeout(() => {
           socket.end();
           reject(new Error("local lifecycle request timed out"));
-        }, 35_000);
+        }, timeoutMs);
         socket.write(payload);
       }).finally(() => clearTimeout(timeout));
     },

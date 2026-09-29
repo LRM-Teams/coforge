@@ -60,8 +60,11 @@ import {
 import { configure, reset, type LogRecord } from "@logtape/logtape";
 
 /** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
- * previous (unconfigured) logging state. Mirrors the pattern in runtime-inventory-diagnostics.test.ts. */
-async function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; records: LogRecord[] }> {
+ * previous (unconfigured) logging state. `run` sees the records as they arrive, so it can wait
+ * for one. Mirrors the pattern in runtime-inventory-diagnostics.test.ts. */
+async function captureLogs<T>(
+  run: (records: readonly LogRecord[]) => Promise<T>,
+): Promise<{ result: T; records: LogRecord[] }> {
   const records: LogRecord[] = [];
   await configure({
     reset: true,
@@ -72,7 +75,7 @@ async function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; recor
     ],
   });
   try {
-    const result = await run();
+    const result = await run(records);
     return { result, records };
   } finally {
     await reset();
@@ -8547,6 +8550,17 @@ describe("DaemonRuntime", () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     let listener: ((intent: Parameters<DaemonRuntime["handleAgentStart"]>[0]) => void) | undefined;
+    const base = {
+      protocolMajor: 1,
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "control-code-agent",
+      provider: "pi" as const,
+      model: "default",
+      reasoning: "balanced",
+      controlEpoch: 1,
+      launchId: "launch-control-code",
+    };
     const runtime = new DaemonRuntime(
       connection,
       () => ({
@@ -8566,21 +8580,7 @@ describe("DaemonRuntime", () => {
             };
           },
           async ready() {
-            const base = {
-              protocolMajor: 1,
-              workspaceId: connection.workspaceId,
-              computerId: connection.computerId,
-              agentId: "control-code-agent",
-              provider: "pi" as const,
-              model: "default",
-              reasoning: "balanced",
-              controlEpoch: 1,
-              launchId: "launch-control-code",
-            };
-            // Same agent, same epoch, different requestId: AgentControl rejects the second one
-            // with the fixed "control_request_mismatch" message once the first has a startResult.
             listener?.({ ...base, requestId: "start-1" });
-            listener?.({ ...base, requestId: "start-2" });
           },
           async requestAgentLaunchConfig() {
             return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
@@ -8596,10 +8596,17 @@ describe("DaemonRuntime", () => {
       stateDirectory,
     );
     try {
-      const { records } = await captureLogs(() => runtime.start(connection));
-      const failure = records.find(
-        (record) => record.properties.event === "agent_runtime:start_failed",
-      );
+      const findFailure = (records: readonly LogRecord[]) =>
+        records.find((record) => record.properties.event === "agent_runtime:start_failed");
+      const { records } = await captureLogs(async (arrived) => {
+        await runtime.start(connection);
+        // Same agent, same epoch, different requestId: AgentControl rejects the second one with
+        // the fixed "control_request_mismatch" message once the first has a startResult. Sent
+        // once started: while held, a later start of the same Agent supersedes the earlier one.
+        listener?.({ ...base, requestId: "start-2" });
+        while (!findFailure(arrived)) await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const failure = findFailure(records);
       expect(failure?.properties).toMatchObject({
         agent_id: "control-code-agent",
         control_code: "control_request_mismatch",

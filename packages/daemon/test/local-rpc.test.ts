@@ -129,6 +129,51 @@ test("the handshake names the latest failed attempt of a connection still connec
   });
 });
 
+test("a Workspace that accepts its socket and never answers is reported unknown within the probe time, and its socket is closed", async () => {
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
+  const closed = Promise.withResolvers<void>();
+  const listener = Bun.listen({
+    unix: socketPath,
+    socket: { data() {}, close: () => closed.resolve() },
+  });
+  try {
+    const launcher = new LocalDaemonLauncher({
+      ...launcherEnvironment,
+      executablePath: "/unused",
+      socketPath,
+    });
+
+    expect(await launcher.cloudConnection(50)).toBeNull();
+    await closed.promise;
+  } finally {
+    listener.stop(true);
+  }
+});
+
+test("a Workspace's cloud connection is read from its handshake", async () => {
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
+  const server = await startDaemonLocalRpcServer({
+    socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
+    validateCredential: () => true,
+    runtime: {
+      cloudConnection: () => ({ state: "connecting", error: "ready failed: agent_recovery" }),
+    },
+    credentials: new InMemoryDaemonCredentialStore(),
+  });
+  servers.push(server);
+  const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
+    executablePath: "/unused",
+    socketPath,
+  });
+
+  expect(await launcher.cloudConnection(1_000)).toEqual({
+    state: "connecting",
+    error: "ready failed: agent_recovery",
+  });
+});
+
 test("daemon stores configured connection metadata without its token", async () => {
   const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
   const saved: WorkspaceConfig[] = [];

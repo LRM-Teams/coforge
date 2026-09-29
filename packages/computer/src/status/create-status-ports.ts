@@ -5,9 +5,9 @@ import {
   FileBindingStore,
   isLockContention,
   LocalDaemonLauncher,
-  readWorkspaceCloudConnection,
   resolveDaemonExecutablePath,
   workspaceHealthJournalPath,
+  workspaceSocketPath,
   workspaceStateDirectory,
   WorkspaceHealthJournal,
 } from "@lrm/coforge-daemon";
@@ -33,6 +33,8 @@ import type {
 const COORDINATOR_LABEL_DARWIN = "cn.coforge.computer.daemon";
 const COORDINATOR_SERVICE_LINUX = "coforge-daemon.service";
 const COORDINATOR_TASK_WINDOWS = "CoForge Daemon";
+/** How long a Workspace process gets to answer its handshake before status reports it unknown. */
+const CLOUD_CONNECTION_PROBE_MS = 2_000;
 
 export type CreateStatusPortsInput = {
   platform: SupportedStatusPlatform;
@@ -166,8 +168,14 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
         return new Map();
       }
     },
+    // Bounded by the handshake itself, which closes its socket at the deadline: a Workspace that
+    // stalls cannot keep `status` alive after it printed.
     readCloudConnection: (workspaceId) =>
-      readWorkspaceCloudConnection(input.stateDirectory, workspaceId),
+      new LocalDaemonLauncher({
+        executablePath: activeBinaryPath,
+        socketPath: workspaceSocketPath(input.stateDirectory, workspaceId),
+        serverUrl: input.serverUrl,
+      }).cloudConnection(CLOUD_CONNECTION_PROBE_MS),
     async readWorkspaceHealth(workspaceId) {
       try {
         const directory = workspaceStateDirectory(input.stateDirectory, workspaceId);

@@ -59,6 +59,7 @@ import type {
 } from "#src/connection/daemon-connection";
 import type { AgentMessageTransportResponse } from "#src/connection/agent-http-clients";
 import { DaemonConnectionStoppedError } from "#src/connection/daemon-connection-stopped-error";
+import { HeldPublications } from "#src/connection/held-publications";
 import {
   type DaemonConnectRejectionReason,
   WORKSPACE_PROTOCOL_MAJOR,
@@ -930,6 +931,10 @@ export class DaemonRuntime {
    * Stops the current transport and installs a fresh one, so a later start never reuses a
    * transport that went through `.stop()` and no replaced transport is left connected. Resolves
    * with the stop failure, if any.
+   *
+   * The fresh transport is installed before the old one is stopped, on purpose: stopping waits
+   * on in-flight status RPCs, and nothing that runs meanwhile may still reach the transport being
+   * torn down (a late `stop()` of it, or a start racing this one, must see the new one).
    */
   async #replaceTransport(): Promise<unknown> {
     const replaced = this.#transport;
@@ -955,16 +960,25 @@ export class DaemonRuntime {
     const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
     if (!token) throw new Error("Workspace credential is missing");
     // Publications that arrive before the ready handshake completes are replayed afterwards:
-    // control intents first, in arrival order, then Message deliveries.
-    const pendingControl: Array<() => Promise<void>> = [];
-    const pendingMessages: Array<() => Promise<void>> = [];
+    // control intents first, in arrival order, then Message deliveries. Held the way the
+    // connection holds them (`HeldPublications`): the latest start and stop per Agent, capped
+    // delivery notices.
+    const heldControl = new HeldPublications<() => Promise<void>>();
+    const heldMessages = new HeldPublications<() => Promise<void>>();
     let buffering = true;
+    type Hold<Value> = (value: Value, run: () => Promise<void>) => void;
     const receive =
-      <Value>(queue: Array<() => Promise<void>>, handle: (value: Value) => Promise<void>) =>
+      <Value>(hold: Hold<Value>, handle: (value: Value) => Promise<void>) =>
       (value: Value) => {
-        if (buffering) queue.push(() => handle(value));
+        if (buffering) hold(value, () => handle(value));
         else void handle(value);
       };
+    const latest =
+      (kind: "start" | "stop" | "probe"): Hold<{ agentId: string }> =>
+      (value, run) =>
+        heldControl.latestFor(value.agentId, kind, run);
+    const control: Hold<unknown> = (_value, run) => heldControl.add(run);
+    const notice: Hold<unknown> = (_value, run) => heldMessages.notice(run);
     const failure =
       <Request extends AgentStopIntent | AgentWorkspaceResetRequest | AgentMessageDelivery>(
         operation: "stop" | "workspace_reset" | "message_delivery",
@@ -1081,7 +1095,7 @@ export class DaemonRuntime {
       // recover persisted Agents immediately as part of that RPC.
       this.#subscribe(
         this.#transport.onAgentStart?.(
-          receive(pendingControl, (intent: AgentStartIntent) =>
+          receive(latest("start"), (intent: AgentStartIntent) =>
             this.handleAgentStart(intent).then(
               () => {},
               (error) => this.#logAgentStartFailure(intent, error),
@@ -1092,14 +1106,14 @@ export class DaemonRuntime {
       this.#subscribe(
         this.#transport.onAgentStop?.(
           receive(
-            pendingControl,
+            latest("stop"),
             failure("stop", (intent: AgentStopIntent) => this.handleAgentStop(intent)),
           ),
         ),
       );
       this.#subscribe(
         this.#transport.onAgentActivityProbe?.(
-          receive(pendingControl, (probe: AgentActivityProbe) =>
+          receive(latest("probe"), (probe: AgentActivityProbe) =>
             this.handleAgentActivityProbe(probe).catch((error) =>
               this.#logAgentActivityProbeFailure(probe, error),
             ),
@@ -1108,7 +1122,7 @@ export class DaemonRuntime {
       );
       this.#subscribe(
         this.#transport.onAgentInboxPurge?.(
-          receive(pendingControl, async (purge: AgentInboxPurge) => {
+          receive(control, async (purge: AgentInboxPurge) => {
             try {
               this.handleAgentInboxPurge(purge);
             } catch (error) {
@@ -1124,7 +1138,7 @@ export class DaemonRuntime {
       this.#subscribe(
         this.#transport.onAgentWorkspaceReset?.(
           receive(
-            pendingControl,
+            control,
             failure("workspace_reset", (request: AgentWorkspaceResetRequest) =>
               this.handleAgentWorkspaceReset(request),
             ),
@@ -1134,7 +1148,7 @@ export class DaemonRuntime {
       this.#subscribe(
         this.#transport.onAgentMessage?.(
           receive(
-            pendingMessages,
+            notice,
             failure("message_delivery", (message: AgentMessageDelivery) =>
               this.handleAgentMessage(message),
             ),
@@ -1203,7 +1217,13 @@ export class DaemonRuntime {
         void this.#reportCodeAgentCatalogs(connection, codeAgentReport.runtimes, transport).catch(
           () => {},
         );
-      const buffered = [...pendingControl.splice(0), ...pendingMessages.splice(0)];
+      const heldNotices = heldMessages.take();
+      if (heldNotices.dropped > 0)
+        logger.warn("Delivery notices held during start were dropped; the cloud resends them", {
+          event: "daemon_runtime:notices_dropped",
+          dropped: heldNotices.dropped,
+        });
+      const buffered = [...heldControl.take().items, ...heldNotices.items];
       buffering = false;
       this.#started = true;
       this.#activityEnabled = true;

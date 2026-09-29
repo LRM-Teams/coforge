@@ -52,7 +52,7 @@ export type { WorkspaceHealthState } from "#src/supervisor/workspace-health-jour
 export { runMachineSupervisor } from "#src/supervisor/run-supervisor";
 export type { LifecycleFailure } from "#src/supervisor/machine-supervisor";
 export {
-  readWorkspaceCloudConnection,
+  workspaceSocketPath,
   type WorkspaceCloudConnectionReport,
 } from "#src/supervisor/workspace-start-outcome";
 export {

@@ -29,6 +29,7 @@ import {
 } from "../openviking-read-proxy";
 import { DaemonConnectionRefusedError } from "./daemon-connection-refused-error";
 import { DaemonConnectionStoppedError } from "./daemon-connection-stopped-error";
+import { HELD_NOTICE_CAP, HeldPublications } from "./held-publications";
 import {
   daemonConnectRejectionReason,
   type DaemonConnectData,
@@ -192,12 +193,16 @@ const CONNECT_RETRY_ESCALATE_AFTER = 8;
  * delay up to the cap, the same shape as the reference Computer's reconnect. */
 const RESUME_CONNECT_MS = 1_000;
 const RESUME_CONNECT_MAX_MS = 30_000;
+/** How long a connection must stay up after its ready was accepted before an outage counts as
+ * over. A connection dropped sooner (an oversized frame, a 3503 right after ready) continues the
+ * same outage, so its backoff keeps growing and its log escalates instead of starting over. */
+const STABLE_CONNECTION_MS = 60_000;
 const REMEMBERED_REQUEST_IDS = 256;
 const logger = getLogger(["coforge", "daemon", "connection"]);
 
 /** A run of failed connect attempts: how many, since when, and how many of them were the
  * daemon's own reconnects after the client gave up (those set the resume delay). */
-type ConnectOutage = { failures: number; sinceMs: number; resumes: number; lastFailure: string };
+type ConnectOutage = { failures: number; sinceMs: number; resumes: number };
 
 /** Whether the `attempt`-th consecutive failure is logged as an error: the first one at
  * `escalateAfter`, then every `RETRY_ESCALATE_EVERY`-th, so a long outage stays visible
@@ -490,10 +495,16 @@ export class DaemonConnection implements DaemonConnectionClient {
   /** The current run of failed connect attempts, first connect included; cleared once the
    * connection is up. `resumes` counts only the daemon's own reconnects after a give-up. */
   #outage: ConnectOutage | undefined;
+  /** When ready was last accepted on the current connection; see `STABLE_CONNECTION_MS`. */
+  #stableSinceMs: number | undefined;
+  /** Why the latest connect attempt failed, since the connection last came up. */
+  #connectFailure: string | undefined;
+  /** Why the latest ready failed, while it is being retried. */
+  #readyFailure: string | undefined;
   /** Connects the client again after it gave up; see `#resumeAfterGiveUp`. */
   #resumeTimer: unknown;
   /** Publications received between a ready request and its acknowledgement, in arrival order. */
-  #readyPublications: Array<() => void> | undefined;
+  #readyPublications: HeldPublications<() => void> | undefined;
   #readyRequestFactory: (() => DaemonRuntimeReadyRequest) | undefined;
   #readyRecoveryClient: CentrifugeWorkspaceClient | undefined;
   #readyRetryTimer: unknown;
@@ -605,7 +616,8 @@ export class DaemonConnection implements DaemonConnectionClient {
       client.on("connected", () => {
         if (client !== this.#client) return;
         this.#failPendingStart = undefined;
-        this.#outage = undefined;
+        this.#stableSinceMs = undefined;
+        this.#connectFailure = undefined;
         const reconnect = this.#hasConnected;
         this.#connected = true;
         this.#hasConnected = true;
@@ -624,7 +636,7 @@ export class DaemonConnection implements DaemonConnectionClient {
         for (const status of this.#latestStatuses.values()) this.#queueAgentStatus(client, status);
         this.#startStatusRefresh(config);
         if (reconnect && this.#readyRequestFactory) {
-          this.#readyPublications ??= [];
+          this.#readyPublications ??= new HeldPublications();
           this.#startReadyRecovery(client, this.#readyRequestFactory);
         }
         resolve();
@@ -664,17 +676,21 @@ export class DaemonConnection implements DaemonConnectionClient {
       });
   }
 
+  /** A failure after a connection that proved stable begins a new outage; after any other
+   * connection it continues the one before. */
+  #endOutageIfStable(now: number): void {
+    if (this.#stableSinceMs !== undefined && now - this.#stableSinceMs >= STABLE_CONNECTION_MS)
+      this.#outage = undefined;
+    this.#stableSinceMs = undefined;
+  }
+
   /** Logs one failed connect attempt; a run of them escalates to an error naming the outage. */
   #recordConnectFailure(failure: string, details: Record<string, unknown>): ConnectOutage {
     const now = this.#nowMs();
-    const outage = (this.#outage ??= {
-      failures: 0,
-      sinceMs: now,
-      resumes: 0,
-      lastFailure: failure,
-    });
+    this.#endOutageIfStable(now);
+    this.#connectFailure = failure;
+    const outage = (this.#outage ??= { failures: 0, sinceMs: now, resumes: 0 });
     outage.failures += 1;
-    outage.lastFailure = failure;
     const properties = {
       event: "daemon_connection:retry_scheduled",
       ...details,
@@ -702,6 +718,8 @@ export class DaemonConnection implements DaemonConnectionClient {
     scope: Record<string, unknown>,
     disconnect: { code: number; reason: string } | undefined,
   ): void {
+    // Before reading `resumes`: after a stable connection this drop begins a new outage.
+    this.#endOutageIfStable(this.#nowMs());
     const resumes = this.#outage?.resumes ?? 0;
     const delayMs = Math.min(RESUME_CONNECT_MAX_MS, RESUME_CONNECT_MS * 2 ** resumes);
     const failure = disconnect
@@ -723,7 +741,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   /** Why the latest connect attempt failed, while the connection is not up; `undefined` once it
    * is. Remote text: a caller that prints it must make it terminal-safe. */
   connectFailure(): string | undefined {
-    return this.#outage?.lastFailure;
+    return this.#readyFailure ?? this.#connectFailure;
   }
 
   #cancelResume(): void {
@@ -1654,10 +1672,22 @@ export class DaemonConnection implements DaemonConnectionClient {
     await this.#agentApiKeyRequest("Agent API key revoke", "DELETE", { apiKey: agentApiKey });
   }
 
-  /** Delivers to a listener now, or after the in-flight ready handshake completes. */
-  #deliver<Value>(slot: ListenerSlot<(value: Value) => void>, value: Value): void {
-    if (this.#readyPublications) this.#readyPublications.push(() => slot.current?.(value));
-    else slot.current?.(value);
+  /**
+   * Delivers to a listener now, or after the in-flight ready handshake completes. While held, an
+   * item with a `key` replaces the earlier one under it, and a delivery `notice` is capped.
+   */
+  #deliver<Value extends { agentId?: string }>(
+    slot: ListenerSlot<(value: Value) => void>,
+    value: Value,
+    hold?: "start" | "stop" | "probe" | "notice",
+  ): void {
+    const held = this.#readyPublications;
+    // The common case: nothing is held, so nothing is allocated either.
+    if (!held) return void slot.current?.(value);
+    const run = () => slot.current?.(value);
+    if (hold === "notice") held.notice(run);
+    else if (hold) held.latestFor(value.agentId ?? "", hold, run);
+    else held.add(run);
   }
 
   /**
@@ -1771,7 +1801,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       }) ||
       this.#route(data, decodeAgentActivityProbe, (probe) => {
         if (probe.protocolMajor !== 1 || !ownsDaemon(probe)) return false;
-        this.#deliver(this.#agentActivityProbe, probe);
+        this.#deliver(this.#agentActivityProbe, probe, "probe");
         return true;
       }) ||
       this.#route(data, decodeAgentInboxPurge, (purge) => {
@@ -1788,23 +1818,22 @@ export class DaemonConnection implements DaemonConnectionClient {
           this.#deliver(
             this.#agentMessage,
             this.#ownedIntent(decodeAgentMessageDelivery(data), workspaceId),
+            "notice",
           ),
       },
       {
         kind: "agent_stop",
-        decode: () =>
-          this.#deliver(
-            this.#agentStop,
-            this.#ownedIntent(decodeAgentStopIntent(data), workspaceId),
-          ),
+        decode: () => {
+          const intent = this.#ownedIntent(decodeAgentStopIntent(data), workspaceId);
+          this.#deliver(this.#agentStop, intent, "stop");
+        },
       },
       {
         kind: "agent_start",
-        decode: () =>
-          this.#deliver(
-            this.#agentStart,
-            this.#ownedIntent(decodeAgentStartIntent(data), workspaceId),
-          ),
+        decode: () => {
+          const intent = this.#ownedIntent(decodeAgentStartIntent(data), workspaceId);
+          this.#deliver(this.#agentStart, intent, "start");
+        },
       },
     ];
     const rejections: { kind: string; error: unknown }[] = [];
@@ -1930,7 +1959,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   async ready(createRequest: () => DaemonRuntimeReadyRequest, signal?: AbortSignal): Promise<void> {
     const client = this.#requireClient();
     signal?.throwIfAborted();
-    this.#readyPublications = [];
+    this.#readyPublications = new HeldPublications();
     // The first ready takes the reconnect path: a failure is retried with the same backoff and
     // escalation instead of failing the start and leaving the Workspace connected but dead.
     this.#readyRequestFactory = createRequest;
@@ -2027,6 +2056,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#readyRetryAttempts += 1;
       this.#readyFailingSinceMs ??= Date.now();
       const stage = readyFailureStage(error);
+      this.#readyFailure = `ready failed: ${stage ?? diagnosticErrorCode(error)}`;
       const details = {
         event: "daemon_ready:retry_scheduled",
         ...scope,
@@ -2062,6 +2092,8 @@ export class DaemonConnection implements DaemonConnectionClient {
       });
     this.#readyFailingSinceMs = undefined;
     this.#readyRetryAttempts = 0;
+    this.#readyFailure = undefined;
+    this.#stableSinceMs = this.#nowMs();
     this.#readyRecoveryClient = undefined;
     this.#dispatchReadyPublications();
     const firstReady = this.#firstReady;
@@ -2080,17 +2112,25 @@ export class DaemonConnection implements DaemonConnectionClient {
     firstReady.resolve();
   }
 
+  /** Stops the retry under way. The failure count is kept: a reconnect continues it, so a
+   * connection that keeps dropping still backs off and escalates. */
   #cancelReadyRecovery(): void {
     if (this.#readyRetryTimer !== undefined) this.timing.cancel(this.#readyRetryTimer);
     this.#readyRetryTimer = undefined;
-    this.#readyRetryAttempts = 0;
     this.#readyRecoveryClient = undefined;
   }
 
   #dispatchReadyPublications(): void {
-    const publications = this.#readyPublications;
+    const held = this.#readyPublications?.take();
     this.#readyPublications = undefined;
-    for (const dispatch of publications ?? []) dispatch();
+    if (!held) return;
+    if (held.dropped > 0)
+      logger.warning("Delivery notices held during ready were dropped; the cloud resends them", {
+        event: "daemon_ready:notices_dropped",
+        dropped: held.dropped,
+        held_cap: HELD_NOTICE_CAP,
+      });
+    for (const dispatch of held.items) dispatch();
   }
 
   async stop(): Promise<void> {
@@ -2100,6 +2140,11 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#cancelReadyRecovery();
     this.#cancelResume();
     this.#outage = undefined;
+    this.#stableSinceMs = undefined;
+    this.#connectFailure = undefined;
+    this.#readyFailure = undefined;
+    this.#readyRetryAttempts = 0;
+    this.#readyFailingSinceMs = undefined;
     if (this.#statusRefreshTimer) clearInterval(this.#statusRefreshTimer);
     this.#statusRefreshTimer = undefined;
     if (this.#computerStatusRefreshTimer !== undefined) {
