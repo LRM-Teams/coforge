@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   ArrowLeft,
   ChevronRight,
@@ -26,7 +26,7 @@ import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useResizeObserver } from "#src/hooks/use-resize-observer";
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
-import { ProjectFileView, ProjectFileViewSkeleton } from "#src/features/projects/project-file-view";
+import { ProjectFileViewSkeleton } from "#src/features/projects/project-file-view-pending";
 import { Attachment } from "#src/features/records/report-editor/attachment";
 import { workspaceImageSource } from "./agent-workspace-image";
 import { m } from "#src/paraglide/messages";
@@ -39,6 +39,15 @@ import { PanelMessage } from "./panel-message";
  * breadcrumb + back button return to it (the panel's own narrow width) — a single breakpoint,
  * simpler than a true three-way responsive layout and acceptable per the brief. */
 const SPLIT_BREAKPOINT_PX = 900;
+
+/** The file viewer (with the Markdown editor and syntax highlighter it renders with) loads only when
+ * a file is opened: this tab is reachable from every chat page through the channel settings and
+ * profile panels, and the viewer is the largest code on that path. */
+const loadProjectFileView = () =>
+  import("#src/features/projects/project-file-view").then((module) => ({
+    default: module.ProjectFileView,
+  }));
+const ProjectFileView = lazy(loadProjectFileView);
 
 export type AgentWorkspaceFilesLoadResult =
   | { status: "ready"; result: AgentWorkspaceFilesListResult }
@@ -171,6 +180,9 @@ export function AgentWorkspaceTab({
     async (path: string) => {
       const seq = ++fileSeq.current;
       setFileState({ status: "loading", path });
+      // Fetch the viewer's code alongside the file rather than after it arrives. A failed load
+      // is reported when the viewer renders, so this early request drops its own error.
+      void loadProjectFileView().catch(() => undefined);
       try {
         const response = await onReadFile(path);
         if (fileSeq.current !== seq) return;
@@ -583,14 +595,16 @@ function FilePane({ state, onRetry }: { state: FileState | undefined; onRetry: (
     const imageSource = workspaceImageSource(state.result);
     if (imageSource) return <WorkspaceImagePreview name={name} url={imageSource} />;
     return (
-      <ProjectFileView
-        key={state.path}
-        path={state.path}
-        name={name}
-        byteSize={state.result.sizeBytes}
-        text={state.result.text}
-        githubUrl={undefined}
-      />
+      <Suspense fallback={<ProjectFileViewSkeleton name={name} />}>
+        <ProjectFileView
+          key={state.path}
+          path={state.path}
+          name={name}
+          byteSize={state.result.sizeBytes}
+          text={state.result.text}
+          githubUrl={undefined}
+        />
+      </Suspense>
     );
   }
   if (state.status === "offline") return <EmptyFileState text={m.agent_workspace_offline()} />;

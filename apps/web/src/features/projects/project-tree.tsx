@@ -15,7 +15,8 @@ import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { ProjectFileTree } from "./project-file-tree";
 import { githubUrl as buildGithubUrl, projectFileDownloadUrl } from "./project-file-urls";
-import { ProjectFileView, ProjectFileViewSkeleton } from "./project-file-view";
+import { ProjectFileView } from "./project-file-view";
+import { ProjectFileViewSkeleton } from "./project-file-view-pending";
 import {
   projectDirectoryCommitsQuery,
   projectObjectQuery,
