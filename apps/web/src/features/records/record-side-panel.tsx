@@ -56,6 +56,7 @@ import {
   archiveWeeklyReportAssistantChatSessionFn,
   confirmMemberReportIntent,
   createWeeklyReportAssistantChatSessionFn,
+  createWeeklyTemplate,
   declineMemberReportIntent,
   ensureRecordAssistantIntro,
   ensureWeeklyReportAssistantChatSessions,
@@ -135,6 +136,16 @@ function assistantReady(
 
 function suggestionPreview(suggestion: WeeklyReportAssistantSuggestion): string {
   if (suggestion.type === "send-prompt") return "";
+  if (suggestion.type === "template-create") {
+    return [
+      `Name: ${suggestion.name}`,
+      `Schedule: weekday ${suggestion.sendWeekday} at ${suggestion.sendTime}`,
+      ...suggestion.sections.map(
+        (section) =>
+          `## ${section.title}\n${section.children.map((child) => `- ${child}`).join("\n")}`,
+      ),
+    ].join("\n");
+  }
   if (suggestion.type === "key-point-edit") return suggestion.markdown.trim();
   if (suggestion.type !== "body-edit") return "";
   const tabs = suggestion.content.tabs ?? {};
@@ -638,6 +649,34 @@ export function RecordSidePanel({
     if (appliedSuggestionIds.includes(messageId)) return;
     if (suggestion.type === "send-prompt") {
       onRequestSend?.();
+      return;
+    }
+    if (suggestion.type === "template-create") {
+      setBusy(true);
+      setError(null);
+      session.error = null;
+      try {
+        await createWeeklyTemplate({
+          data: {
+            name: suggestion.name,
+            frequency: "weekly",
+            sendTime: suggestion.sendTime,
+            sendWeekday: suggestion.sendWeekday,
+            scheduleEnabled: suggestion.scheduleEnabled,
+            sections: suggestion.sections,
+            allMembers: suggestion.allMembers,
+            recipientUserIds: suggestion.recipientUserIds,
+          },
+        });
+        markSuggestionApplied(messageId);
+        await router.invalidate({ sync: true });
+      } catch {
+        const message = m.records_assistant_write_failed();
+        session.error = message;
+        setError(message);
+      } finally {
+        setBusy(false);
+      }
       return;
     }
     if (suggestion.type === "key-point-edit") {
@@ -1357,8 +1396,9 @@ export function RecordSidePanel({
               message.author === "assistant" ? m.records_side_chat_assistant() : viewerName;
             const suggestion = message.suggestion ?? null;
             const showSuggestion =
-              suggestion !== null &&
-              (suggestion.type === "body-edit" || suggestion.type === "key-point-edit");
+              (suggestion !== null && suggestion.type === "body-edit") ||
+              suggestion.type === "key-point-edit" ||
+              suggestion.type === "template-create";
             const suggestionApplied = appliedSuggestionIds.includes(message.id);
             const suggestionDismissed = dismissedSuggestionIds.includes(message.id);
             const suggestionFrozen = suggestionApplied || suggestionDismissed;
