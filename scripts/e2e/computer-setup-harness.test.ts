@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
+// This suite is the e2e harness's contract test: it pins the shell files' shape (paths, ports,
+// ordering, RPC names) without running them. It is named by `test:ci` (package.json), so CI's
+// "Test CI policy" step runs it on every change — it cannot silently go stale again.
+
 const harness = await readFile(new URL("./run-computer-setup.sh", import.meta.url), "utf8");
 const fixtureBuild = await readFile(
   new URL("./build-computer-fixture.ts", import.meta.url),
