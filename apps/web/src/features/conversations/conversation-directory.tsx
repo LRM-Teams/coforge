@@ -281,8 +281,7 @@ export function ConversationDirectory({
     layout: base,
     natural,
     commit: (change) => {
-      // Nothing in the sidebar can be dragged before hydration, when `actions` arrives.
-      actions?.arrange(change).catch((cause: unknown) => {
+      actions.arrange(change).catch((cause: unknown) => {
         console.error("pinned conversations could not be saved", cause);
         toast.error(m.conversation_menu_action_error());
       });

@@ -2,7 +2,6 @@ import { describe, expect, jest, test } from "bun:test";
 import { DbClient } from "@tanstack/react-db";
 import { QueryClient } from "@tanstack/react-query";
 import {
-  cachedSavedMessagesStore,
   materializeSavedMessages,
   optimisticSavedEntry,
   savedMessagesQueryKey,
@@ -90,13 +89,6 @@ describe("saved messages collection", () => {
     } finally {
       jest.useRealTimers();
     }
-  });
-
-  test("a list store serves the cached list before the page is hydrated", () => {
-    const store = cachedSavedMessagesStore([entry("m1"), entry("m2", new Date(1))]);
-    expect(store.has("m1")).toBe(true);
-    expect(store.has("m3")).toBe(false);
-    expect(store.entries().map((saved) => saved.message.id)).toEqual(["m2", "m1"]);
   });
 
   test("a save shows at once and persists through the save call", async () => {

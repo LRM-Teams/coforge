@@ -2,6 +2,7 @@ import { collectionOptions, type Collection, type DbClient } from "@tanstack/rea
 import { queryCollectionOptions } from "@tanstack/query-db-collection";
 import type { QueryClient } from "@tanstack/react-query";
 
+import { assertBrowserOnly } from "#src/lib/browser-only";
 import type { listSavedMessages } from "./saved-messages.functions";
 
 /** One saved message as the Saved view renders it, keyed by `message.id`. */
@@ -68,8 +69,8 @@ export function savedMessagesCollection(
 export type SavedMessagesCollection = Collection<SavedEntry, string | number>;
 
 /**
- * The Saved collection on `dbClient`, materialized after hydration (TanStack DB collections are
- * client-side only), holding the loader's list from its first render: rows seeded at
+ * The Saved collection on `dbClient`, materialized in the browser only (TanStack DB collections
+ * are client-side only: it fails on the server), holding the loader's list from its first render: rows seeded at
  * materialization are there synchronously, while the Query stays fresh for
  * `LOADER_LIST_FRESH_MS`, so starting sync does not re-read it at once. Only the first
  * materialization on a client seeds it; later loader lists arrive through the Query.
@@ -80,6 +81,7 @@ export function materializeSavedMessages(
   initial: SavedEntry[],
   api: SavedMessagesApi,
 ): SavedMessagesCollection {
+  assertBrowserOnly("The Saved collection");
   return dbClient.collection(savedMessagesCollection(workspaceId, initial, api), {
     initialData: initial,
   });
@@ -156,24 +158,6 @@ export function savedMessagesStore(
 }
 
 export type SavedMessagesStore = ReturnType<typeof savedMessagesStore>;
-
-/**
- * The Saved list as the page renders it before hydration (and on the server), from the Query
- * cache: TanStack DB collections are client-side only, so none exists yet. Nothing can be saved
- * until the page is hydrated.
- */
-export function cachedSavedMessagesStore(list: readonly SavedEntry[]): SavedMessagesStore {
-  const entries = [...list].sort(newestSaveFirst);
-  const ids = new Set(list.map((saved) => saved.message.id));
-  const notHydrated = () => Promise.reject(new Error("The page is not hydrated yet"));
-  return {
-    entries: () => entries,
-    has: (messageId: string) => ids.has(messageId),
-    subscribe: () => () => {},
-    save: notHydrated,
-    unsave: notHydrated,
-  };
-}
 
 /** Saves at once; resolves when the server has it, rejects (after rolling back) when it fails. */
 export async function saveMessageOptimistically(

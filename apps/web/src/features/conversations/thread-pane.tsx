@@ -1,5 +1,4 @@
 import type { ComponentProps } from "react";
-import { ClientOnly } from "@tanstack/react-router";
 
 import { isAppError } from "#src/lib/app-error";
 import { ConversationTaskDemand } from "#src/features/tasks/conversation-task-demand";
@@ -48,17 +47,14 @@ export function ThreadPane({
   }
   return (
     <>
-      {/* The Tasks its replies name: the window's own read covers only its top-level messages. The
-          Tasks collection is client-only, so this reads after hydration, as the window's does. */}
-      <ClientOnly>
-        <ConversationTaskDemand
-          conversationId={conversation.conversationId}
-          messages={thread.data.replies}
-          hasNewer={false}
-          readWindow={false}
-          openTaskNumber={undefined}
-        />
-      </ClientOnly>
+      {/* The Tasks its replies name: the window's own read covers only its top-level messages. */}
+      <ConversationTaskDemand
+        conversationId={conversation.conversationId}
+        messages={thread.data.replies}
+        hasNewer={false}
+        readWindow={false}
+        openTaskNumber={undefined}
+      />
       <ConversationPane
         {...pane}
         root={root}

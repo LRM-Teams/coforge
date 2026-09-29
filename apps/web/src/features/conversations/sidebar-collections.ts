@@ -7,6 +7,7 @@ import {
   UpdateOperationItemNotFoundError,
 } from "@tanstack/query-db-collection";
 
+import { assertBrowserOnly } from "#src/lib/browser-only";
 import { nextPinOrder, pinOrdersAfterArrange } from "#src/lib/pin-order";
 import {
   listPublicChannels,
@@ -216,6 +217,7 @@ export function createSidebar(
   workspaceId: string,
   api: SidebarApi = serverSidebarApi,
 ) {
+  assertBrowserOnly("The Chat sidebar's collections");
   const channels = createCollection(
     queryCollectionOptions({
       id: `sidebar-channels:${workspaceId}`,

@@ -61,7 +61,6 @@ export function ConversationRowMenu({
   /** Applies the change to the row at once (the menu closes as it would for any choice) and saves
    * it; a failed save puts the row back, and the toast says it failed (§13). */
   function handleAction(key: unknown) {
-    if (!actions) return;
     const run = {
       "mark-unread": () => actions.markUnread(row),
       pin: () => actions.setPinned(row, !target.pinned),

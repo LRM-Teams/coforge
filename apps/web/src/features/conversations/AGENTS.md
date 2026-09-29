@@ -82,9 +82,10 @@ These rules apply to `src/features/conversations/`.
   (every route under it inherits that), so the server sends the app's chrome and `MessagesPending`
   (a loading screen: the list column, the conversation and its composer as skeletons), and the
   sidebar's lists, the open conversation and Saved are read by loaders that run in the browser.
-  No loader under `_chat` reads them on the server, and a host the server does render that shows a
-  conversation (the search preview, the Tasks page's Task popup) mounts it under `ClientOnly` and
-  reads it with `loadConversationPage`, which does nothing on the server. So a row needs no
+  No loader under `_chat` reads them on the server. A host the server does render that shows a
+  conversation mounts it under `ClientOnly`: the search preview, whose loader reads it with
+  `loadConversationPage` (which does nothing on the server), and the Tasks page's Task popup
+  (`OverviewTaskPopup`), which reads it through `useChannelConversation`. So a row needs no
   cookie, assumed value or `suppressHydrationWarning` to match server markup, and a conversation
   may read browser-only sources at render (TanStack DB collections, `localStorage`, the viewport).
   - A message time is formatted in the zone `useTimeZone()` gives (the viewer's saved zone, else
@@ -93,8 +94,9 @@ These rules apply to `src/features/conversations/`.
     phone and a desktop is chosen by `useBreakpoint`/`useCoarsePointer`, which start from what
     the request says (`requestIsFromPhone`), never by a `matchMedia` read into state.
 - TanStack DB collections are client-only: create them through the
-  per-`QueryClient` factory after hydration, never at module scope or while
-  rendering on the server.
+  per-`QueryClient` factory, never at module scope. The Tasks, Saved and sidebar factories call
+  `assertBrowserOnly` (`lib/browser-only.ts`, Vite's `import.meta.env.SSR`), so one reached while
+  the server renders fails loudly; a new factory does the same.
 - Direct and channel views share the empty-state layout and compact thread
   prompt in `conversation-pane.tsx`. Each supplies its own identity and copy
   and keeps its composer or join action; both kinds of DM take their

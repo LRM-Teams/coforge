@@ -1,8 +1,8 @@
 /**
  * Cookies the browser writes so the server render can read them on its next request: what the
- * server cannot know until the browser says it (a panel layout, a time zone, the last page). Each
- * is on every path, for a fixed time, and `Secure` on an https page; names are the caller's, and
- * safe as they are.
+ * server cannot know until the browser says it (the last page, `last-location.ts`). Each is on
+ * every path, for a fixed time, and `Secure` on an https page; names are the caller's, and safe as
+ * they are.
  */
 
 /** The `Set-Cookie`/`document.cookie` string for one cookie; the value is percent-encoded. */
@@ -19,16 +19,6 @@ export function browserCookie(
     "SameSite=Lax",
     ...(secure ? ["Secure"] : []),
   ].join("; ");
-}
-
-/** Writes one cookie from the page. */
-export function saveBrowserCookie(name: string, value: string, maxAgeSeconds: number) {
-  document.cookie = browserCookie(
-    name,
-    value,
-    maxAgeSeconds,
-    typeof location !== "undefined" && location.protocol === "https:",
-  );
 }
 
 /** The `name=value` pairs of a `Cookie` header, as written: values are still percent-encoded. */

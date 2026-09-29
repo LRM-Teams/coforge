@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { useHydrated } from "@tanstack/react-router";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { useLiveQuery } from "@tanstack/react-db";
@@ -37,15 +36,12 @@ function sidebarFor(queryClient: QueryClient, workspaceId: string) {
   return sidebar;
 }
 
-/** The sidebar once the page is hydrated: TanStack DB collections are client-only. */
+/** The sidebar: TanStack DB collections are client-only, and Chat is only rendered in the browser
+ * (`createSidebar` fails on the server). */
 function useSidebar() {
   const queryClient = useQueryClient();
   const workspaceId = useCurrentWorkspaceId() ?? "";
-  const hydrated = useHydrated();
-  return useMemo(
-    () => (hydrated ? sidebarFor(queryClient, workspaceId) : undefined),
-    [hydrated, queryClient, workspaceId],
-  );
+  return sidebarFor(queryClient, workspaceId);
 }
 
 /**
@@ -56,7 +52,8 @@ function useSidebar() {
  */
 export function useSidebarLists() {
   const workspaceId = useCurrentWorkspaceId() ?? "";
-  // Only a new read re-renders from these: after hydration the rows come from the collections.
+  // Only a new read re-renders from these: once the live queries are ready the rows come from the
+  // collections.
   const channelsCache = useSuspenseQuery({
     ...sidebarChannelsQuery(workspaceId),
     notifyOnChangeProps: ["dataUpdatedAt"],
@@ -67,14 +64,14 @@ export function useSidebarLists() {
   }).data;
   const sidebar = useSidebar();
   const liveChannels = useLiveQuery({
-    queryKey: ["sidebar-channels", workspaceId, Boolean(sidebar)],
-    query: (q) => (sidebar ? q.from({ row: sidebar.channels }) : undefined),
+    queryKey: ["sidebar-channels", workspaceId],
+    query: (q) => q.from({ row: sidebar.channels }),
   });
   const liveDirects = useLiveQuery({
-    queryKey: ["sidebar-directs", workspaceId, Boolean(sidebar)],
-    query: (q) => (sidebar ? q.from({ row: sidebar.directs }) : undefined),
+    queryKey: ["sidebar-directs", workspaceId],
+    query: (q) => q.from({ row: sidebar.directs }),
   });
-  // Until a live query is ready (the first tick after hydration) the cache holds the same rows.
+  // Until a live query is ready (the first tick) the cache holds the same rows.
   const channelRows: readonly ChannelRow[] =
     (liveChannels.isReady && liveChannels.data) || channelsCache.rows;
   const directRows: readonly DirectRow[] =
@@ -156,8 +153,7 @@ export function useRefreshSidebarLists() {
   return useMemo(() => () => refresh(["channels", "dms"]), [refresh]);
 }
 
-/** The sidebar's changes (pin, mark unread, close, drag); `undefined` before hydration, when
- * nothing in the sidebar is interactive yet. */
+/** The sidebar's changes (pin, mark unread, close, drag). */
 export function useSidebarActions() {
-  return useSidebar()?.actions;
+  return useSidebar().actions;
 }
