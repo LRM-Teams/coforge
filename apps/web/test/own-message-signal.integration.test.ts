@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import type { MessageRequestIdempotency } from "#src/server/conversations/message-request-idempotency.server";
 import type {
   ConversationRealtime,
   ConversationRealtimeMessage,
@@ -13,7 +14,7 @@ import {
 
 /**
  * A person's channel message names them on its signal (Slack's `message.user`), so their own
- * pages on other tabs and devices never count it unread; an Agent's message names no one.
+ * pages on other tabs and devices never count it unread.
  *
  * Skipped unless `CHANNEL_TEST_DATABASE_URL` points at local PostgreSQL.
  */
@@ -47,7 +48,9 @@ test.skipIf(!connectionString)("a person's channel message names its sender", as
       async publish() {},
       async publishJson() {},
     } as unknown as CentrifugoServerApi;
-    const channels = new PublicChannels(db, undefined, publisher, undefined, realtime);
+    // Each send is stored once without Redis.
+    const idempotency: MessageRequestIdempotency = { execute: (_scope, persist) => persist() };
+    const channels = new PublicChannels(db, idempotency, publisher, undefined, realtime);
     const sent = await channels.send({
       workspaceId: workspace.id,
       userId: ada.id,

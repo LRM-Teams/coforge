@@ -82,13 +82,15 @@ export function applyUnreadEvent(
   },
 ): UnreadCounts {
   if (event.conversationId === options.openConversationId) return current;
-  if (isOwnMessage(event, options.viewerId)) return current;
   if (event.threadRootId) return current;
   const key = event.conversationId;
   const direct = event.agentId !== undefined || event.peerUserId !== undefined;
   if (!direct && !options.conversations.has(key)) return current;
   const highWater = current[`${key}:seq`] ?? 0;
   if (event.sequence <= highWater) return current;
+  // The viewer's own message moves the high-water without counting, so the same message sent
+  // again without a sender (a Task change re-sends its message) is not counted either.
+  if (isOwnMessage(event, options.viewerId)) return { ...current, [`${key}:seq`]: event.sequence };
   return {
     ...current,
     [`${key}:seq`]: event.sequence,
@@ -353,7 +355,8 @@ export function useChannelUnread({
   onSidebarListsChanged,
 }: {
   workspaceId?: string;
-  /** The viewer, whose own direct-message signal channel carries their DM badges. */
+  /** The viewer, whose own direct-message signal channel carries their DM badges, and whose own
+   * messages never count. */
   userId?: string;
   /** Channel rows currently listed; channel events for anything else are ignored. */
   channels: readonly UnreadChannel[];

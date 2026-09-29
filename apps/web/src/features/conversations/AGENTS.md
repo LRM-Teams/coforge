@@ -30,39 +30,34 @@ These rules apply to `src/features/conversations/`.
   Every DM row, its pin, menu actions, unread badge and read-cursor key go by
   conversation id (`dm:<conversationId>` for the cursor); only the live Agent
   activity strip looks a DM up by its Agent.
-- The sidebar's channel and DM lists live in `sidebar-collections.ts`
-  (collections and changes, tested without React) and `sidebar-lists.ts`
-  (hooks): the chat layout's (`_chat`) loader fetches them into the TanStack Query cache
-  (the server render reads it), and after hydration the same Query keys back
-  TanStack DB collections. Realtime keeps every Chat list live, so the loader, which runs on
-  each navigation inside Chat, reads only a list that is not cached or marked stale
-  (`loadSidebarLists`, `chatListStaleTime`); once a signal channel is subscribed, the page
-  re-reads the lists it may have missed (`listsMissedBySubscribe`: a first subscribe, or a
-  resubscribe that lost publications). A write that changes a list on this page re-reads it
-  itself instead of counting on a navigation. A read moves only the live badge, never a row, so
-  a re-seed takes the server's counts only from a list read again (`unreadIdsToKeep`). Every channel's name (`channelNamesQuery`, for body channel links
-  and the `#` list) lives in the same cache; the create-channel dialog reads projects when it
-  opens. A channel created, changed or gone anywhere in the Workspace (`channel.created.v1`,
-  `channel.updated.v1`, Slack's `channel_created` and `channel_rename`) carries the channel's
-  info or `gone`, and `useApplyChannelSignal` writes it into the names and the channel list
-  (`channel-signals.ts`, `applyChannelSignalToLists`) without a read. It re-reads instead what
-  an event cannot place, and a list while it is being read or a sidebar change is being saved
-  (a failed save's rollback undoes a direct write made meanwhile). The server and the list share one order (`compareChannelNames`). Read the lists
-  with `useSidebarLists` and change them
-  only through `useSidebarActions` (optimistic: the row changes at once, a
-  saved change is written into the synced list, a failed save rolls it back);
-  never `router.invalidate` for a sidebar change; a message that brings a
-  closed or unlisted chat in re-reads only its own list
-  (`closedConversationLists`), plus the Agent roster when the Agent is new to
-  it (`unknownAgentOf`). A change made
-  outside the sidebar on this page (a channel's creation, rename or archive, or the viewer
-  leaving, muting or pinning it from the settings panel) re-reads only the
-  channel list through `useRefreshSidebarChannels`. The viewer's own changes made on another
-  page, tab or device arrive as a `ViewerEvent` on their `chat:user:` channel (Slack's
-  `channel_marked`, `channel_joined`, `im_marked`, `im_created`, `pref_change`, `star_added`, `star_removed`): a read sets the badge from the event's
-  count, and any other re-reads only the lists `sidebarListsChangedBy` names (a save or unsave, only the Saved list).
-  A message signal names the person who wrote it (`senderUserId`, Slack's `message.user`), and
-  the viewer's own message never bumps their badge or brings a closed chat back.
+- The sidebar's channel and DM lists live in `sidebar-collections.ts` (collections and changes,
+  tested without React) and `sidebar-lists.ts` (hooks). The chat layout's (`_chat`) loader fetches
+  them into the TanStack Query cache (the server render reads it); after hydration the same keys
+  back TanStack DB collections. Every channel's name (`channelNamesQuery`, for body channel links
+  and the `#` list) lives in the same cache; the create-channel dialog reads projects on open.
+- Realtime keeps every Chat list live, so the loader (run on each navigation inside Chat) reads
+  only a list not cached or marked stale (`loadSidebarLists`); a subscribe that may have missed
+  something re-reads that channel's lists (`listsMissedBySubscribe`). A write that changes a list
+  on this page re-reads it itself. A read moves only the live badge, never a row, so a re-seed
+  takes server counts only from a list read again (`unreadIdsToKeep`). Server and list share one
+  order (`compareChannelNames`).
+- A channel created, changed or gone in the Workspace (`channel.created.v1`, `channel.updated.v1`,
+  Slack's `channel_created`/`channel_rename`) carries its info or `gone`, which
+  `applyChannelSignalToLists` writes into the names and the list without a read; it re-reads only
+  what an event cannot place, and a list being read or while a sidebar change is saving (a failed
+  save's rollback undoes a direct write made meanwhile).
+- Read the lists with `useSidebarLists` and change them only through `useSidebarActions`
+  (optimistic; a saved change is written into the synced list, a failed save rolls it back); never
+  `router.invalidate` for a sidebar change. A message that brings a closed or unlisted chat in
+  re-reads only its own list (`closedConversationLists`), plus the Agent roster for a new Agent
+  (`unknownAgentOf`). A change made outside the sidebar on this page (a channel's creation, rename
+  or archive, or leaving, muting or pinning it from the settings panel) re-reads the channel list
+  through `useRefreshSidebarChannels`. The viewer's own changes elsewhere arrive as a `ViewerEvent`
+  on their `chat:user:` channel (Slack's `channel_marked`, `channel_joined`, `im_marked`,
+  `im_created`, `pref_change`, `star_added`, `star_removed`): a read sets the badge from the
+  event's count; any other re-reads only the lists `sidebarListsChangedBy` names. A message signal
+  names the person who wrote it (`senderUserId`, Slack's `message.user`); the viewer's own message
+  never bumps their badge or brings a closed chat back.
 - A message row's Task, thread and Agent status data is read by the part that
   shows it, by id, as Mattermost and Telegram Web do. An Agent's avatar
   (`MessageAgentAvatar`) reads its one Agent through `useLiveAgentDisplay`. The Task a message became
