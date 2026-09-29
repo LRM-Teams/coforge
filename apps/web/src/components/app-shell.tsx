@@ -159,7 +159,7 @@ export function AppShell({
   currentWorkspace: WorkspaceOption;
   onSelectWorkspace?: (slug: string) => Promise<void> | void;
   onCreateWorkspace?: (input: CreateWorkspaceInput) => Promise<void>;
-  onSignOut?: () => Promise<void> | void;
+  onSignOut: () => Promise<void> | void;
   /** Purple dot on 记录 for a Leader preview hour or an unread member assignment. */
   recordsPreview?: boolean;
   children: React.ReactNode;
@@ -243,7 +243,7 @@ function UserMenuCard({
   /** The Workspace path (`/w/<slug>`) Settings lives under. */
   base: string;
   user: AppUser;
-  onSignOut?: () => Promise<void> | void;
+  onSignOut: () => Promise<void> | void;
   compact?: boolean;
 }) {
   const avatar = (
@@ -286,7 +286,7 @@ function UserMenuCard({
         </div>
         <Dropdown.Menu
           onAction={(key) => {
-            if (key === "sign-out") void onSignOut?.();
+            if (key === "sign-out") void onSignOut();
           }}
         >
           <Dropdown.Item
