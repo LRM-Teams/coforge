@@ -3,22 +3,29 @@ import { lastSearchSchema, type LastSearch } from "./search.schemas";
 
 /**
  * What the search page remembers in this browser, per Workspace and viewer: the searches that led
- * somewhere (history) and the channels and Agents opened from search (usage, which ranks the
- * "Frequently used" list). Device-local conveniences only, like the Chat layout sizes; nothing is
- * sent to the server. Every read and write tolerates storage that is missing, full or blocked.
+ * somewhere (history) and the channels, Agents and direct messages with members opened from search
+ * (usage, which ranks the "Frequently used" list). Device-local conveniences only, like the Chat
+ * layout sizes; nothing is sent to the server. Every read and write tolerates storage that is
+ * missing, full or blocked.
  */
 
-/** A remembered place: `channel:<id>` or `agent:<id>`. */
-export type SearchEntityKey = `${"channel" | "agent"}:${string}`;
+/** The kinds of place search remembers: a channel, an Agent, or a direct message with a member
+ * (by its conversation id). Computers are not remembered. */
+type RememberedKind = "channel" | "agent" | "dm";
 
-/** A place search remembers: a channel or an Agent (Computers are not remembered). */
-export type RememberedEntity = { kind: "channel" | "agent"; id: string };
+/** A remembered place: `channel:<id>`, `agent:<id>` or `dm:<conversationId>`. */
+export type SearchEntityKey = `${RememberedKind}:${string}`;
+
+/** A place search remembers. */
+export type RememberedEntity = { kind: RememberedKind; id: string };
+
+function isRememberedKind(kind: string): kind is RememberedKind {
+  return kind === "channel" || kind === "agent" || kind === "dm";
+}
 
 /** The key a place is remembered under, or `undefined` for a kind search does not remember. */
 export function searchEntityKey(entity: { kind: string; id: string }): SearchEntityKey | undefined {
-  return entity.kind === "channel" || entity.kind === "agent"
-    ? `${entity.kind}:${entity.id}`
-    : undefined;
+  return isRememberedKind(entity.kind) ? `${entity.kind}:${entity.id}` : undefined;
 }
 
 const HISTORY_LIMIT = 15;
@@ -148,7 +155,7 @@ function parseEntityKey(key: string): RememberedEntity | undefined {
   const colon = key.indexOf(":");
   const kind = key.slice(0, colon);
   const id = key.slice(colon + 1);
-  return colon > 0 && id && (kind === "channel" || kind === "agent") ? { kind, id } : undefined;
+  return colon > 0 && id && isRememberedKind(kind) ? { kind, id } : undefined;
 }
 
 /**

@@ -12,7 +12,7 @@ import { peopleDirectKey } from "#src/features/conversations/direct-key";
  * viewer's DM with them: its page names the member in the header with the Chat / Tasks / Files
  * tabs, takes a message, shows it again after a reload, and is read. The viewer's own card opens their DM
  * with themself, marked "(you)". A search result posted there names the member and previews that
- * DM beside the results.
+ * DM beside the results; opening it makes the DM a frequently used place on the empty search page.
  *
  * Opt-in like the other browser E2Es: real local Web (`COFORGE_DEV_SKIP_AUTH=1`) + `agent-browser`
  * against the dev database. It seeds one member and deletes what it created. Screenshots are
@@ -88,6 +88,8 @@ test("members open a direct message with each other, and with themselves", async
   const conversationHeader = `[...document.querySelectorAll("main header")].find((header) => header.querySelector('[role="tab"]'))`;
   const headerName = `${conversationHeader}?.querySelector("h1")?.textContent.trim()`;
   const PREVIEW = '[aria-label="Search preview"]';
+  /** A Frequently used card on the empty search page. */
+  const FREQUENT = '[aria-labelledby="search-frequent-heading"] [data-search-entity]';
 
   const peerId = seededUuid("e2e-people-direct-message:peer");
   const peerName = "People Peer";
@@ -189,6 +191,19 @@ test("members open a direct message with each other, and with themselves", async
     );
     await waitFor(`document.querySelector('${PREVIEW} li[data-message-id="${sent.id}"]') !== null`);
     await browser("screenshot", join(artifacts, "search-preview.png"));
+
+    // Opening that result remembers the DM as a frequently used place: the empty search page
+    // lists it under the member's name, and it opens the DM.
+    await browser("eval", "localStorage.clear()");
+    await browser("dblclick", row);
+    await waitFor(`location.pathname === "${workspacePath}/dm/${dm.id}"`);
+    await browser("open", `${origin}${workspacePath}/search`);
+    const frequentDm = `document.querySelector('${FREQUENT}[data-search-entity="dm:${dm.id}"]')`;
+    await waitFor(`${frequentDm} !== null`);
+    expect(await evaluate<string>(`${frequentDm}.textContent`)).toContain(peerName);
+    await browser("screenshot", join(artifacts, "search-frequent.png"));
+    await browser("dblclick", `${FREQUENT}[data-search-entity="dm:${dm.id}"]`);
+    await waitFor(`location.pathname === "${workspacePath}/dm/${dm.id}"`);
   } finally {
     await browser("close").catch(() => undefined);
     if (workspaceId) {

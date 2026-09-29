@@ -49,15 +49,18 @@ const searchHitSelect = {
 } as const;
 
 export type MessageSearchHit = {
-  /** Where the message was posted; a direct conversation names its Agent, or the member on the
-   * viewer's other side (the viewer themself in their conversation with themself). */
+  /** Where the message was posted. */
   conversation: {
     id: string;
     channelName: string | null;
     directKey: string | null;
     archived: boolean;
-    directAgent: { id: string; name: string; displayName: string } | null;
-    directPeer: { id: string; username: string; displayName: string } | null;
+    /** Who a direct conversation is with, from the viewer's seat: its Agent, or the member on the
+     * other side (the viewer themself in their conversation with themself). Null for a channel. */
+    direct:
+      | { kind: "agent"; agent: { id: string; name: string; displayName: string } }
+      | { kind: "people"; peer: { id: string; username: string; displayName: string } }
+      | null;
   };
   message: ReturnType<typeof mapBrowserMessage>;
 };
@@ -123,11 +126,13 @@ export async function searchMessages(
         ])
       : [],
   );
-  const results = pageIds.flatMap((id) => {
+  const results = pageIds.flatMap((id): MessageSearchHit[] => {
     const row = byId.get(id);
     if (!row) return [];
     const { conversation, ...message } = row;
+    const agent = conversation.channelName === null ? conversation.members[0]?.agent : undefined;
     const peerId = peerOf(conversation.directKey);
+    const peer = peerId ? peers.get(peerId) : undefined;
     return [
       {
         conversation: {
@@ -135,9 +140,7 @@ export async function searchMessages(
           channelName: conversation.channelName,
           directKey: conversation.directKey,
           archived: conversation.archivedAt !== null,
-          directAgent:
-            conversation.channelName === null ? (conversation.members[0]?.agent ?? null) : null,
-          directPeer: peerId ? (peers.get(peerId) ?? null) : null,
+          direct: agent ? { kind: "agent", agent } : peer ? { kind: "people", peer } : null,
         },
         message: mapBrowserMessage(message, input.workspaceId),
       },

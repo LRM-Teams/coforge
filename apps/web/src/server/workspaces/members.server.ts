@@ -1,4 +1,5 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
+import { peopleDirectPeerId } from "#src/features/conversations/direct-key";
 import { AppError } from "#src/lib/app-error";
 import type { WorkspaceMemberRole } from "./member-role.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
@@ -167,13 +168,17 @@ export class WorkspaceMembers {
         select: { id: true, name: true, displayName: true, avatarObjectKey: true, ownerId: true },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
-      // The viewer's own direct conversations with Agents, so a picker can open the one that exists.
+      // The viewer's own direct conversations, with Agents and with members, so a picker can open
+      // the one that exists.
       this.db.conversationMember.findMany({
         where: { workspaceId, userId, leftAt: null, conversation: { directKey: { not: null } } },
         select: {
           conversationId: true,
           conversation: {
-            select: { members: { where: { agentId: { not: null } }, select: { agentId: true } } },
+            select: {
+              directKey: true,
+              members: { where: { agentId: { not: null } }, select: { agentId: true } },
+            },
           },
         },
       }),
@@ -183,12 +188,21 @@ export class WorkspaceMembers {
         row.conversation.members.map((member) => [member.agentId!, row.conversationId] as const),
       ),
     );
+    const dmByPeer = new Map(
+      directs.flatMap((row): [string, string][] => {
+        const peerId = peopleDirectPeerId(row.conversation.directKey, userId);
+        return peerId ? [[peerId, row.conversationId]] : [];
+      }),
+    );
     return {
       people: people.map((person) => ({
         id: person.id,
         handle: person.username,
         name: person.displayName?.trim() || person.username,
         avatarUrl: workspaceUserAvatarUrl(workspaceId, person.id, person.avatarObjectKey),
+        /** The viewer's direct conversation with this member (`dm/<id>`; the viewer's own with
+         * themself), once there is one. */
+        dmId: dmByPeer.get(person.id) ?? null,
       })),
       agents: agents.map((agent) => ({
         id: agent.id,

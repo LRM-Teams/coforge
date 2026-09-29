@@ -133,6 +133,24 @@ test("the directory names the viewer's own DM with each Agent, once there is one
   expect(dmOf(quiet.id)).toBeNull();
 });
 
+test("the directory names the viewer's own DM with each member, once there is one", async () => {
+  const conversations = new DirectConversations(db);
+  const members = new WorkspaceMembers(db);
+  const dmOf = async (viewerId: string, userId: string) =>
+    (await members.directory(workspaceId, viewerId)).people.find((person) => person.id === userId)
+      ?.dmId;
+  // Nobody has opened Grace's conversation with herself yet.
+  expect(await dmOf(grace.id, grace.id)).toBeNull();
+
+  const between = await conversations.open(workspaceId, ada.id, { userId: grace.id });
+  expect(await dmOf(ada.id, grace.id)).toBe(between.conversationId);
+  // The same conversation, from the other member's seat.
+  expect(await dmOf(grace.id, ada.id)).toBe(between.conversationId);
+
+  const self = await conversations.open(workspaceId, grace.id, { userId: grace.id });
+  expect(await dmOf(grace.id, grace.id)).toBe(self.conversationId);
+});
+
 test("a DM with an Agent is its creator's alone, and a deleted Agent's DM stays readable only", async () => {
   const conversations = new DirectConversations(db);
   const own = await conversations.open(workspaceId, ada.id, { agentId: helper.id });

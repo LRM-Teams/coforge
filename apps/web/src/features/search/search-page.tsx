@@ -489,14 +489,28 @@ function messageOpenTarget(
     : target;
 }
 
-/** The remembered place a message result opens: its channel, or its direct conversation's Agent. */
+/**
+ * The remembered place a message result opens: its channel, its direct conversation's Agent (whose
+ * card opens that DM), or its direct conversation with a member.
+ */
 function conversationKey(
   conversation: MessageSearchHit["conversation"],
 ): SearchEntityKey | undefined {
   if (conversation.channelName) return searchEntityKey({ kind: "channel", id: conversation.id });
-  return conversation.directAgent
-    ? searchEntityKey({ kind: "agent", id: conversation.directAgent.id })
-    : undefined;
+  switch (conversation.direct?.kind) {
+    case "agent":
+      return searchEntityKey({ kind: "agent", id: conversation.direct.agent.id });
+    case "people":
+      return searchEntityKey({ kind: "dm", id: conversation.id });
+    default:
+      return undefined;
+  }
+}
+
+/** The name of who a direct conversation is with: its Agent, or the member on the other side. */
+function directName(direct: MessageSearchHit["conversation"]["direct"]) {
+  if (!direct) return undefined;
+  return direct.kind === "agent" ? direct.agent.displayName : direct.peer.displayName;
 }
 
 function SearchResultRow({
@@ -513,7 +527,7 @@ function SearchResultRow({
   const workspaceSlug = useWorkspaceSlug();
   const place = conversation.channelName
     ? `#${conversation.channelName}`
-    : `@${conversation.directAgent?.displayName ?? conversation.directPeer?.displayName ?? message.senderName}`;
+    : `@${directName(conversation.direct) ?? message.senderName}`;
   const text = message.body
     ? messagePlainText({ body: message.body, mentions: message.mentions })
     : (message.attachments[0]?.fileName ?? "");
