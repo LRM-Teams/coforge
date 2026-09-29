@@ -229,6 +229,32 @@ test("a failed replay whose draft another send took over cannot be confirmed and
   expect(error.verdict.suggestedNextAction).toContain("do not resend");
 });
 
+test("a failed replay whose draft cannot be checked is answered as a draft that does not hold the key", async () => {
+  const replayFailure = lostBeforeResponse();
+  const settlement = ports({
+    sends: [
+      async () => {
+        throw lostBeforeResponse();
+      },
+      async () => {
+        throw replayFailure;
+      },
+    ],
+    reconcile: async () => ({ idempotencyKey: "key-1", state: "not_found", reconciliation: true }),
+    draftHoldsKey: new Error("draft store unreadable"),
+  });
+
+  const error = await failure(settle(settlement));
+
+  expect(error).toBeInstanceOf(AgentSendVerdictError);
+  const verdict = error as AgentSendVerdictError;
+  expect(verdict.cause).toBe(replayFailure);
+  expect(verdict.verdict).toMatchObject({ retryable: false, draftSaved: false });
+  expect(verdict.verdict.suggestedNextAction).toContain("CANNOT_CONFIRM");
+  expect(verdict.verdict.suggestedNextAction).not.toContain("--send-draft");
+  expect(settlement.heldKeys).toEqual([["@ada", "key-1"]]);
+});
+
 test("when reconciliation itself fails, the original failure stands", async () => {
   const original = lostBeforeResponse();
   const settlement = ports({
