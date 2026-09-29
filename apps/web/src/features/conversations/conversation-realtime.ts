@@ -249,8 +249,9 @@ const viewerEvent = z.discriminatedUnion("type", [
 
 export type ViewerEvent = z.infer<typeof viewerEvent>;
 
-/** The event, or undefined for any other publication on the viewer's channel (most are messages). */
-export function decodeViewerEvent(value: unknown): ViewerEvent | undefined {
+/** A publication's JSON (raw bytes or already parsed) read as `schema`, or undefined when it is
+ * some other publication on the channel. */
+function decodeJsonPublication<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
   let data = value;
   if (value instanceof Uint8Array) {
     try {
@@ -259,8 +260,13 @@ export function decodeViewerEvent(value: unknown): ViewerEvent | undefined {
       return undefined;
     }
   }
-  const parsed = viewerEvent.safeParse(data);
+  const parsed = schema.safeParse(data);
   return parsed.success ? parsed.data : undefined;
+}
+
+/** The event, or undefined for any other publication on the viewer's channel (most are messages). */
+export function decodeViewerEvent(value: unknown): ViewerEvent | undefined {
+  return decodeJsonPublication(viewerEvent, value);
 }
 
 const channelCreatedEvent = z.object({
@@ -278,14 +284,5 @@ export type ChannelCreatedEvent = z.infer<typeof channelCreatedEvent>;
 
 /** The event, or undefined for any other publication on the Workspace channel. */
 export function decodeChannelCreatedEvent(value: unknown): ChannelCreatedEvent | undefined {
-  let data = value;
-  if (value instanceof Uint8Array) {
-    try {
-      data = JSON.parse(utf8Decoder.decode(value)) as unknown;
-    } catch {
-      return undefined;
-    }
-  }
-  const parsed = channelCreatedEvent.safeParse(data);
-  return parsed.success ? parsed.data : undefined;
+  return decodeJsonPublication(channelCreatedEvent, value);
 }
