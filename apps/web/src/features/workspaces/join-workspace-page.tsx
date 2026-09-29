@@ -7,6 +7,7 @@ import { Button } from "#src/components/base/buttons/button";
 import { HintText } from "#src/components/base/input/hint-text";
 import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
 import { AuthSplitLayout } from "#src/features/auth/auth-split-layout";
+import { signOut } from "#src/features/auth/sign-out";
 import { useSubmitGuard } from "#src/hooks/use-submit-guard";
 import { m } from "#src/paraglide/messages";
 import { joinFailure, type JoinFailure } from "./join-failure";
@@ -195,9 +196,7 @@ export function JoinWorkspacePage({
               color="link-gray"
               size="sm"
               onPress={() =>
-                window.location.assign(
-                  `/auth/logout?returnTo=${encodeURIComponent(`/join/${token}`)}`,
-                )
+                void signOut(`/auth/logout?returnTo=${encodeURIComponent(`/join/${token}`)}`)
               }
             >
               {m.workspace_join_switch_account()}

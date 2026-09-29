@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { DbClient, DbProvider } from "@tanstack/react-db";
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
+import { installBrowserQueryCachePersistence } from "#src/features/cache-persistence/browser-query-cache";
 import { GlobalError } from "#src/features/errors/page-load-error";
 import { deLocalizeUrl, localizeUrl } from "#src/paraglide/runtime";
 import { PENDING_DELAY_MS, PENDING_MIN_MS } from "#src/lib/pending-policy";
@@ -40,6 +41,15 @@ export function getRouter() {
     },
   });
   setupRouterSsrQueryIntegration({ router, queryClient });
+  // Browser only: a later page load opens Chat from the queries this one kept (there is no
+  // IndexedDB on the server, and the server render's QueryClient lives one request). Who is signed
+  // in is what the Workspace layout's loader last answered, known before the first render.
+  installBrowserQueryCachePersistence(
+    queryClient,
+    () =>
+      router.state.matches.find((match) => match.routeId === "/w/$workspaceSlug")?.loaderData?.user
+        .id,
+  );
 
   return router;
 }

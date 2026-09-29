@@ -19,7 +19,13 @@ const workspaceAliases = {
   ),
 };
 
+// One value per build. The browser keeps a copy of some queries between page loads
+// (`src/features/cache-persistence/`) and reads one back only into the build that wrote it, so a
+// deploy that changes what a query returns never opens a page from the old shape.
+const buildId = process.env.COFORGE_BUILD_ID ?? Date.now().toString(36);
+
 const config = defineConfig({
+  define: { __COFORGE_BUILD_ID__: JSON.stringify(buildId) },
   resolve: {
     tsconfigPaths: true,
     alias: workspaceAliases,

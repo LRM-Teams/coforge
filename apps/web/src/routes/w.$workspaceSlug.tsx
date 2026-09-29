@@ -32,6 +32,8 @@ import { useSearchShortcut } from "#src/features/search/search-shortcut";
 import { markShownWorkspace, shownWorkspace } from "#src/features/workspaces/shown-workspace";
 import { LeaveDeletedWorkspace } from "#src/features/workspaces/leave-deleted-workspace";
 import { getStartPage } from "#src/features/workspaces/last-location.functions";
+import { rememberQueryCache } from "#src/features/cache-persistence/browser-query-cache";
+import { signOut } from "#src/features/auth/sign-out";
 
 export const Route = createFileRoute("/w/$workspaceSlug")({
   staleTime: Infinity,
@@ -103,6 +105,11 @@ function AppLayout() {
   useEffect(() => {
     markShownWorkspace(queryClient, currentWorkspace.slug);
   }, [queryClient, currentWorkspace.slug]);
+  // Reads that finished before the person was known wrote nothing: store them now, so the next page
+  // load opens from them (`features/cache-persistence/`).
+  useEffect(() => {
+    void rememberQueryCache(queryClient);
+  }, [queryClient, currentWorkspace.slug]);
   useLastLocationMemory();
   useSearchShortcut(currentWorkspace.id, user.id);
   const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
@@ -153,7 +160,7 @@ function AppLayout() {
                      * can clear the session cookie and send the browser to Authing. `?returnTo`
                      * carries this page back across the sign-out (the root route hands it to
                      * `/login`) once the switch-account return step is in. */
-                    onSignOut={() => void window.location.assign("/auth/logout")}
+                    onSignOut={() => void signOut()}
                   >
                     <Outlet />
                   </AppShell>
