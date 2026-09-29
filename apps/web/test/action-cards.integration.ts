@@ -276,25 +276,34 @@ test("prepare rejects an unknown handle with a field-scoped INVALID_HANDLE error
   }
 });
 
-test("prepare refuses a private Agent as a channel member without naming it", async () => {
+test("prepare refuses a private Agent exactly as it refuses a handle that does not exist", async () => {
   const ctx = await setup();
   try {
     await ctx.db.agent.update({ where: { id: ctx.bobsAgent.id }, data: { visibility: "private" } });
-    await expectActionCardError(
-      ctx.actionCards.prepare(ctx.principal, {
-        target: `#${ctx.hub.channelName}`,
-        action: {
-          type: "channel:add_member",
-          channel: ctx.hub.channelName!,
-          agents: [`@${ctx.bobsAgent.name}`],
-        },
-      }),
-      {
-        code: "INVALID_HANDLE",
-        field: "action.agents[0]",
-        message: `@${ctx.bobsAgent.name} is private and cannot be a channel member`,
-      },
-    );
+    const refusalFor = (handle: string) =>
+      ctx.actionCards
+        .prepare(ctx.principal, {
+          target: `#${ctx.hub.channelName}`,
+          action: { type: "channel:add_member", channel: ctx.hub.channelName!, agents: [handle] },
+        })
+        .then(
+          () => undefined,
+          (error: ActionCardError) => ({
+            status: error.status,
+            code: error.code,
+            field: error.field,
+            message: error.message.replace(handle, "<handle>"),
+          }),
+        );
+
+    const privateAgent = await refusalFor(`@${ctx.bobsAgent.name}`);
+    expect(privateAgent).toEqual(await refusalFor(`@nobody-${ctx.suffix}`));
+    expect(privateAgent).toEqual({
+      status: 422,
+      code: "INVALID_HANDLE",
+      field: "action.agents[0]",
+      message: "unknown agent handle: <handle>",
+    });
   } finally {
     await ctx.cleanup();
   }
