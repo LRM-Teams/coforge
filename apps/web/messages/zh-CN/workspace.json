@@ -136,5 +136,39 @@
   "workspace_invitation_accept": "接受",
   "workspace_invitation_decline": "拒绝",
   "workspace_invitation_revoke": "撤销",
-  "workspace_invitation_from": "{inviter} 邀请你以 {role} 身份加入 {workspace}。"
+  "workspace_invitation_from": "{inviter} 邀请你以 {role} 身份加入 {workspace}。",
+  "workspace_invite_tabs": "邀请方式",
+  "workspace_invite_tab_username": "按用户名",
+  "workspace_invite_tab_link": "按链接",
+  "workspace_invite_done": "完成",
+  "workspace_join_link_label": "邀请链接",
+  "workspace_join_link_preparing": "正在准备邀请链接…",
+  "workspace_join_link_copy": "复制链接",
+  "workspace_join_link_hint": "把这个链接发给要加入的人。",
+  "workspace_join_link_used": "已使用 {used}/{limit} 次",
+  "workspace_join_link_expires": "{date}过期",
+  "workspace_join_link_max_uses": "使用次数",
+  "workspace_join_link_expiry": "有效期",
+  "workspace_join_link_keep": "保持不变",
+  "workspace_join_link_unlimited": "不限",
+  "workspace_join_link_never": "永不",
+  "workspace_join_link_days": [
+    {
+      "declarations": ["input count", "local p = count: plural"],
+      "selectors": ["p"],
+      "match": {
+        "p=one": "{count} 天",
+        "p=other": "{count} 天"
+      }
+    }
+  ],
+  "workspace_join_link_update": "更新链接",
+  "workspace_join_link_update_hint": "更新会换成新链接，旧链接立即失效。",
+  "workspace_join_link_revoke": "作废链接",
+  "workspace_join_link_empty": "当前没有可用的邀请链接。",
+  "workspace_join_link_create": "创建链接",
+  "workspace_join_link_prepare_failed": "邀请链接准备失败，请稍后重试。",
+  "workspace_join_link_update_failed": "更新失败，请稍后重试。",
+  "workspace_join_link_revoke_failed": "作废失败，请稍后重试。",
+  "workspace_join_link_create_failed": "创建失败，请稍后重试。"
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveTimeZone, startOfDay, validateTimeZone } from "#src/lib/dates";
+import { formatMonthDay, resolveTimeZone, startOfDay, validateTimeZone } from "#src/lib/dates";
 
 /**
  * The calendar-day rules the chat stream and search filters rely on, pinned in real IANA zones
@@ -35,5 +35,15 @@ describe("time zone preferences", () => {
     expect(() => validateTimeZone("")).toThrow();
     expect(resolveTimeZone("Mars/Olympus", "Europe/Paris")).toBe("Europe/Paris");
     expect(resolveTimeZone(null, "Mars/Olympus")).toBe("UTC");
+  });
+});
+
+describe("month and day", () => {
+  test("is the language's own short month and day, in the named zone", () => {
+    // 2026-10-05 20:00 UTC is already October 6 in Shanghai.
+    const instant = new Date("2026-10-05T20:00:00Z");
+    expect(formatMonthDay(instant, "Asia/Shanghai", "zh-CN")).toBe("10月6日");
+    expect(formatMonthDay(instant, "Asia/Shanghai", "en")).toBe("Oct 6");
+    expect(formatMonthDay(instant, "UTC", "en")).toBe("Oct 5");
   });
 });
