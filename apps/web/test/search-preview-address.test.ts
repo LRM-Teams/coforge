@@ -21,13 +21,8 @@ test("a previewed channel or direct conversation survives the search address", (
 });
 
 test("a message in any direct conversation previews that conversation", () => {
-  const withAgent = {
-    id,
-    channelName: null,
-    directKey: "agent:a|user:u",
-    directAgent: { id: "a" },
-  };
-  const betweenMembers = { id, channelName: null, directKey: "user:u|user:v", directAgent: null };
+  const withAgent = { id, channelName: null, directKey: "agent:a|user:u" };
+  const betweenMembers = { id, channelName: null, directKey: "user:u|user:v" };
   for (const conversation of [withAgent, betweenMembers])
     expect(messagePreviewTarget(conversation, { id: msg })).toEqual({
       kind: "dm",

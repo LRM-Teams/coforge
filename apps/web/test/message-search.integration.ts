@@ -175,7 +175,7 @@ test("searches the messages a human may read, with filters, sorting and paging",
       channelName: null,
       archived: false,
     });
-    expect(hits[0]!.conversation.directAgent).toMatchObject({ id: agent.id });
+    expect(hits[0]!.conversation.direct).toMatchObject({ kind: "agent", agent: { id: agent.id } });
     expect(hits[1]!.conversation).toMatchObject({ channelName: "old", archived: true });
     expect(hits[3]!.message.threadRootId).toBe(exact.id);
     expect(hits[4]!.message.senderName).toBe("Alice");
@@ -331,16 +331,14 @@ test("a hit in a DM between members names the other member", async () => {
         conversation: expect.objectContaining({
           id: selfDm.id,
           channelName: null,
-          directAgent: null,
-          directPeer: peer(alice!, "Alice"),
+          direct: { kind: "people", peer: peer(alice!, "Alice") },
         }),
       },
       {
         id: inDm.id,
         conversation: expect.objectContaining({
           id: dm.id,
-          directAgent: null,
-          directPeer: peer(bob!, "Bob"),
+          direct: { kind: "people", peer: peer(bob!, "Bob") },
         }),
       },
     ]);
@@ -348,7 +346,9 @@ test("a hit in a DM between members names the other member", async () => {
     expect(await hits(bob!.id)).toEqual([
       {
         id: inDm.id,
-        conversation: expect.objectContaining({ directPeer: peer(alice!, "Alice") }),
+        conversation: expect.objectContaining({
+          direct: { kind: "people", peer: peer(alice!, "Alice") },
+        }),
       },
     ]);
   } finally {

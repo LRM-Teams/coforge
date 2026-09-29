@@ -494,9 +494,15 @@ function conversationKey(
   conversation: MessageSearchHit["conversation"],
 ): SearchEntityKey | undefined {
   if (conversation.channelName) return searchEntityKey({ kind: "channel", id: conversation.id });
-  return conversation.directAgent
-    ? searchEntityKey({ kind: "agent", id: conversation.directAgent.id })
+  return conversation.direct?.kind === "agent"
+    ? searchEntityKey({ kind: "agent", id: conversation.direct.agent.id })
     : undefined;
+}
+
+/** The name of who a direct conversation is with: its Agent, or the member on the other side. */
+function directName(direct: MessageSearchHit["conversation"]["direct"]) {
+  if (!direct) return undefined;
+  return direct.kind === "agent" ? direct.agent.displayName : direct.peer.displayName;
 }
 
 function SearchResultRow({
@@ -513,7 +519,7 @@ function SearchResultRow({
   const workspaceSlug = useWorkspaceSlug();
   const place = conversation.channelName
     ? `#${conversation.channelName}`
-    : `@${conversation.directAgent?.displayName ?? conversation.directPeer?.displayName ?? message.senderName}`;
+    : `@${directName(conversation.direct) ?? message.senderName}`;
   const text = message.body
     ? messagePlainText({ body: message.body, mentions: message.mentions })
     : (message.attachments[0]?.fileName ?? "");
