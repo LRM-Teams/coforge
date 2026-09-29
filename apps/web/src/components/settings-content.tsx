@@ -1,21 +1,17 @@
 import { useSubmitGuard } from "#src/hooks/use-submit-guard";
 import { useEffect, useId, useRef, useState, type ChangeEvent } from "react";
 import { Button as AriaButton, FileTrigger } from "react-aria-components";
-import { Link, useHydrated } from "@tanstack/react-router";
 import {
-  Archive,
   BellRinging01 as BellRing,
   Building07 as Building,
   Camera01,
   Check,
   ChevronLeft,
   Clock as Clock3,
-  Hash01 as Hash,
   Translate01 as Languages,
   LayoutLeft,
   MessageSquare01 as MessagesSquare,
   Moon01 as Moon,
-  RefreshCcw01 as Unarchive,
   Share01,
   Sliders01 as SlidersHorizontal,
   Sun,
@@ -28,7 +24,6 @@ import {
 
 import { PageHeader } from "#src/components/layout/page-header";
 import { Avatar } from "#src/components/base/avatar/avatar";
-import { Badge } from "#src/components/base/badges/badges";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Input } from "#src/components/base/input/input";
@@ -62,7 +57,6 @@ import {
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { isTimeFormat, localeTimeFormat, type TimeFormat } from "#src/lib/time-format";
 import { cn } from "#src/lib/utils";
-import { formatDateForDisplay } from "#src/lib/dates";
 import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
 
@@ -152,13 +146,9 @@ interface SettingsContentProps {
   workspace: { id: string; slug: string; name: string; iconUrl: string | null };
   onWorkspaceRename: (name: string) => Promise<void>;
   onWorkspaceIconUpload: (file: File) => Promise<void>;
-  /** The Workspace's archived channels, newest archive first; only an owner or admin gets any,
-   * shown in Settings → Workspace profile. */
-  archivedChannels: ArchivedChannel[];
-  onChannelUnarchive: (channelId: string) => Promise<void>;
+  /** The Archived channels group Settings → Workspace profile shows under the profile. */
+  archivedChannelsGroup?: React.ReactNode;
 }
-
-type ArchivedChannel = { id: string; name: string; archivedAt: Date };
 
 export function SettingsPending() {
   return (
@@ -345,19 +335,7 @@ export function SettingsContent(props: SettingsContentProps) {
                 canEdit={canManageWorkspaceSettings(props.members.actorRole)}
                 onRename={props.onWorkspaceRename}
                 onIconUpload={props.onWorkspaceIconUpload}
-                archivedChannels={
-                  // No empty state: with nothing to unarchive the group is absent.
-                  props.archivedChannels.length > 0 && (
-                    <ArchivedChannelsSettings
-                      channels={props.archivedChannels}
-                      workspaceSlug={props.workspace.slug}
-                      locale={props.locale}
-                      timeZone={props.timeZone}
-                      timeFormat={props.timeFormat}
-                      onUnarchive={props.onChannelUnarchive}
-                    />
-                  )
-                }
+                archivedChannelsGroup={props.archivedChannelsGroup}
               />
             ) : section === "members" ? (
               <WorkspaceMembersPanel
@@ -1070,7 +1048,7 @@ function SettingsPage({ children }: { children: React.ReactNode }) {
 }
 
 /** A captioned group of settings; each card inside is one independent setting or save unit. */
-function SettingsGroup({
+export function SettingsGroup({
   icon: Icon,
   label,
   badge,
@@ -1160,14 +1138,14 @@ function SettingsCardFooter({
   );
 }
 
-type SaveError = { message: string; errorId?: string };
+export type SaveError = { message: string; errorId?: string };
 
-function saveErrorFrom(message: string, cause: unknown): SaveError {
+export function saveErrorFrom(message: string, cause: unknown): SaveError {
   return { message, errorId: isAppError(cause) ? cause.errorId : undefined };
 }
 
 // The failure sentence stays red; its error reference sits on its own grey line below it.
-function SaveErrorMessage({ error }: { error: SaveError }) {
+export function SaveErrorMessage({ error }: { error: SaveError }) {
   return (
     <div className="flex flex-col gap-1">
       <p role="alert" className="text-sm text-error-primary">
@@ -1255,14 +1233,14 @@ function WorkspaceProfileSettings({
   canEdit,
   onRename,
   onIconUpload,
-  archivedChannels,
+  archivedChannelsGroup,
 }: {
   workspace: SettingsContentProps["workspace"];
   canEdit: boolean;
   onRename: (name: string) => Promise<void>;
   onIconUpload: (file: File) => Promise<void>;
   /** The Archived channels group under the profile, when the viewer has one. */
-  archivedChannels: React.ReactNode;
+  archivedChannelsGroup: React.ReactNode;
 }) {
   const [name, setName] = useState(workspace.name);
   const [saving, guardSave] = useSubmitGuard();
@@ -1401,121 +1379,8 @@ function WorkspaceProfileSettings({
           </div>
         </SettingsCard>
       </SettingsGroup>
-      {archivedChannels}
+      {archivedChannelsGroup}
     </SettingsPage>
-  );
-}
-
-/** The sentence for a failed unarchive, by what the server answered. */
-function unarchiveError(cause: unknown, name: string): string {
-  return isAppError(cause) && cause.code === "ACCESS_DENIED"
-    ? m.settings_archived_channels_unarchive_denied()
-    : m.settings_archived_channels_unarchive_error({ name });
-}
-
-/** Settings → Workspace profile → Archived channels: every archived channel, for a Workspace owner
- * or admin to open or unarchive. One unarchive runs at a time; a failure stays above the list. */
-function ArchivedChannelsSettings({
-  channels,
-  workspaceSlug,
-  locale,
-  timeZone,
-  timeFormat,
-  onUnarchive,
-}: {
-  channels: ArchivedChannel[];
-  workspaceSlug: string;
-  locale: Locale;
-  timeZone: string | null;
-  timeFormat: TimeFormat | null;
-  onUnarchive: (channelId: string) => Promise<void>;
-}) {
-  const hydrated = useHydrated();
-  const [unarchivingId, setUnarchivingId] = useState<string | null>(null);
-  const [error, setError] = useState<SaveError | null>(null);
-
-  async function unarchive(channel: ArchivedChannel) {
-    setUnarchivingId(channel.id);
-    setError(null);
-    try {
-      await onUnarchive(channel.id);
-    } catch (cause) {
-      setError(saveErrorFrom(unarchiveError(cause, channel.name), cause));
-    } finally {
-      setUnarchivingId(null);
-    }
-  }
-
-  return (
-    <SettingsGroup
-      icon={Archive}
-      label={m.settings_archived_channels()}
-      badge={
-        <Badge type="pill-color" color="gray" size="sm">
-          {channels.length}
-        </Badge>
-      }
-    >
-      {error && <SaveErrorMessage error={error} />}
-      <ul className="divide-y divide-secondary rounded-xl border border-secondary bg-primary shadow-xs">
-        {channels.map((channel) => (
-          <li
-            key={channel.id}
-            className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-4 sm:px-5"
-          >
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              {/* The line under the name says it is a public channel; the tile only echoes it. */}
-              <span
-                aria-hidden="true"
-                className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-secondary text-fg-quaternary"
-              >
-                <Hash className="size-4" />
-              </span>
-              <div className="min-w-0">
-                <Link
-                  to="/w/$workspaceSlug/channel/$channelId"
-                  params={{ workspaceSlug, channelId: channel.id }}
-                  aria-label={m.settings_archived_channels_open({ name: channel.name })}
-                  className="block truncate rounded-xs text-sm font-semibold text-primary underline underline-offset-2 outline-focus-ring hover:text-secondary focus-visible:outline-2 focus-visible:outline-offset-2"
-                >
-                  #{channel.name}
-                </Link>
-                <p className="text-sm text-tertiary">
-                  {m.settings_archived_channels_public()}
-                  {" · "}
-                  <time dateTime={channel.archivedAt.toISOString()} suppressHydrationWarning>
-                    {hydrated &&
-                      m.settings_archived_channels_archived_at({
-                        time: formatDateForDisplay(
-                          channel.archivedAt,
-                          timeZone,
-                          locale,
-                          timeFormat,
-                        ),
-                      })}
-                  </time>
-                </p>
-              </div>
-            </div>
-            <Button
-              color="secondary"
-              size="sm"
-              iconLeading={Unarchive}
-              className="w-full sm:w-auto"
-              aria-label={m.settings_archived_channels_unarchive_label({ name: channel.name })}
-              isDisabled={unarchivingId !== null}
-              isLoading={unarchivingId === channel.id}
-              showTextWhileLoading
-              onPress={() => void unarchive(channel)}
-            >
-              {unarchivingId === channel.id
-                ? m.channel_settings_unarchiving()
-                : m.channel_archived_unarchive()}
-            </Button>
-          </li>
-        ))}
-      </ul>
-    </SettingsGroup>
   );
 }
 
