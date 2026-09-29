@@ -14,13 +14,20 @@ import {
 } from "#src/features/conversations/conversation-queries";
 
 export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
-  loader: async ({ context: { queryClient }, parentMatchPromise, cause }) => {
+  loader: async ({
+    context: { queryClient, workspaceId: knownWorkspaceId },
+    parentMatchPromise,
+    cause,
+  }) => {
     // The sidebar's channel and DM lists go into the Query cache, which the server render reads and
     // the client hydrates; after hydration they back the sidebar's collections
     // (`sidebar-collections.ts`). A navigation or an invalidation (joining, leaving, closing a
-    // chat) reads them afresh; a hover preload reuses what is cached.
-    const workspaceId = parentMatchPromise.then(
-      (parent) => parent.loaderData?.currentWorkspace?.id ?? "",
+    // chat) reads them afresh; a hover preload reuses what is cached. The Workspace's id keys them;
+    // the route context has it from the start, so they do not wait for the Workspace layout's
+    // loader (only a preload into another Workspace, which has none, does).
+    const workspaceId = Promise.resolve(
+      knownWorkspaceId ??
+        parentMatchPromise.then((parent) => parent.loaderData?.currentWorkspace?.id ?? ""),
     );
     const sidebarLists = workspaceId.then(async (workspaceId) => {
       const staleTime = cause === "preload" ? ("static" as const) : 0;

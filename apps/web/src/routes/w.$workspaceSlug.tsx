@@ -26,28 +26,26 @@ import { getPanelTabOrders } from "#src/features/panel-tabs/panel-tabs.functions
 import { PanelTabOrderProvider } from "#src/features/panel-tabs/panel-tab-order-context";
 import { useLastLocationMemory } from "#src/features/workspaces/use-last-location-memory";
 import { useSearchShortcut } from "#src/features/search/search-shortcut";
-import { markShownWorkspace, shownWorkspace } from "#src/features/workspaces/shown-workspace";
+import { enterWorkspace, markShownWorkspace } from "#src/features/workspaces/shown-workspace";
 import { LeaveDeletedWorkspace } from "#src/features/workspaces/leave-deleted-workspace";
 
 export const Route = createFileRoute("/w/$workspaceSlug")({
   staleTime: Infinity,
+  // Puts the Workspace's id in the route context: every loader starts at once, so a page's
+  // Workspace-scoped reads need not wait for this layout's loader.
   beforeLoad: async ({ params, context, preload }) => {
     // A malformed slug names no Workspace; server calls would fall back to the remembered one.
     if (!isValidWorkspaceSlug(params.workspaceSlug)) throw notFound();
-    // A preload runs while the browser URL still names the Workspace on screen: it must neither
-    // check the target Workspace against that one nor clear what is on screen.
-    if (preload) return;
-    const shown = shownWorkspace(context.queryClient);
-    if (shown === params.workspaceSlug) return;
     // Runs before any page loader: a Workspace the User is not in is a page that does not exist
     // for them. Checked once per Workspace entered; every server call re-checks it anyway.
-    await openWorkspace().catch((error: unknown) => {
-      if (isAppError(error) && error.code === "NOT_FOUND") throw notFound();
-      throw error;
+    return enterWorkspace(context.queryClient, params.workspaceSlug, {
+      preload,
+      open: () =>
+        openWorkspace().catch((error: unknown) => {
+          if (isAppError(error) && error.code === "NOT_FOUND") throw notFound();
+          throw error;
+        }),
     });
-    // Query keys are not scoped by Workspace, so moving to another one starts from an empty cache.
-    if (shown) context.queryClient.clear();
-    markShownWorkspace(context.queryClient, params.workspaceSlug);
   },
   loader: async () => {
     const [user, switcher, notifications, agents, preferences, tabOrders, recordsNav] =
@@ -91,8 +89,8 @@ function AppLayout() {
   // Hydration does not re-run `beforeLoad`, so the browser learns here which Workspace the server
   // rendered; otherwise the first switch away would keep this Workspace's cache.
   useEffect(() => {
-    markShownWorkspace(queryClient, currentWorkspace.slug);
-  }, [queryClient, currentWorkspace.slug]);
+    markShownWorkspace(queryClient, { slug: currentWorkspace.slug, id: currentWorkspace.id });
+  }, [queryClient, currentWorkspace.slug, currentWorkspace.id]);
   useLastLocationMemory();
   useSearchShortcut(currentWorkspace.id, user.id);
   const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);

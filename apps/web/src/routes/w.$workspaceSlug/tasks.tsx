@@ -37,8 +37,15 @@ export const Route = createFileRoute("/w/$workspaceSlug/tasks")({
   // The rows go into the Query cache, which the server render reads and the client hydrates;
   // after hydration they back the page's collection (`task-overview-collection.ts`). A navigation
   // reads them afresh; a hover preload reuses what is cached.
-  loader: async ({ context: { queryClient }, parentMatchPromise, cause, deps }) => {
-    const workspaceId = (await parentMatchPromise).loaderData?.currentWorkspace?.id ?? "";
+  loader: async ({
+    context: { queryClient, workspaceId: knownWorkspaceId },
+    parentMatchPromise,
+    cause,
+    deps,
+  }) => {
+    // The route context has the Workspace's id unless this is a preload into another Workspace.
+    const workspaceId =
+      knownWorkspaceId ?? (await parentMatchPromise).loaderData?.currentWorkspace?.id ?? "";
     const staleTime = cause === "preload" ? "static" : 0;
     await Promise.all([
       // A window change on the page re-runs this loader; the unfinished rows it holds stay live.

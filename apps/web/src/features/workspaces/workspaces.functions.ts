@@ -35,10 +35,10 @@ function catalog() {
   return new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db));
 }
 
-/** Succeeds when the Workspace the page URL names is one of the User's; NOT_FOUND otherwise. */
+/** The id of the Workspace the page URL names when it is one of the User's; NOT_FOUND otherwise. */
 export const openWorkspace = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
-  .handler(() => null);
+  .handler(({ context }) => ({ workspaceId: context.workspaceId }));
 
 /**
  * The User's Workspaces and the one the page URL names (NOT_FOUND when it is not theirs). Opening a

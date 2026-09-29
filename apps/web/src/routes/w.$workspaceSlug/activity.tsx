@@ -15,8 +15,9 @@ export const Route = createFileRoute("/w/$workspaceSlug/activity")({
   // first page of this view ready. Switching views on the page does not wait for it: the cards
   // on screen stay until the next view has loaded.
   loader: async ({ context, deps, parentMatchPromise, cause }) => {
-    const parent = await parentMatchPromise;
-    const workspaceId = parent.loaderData?.currentWorkspace?.id;
+    // The route context has the Workspace's id unless this is a preload into another Workspace.
+    const workspaceId =
+      context.workspaceId ?? (await parentMatchPromise).loaderData?.currentWorkspace?.id;
     if (!workspaceId) return;
     const ready = context.queryClient.ensureInfiniteQueryData(
       activityInboxQuery(workspaceId, deps.filter),
