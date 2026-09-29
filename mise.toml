@@ -86,6 +86,10 @@ amp orb services ensure >/dev/null || {
 description = "Run the tracked @mention delivery end-to-end slice"
 run = "./scripts/e2e/run-mention-delivery.sh"
 
+[tasks."test:e2e:web"]
+description = "Run one browser e2e from apps/web/test against a local stack (no file lists them)"
+run = './scripts/e2e/run-web-e2e.sh {{arg(name="file", var=true, default="")}}'
+
 [tasks."check:web"]
 description = "Run Web package checks"
 run = "bun run --cwd packages/coforge-sdk generate && cd apps/web && bun run check"
