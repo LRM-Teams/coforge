@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { configure, reset, type LogRecord } from "@logtape/logtape";
+import type { LogRecord } from "@logtape/logtape";
 import type {
   ReminderFireRequest,
   ReminderFireResponse,
@@ -13,6 +13,7 @@ import {
   type ReminderReceiptStore,
   reminderAppInboxSummary,
 } from "#src/agent-reminder/reminder-scheduler";
+import { captureDaemonLogs } from "./log-capture";
 
 class MemoryStore implements ReminderReceiptStore {
   receipts: ReminderReceipt[] = [];
@@ -42,24 +43,6 @@ class Clock implements ReminderClock {
     this.timers = this.timers.filter((timer) => timer.at > this.time);
     for (const timer of due) timer.callback();
     await Promise.all(due.map(async () => {}));
-  }
-}
-
-async function captureLogs(run: () => Promise<void>): Promise<LogRecord[]> {
-  const records: LogRecord[] = [];
-  await configure({
-    reset: true,
-    sinks: { capture: (record) => records.push(record) },
-    loggers: [
-      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
-      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
-    ],
-  });
-  try {
-    await run();
-    return records;
-  } finally {
-    await reset();
   }
 }
 
@@ -391,7 +374,7 @@ test("persistence failure is bounded and never sends an uncommitted occurrence",
     async () => true,
     clock,
   );
-  const records = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await scheduler.apply(snapshot([job]));
     await clock.advance(1000);
     await scheduler.awaitIdle();
@@ -618,7 +601,7 @@ test("a fire request that keeps failing records why its retries ran out", async 
     },
     clock,
   );
-  const records = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await scheduler.apply(snapshot([job]));
     await clock.advance(1000);
     await scheduler.awaitIdle();
@@ -672,7 +655,7 @@ test("a wake that keeps failing after the cloud fired records the wake step and 
     },
     clock,
   );
-  const records = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await scheduler.apply(snapshot([job]));
     await clock.advance(1000);
     await scheduler.awaitIdle();
@@ -724,7 +707,7 @@ test("a fire the cloud accepts on the last attempt leaves no attempt to wake and
     },
     clock,
   );
-  const records = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await scheduler.apply(snapshot([job]));
     await clock.advance(1000);
     await scheduler.awaitIdle();
@@ -773,7 +756,7 @@ test("a fire deferred to its deadline runs out of time before its attempts do", 
     },
     clock,
   );
-  const records = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await scheduler.apply(snapshot([job]));
     await clock.advance(1000);
     await scheduler.awaitIdle();
@@ -810,7 +793,7 @@ test("a delivered or declined occurrence ends without an exhausted record", asyn
       async () => wake,
       clock,
     );
-    const records = await captureLogs(async () => {
+    const { records } = await captureDaemonLogs(async () => {
       await scheduler.apply(snapshot([job]));
       await clock.advance(1000);
       await scheduler.awaitIdle();

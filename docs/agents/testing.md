@@ -42,11 +42,12 @@ to add tests or run stress checks.
 
 - Wait for observable completion through the public contract: a returned Promise, status event, or acknowledgement. Do not use `sleep`, timer ticks, or arbitrary microtask flushing as proof that unrelated async work has completed. Time-based behavior may use controlled clocks or real timers when the clock itself is under test.
 - Assert only ordering guaranteed by the product contract. When operations become concurrent, revisit existing ordering assertions; verify required per-Agent ordering and eventual completion without assuming a global completion order.
+- A test that really spawns a child process (a provider fixture, a Daemon) sets its own `bun:test` timeout to at least the product's bound for that operation, built from the product's exported constants (for example `CATALOG_DISCOVERY_BUDGET_MS` in `packages/daemon/test/catalog-discovery-budget.ts`). Never raise the global timeout. Below the product's bound the runner ends a healthy but slow run before the product's own deadline can, and the abandoned test keeps running into the next one.
 - Use controllable Promises at existing external boundaries to force slow operations and relevant interleavings. Release gates and clean up runtimes in `finally`, including when assertions fail. Do not expose private implementation solely for test synchronization.
 
 ## Investigating intermittent failures
 
-- Retain the failing command and output, construct a controlled reproduction, and determine whether the defect is in production behavior or test synchronization. A passing rerun is diagnostic evidence, not a fix; do not mask failures with retries, skipped tests, longer timeouts, or weaker valid assertions.
+- Retain the failing command and output, construct a controlled reproduction, and determine whether the defect is in production behavior or test synchronization. A passing rerun is diagnostic evidence, not a fix; do not mask failures with retries, skipped tests, longer timeouts the product's bounds do not justify, or weaker valid assertions.
 - For concurrency changes and flaky-test fixes, run bounded repetitions of the affected tests in addition to the normal checks. Record the command, repetition count, and failures in the CR; for example, `mise exec -- bun test <test-file> --test-name-pattern '<affected tests>' --rerun-each 100`. Repetitions supplement controlled interleavings, not replace them; do not repeat the entire suite in every CI run by default.
 
 ## Review

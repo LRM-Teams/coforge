@@ -61,30 +61,8 @@ import {
   type TaskRequest,
   type TaskResponse,
 } from "@lrm/coforge-sdk/internal";
-import { configure, reset, type LogRecord } from "@logtape/logtape";
-
-/** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
- * previous (unconfigured) logging state. `run` sees the records as they arrive, so it can wait
- * for one. Mirrors the pattern in runtime-inventory-diagnostics.test.ts. */
-async function captureLogs<T>(
-  run: (records: readonly LogRecord[]) => Promise<T>,
-): Promise<{ result: T; records: LogRecord[] }> {
-  const records: LogRecord[] = [];
-  await configure({
-    reset: true,
-    sinks: { capture: (record) => records.push(record) },
-    loggers: [
-      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
-      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
-    ],
-  });
-  try {
-    const result = await run(records);
-    return { result, records };
-  } finally {
-    await reset();
-  }
-}
+import type { LogRecord } from "@logtape/logtape";
+import { captureDaemonLogs } from "./log-capture";
 
 function sessionSpy() {
   return {
@@ -8656,7 +8634,7 @@ describe("DaemonRuntime", () => {
     try {
       const findFailure = (records: readonly LogRecord[]) =>
         records.find((record) => record.properties.event === "agent_runtime:start_failed");
-      const { records } = await captureLogs(async (arrived) => {
+      const { records } = await captureDaemonLogs(async (arrived) => {
         await runtime.start(connection);
         // Same agent, same epoch, different requestId: AgentControl rejects the second one with
         // the fixed "control_request_mismatch" message once the first has a startResult. Sent
@@ -9736,7 +9714,7 @@ describe("one logical send keeps one idempotency key (Raft 1.0.38)", () => {
     );
     try {
       await send(harness, "send-held", { content: "held reply" });
-      const { result, records } = await captureLogs(() =>
+      const { result, records } = await captureDaemonLogs(() =>
         send(harness, "send-resend", { sendDraft: true }),
       );
 
@@ -9815,7 +9793,7 @@ describe("one logical send keeps one idempotency key (Raft 1.0.38)", () => {
         },
       );
       try {
-        const { result, records } = await captureLogs(() =>
+        const { result, records } = await captureDaemonLogs(() =>
           send(harness, "send-lost", { content: "reply" }),
         );
 
@@ -10364,7 +10342,7 @@ describe("a launch that cannot start says why", () => {
   });
 
   test("every failed launch, woken or managed, is logged with its reason and cause", async () => {
-    const { records } = await captureLogs(() =>
+    const { records } = await captureDaemonLogs(() =>
       failedLaunch({ session: () => new RuntimeModelNotFoundError("claude-9") }),
     );
     const failure = records.find(

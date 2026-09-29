@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { discoverOpenCodeCatalog, parseOpenCodeModelList } from "#src/code-agent/opencode/catalog";
+import { OPENCODE_DISCOVERY_BUDGET_MS } from "./catalog-discovery-budget";
 
 const FIXTURE = new URL("./fixtures/opencode-fixture.ts", import.meta.url).pathname;
 
@@ -115,56 +116,68 @@ test("ignores headers, blank lines and anything that is not a provider/model row
   expect(models.map((model) => model.id)).toEqual(["opencode/a"]);
 });
 
-test("discoverOpenCodeCatalog parses a live `opencode models --verbose` process", async () => {
-  const catalog = await discoverOpenCodeCatalog(
-    [process.execPath, FIXTURE, "models"],
-    process.cwd(),
-    { PATH: process.env.PATH, HOME: process.env.HOME },
-  );
-  expect(catalog?.provider).toBe("opencode");
-  expect(catalog?.models.map((model) => model.id)).toEqual([
-    "opencode/big-pickle",
-    "aiberm/gpt-5.6-luna",
-  ]);
-  expect(catalog?.models[0]?.reasoningEfforts).toEqual(["low", "medium", "high"]);
-});
+test(
+  "discoverOpenCodeCatalog parses a live `opencode models --verbose` process",
+  async () => {
+    const catalog = await discoverOpenCodeCatalog(
+      [process.execPath, FIXTURE, "models"],
+      process.cwd(),
+      { PATH: process.env.PATH, HOME: process.env.HOME },
+    );
+    expect(catalog?.provider).toBe("opencode");
+    expect(catalog?.models.map((model) => model.id)).toEqual([
+      "opencode/big-pickle",
+      "aiberm/gpt-5.6-luna",
+    ]);
+    expect(catalog?.models[0]?.reasoningEfforts).toEqual(["low", "medium", "high"]);
+  },
+  OPENCODE_DISCOVERY_BUDGET_MS,
+);
 
-test("falls back to the plain catalog when verbose output is empty", async () => {
-  const catalog = await discoverOpenCodeCatalog(
-    [process.execPath, FIXTURE, "models"],
-    process.cwd(),
-    {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      COFORGE_OPENCODE_MODELS_OUTPUT: "",
-    },
-  );
-  expect(catalog?.models.map((model) => model.id)).toEqual([
-    "opencode/big-pickle",
-    "aiberm/gpt-5.6-luna",
-  ]);
-  expect(catalog?.models[0]?.reasoningEfforts).toEqual([]);
-});
+test(
+  "falls back to the plain catalog when verbose output is empty",
+  async () => {
+    const catalog = await discoverOpenCodeCatalog(
+      [process.execPath, FIXTURE, "models"],
+      process.cwd(),
+      {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        COFORGE_OPENCODE_MODELS_OUTPUT: "",
+      },
+    );
+    expect(catalog?.models.map((model) => model.id)).toEqual([
+      "opencode/big-pickle",
+      "aiberm/gpt-5.6-luna",
+    ]);
+    expect(catalog?.models[0]?.reasoningEfforts).toEqual([]);
+  },
+  OPENCODE_DISCOVERY_BUDGET_MS,
+);
 
-test("falls back to the plain catalog when the CLI rejects `--verbose` (the released v2 CLI)", async () => {
-  const catalog = await discoverOpenCodeCatalog(
-    [process.execPath, FIXTURE, "models"],
-    process.cwd(),
-    {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      // Exactly what `opencode models --verbose` prints on 2.0.12: usage plus an unrecognized-flag
-      // error. It is not a model list, so the plain command must be retried.
-      COFORGE_OPENCODE_MODELS_OUTPUT:
-        "USAGE\n  opencode models [flags]\n\nERROR\n  Unrecognized flag: --verbose in command opencode models\n",
-    },
-  );
-  expect(catalog?.models.map((model) => model.id)).toEqual([
-    "opencode/big-pickle",
-    "aiberm/gpt-5.6-luna",
-  ]);
-  expect(catalog?.models[0]?.reasoningEfforts).toEqual([]);
-});
+test(
+  "falls back to the plain catalog when the CLI rejects `--verbose` (the released v2 CLI)",
+  async () => {
+    const catalog = await discoverOpenCodeCatalog(
+      [process.execPath, FIXTURE, "models"],
+      process.cwd(),
+      {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        // Exactly what `opencode models --verbose` prints on 2.0.12: usage plus an unrecognized-flag
+        // error. It is not a model list, so the plain command must be retried.
+        COFORGE_OPENCODE_MODELS_OUTPUT:
+          "USAGE\n  opencode models [flags]\n\nERROR\n  Unrecognized flag: --verbose in command opencode models\n",
+      },
+    );
+    expect(catalog?.models.map((model) => model.id)).toEqual([
+      "opencode/big-pickle",
+      "aiberm/gpt-5.6-luna",
+    ]);
+    expect(catalog?.models[0]?.reasoningEfforts).toEqual([]);
+  },
+  OPENCODE_DISCOVERY_BUDGET_MS,
+);
 
 test("no catalog (never a thrown error) when the CLI cannot be run", async () => {
   expect(

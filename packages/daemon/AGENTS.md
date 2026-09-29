@@ -59,6 +59,10 @@ Directories with their own `AGENTS.md` add rules for that directory only.
 - Add regression coverage for state transitions, best-effort Activity
   isolation, status reconnect/replay, IPC request validation, and provider
   adapter close/failure paths.
+- Capture Daemon log records with `captureDaemonLogs` from `test/log-capture.ts`. It uses
+  LogTape's scoped configuration, so a test that times out cannot tear down or pollute the
+  next test's capture. Never call `configure`, `reset`, or `dispose` in a test: they throw
+  while any capture is still running.
 - Use Bun and the repository's `mise` tasks. Do not introduce Node runtime APIs
   or a second process framework.
 - Run `mise run test:daemon`, `mise run check:daemon`, and

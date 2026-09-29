@@ -154,9 +154,15 @@ function reasoningLevels(variants: unknown): string[] {
   });
 }
 
+/** How long `opencode models --verbose` may run: a recent OpenCode syncs its hosted model catalog
+ * over the network here, so it gets 15 s. */
+export const OPENCODE_VERBOSE_MODELS_TIMEOUT_MS = 15_000;
+
+/** How long the plain `opencode models` retry may run. */
+export const OPENCODE_PLAIN_MODELS_TIMEOUT_MS = 5_000;
+
 /**
- * Runs `opencode models --verbose` (Raft's own 15 s budget: a recent OpenCode syncs its hosted
- * model catalog over the network here) and parses the catalog. An empty or unusable verbose result
+ * Runs `opencode models --verbose` and parses the catalog. An empty or unusable verbose result
  * retries the plain command, which omits per-model metadata but still lists the ids — the path the
  * released v2 CLI takes, since it rejects `--verbose` as an unknown flag. Missing CLI, empty
  * output, timeout, or unparseable output means no catalog, never a thrown error; a non-zero exit
@@ -166,7 +172,7 @@ export async function discoverOpenCodeCatalog(
   command: readonly string[],
   cwd: string,
   environment: Readonly<Record<string, string | undefined>>,
-  timeoutMs = 15_000,
+  timeoutMs = OPENCODE_VERBOSE_MODELS_TIMEOUT_MS,
 ): Promise<CodeAgentModelCatalog | undefined> {
   const verbose = await runOpenCodeModels([...command, "--verbose"], cwd, environment, timeoutMs);
   // A CLI that does not know `--verbose` answers with its usage text; that is not a model list, so
@@ -184,7 +190,12 @@ async function runPlainModels(
   cwd: string,
   environment: Readonly<Record<string, string | undefined>>,
 ): Promise<CodeAgentModelMetadata[]> {
-  const plain = await runOpenCodeModels(command, cwd, environment, 5_000);
+  const plain = await runOpenCodeModels(
+    command,
+    cwd,
+    environment,
+    OPENCODE_PLAIN_MODELS_TIMEOUT_MS,
+  );
   return plain ? parseOpenCodeModelList(plain) : [];
 }
 

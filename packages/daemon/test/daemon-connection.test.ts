@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
-import { configure, reset, type LogRecord } from "@logtape/logtape";
+import type { LogRecord } from "@logtape/logtape";
 import {
   createAgentMessageHttpClient,
   defaultAgentChannelHttpClient,
@@ -49,26 +49,7 @@ import { AgentMessageRequestError } from "#src/connection/agent-message-request-
 import { AgentTransportError } from "#src/connection/agent-transport-error";
 import { AgentMentionActionRequestError } from "#src/connection/agent-mention-action-request-error";
 import { AgentMentionDeliveryRequestError } from "#src/connection/agent-mention-delivery-request-error";
-
-/** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
- * previous (unconfigured) logging state. Mirrors the pattern in daemon-runtime.test.ts. */
-async function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; records: LogRecord[] }> {
-  const records: LogRecord[] = [];
-  await configure({
-    reset: true,
-    sinks: { capture: (record) => records.push(record) },
-    loggers: [
-      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
-      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
-    ],
-  });
-  try {
-    const result = await run();
-    return { result, records };
-  } finally {
-    await reset();
-  }
-}
+import { captureDaemonLogs } from "./log-capture";
 
 const TEST_AGENT_API_KEY = `sk_agent_${"a".repeat(43)}`;
 
@@ -645,7 +626,7 @@ test("logs a rejected session invalidate (e.g. an old server's unknown RPC) with
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   await transport.start("secret", config);
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     expect(
       transport.sendSessionInvalidate(sessionInvalidate("agent-1", "launch-1")),
     ).toBeUndefined();
@@ -674,7 +655,7 @@ test("logs an old server's unknown-method rejection at most once per connection 
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   await transport.start("secret", config);
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     transport.sendSessionInvalidate(sessionInvalidate("agent-1", "launch-1"));
     await Promise.resolve();
     await Promise.resolve();
@@ -773,7 +754,7 @@ test("logs an old server's unknown-method rejection of context usage at most onc
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   await transport.start("secret", config);
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     transport.sendAgentContextUsage(contextUsage("agent-1", "launch-1"));
     transport.sendAgentContextUsage(contextUsage("agent-1", "launch-2"));
     await Promise.resolve();
@@ -814,7 +795,7 @@ test("logs an old server's unknown-method rejection of a context scan result at 
     accepted: false,
     status: "no_session" as const,
   });
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await transport.sendAgentContextScanResult(scanResult("scan-1"));
     await transport.sendAgentContextScanResult(scanResult("scan-2"));
   });
@@ -1197,7 +1178,7 @@ test("an ordinary failure on the first connect is left to the client's own retry
   fake.client.disconnect = () => void disconnectCalls++;
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     const start = transport.start("secret", config);
     // centrifuge-js reports a temporary connect error or a transport that closed before opening as
     // `error` and stays in `connecting`, retrying with its own backoff.
@@ -1266,7 +1247,7 @@ test("a connection dropped right after connecting backs off and escalates instea
   };
   const { transport, scheduled } = manualConnection(fake);
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await transport.start("secret", config);
     for (let round = 0; round < 9; round += 1) scheduled.at(-1)!.callback();
   });
@@ -1321,7 +1302,7 @@ test("a blip that reconnects on its own after a stable day, then a quick drop, s
   scheduled[0]!.callback();
   await transport.ready(readyRequest);
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     clock.now += 86_400_000;
     // The client reconnected by itself, no error on the way; then the new connection drops at once.
     fake.connect();
@@ -1362,7 +1343,7 @@ test("a run of failed connect attempts escalates to an error, then repeats it on
   fake.client.connect = () => undefined;
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     const start = transport.start("secret", config);
     for (let attempt = 0; attempt < 20; attempt += 1) fake.fail(transportError);
     fake.connect();
@@ -1413,7 +1394,7 @@ test("a client error that is not a connect attempt is not reported as a retry", 
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   await transport.start("secret", config);
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     fake.fail({ type: "configuration", error: { code: 8, message: "bad configuration" } });
   });
 
@@ -1640,7 +1621,7 @@ test("while ready waits, notices past the cap are dropped and logged, but every 
   const delivered: string[] = [];
   transport.onAgentMessage((message) => delivered.push(`${message.agentId}#${message.sequence}`));
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     const ready = transport.ready(readyRequest);
     // One Agent's backlog fills the cap; another Agent's only notice arrives after it.
     for (let sequence = 1; sequence <= HELD_NOTICE_CAP + 3; sequence += 1)
@@ -1831,7 +1812,7 @@ test("a dropped connection does not restart the ready retry count", async () => 
   const { transport, scheduled } = manualConnection(fake);
   await transport.start("secret", config);
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     void transport.ready(readyRequest).catch(() => {});
     await scheduledRetries(scheduled, 1);
     fake.disconnect({ code: 3503, reason: "connection limit" });
@@ -4112,7 +4093,7 @@ test("a run of ready failures escalates, names the server's stage, and reports h
     cancel: () => {},
   });
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await transport.start("secret", config);
     await transport.ready(() => ({
       protocolMajor: 1,
@@ -4174,7 +4155,7 @@ test("a rejection without a stage still logs, and a recovery says how long the f
     cancel: () => {},
   });
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await transport.start("secret", config);
     await transport.ready(() => ({
       protocolMajor: 1,
@@ -4211,7 +4192,7 @@ test("a rejection without a stage still logs, and a recovery says how long the f
 test("a rejected control publication names every decoder's reason and the payload's shape", async () => {
   const fake = fakeClient();
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await transport.start("secret", config);
     fake.connect();
     // A length-delimited field that claims more bytes than arrived: the shape of a control frame
@@ -4279,7 +4260,7 @@ test("a connection carrying nothing at all is rebuilt rather than waited on", as
   const harness = livenessHarness(async () => {
     throw new Error("no reply");
   });
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await harness.transport.start("secret", config);
     harness.lifecycle.length = 0;
     harness.advance(80_000);
