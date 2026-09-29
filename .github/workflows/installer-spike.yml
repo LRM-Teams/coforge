@@ -1,0 +1,124 @@
+name: Installer spike (Rust)
+
+# Feasibility spike, not for merge: builds the Rust `coforge-installer` for the six release
+# targets on native GitHub-hosted runners and uploads each binary. Manual only.
+# Runner labels: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.release_target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple's linker ad-hoc signs arm64 output itself; macOS 27 kills arm64 binaries whose
+          # signature is invalid, so the job verifies it with `codesign --verify --strict`.
+          - release_target: darwin-arm64
+            rust_target: aarch64-apple-darwin
+            runner: macos-latest
+            native: true
+          # Cross-compiled on the arm64 runner. The linker leaves x86_64 output unsigned, so the
+          # job ad-hoc signs it the way Bun signs its darwin-x64 executables.
+          - release_target: darwin-x64
+            rust_target: x86_64-apple-darwin
+            runner: macos-latest
+            native: false
+          # musl, statically linked: no glibc version floor on the user's machine.
+          - release_target: linux-x64
+            rust_target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+            native: true
+          - release_target: linux-arm64
+            rust_target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            native: true
+          - release_target: windows-x64
+            rust_target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            native: true
+          # ring needs clang for this target; ring's own CI builds it on windows-11-arm with the
+          # runner image's Visual Studio toolchain and no extra install step.
+          - release_target: windows-arm64
+            rust_target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+            native: true
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: installer
+    env:
+      BINARY: target/${{ matrix.rust_target }}/release/coforge-installer${{ startsWith(matrix.release_target, 'windows') && '.exe' || '' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      # installer/mise.toml pins Rust; from installer/ mise also sees the root tools, so
+      # install only rust.
+      - name: Install pinned Rust
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: "2026.9.2"
+          working_directory: installer
+          install_args: rust
+      - name: Add the Rust target
+        run: mise exec -- rustup target add "${{ matrix.rust_target }}"
+      - name: Install the musl C compiler for ring
+        if: startsWith(matrix.release_target, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools
+          target="${{ matrix.rust_target }}"
+          echo "CC_${target//-/_}=musl-gcc" >> "$GITHUB_ENV"
+      - name: Check formatting and lints
+        if: matrix.release_target == 'darwin-arm64'
+        run: |
+          mise exec -- cargo fmt --check
+          mise exec -- cargo clippy --locked --all-targets -- -D warnings
+      - name: Test
+        if: matrix.native
+        run: mise exec -- cargo test --locked --target "${{ matrix.rust_target }}"
+      - name: Build release binary
+        run: mise exec -- cargo build --locked --release --target "${{ matrix.rust_target }}"
+      - name: Ad-hoc sign the x86_64 darwin binary
+        if: matrix.release_target == 'darwin-x64'
+        run: codesign --sign - --force "$BINARY"
+      - name: Verify the darwin signature
+        if: startsWith(matrix.release_target, 'darwin')
+        run: |
+          codesign -dv --verbose=2 "$BINARY"
+          codesign --verify --strict --verbose=2 "$BINARY"
+      - name: Report size and file type
+        run: |
+          wc -c < "$BINARY"
+          file "$BINARY" || true
+      - name: Show that the Linux binary is static
+        if: startsWith(matrix.release_target, 'linux')
+        run: ldd "$BINARY" || true
+      - name: Run on the native host
+        if: matrix.native
+        run: |
+          "$BINARY" --version
+          "$BINARY" status --json
+      - name: Run under Rosetta when available
+        if: matrix.release_target == 'darwin-x64'
+        run: |
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            arch -x86_64 "$BINARY" --version
+            arch -x86_64 "$BINARY" status --json
+          else
+            echo "::warning::Rosetta is not installed on this runner; darwin-x64 was built but not run"
+          fi
+      - name: Upload binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coforge-installer-${{ matrix.release_target }}
+          path: installer/${{ env.BINARY }}
+          if-no-files-found: error

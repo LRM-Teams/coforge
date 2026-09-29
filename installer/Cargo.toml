@@ -1,0 +1,26 @@
+[package]
+name = "coforge-installer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+description = "Feasibility spike: the CoForge Computer installer as a separate native binary"
+
+[dependencies]
+flate2 = "1"
+lexopt = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+# No default features: the default `gzip` feature makes ureq send Accept-Encoding and decode
+# Content-Encoding transparently, but the manifest checksum is over the exact wire bytes.
+# `rustls` = rustls with the ring provider and the webpki-roots (Mozilla) trust store.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+
+# https://doc.rust-lang.org/cargo/reference/profiles.html
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
