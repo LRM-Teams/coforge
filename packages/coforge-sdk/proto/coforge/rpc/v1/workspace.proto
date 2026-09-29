@@ -266,6 +266,21 @@ message AgentMessageDelivery {
   optional bool non_member_mention = 16;
   // Present when this delivery starts an isolated Task execution session.
   string task_execution_session_id = 17;
+  // Present on a tracked @mention delivery: the daemon answers it with an ACK that echoes this
+  // envelope once the mention is drained into that launch's session, or with a terminal error.
+  MentionDeliveryEnvelope mention_delivery = 18;
+}
+
+// The recipient Agent's launch and native session a tracked @mention delivery was issued for.
+// The delivery it travels with (or a report's `delivery_id`) identifies the mention;
+// `session_id` is the native session id the daemon reports in AgentSessionReport;
+// `computer_id` is the Computer the envelope was issued to. This message never shipped, so its
+// fields are numbered contiguously.
+message MentionDeliveryEnvelope {
+  string message_id = 1;
+  string launch_id = 2;
+  string session_id = 3;
+  string computer_id = 4;
 }
 
 message AgentMessageDeliveryAck {
@@ -277,6 +292,35 @@ message AgentMessageDeliveryAck {
   string agent_id = 6;
   uint64 sequence = 7;
   string method = 8;
+  // The envelope of the tracked delivery this ACK drained, echoed unchanged.
+  MentionDeliveryEnvelope mention_delivery = 9;
+}
+
+// Daemon-to-server progress of a tracked @mention delivery. `stage` is "daemon_received",
+// "daemon_pending" or "daemon_drained"; `outcome` is "accepted" for a first sighting and
+// "coalesced" for a repeat of a delivery still pending. Diagnostic only; never an ACK.
+message AgentMentionDeliveryTransition {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string agent_id = 4;
+  string delivery_id = 5;
+  string stage = 6;
+  string outcome = 7;
+  MentionDeliveryEnvelope mention_delivery = 8;
+}
+
+// Daemon-to-server final result of a tracked @mention delivery the daemon will not drain.
+// `code` is an upper-case identifier such as "IDENTITY_UNKNOWN" or "QUOTA_LIMITED"; the server
+// maps it to the recorded outcome.
+message AgentMentionDeliveryTerminalError {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string agent_id = 4;
+  string delivery_id = 5;
+  string code = 6;
+  MentionDeliveryEnvelope mention_delivery = 7;
 }
 
 // Versioned daemon-to-server rejection of a delivery the daemon did not take custody of; it

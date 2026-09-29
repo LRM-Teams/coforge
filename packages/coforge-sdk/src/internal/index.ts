@@ -697,6 +697,8 @@ export type AgentMessageDelivery = {
   nonMemberMention?: boolean;
   /** Present when this delivery starts an isolated Task execution session. */
   taskExecutionSessionId?: string;
+  /** Present on a tracked @mention delivery; an ACK echoes it once the mention is drained. */
+  mentionDelivery?: import("./mention-delivery").MentionDeliveryEnvelope;
 };
 export type AgentMessageDeliveryAck = Omit<
   AgentMessageDelivery,
@@ -990,3 +992,4 @@ export * from "./json-record";
 export * from "./agent-environment";
 export * from "./error-code";
 export * from "./text-codec";
+export * from "./mention-delivery";
