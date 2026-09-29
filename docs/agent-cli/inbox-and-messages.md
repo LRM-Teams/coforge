@@ -48,7 +48,8 @@ once under the same key; if that replay fails while the draft still holds the
 key, the error is `Retryable: yes` and names the exact
 `message send --send-draft --expected-draft-key "<key>" --target "<target>"`
 command. When the draft belongs to another send, or cannot be read, the error
-is not retryable and `Draft saved: no`. When reconciliation is unavailable,
+is not retryable, `Draft saved: no`, and it says which of the two it is. When reconciliation is
+unavailable,
 it is `Draft saved: yes`, not retryable. In both, delivery stays unknown: do
 not resend. Each daemon request of a send has a 30-second deadline (Raft's
 pre-response deadline), and the CLI waits for the daemon's whole settlement
