@@ -65,6 +65,8 @@ export type RunnerHoldOptions = {
   pollMs?: number;
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
+  /** Ends the wait early, not quiescent, once aborted: the operation that asked was taken over. */
+  signal?: AbortSignal;
   /** Called once per Agent still busy at the deadline; defaults to a structured log line. */
   onDeadline?: (entry: Record<string, unknown>) => void;
 };
@@ -108,6 +110,7 @@ export async function holdRunnersUntilQuiescent(
     }
     if (snapshot.busyAgents.length === 0)
       return { ...snapshot, quiescent: true, elapsedMs: elapsed() };
+    if (options.signal?.aborted) return { ...snapshot, quiescent: false, elapsedMs: elapsed() };
     if (elapsed() >= holdMs) break;
     await sleep(pollMs);
   }

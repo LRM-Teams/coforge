@@ -349,3 +349,44 @@ test("a restart naming several Workspaces that did not connect gives the command
     hint: "Run 'coforge-computer restart --workspace slug-ws-a' and 'coforge-computer restart --workspace slug-ws-b' to try again, or 'coforge-computer status' to check them.",
   });
 });
+
+test("a stop that answers before a Workspace has stopped names it with the command to follow it", async () => {
+  const progress = output();
+  const command = createCommand({
+    daemon: {
+      ensureRunning: async () => {},
+      command: async () => [
+        runtime("ws-a", { enabled: false, processId: 0 }),
+        runtime("ws-b", { enabled: true, processId: 9 }),
+      ],
+    },
+    resolveWorkspace: async (selector) => ({ id: selector, slug: `slug-${selector}` }),
+    write: progress.write,
+  });
+
+  await command.stop();
+
+  expect(progress.lines).toEqual([
+    "CoForge Computer stop requested, but not every Workspace has stopped yet:",
+    "  slug-ws-b: still stopping. Run 'coforge-computer status' to follow it.",
+  ]);
+});
+
+test("a scoped stop only reports its own Workspace", async () => {
+  const progress = output();
+  const command = createCommand({
+    daemon: {
+      ensureRunning: async () => {},
+      command: async () => [
+        runtime("ws-a", { enabled: false, processId: 0 }),
+        runtime("ws-b", { enabled: true, processId: 9 }),
+      ],
+    },
+    resolveWorkspace: async (selector) => ({ id: selector, slug: selector }),
+    write: progress.write,
+  });
+
+  await command.stop("ws-a");
+
+  expect(progress.lines).toEqual([]);
+});

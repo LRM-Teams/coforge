@@ -83,6 +83,10 @@ export type WorkspaceStatus = {
   health: WorkspaceHealth;
   /** `null` when the Workspace is not running or its handshake did not answer. */
   cloudConnection: WorkspaceCloudStatus | null;
+  /** Set while a start or restart of this Workspace is queued or running. */
+  underWay?: true;
+  /** The last operator command that failed after it had already answered; `at` is ISO. */
+  lastFailure?: { operation: "start" | "restart" | "stop"; message: string; at: string };
 };
 
 export type WorkspacesStatus =
@@ -135,9 +139,15 @@ export type StatusBinding = {
     state: "pending" | "succeeded" | "failed" | "acknowledged";
     requestedAt: number;
   }[];
+  lastFailure?: { operation: "start" | "restart" | "stop"; message: string; at: number };
 };
 
-export type DaemonRuntimeSnapshotEntry = { workspaceId: string; processId: number };
+export type DaemonRuntimeSnapshotEntry = {
+  workspaceId: string;
+  processId: number;
+  /** A start or restart of this Workspace is queued or running in the Coordinator. */
+  underWay?: boolean;
+};
 
 export type DaemonSnapshotProbe =
   | { reachable: true; runtimes: DaemonRuntimeSnapshotEntry[] }

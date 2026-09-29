@@ -124,6 +124,16 @@ function validateBindings(value: unknown): asserts value is ManagedBinding[] {
       if (record(binding.restart) && requests.has(String(binding.restart.requestId)))
         throw new Error("invalid binding registry conflicting restart");
     }
+    if (binding.lastFailure !== undefined) {
+      const failure = binding.lastFailure;
+      if (
+        !record(failure) ||
+        !["start", "restart", "stop"].includes(String(failure.operation)) ||
+        !text(failure.message) ||
+        !integer(failure.at)
+      )
+        throw new Error("invalid binding registry last failure");
+    }
     if (binding.upgradeRequestIds !== undefined) {
       if (
         !Array.isArray(binding.upgradeRequestIds) ||

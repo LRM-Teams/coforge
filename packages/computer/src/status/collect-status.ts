@@ -136,6 +136,15 @@ async function collectWorkspaces(
           unsettledUpgrades: unsettledUpgradesFor(binding, now),
           health,
           cloudConnection,
+          ...(runtime?.underWay ? { underWay: true as const } : {}),
+          ...(binding.lastFailure
+            ? {
+                lastFailure: {
+                  ...binding.lastFailure,
+                  at: new Date(binding.lastFailure.at).toISOString(),
+                },
+              }
+            : {}),
         };
       }),
     ),
