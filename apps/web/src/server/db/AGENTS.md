@@ -27,3 +27,9 @@ These rules apply to `src/server/db/`.
   `DirectConversations` has authorized and never creates one;
   `PrismaDirectConversationRepository` keeps the DM's messages and read
   cursors.
+- `mention-delivery.repositories.server.ts` keeps tracked @mention outcomes on
+  `agent_message_deliveries`. Every write is conditional on the outcome still
+  being open (pending or unknown) and, for a daemon report, on the row still
+  carrying that report's envelope, so a late or repeated report never reopens
+  delivered or lost. An issue holds its Agents' rows (`FOR SHARE`) while it
+  writes, so a concurrent Stop is either seen or waits and then settles it.

@@ -1195,6 +1195,24 @@ model AgentMessageDelivery {
   taskExecutionSessionId String? @db.Uuid
   sequence       Int
   receivedAt     DateTime?
+  /// A tracked @mention's outcome for this Agent: null when the delivery is not tracked, else
+  /// "pending", "delivered", "lost" or "unknown" (CHECK in the migration). Delivered and lost are
+  /// final; unknown is not.
+  mentionOutcome        String?
+  /// The daemon's last reported stage ("daemon_received", "daemon_pending", "daemon_drained"),
+  /// for diagnosis only (CHECK in the migration).
+  mentionStage          String?
+  /// Why a lost mention was lost: "quota", "runtime_error", "not_launched" or "unclassified";
+  /// set exactly when the outcome is lost (CHECK in the migration).
+  mentionReasonCategory String?
+  /// The daemon's raw terminal code, kept for diagnosis and never shown.
+  mentionTerminalCode   String?
+  /// The launch and provider-native session the current envelope was issued for; null while the
+  /// delivery went out without one.
+  mentionLaunchId       String?
+  mentionSessionId      String?
+  /// When the outcome became delivered, lost or unknown.
+  mentionSettledAt      DateTime?
   createdAt      DateTime     @default(now())
   message        Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
   workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

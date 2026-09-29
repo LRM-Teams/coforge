@@ -5,7 +5,9 @@ import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import { leftoverMentionHandles } from "./unresolved-mentions.server";
-import { channelTarget, encodeAgentDelivery } from "./agent-delivery.server";
+import { AgentDeliveryPublisher, channelTarget } from "./agent-delivery.server";
+import { MentionDeliveryIssuer } from "./mention-deliveries.server";
+import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
 import { MESSAGE_MENTIONS_SELECT } from "./mentions.server";
 import { agentMessageSender } from "./sender-display.server";
 import {
@@ -14,7 +16,6 @@ import {
 } from "./conversation-realtime.server";
 import {
   createCentrifugoServerApi,
-  daemonControlChannel,
   type CentrifugoServerApi,
 } from "#src/server/centrifugo/server-api.server";
 
@@ -563,7 +564,7 @@ export async function refuseAgentMentionAdds(
  * replays one it missed.
  */
 export async function publishNonMemberDeliveries(
-  db: Pick<PrismaClient, "agentMessageDelivery">,
+  db: Pick<PrismaClient, "agentMessageDelivery" | "$queryRaw" | "$transaction">,
   publisher: Pick<CentrifugoServerApi, "publish">,
   workspaceId: string,
   deliveries: readonly NonMemberDelivery[],
@@ -595,36 +596,33 @@ export async function publishNonMemberDeliveries(
       },
     },
   });
-  await Promise.all(
-    rows
-      .filter((row) => row.agent.computerId)
-      .map(async (row) => {
-        const sender = agentMessageSender(row.message.sender);
-        try {
-          await publisher.publish(
-            daemonControlChannel(workspaceId, row.agent.computerId!),
-            encodeAgentDelivery({
-              requestId: row.deliveryId,
-              workspaceId,
-              conversationId: row.message.conversationId,
-              agentId: row.agentId,
-              messageId: row.message.id,
-              deliveryId: row.deliveryId,
-              sequence: row.sequence,
-              body: row.message.body,
-              mentions: row.message.mentions,
-              target: `${channelTarget(row.message.conversation.channelName ?? "")}${row.message.threadRootId ? `:${row.message.threadRootId}` : ""}`,
-              latestSenderKind: sender.kind,
-              latestSenderHandle: sender.handle,
-              latestSenderDescription: sender.description,
-              mentionsAgent: true,
-              nonMemberMention: true,
-            }),
-          );
-        } catch {
-          // The delivery row stays unreceived, so the daemon's recovery replays it.
-        }
-      }),
+  // A notified Agent is personally mentioned, so each notification is a tracked mention. A
+  // failed push leaves the delivery unreceived, so the daemon's recovery replays it.
+  await new AgentDeliveryPublisher(
+    publisher,
+    new MentionDeliveryIssuer(new PrismaMentionDeliveryRepository(db)),
+  ).publish(
+    workspaceId,
+    rows.map((row) => {
+      const sender = agentMessageSender(row.message.sender);
+      return {
+        computerId: row.agent.computerId,
+        requestId: row.deliveryId,
+        conversationId: row.message.conversationId,
+        agentId: row.agentId,
+        messageId: row.message.id,
+        deliveryId: row.deliveryId,
+        sequence: row.sequence,
+        body: row.message.body,
+        mentions: row.message.mentions,
+        target: `${channelTarget(row.message.conversation.channelName ?? "")}${row.message.threadRootId ? `:${row.message.threadRootId}` : ""}`,
+        latestSenderKind: sender.kind,
+        latestSenderHandle: sender.handle,
+        latestSenderDescription: sender.description,
+        mentionsAgent: true,
+        nonMemberMention: true,
+      };
+    }),
   );
 }
 
@@ -644,7 +642,14 @@ export async function announceNotifiedPeople(
 
 /** An Agent notifies the targets of its own pending mentions: see `notifyMentionTargets`. */
 export async function notifyAgentMentionTargets(
-  db: Pick<PrismaClient, "pendingMentionAction" | "conversationMember" | "agentMessageDelivery">,
+  db: Pick<
+    PrismaClient,
+    | "pendingMentionAction"
+    | "conversationMember"
+    | "agentMessageDelivery"
+    | "$queryRaw"
+    | "$transaction"
+  >,
   workspaceId: string,
   agentId: string,
   resolutionIds: readonly string[],

@@ -87,6 +87,7 @@ import {
   AGENT_MESSAGE_REJECT_METHOD,
 } from "./index";
 import { isSeenExactSeqs } from "./freshness-decision";
+import { mentionDeliveryEnvelopeMessage, readMentionDeliveryEnvelope } from "./mention-delivery";
 import type {
   RuntimeMetadata,
   DaemonRuntimeCodeAgentsUpdateRequest,
@@ -1028,6 +1029,7 @@ export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Ar
       mentionsAgent: value.mentionsAgent,
       nonMemberMention: value.nonMemberMention,
       taskExecutionSessionId: value.taskExecutionSessionId ?? "",
+      mentionDelivery: mentionDeliveryEnvelopeMessage(value.mentionDelivery),
     }),
   );
 }
@@ -1045,6 +1047,7 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
       !isValidMessageSender(value.latestSenderKind, value.latestSenderHandle))
   )
     throw new Error("invalid agent message delivery");
+  const mentionDelivery = readMentionDeliveryEnvelope(value.mentionDelivery);
   return {
     protocolMajor: value.protocolMajor,
     requestId: value.requestId,
@@ -1069,13 +1072,18 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
     ...(value.taskExecutionSessionId
       ? { taskExecutionSessionId: value.taskExecutionSessionId }
       : {}),
+    ...(mentionDelivery ? { mentionDelivery } : {}),
   };
 }
 export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): Uint8Array {
   assertUint(value.sequence, Number.MAX_SAFE_INTEGER, "Agent delivery ACK sequence");
   return toBinary(
     AgentMessageDeliveryAckSchema,
-    create(AgentMessageDeliveryAckSchema, { ...value, sequence: BigInt(value.sequence) }),
+    create(AgentMessageDeliveryAckSchema, {
+      ...value,
+      sequence: BigInt(value.sequence),
+      mentionDelivery: mentionDeliveryEnvelopeMessage(value.mentionDelivery),
+    }),
   );
 }
 /** The delivery identity an ACK and a rejection both carry; every field is required. */
@@ -1100,10 +1108,13 @@ export function decodeAgentMessageDeliveryAck(bytes: Uint8Array): AgentMessageDe
   const v = fromBinary(AgentMessageDeliveryAckSchema, bytes);
   if (v.method !== AGENT_MESSAGE_ACK_METHOD || !hasDeliveryIdentity(v))
     throw new Error("invalid agent delivery ack");
+  const { $typeName: _, mentionDelivery: envelope, ...fields } = v;
+  const mentionDelivery = readMentionDeliveryEnvelope(envelope);
   return {
-    ...v,
+    ...fields,
     sequence: safeUint64(v.sequence, "Agent delivery ACK sequence"),
     method: AGENT_MESSAGE_ACK_METHOD,
+    ...(mentionDelivery ? { mentionDelivery } : {}),
   };
 }
 function validateAgentMessageDeliveryRejection(
@@ -1486,7 +1497,4 @@ export function encodeComputerRegisterResponse(value: ComputerRegisterResponse):
  * 1 MiB, 64 KiB) — but the check and its wording are one rule, and both the encode and the decode
  * path go through it, so a peer cannot make us parse an oversized frame.
  */
-export function boundedPayload(bytes: Uint8Array, maxBytes: number, label: string): Uint8Array {
-  if (bytes.length > maxBytes) throw new Error(`${label} payload too large`);
-  return bytes;
-}
+export { boundedPayload } from "./bounded-payload";

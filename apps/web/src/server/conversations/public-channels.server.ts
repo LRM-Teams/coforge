@@ -38,10 +38,11 @@ import {
 } from "./conversation-history.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
-import { encodeAgentDelivery } from "./agent-delivery.server";
+import { AgentDeliveryPublisher } from "./agent-delivery.server";
+import { MentionDeliveryIssuer } from "./mention-deliveries.server";
+import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
 import {
   createCentrifugoServerApi,
-  daemonControlChannel,
   type CentrifugoServerApi,
 } from "#src/server/centrifugo/server-api.server";
 import type { MessageNotifier } from "#src/server/notifications/web-push-composition.server";
@@ -2192,31 +2193,30 @@ export class PublicChannels {
     // Routed through the shared projection rather than two non-null assertions on
     // `sender.user`, which broke for an Agent-authored channel delivery.
     const sender = agentMessageSender(message.sender);
-    await Promise.all(
-      message.deliveries
-        .filter((delivery) => delivery.agent.computerId)
-        .map((delivery) =>
-          publisher.publish(
-            daemonControlChannel(input.workspaceId, delivery.agent.computerId!),
-            encodeAgentDelivery({
-              requestId,
-              workspaceId,
-              conversationId: channelId,
-              agentId: delivery.agentId,
-              messageId: message.id,
-              deliveryId: delivery.deliveryId,
-              sequence: message.sequence,
-              body: message.body,
-              mentions: message.mentions,
-              target: `#${channel.channelName}${message.threadRootId ? `:${message.threadRootId}` : ""}`,
-              latestSenderKind: sender.kind,
-              latestSenderHandle: sender.handle,
-              latestSenderDescription: sender.description,
-              mentionsAgent: deliveryMentionsAgent(message.mentions, delivery.agentId),
-            }),
-          ),
-        ),
+    const pushed = await new AgentDeliveryPublisher(
+      publisher,
+      new MentionDeliveryIssuer(new PrismaMentionDeliveryRepository(this.db)),
+    ).publish(
+      workspaceId,
+      message.deliveries.map((delivery) => ({
+        computerId: delivery.agent.computerId,
+        requestId,
+        conversationId: channelId,
+        agentId: delivery.agentId,
+        messageId: message.id,
+        deliveryId: delivery.deliveryId,
+        sequence: message.sequence,
+        body: message.body,
+        mentions: message.mentions,
+        target: `#${channel.channelName}${message.threadRootId ? `:${message.threadRootId}` : ""}`,
+        latestSenderKind: sender.kind,
+        latestSenderHandle: sender.handle,
+        latestSenderDescription: sender.description,
+        mentionsAgent: deliveryMentionsAgent(message.mentions, delivery.agentId),
+      })),
     );
+    const failed = pushed.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
     // Read from the stored body, so an idempotent replay reads the same `@handle`s.
     const unresolved = await unresolvedMentionHandles(
       this.db,

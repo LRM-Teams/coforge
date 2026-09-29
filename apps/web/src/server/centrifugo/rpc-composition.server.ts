@@ -63,8 +63,12 @@ import {
   createAgentStartMethod,
   createAgentDeliveryAckMethod,
   createAgentDeliveryRejectMethod,
+  createMentionDeliveryTerminalErrorMethod,
+  createMentionDeliveryTransitionMethod,
 } from "./rpc-handler.server";
 import { AgentDeliveryRejections } from "#src/server/agents/agent-delivery-rejection.server";
+import { MentionDeliveryReports } from "#src/server/conversations/mention-deliveries.server";
+import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
 import {
   PublishAgentRuntimeControl,
   WorkspaceAgentRecovery,
@@ -78,6 +82,8 @@ import {
   AGENT_START_METHOD,
   AGENT_MESSAGE_ACK_METHOD,
   AGENT_MESSAGE_REJECT_METHOD,
+  AGENT_MENTION_DELIVERY_TERMINAL_ERROR_METHOD,
+  AGENT_MENTION_DELIVERY_TRANSITION_METHOD,
 } from "@lrm/coforge-sdk/internal";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { verifyDaemonApiKey } from "#src/server/auth/daemon-api-key.server";
@@ -228,6 +234,11 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       async (workspaceId, computerId) =>
         (await getComputerRestartStore().identity?.({ workspaceId, computerId }))?.workerInstanceId,
     );
+    const mentionReports = new MentionDeliveryReports(
+      new PrismaMentionDeliveryRepository(db),
+      centrifugo,
+      directConversations,
+    );
     const reminderRepository = new PrismaReminderRepository(db);
     const reminderLease = getReminderCapabilityLease();
     const reminders = new Reminders(reminderRepository, reminderLease, (sync) =>
@@ -327,9 +338,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
           getAgentDisplay(),
           centrifugo,
         ),
-        [AGENT_MESSAGE_ACK_METHOD]: createAgentDeliveryAckMethod(
-          new PrismaDirectConversationRepository(db),
-        ),
+        [AGENT_MESSAGE_ACK_METHOD]: createAgentDeliveryAckMethod(mentionReports),
         [AGENT_MESSAGE_REJECT_METHOD]: createAgentDeliveryRejectMethod(
           new AgentDeliveryRejections(
             controlStore,
@@ -338,6 +347,10 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
             control,
           ),
         ),
+        [AGENT_MENTION_DELIVERY_TRANSITION_METHOD]:
+          createMentionDeliveryTransitionMethod(mentionReports),
+        [AGENT_MENTION_DELIVERY_TERMINAL_ERROR_METHOD]:
+          createMentionDeliveryTerminalErrorMethod(mentionReports),
       },
       authenticateEnvelope: (request, context) =>
         requireAuthenticatedCentrifugoUser(request, context, new PrismaDaemonApiKeyRepository(db)),
@@ -366,6 +379,8 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [AGENT_STATUS_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_REJECT_METHOD]: unavailableMethod,
+      [AGENT_MENTION_DELIVERY_TRANSITION_METHOD]: unavailableMethod,
+      [AGENT_MENTION_DELIVERY_TERMINAL_ERROR_METHOD]: unavailableMethod,
       ...reminderCallbackMethods(unavailableMethod, unavailableMethod),
     },
     authenticateEnvelope: (request, context) =>
