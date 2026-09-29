@@ -132,18 +132,18 @@ export function useChannelConversation(channelId: string) {
 }
 
 /**
- * A direct conversation with an Agent as its page and the Tasks page's popup both show it: the
+ * A direct conversation, by its id, as its page and the Tasks page's popup both show it: the
  * loaded messages (kept live by realtime), its Tasks, and what the viewer does there — send,
  * react, read threads. `conversationProps` goes straight to `DirectConversation`.
  */
-export function useDirectConversation(agentId: string) {
+export function useDirectConversation(conversationId: string) {
   const send = useServerFn(sendDirectConversationMessage);
   const toggleReaction = useServerFn(toggleDirectMessageReaction);
   const markRead = useServerFn(markDirectThreadRead);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
   const page = useConversationQuery({
-    ...directConversationQuery(agentId),
-    loadUpdates: directConversationUpdates(agentId),
+    ...directConversationQuery(conversationId),
+    loadUpdates: directConversationUpdates(conversationId),
     // No Task refresh here either — see the channel branch above.
   });
   const { conversation } = page;
@@ -166,7 +166,7 @@ export function useDirectConversation(agentId: string) {
         threadRootId?: string,
       ) => {
         const message = await send({
-          data: { agentId, requestId, body, attachmentIds, threadRootId },
+          data: { conversationId, requestId, body, attachmentIds, threadRootId },
         });
         page.mergeUpdates([message]);
         void page.reconciliation.reconcile().catch(() => {});
@@ -178,14 +178,12 @@ export function useDirectConversation(agentId: string) {
           emoji,
           conversation.viewerHandle ? `@${conversation.viewerHandle}` : undefined,
           active,
-          () => toggleReaction({ data: { agentId, messageId, emoji, active } }),
+          () => toggleReaction({ data: { conversationId, messageId, emoji, active } }),
         ),
       onReadThread: (threadRootId: string, throughSequence: number) =>
-        markRead({ data: { agentId, threadRootId, throughSequence } }),
+        markRead({ data: { conversationId, threadRootId, throughSequence } }),
       onLoadOwnMessages: (beforeSequence?: number) =>
-        loadOwnMessages({
-          data: { conversationId: conversation.conversationId, beforeSequence },
-        }),
+        loadOwnMessages({ data: { conversationId, beforeSequence } }),
       onLoadMessageAround: page.loadMessageAround,
       onShowLatest: page.showLatest,
       onLoadOlder: page.loadOlder,

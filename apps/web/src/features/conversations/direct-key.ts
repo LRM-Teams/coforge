@@ -10,6 +10,11 @@ export function peopleDirectKey(userId: string, otherUserId: string) {
     .join("|");
 }
 
+/** The key of a member's direct conversation with an Agent (`agent:` sorts before `user:`). */
+export function agentDirectKey(userId: string, agentId: string) {
+  return `agent:${agentId}|user:${userId}`;
+}
+
 /** Whether a direct conversation is between people (no Agent part). */
 export function isPeopleDirectKey(directKey: string) {
   return directKey.split("|").every((part) => part.startsWith("user:"));
@@ -20,10 +25,4 @@ export function isPeopleDirectKey(directKey: string) {
 export function peopleDirectKeyPair(directKey: string): [string, string] {
   const [first, second] = directKey.split("|").map((part) => part.slice("user:".length));
   return [first!, second ?? first!];
-}
-
-/** The Agent a User–Agent key (`agent:<id>|user:<id>`) names; `null` for any other key. */
-export function agentOfDirectKey(directKey: string | null): string | null {
-  if (!directKey) return null;
-  return /^agent:([^|]+)\|user:/.exec(directKey)?.[1] ?? null;
 }

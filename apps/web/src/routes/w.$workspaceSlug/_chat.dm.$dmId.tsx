@@ -25,10 +25,11 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat/dm/$dmId")({
     );
     // A direct conversation between people has no page yet.
     if (target.kind !== "agent") throw notFound();
-    await loadConversationPage(context.queryClient, { kind: "agent", id: target.agentId }, deps, {
+    await loadConversationPage(context.queryClient, { kind: "dm", id: params.dmId }, deps, {
       cause,
       workspaceId: () => parentMatchPromise.then(({ loaderData }) => loaderData?.workspaceId ?? ""),
     });
+    // The sidebar keeps the open DM's badge, which it holds under the Agent, clear.
     return { agentId: target.agentId };
   },
   pendingComponent: ConversationPending,
@@ -37,6 +38,6 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat/dm/$dmId")({
 });
 
 function DirectConversationRoute() {
-  const { agentId } = Route.useLoaderData();
-  return <ConversationPage target={{ kind: "agent", id: agentId }} search={Route.useSearch()} />;
+  const { dmId } = Route.useParams();
+  return <ConversationPage target={{ kind: "dm", id: dmId }} search={Route.useSearch()} />;
 }

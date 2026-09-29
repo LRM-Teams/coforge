@@ -46,10 +46,10 @@ export const searchPageSearchSchema = z.object({
   sort: z.literal("recent").optional().catch(undefined),
   // Set by "Search this channel": the filters wait for a query before searching.
   defer: z.literal("1").optional().catch(undefined),
-  // The result previewed beside the list: `channel:<id>` or `agent:<id>`, at message `msg`.
+  // The result previewed beside the list: `channel:<id>` or `dm:<id>`, at message `msg`.
   open: z
     .string()
-    .regex(/^(channel|agent):[0-9a-f-]{36}$/)
+    .regex(/^(channel|dm):[0-9a-f-]{36}$/)
     .optional()
     .catch(undefined),
   msg: z.uuid().optional().catch(undefined),

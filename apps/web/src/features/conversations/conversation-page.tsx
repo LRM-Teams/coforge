@@ -36,7 +36,7 @@ export function ConversationPage({
   return target.kind === "channel" ? (
     <ChannelConversationPage channelId={target.id} {...props} />
   ) : (
-    <DirectConversationPage agentId={target.id} {...props} />
+    <DirectConversationPage conversationId={target.id} {...props} />
   );
 }
 
@@ -77,12 +77,14 @@ function ChannelConversationPage({
 }
 
 function DirectConversationPage({
-  agentId,
+  conversationId,
   ...props
-}: ConversationPageProps & { agentId: string }) {
-  const agentStatus = useLiveAgent(agentId)?.status.value;
-  const { page, taskView, conversationProps } = useDirectConversation(agentId);
+}: ConversationPageProps & { conversationId: string }) {
+  const { page, taskView, conversationProps } = useDirectConversation(conversationId);
   const { conversation } = page;
+  // The sidebar keeps a DM's badge under its Agent.
+  const agentId = conversation.agent.id;
+  const agentStatus = useLiveAgent(agentId)?.status.value;
   const advanceReadCursor = useServerFn(markDirectConversationRead);
   return (
     <ConversationPageBody
@@ -94,7 +96,8 @@ function DirectConversationPage({
       name={conversation.agent.displayName}
       readCursor={{
         key: `agent:${agentId}`,
-        advance: (throughSequence) => advanceReadCursor({ data: { agentId, throughSequence } }),
+        advance: (throughSequence) =>
+          advanceReadCursor({ data: { conversationId, throughSequence } }),
       }}
       header={(tabs, openAgentProfile) => (
         <DirectConversationHeader

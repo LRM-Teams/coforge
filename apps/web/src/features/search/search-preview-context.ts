@@ -28,22 +28,22 @@ export function isPreviewed(
   );
 }
 
-/** A preview's `open` search param: `channel:<id>` or `agent:<id>` (read by `searchPreviewTarget`). */
+/** A preview's `open` search param: `channel:<id>` or `dm:<id>` (read by `searchPreviewTarget`). */
 export function searchPreviewOpenParam(target: SearchPreviewTarget): string {
   return `${target.kind}:${target.id}`;
 }
 
-/** The preview the search URL names: `open` (`channel:<id>` or `agent:<id>`) at message `msg`. */
+/** The preview the search URL names: `open` (`channel:<id>` or `dm:<id>`) at message `msg`. */
 export function searchPreviewTarget(
   open: string | undefined,
   msg?: string,
 ): SearchPreviewTarget | undefined {
   const [kind, id] = open?.split(":") ?? [];
-  return (kind === "channel" || kind === "agent") && id ? { kind, id, messageId: msg } : undefined;
+  return (kind === "channel" || kind === "dm") && id ? { kind, id, messageId: msg } : undefined;
 }
 
 /**
- * The preview for a message result: its channel or its direct conversation's Agent, at the row
+ * The preview for a message result: its channel or its direct conversation, at the row
  * the stream shows it on, with a thread reply's thread open at the reply (the stream stays at its
  * root), as Activity opens a thread.
  * Undefined when its place cannot be previewed.
@@ -59,6 +59,6 @@ export function messagePreviewTarget(
   if (conversation.channelName)
     return { kind: "channel", id: conversation.id, messageId, ...thread };
   return conversation.directAgent
-    ? { kind: "agent", id: conversation.directAgent.id, messageId, ...thread }
+    ? { kind: "dm", id: conversation.id, messageId, ...thread }
     : undefined;
 }
