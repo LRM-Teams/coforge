@@ -141,6 +141,11 @@ function AppLayout() {
                   await navigate({ to: "/w/$workspaceSlug", params: { workspaceSlug: slug } });
                 }}
                 onCreateWorkspace={createAndOpen}
+                /** Like FirstWorkspacePage's link: a full browser navigation so the server route
+                 * can clear the session cookie and send the browser to Authing. `?returnTo`
+                 * carries this page back across the sign-out (the root route hands it to
+                 * `/login`) once the switch-account return step is in. */
+                onSignOut={() => void window.location.assign("/auth/logout")}
               >
                 <Outlet />
               </AppShell>
