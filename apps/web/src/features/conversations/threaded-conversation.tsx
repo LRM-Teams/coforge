@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef } from "react";
-import { ClientOnly } from "@tanstack/react-router";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { MessageSquare01 as MessageSquare } from "@untitledui/icons";
 
@@ -38,16 +37,17 @@ const NO_CHANNELS: readonly ChannelSuggestion[] = [];
 /** No messages whose Tasks to read. */
 const NO_MESSAGES: DirectConversationView["messages"] = [];
 
+/**
+ * A conversation is rendered in the browser only, and this does not check it: Chat's routes are
+ * `ssr: false`, and the search preview and the Tasks page's Task popup (`OverviewTaskPopup`) mount
+ * it under `ClientOnly`. Its collections fail if it is ever reached on the server.
+ */
 export function ThreadedConversation(props: ThreadedConversationProps) {
-  const conversation = (
+  return (
     <ConversationIdProvider conversationId={props.conversation.conversationId}>
       <ThreadedConversationContent {...props} />
     </ConversationIdProvider>
   );
-  // A conversation is rendered in the browser only: Chat's routes are `ssr: false` and the search
-  // preview is under `ClientOnly`. A Task popup shown alone is on the Tasks page, which the
-  // server renders: it has no stream to show and reads Tasks at once, so it is client-only too.
-  return props.taskPopup ? <ClientOnly fallback={null}>{conversation}</ClientOnly> : conversation;
 }
 
 function ThreadedConversationContent(props: ThreadedConversationProps) {

@@ -28,6 +28,7 @@ import {
 } from "./conversation-tasks-collection";
 import { UNFINISHED_STATUSES } from "./finished-tasks";
 import { finishedTasksScopeKey } from "./use-finished-tasks";
+import { assertBrowserOnly } from "#src/lib/browser-only";
 import { m } from "#src/paraglide/messages";
 
 const appRoute = getRouteApi("/w/$workspaceSlug");
@@ -40,13 +41,12 @@ const appRoute = getRouteApi("/w/$workspaceSlug");
 const tasksByClient = new WeakMap<QueryClient, Map<string, ConversationTasks>>();
 
 /**
- * One collection (and store) per `QueryClient` and conversation, so every reader shares one. Never
- * call it while rendering on the server: every hook that reaches it at render
- * (`useConversationTasksCollection`) runs in a conversation, which is rendered in the browser only
- * (see `ThreadedConversation`); `useConversationTasks`, which the server renders, reaches it only
- * from events.
+ * One collection (and store) per `QueryClient` and conversation, so every reader shares one. It
+ * fails on the server: every hook that reaches it at render (`useConversationTasksCollection`)
+ * runs in a conversation, which is rendered in the browser only (see `ThreadedConversation`).
  */
 export function conversationTasksFor(queryClient: QueryClient, conversationId: string) {
+  assertBrowserOnly("A conversation's Tasks collection");
   let byConversation = tasksByClient.get(queryClient);
   if (!byConversation) tasksByClient.set(queryClient, (byConversation = new Map()));
   let tasks = byConversation.get(conversationId);

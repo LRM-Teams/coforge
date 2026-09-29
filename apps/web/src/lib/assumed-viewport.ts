@@ -1,7 +1,6 @@
 /**
  * Whether a request is from a phone. The server cannot see the viewport, but the layout it renders
- * (the app's navigation, Chat's loading screen) differs between a phone and
- * a desktop in structure, and a page that hydrates a different structure than it was sent throws
+ * (the app's navigation) differs between a phone and a desktop in structure, and a page that hydrates a different structure than it was sent throws
  * its markup away and renders again. So the first render assumes the viewport a phone has, or a
  * desktop has, from what every request says about the browser (`Sec-CH-UA-Mobile` where the
  * browser sends it, else the `Mobi` token MDN recommends for detecting a mobile browser); a browser

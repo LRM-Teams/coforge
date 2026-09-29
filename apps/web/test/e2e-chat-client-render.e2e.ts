@@ -59,6 +59,20 @@ test("a chat page's server HTML holds no conversation, and the browser shows the
         setTimeout(() => reject(new Error(`timed out waiting for ${condition}`)), ms),
       ),
     ]);
+  /** What the page has reported since it was opened: console errors (React logs a hydration
+   * mismatch as one) and uncaught errors. */
+  async function pageProblems() {
+    const consoleLog: { type: string; text: string }[] = JSON.parse(
+      await browser("console", "--json"),
+    ).data.messages;
+    const uncaught: { text: string }[] = JSON.parse(await browser("errors", "--json")).data.errors;
+    return [
+      ...consoleLog
+        .filter((message) => message.type === "error")
+        .map((message) => `console.error: ${message.text}`),
+      ...uncaught.map((error) => `uncaught: ${error.text}`),
+    ];
+  }
   const pageText = (text: string) => `document.body.innerText.includes(${JSON.stringify(text)})`;
   async function serverHtml(path: string) {
     const response = await fetch(`${origin}${path}`, {
@@ -86,6 +100,7 @@ test("a chat page's server HTML holds no conversation, and the browser shows the
   const workspacePath = `/en/w/${membership.workspace.slug}`;
   const run = `e2e-render-${process.pid}`;
   const conversations: string[] = [];
+  let failure: { error: unknown } | undefined;
   /** A conversation the dev user is in, holding messages whose text no page or default has. */
   async function seed(data: { channelName?: string; directKey?: string }, label: string) {
     const conversation = await db.conversation.create({
@@ -187,14 +202,29 @@ test("a chat page's server HTML holds no conversation, and the browser shows the
         await waitFor(pageText(other.conversation.channelName!));
       }
       await browser("screenshot", join(artifacts, `${name}.png`));
+      // Loading the page, hydrating its loading screen and then rendering the conversation
+      // reported nothing.
+      expect({ page: name, problems: await pageProblems() }).toEqual({ page: name, problems: [] });
     }
-  } finally {
-    // Messages first: a message keeps its sender's member row from going.
-    await db.message
-      .deleteMany({ where: { conversationId: { in: conversations } } })
-      .catch(() => {});
-    await db.conversation.deleteMany({ where: { id: { in: conversations } } }).catch(() => {});
-    await browser("close").catch(() => undefined);
-    await db.$disconnect();
+  } catch (error) {
+    failure = { error };
   }
+  // The cleanup runs whether the test passed or failed. Each step runs whatever the others did, and
+  // a failed one is reported, not dropped. Messages first: a message keeps its sender's member row
+  // from going.
+  const cleanupFailures: unknown[] = [];
+  for (const step of [
+    () => db.message.deleteMany({ where: { conversationId: { in: conversations } } }),
+    () => db.conversation.deleteMany({ where: { id: { in: conversations } } }),
+    () => browser("close"),
+    () => db.$disconnect(),
+  ])
+    await step().catch((error: unknown) => cleanupFailures.push(error));
+  // A failure of the test itself stays the one that is thrown.
+  if (failure) {
+    if (cleanupFailures.length) console.error("the test's cleanup also failed", cleanupFailures);
+    throw failure.error;
+  }
+  if (cleanupFailures.length)
+    throw new AggregateError(cleanupFailures, "the test's cleanup failed");
 }, 300_000);
