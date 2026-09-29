@@ -723,17 +723,11 @@ export class ActionCards {
           where: { name: bare, workspaceId, ...ACTIVE_AGENT_WHERE },
           select: { id: true, visibility: true },
         });
-    if (!agent)
-      throw new ActionCardError(422, "INVALID_HANDLE", `unknown agent handle: ${value}`, { field });
     // Every Agent an action card names becomes a channel member, and a private Agent never is one.
-    // Refusing here also keeps its display name out of a card rendered to the channel.
-    if (agent.visibility !== AGENT_VISIBILITY.PUBLIC)
-      throw new ActionCardError(
-        422,
-        "INVALID_HANDLE",
-        `${value} is private and cannot be a channel member`,
-        { field },
-      );
+    // It is refused exactly as a handle that does not exist, so an Agent cannot probe which
+    // private Agents exist, and its display name stays out of a card rendered to the channel.
+    if (!agent || agent.visibility !== AGENT_VISIBILITY.PUBLIC)
+      throw new ActionCardError(422, "INVALID_HANDLE", `unknown agent handle: ${value}`, { field });
     return agent.id;
   }
 

@@ -765,3 +765,25 @@ test("a send whose key is still processing answers 409 instead of failing the re
     retryable: true,
   });
 });
+
+test("a private Agent's reply in a direct message it may only read names AGENT_DM_RESTRICTED", async () => {
+  const result = await handleAgentMessagesPost(
+    request({ target: "@ada", content: "hello", idempotencyKey: "idem-restricted" }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      requestRecords: noRequestRecords,
+      repository: {},
+      sender: {
+        executeFromAgent: async () => {
+          throw new AppError("AGENT_DM_RESTRICTED");
+        },
+      },
+    },
+  );
+  expect(result.status).toBe(403);
+  expect(await result.json()).toEqual({
+    error: "this direct message is private and read-only for this Agent",
+    code: "AGENT_DM_RESTRICTED",
+    retryable: false,
+  });
+});

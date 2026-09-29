@@ -1569,6 +1569,43 @@ test("a send refused without a code keeps the server's reason under the send's o
   expect(error.suggestedNextAction).toStartWith("No message was sent");
 });
 
+test("a send refused with a 409 that names no code keeps delivery unknown", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(refusedByServer({ error: "busy" }, 409));
+
+  const error = await sendFailure("@ada");
+
+  expect(error).toMatchObject({ code: "SEND_FAILED", draftSaved: true });
+  expect(error.suggestedNextAction).toContain("Delivery state is UNKNOWN");
+  expect(error.suggestedNextAction).not.toContain("No message was sent");
+});
+
+test("a send refused with a code this CLI does not know keeps delivery unknown", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    refusedByServer({ error: "something new", code: "SOMETHING_NEW", retryable: false }, 403),
+  );
+
+  const error = await sendFailure("@ada");
+
+  expect(error).toMatchObject({ code: "SOMETHING_NEW", draftSaved: true });
+  expect(error.suggestedNextAction).toContain("Delivery state is UNKNOWN");
+});
+
+test("a send a private Agent may not make says the direct message is read-only for it", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    refusedByServer({
+      error: "this direct message is private and read-only for this Agent",
+      code: "AGENT_DM_RESTRICTED",
+      retryable: false,
+    }),
+  );
+
+  const error = await sendFailure("@ada");
+
+  expect(error.code).toBe("AGENT_DM_RESTRICTED");
+  expect(error.suggestedNextAction).toStartWith("No message was sent");
+  expect(error.suggestedNextAction).toContain("read-only");
+});
+
 /** A capabilities lookup that allows the multipart path, then `answer` for the upload itself. */
 const uploadAnswering = (answer: () => Response) =>
   spyOn(globalThis, "fetch").mockImplementation((async (input) => {

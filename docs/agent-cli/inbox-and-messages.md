@@ -79,8 +79,14 @@ action follows the code:
   same key is still being processed, so delivery is UNKNOWN, not refused. Wait,
   then resend the saved draft with `--send-draft`, which reuses the key; never
   rewrite it as a new send.
-- Any other code: no message was sent; fix the problem, then run the command
-  again.
+- `AGENT_DM_RESTRICTED`: a private Agent's direct message that is read-only
+  for it. Reply in a conversation it may post to.
+- A 400 or 403 without a code (the send's own validation, or a rejection whose
+  transaction rolled back): no message was sent; fix the problem, then run the
+  command again.
+- Anything else (a code this CLI does not know, or another status without a
+  code): delivery is UNKNOWN, as for a transport failure; do not resend on this
+  evidence.
 
 Only a 4xx whose body is exactly `{ error, code?, retryable? }` is relayed this
 way; any other upstream body is withheld.
