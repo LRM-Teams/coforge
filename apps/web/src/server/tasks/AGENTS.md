@@ -21,7 +21,8 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
 - Resource expiry follow-up uses the existing Reminder persistence and
   synchronization. Never add a second task scheduler.
 - TaskBoard creates the server-authored assignment Message and the assignee's
-  delivery eligibility in the same transaction.
+  delivery eligibility in the same transaction. An Agent that assigns itself
+  gets no delivery: the receipt is in its command result, and it never wakes itself.
 - Task writes post their server notice (wording in `task-notices.server.ts`)
   through `withNotices`, which holds the conversation lock and signals open
   pages after the commit. Creation, conversion and assignment post in the

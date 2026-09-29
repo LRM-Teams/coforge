@@ -312,7 +312,7 @@ test("only the assignment receipt is delivered, pushed and fanned out to unread 
   } = await channelFixture("receipts");
 
   // Created assigned to oneself, a Task starts at once. Its receipt is still the one assignment
-  // notice in the channel (no claim line), so the Agent's delivery names the channel.
+  // notice in the channel (no claim line).
   let mark = await latestSequence();
   const started = await run(asAgent, {
     operation: "create",
@@ -348,14 +348,14 @@ test("only the assignment receipt is delivered, pushed and fanned out to unread 
 
   const receiptIds = [started, reserved].map((result) => result.assignmentReceipt!.messageId);
   const notices = await allNotices();
-  // Each receipt carries its one delivery to the Agent and its push; no other notice has either.
+  // Each receipt carries its push; no other notice has one. Only the receipt of a person's
+  // assignment is delivered to the Agent: an Agent that assigns itself never wakes itself.
   const receiptsFirst = [...receiptIds].sort();
   expect(
     notices
       .filter((notice) => notice._count.deliveries > 0)
-      .map((notice) => [notice.id, notice._count.deliveries])
-      .sort(),
-  ).toEqual(receiptsFirst.map((id) => [id, 1]));
+      .map((notice) => [notice.id, notice._count.deliveries]),
+  ).toEqual([[reserved.assignmentReceipt!.messageId, 1]]);
   expect(pushed.filter((id) => notices.some((notice) => notice.id === id)).sort()).toEqual(
     receiptsFirst,
   );
