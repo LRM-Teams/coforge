@@ -81,6 +81,19 @@ export function formatCalendarDate(
   return `${part("year")}.${part("month")}.${part("day")}`;
 }
 
+/** Month and day only, in the language's own short form: "10月6日" in Chinese, "Oct 6" in English. */
+export function formatMonthDay(
+  value: Date | string,
+  timeZone: string | null | undefined,
+  locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
+) {
+  return dateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+    timeZone: resolveTimeZone(timeZone, browserTimeZone()),
+  }).format(new Date(value));
+}
+
 /** Absolute wall-clock time with seconds, for contexts that need a fixed timestamp instead of
  * relative text (the Activity timeline's clock column), in the viewer's hour cycle. */
 export function formatClockTime(
@@ -102,6 +115,16 @@ export function formatClockTime(
  * the browser's zone). Correct across a daylight-saving change earlier that day. */
 export function startOfDay(now: Date, timeZone: string | null | undefined): Date {
   return new Date(zonedDateTime(now, timeZone).startOfDay().epochMilliseconds);
+}
+
+/** The same wall-clock time `days` calendar days after `now` in `timeZone` (viewer preference,
+ * then the browser's zone): a day across a daylight-saving change is 23 or 25 hours. */
+export function addCalendarDays(
+  now: Date,
+  days: number,
+  timeZone: string | null | undefined,
+): Date {
+  return new Date(zonedDateTime(now, timeZone).add({ days }).epochMilliseconds);
 }
 
 /** `value` as a moment on the wall clock of `timeZone` (viewer preference, then the browser's). */

@@ -437,6 +437,7 @@ export function AgentsContent({
       <InviteMemberDialog
         open={inviteOpen}
         onOpenChange={setInviteOpen}
+        actorRole={summary.actorRole}
         onInvite={async (input) => {
           await onInviteMember(input);
         }}

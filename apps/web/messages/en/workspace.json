@@ -136,5 +136,39 @@
   "workspace_invitation_accept": "Accept",
   "workspace_invitation_decline": "Decline",
   "workspace_invitation_revoke": "Revoke",
-  "workspace_invitation_from": "{inviter} invited you to {workspace} as {role}."
+  "workspace_invitation_from": "{inviter} invited you to {workspace} as {role}.",
+  "workspace_invite_tabs": "How to invite",
+  "workspace_invite_tab_username": "By username",
+  "workspace_invite_tab_link": "By link",
+  "workspace_invite_done": "Done",
+  "workspace_join_link_label": "Invite link",
+  "workspace_join_link_preparing": "Preparing the invite link…",
+  "workspace_join_link_copy": "Copy link",
+  "workspace_join_link_hint": "Send this link to the people you want to join.",
+  "workspace_join_link_used": "Used {used}/{limit}",
+  "workspace_join_link_expires": "Expires {date}",
+  "workspace_join_link_max_uses": "Max uses",
+  "workspace_join_link_expiry": "Expires after",
+  "workspace_join_link_keep": "Keep current",
+  "workspace_join_link_unlimited": "No limit",
+  "workspace_join_link_never": "Never",
+  "workspace_join_link_days": [
+    {
+      "declarations": ["input count", "local p = count: plural"],
+      "selectors": ["p"],
+      "match": {
+        "p=one": "{count} day",
+        "p=other": "{count} days"
+      }
+    }
+  ],
+  "workspace_join_link_update": "Update link",
+  "workspace_join_link_update_hint": "Updating makes a new link; the old one stops working at once.",
+  "workspace_join_link_revoke": "Revoke link",
+  "workspace_join_link_empty": "There is no working invite link.",
+  "workspace_join_link_create": "Create link",
+  "workspace_join_link_prepare_failed": "The invite link could not be prepared. Try again later.",
+  "workspace_join_link_update_failed": "The link could not be updated. Try again later.",
+  "workspace_join_link_revoke_failed": "The link could not be revoked. Try again later.",
+  "workspace_join_link_create_failed": "The link could not be created. Try again later."
 }

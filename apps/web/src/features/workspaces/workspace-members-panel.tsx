@@ -273,6 +273,7 @@ export function WorkspaceMembersPanel(props: {
       <InviteMemberDialog
         open={inviteOpen}
         onOpenChange={setInviteOpen}
+        actorRole={props.actorRole}
         onInvite={async (input) => {
           await invite({ data: input });
           await refresh();
