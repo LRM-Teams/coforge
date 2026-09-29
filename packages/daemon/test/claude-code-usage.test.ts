@@ -1,14 +1,24 @@
 import { afterEach, expect, setSystemTime, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readClaudeCodeUsage } from "#src/code-agent/claude-code/usage";
 
 const fixture = new URL("./fixtures/claude-usage.ts", import.meta.url).pathname;
-const directory = () => mkdtemp(join(tmpdir(), "coforge-claude-usage-"));
+const scratchDirectories: string[] = [];
+const directory = async () => {
+  const created = await mkdtemp(join(tmpdir(), "coforge-claude-usage-"));
+  scratchDirectories.push(created);
+  return created;
+};
 const command = (mode?: string) => [process.execPath, fixture, ...(mode ? [mode] : [])];
 
-afterEach(() => setSystemTime());
+afterEach(async () => {
+  setSystemTime();
+  await Promise.all(
+    scratchDirectories.splice(0).map((created) => rm(created, { recursive: true, force: true })),
+  );
+});
 
 test("preserves the scanner username for Claude credential lookup", async () => {
   const previousUser = Bun.env.USER;

@@ -1,8 +1,15 @@
-import { expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile } from "node:fs/promises";
+import { afterEach, expect, test } from "bun:test";
+import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runGitHubCli, runGitHubCredentialHelper } from "#src/github-credential";
+
+const scratchRoots: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    scratchRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
 
 test("gets the current user credential for a valid HTTPS GitHub path", async () => {
   let lookups = 0;
@@ -69,6 +76,7 @@ test("does not persist or erase short-lived credentials", async () => {
 
 test("runs the real GitHub CLI with a fresh token without recursing into the wrapper", async () => {
   const root = await mkdtemp(join(tmpdir(), "coforge-gh-"));
+  scratchRoots.push(root);
   const wrapperDirectory = join(root, "wrapper");
   const hostDirectory = join(root, "host");
   const output = join(root, "output");

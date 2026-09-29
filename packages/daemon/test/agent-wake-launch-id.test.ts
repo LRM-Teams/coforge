@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { realpathSync } from "node:fs";
@@ -37,6 +37,8 @@ const connection: WorkspaceConfig = {
   workspaceId: "workspace-a",
   workspaceRoot: join(tempRoot, `coforge-wake-launch-id-${crypto.randomUUID()}`),
 };
+
+afterAll(() => rm(connection.workspaceRoot, { recursive: true, force: true }));
 
 const config: AgentRuntimeConfig = {
   provider: "pi",

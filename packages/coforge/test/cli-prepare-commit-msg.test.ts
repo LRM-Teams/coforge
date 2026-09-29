@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,8 +11,11 @@ async function git(cwd: string, args: readonly string[]): Promise<void> {
   if (exitCode !== 0) throw new Error(`git ${args.join(" ")} failed`);
 }
 
+const repositories: string[] = [];
+
 async function initRepo(): Promise<string> {
   const repo = await mkdtemp(join(tmpdir(), "coforge-cli-prepare-commit-msg-"));
+  repositories.push(repo);
   await git(repo, ["init", "--quiet"]);
   await git(repo, ["config", "user.email", "test@example.com"]);
   await git(repo, ["config", "user.name", "Test"]);
@@ -23,8 +26,11 @@ async function initRepo(): Promise<string> {
 }
 
 const servers: Array<{ stop(): void }> = [];
-afterEach(() => {
+afterEach(async () => {
   for (const server of servers.splice(0)) server.stop();
+  await Promise.all(
+    repositories.splice(0).map((repo) => rm(repo, { recursive: true, force: true })),
+  );
 });
 
 /** `coforge git prepare-commit-msg` must never fail the Agent's commit: a real (unmocked) proxy

@@ -141,7 +141,16 @@ const connection: WorkspaceConfig = {
   workspaceRoot,
 };
 
-afterAll(() => rm(workspaceRoot, { recursive: true, force: true }));
+/** State directories a runtime may still write into after its test's own `rm`: a reminder retry
+ * already in flight when `runtime.stop()` returns lands its receipt after the directory is gone. */
+const lateWrittenStateDirectories: string[] = [];
+afterAll(async () => {
+  await Promise.all(
+    [workspaceRoot, ...lateWrittenStateDirectories].map((path) =>
+      rm(path, { recursive: true, force: true }),
+    ),
+  );
+});
 
 const config: AgentRuntimeConfig = {
   provider: "pi",
@@ -7989,6 +7998,7 @@ describe("DaemonRuntime", () => {
 
   test("a reminder-triggered restart waits for the shared notice outcome before becoming terminal", async () => {
     const stateDirectory = join(tempRoot, `coforge-reminder-notice-${crypto.randomUUID()}`);
+    lateWrittenStateDirectories.push(stateDirectory);
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const notify = Promise.withResolvers<void>();

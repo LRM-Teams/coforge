@@ -1,0 +1,4 @@
+[test]
+# The Daemon's Agent-state stores default to a machine-wide directory under the OS temp root;
+# this preload points every test file at a directory of its own (the Daemon package owns it).
+preload = ["../../packages/daemon/test/cli-temp-state.preload.ts"]
