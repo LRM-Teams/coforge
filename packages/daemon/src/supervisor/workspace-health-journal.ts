@@ -1,5 +1,9 @@
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import {
+  isDaemonConnectRejectionReason,
+  type DaemonConnectRejectionReason,
+} from "@lrm/coforge-sdk/internal";
 
 /** How far back a crash still counts toward the degraded threshold. */
 export const WORKSPACE_HEALTH_CRASH_WINDOW_MS = 60_000;
@@ -10,9 +14,14 @@ const CRASH_LOOP_REASON = `this Workspace exited unexpectedly ${WORKSPACE_HEALTH
   WORKSPACE_HEALTH_CRASH_WINDOW_MS / 1000
 }s`;
 
+/**
+ * `parked`: the cloud refused this Workspace's connection for good (it was deleted, or this
+ * Computer was removed from it). Nothing restarts it; only attaching the Computer again does.
+ */
 export type WorkspaceHealthState =
   | { status: "ok" }
-  | { status: "degraded"; reason: string; crashCount: number; since: string };
+  | { status: "degraded"; reason: string; crashCount: number; since: string }
+  | { status: "parked"; reason: DaemonConnectRejectionReason; since: string };
 
 type PersistedWorkspaceHealth = {
   schemaVersion: 1;
@@ -27,6 +36,8 @@ type PersistedWorkspaceHealth = {
   /** Set once `crashes` reaches the threshold; frozen at that moment so the latch does not lift
    * on its own once the triggering crashes age out of the window. */
   degraded?: { crashCount: number; at: number };
+  /** Set by `markParked`; cleared only by `clearParked()`, which a rebind (setup) calls. */
+  parked?: { reason: DaemonConnectRejectionReason; at: number };
 };
 
 const EMPTY_RECORD: PersistedWorkspaceHealth = { schemaVersion: 1, live: false, crashes: [] };
@@ -51,6 +62,54 @@ export function workspaceHealthRecoveryCommand(workspaceId?: string): string {
 export function workspaceDegradedMessage(reason: string, workspaceId?: string): string {
   const subject = workspaceId ? `Workspace ${workspaceId}` : "This Workspace";
   return `${subject} is degraded (${reason}); it will not restart automatically. Run '${workspaceHealthRecoveryCommand(workspaceId)}' after fixing it.`;
+}
+
+type ParkedWorkspace = { workspaceId: string; workspaceSlug?: string };
+
+/** What happened to a parked Workspace in CoForge and that this Computer stopped trying.
+ * `workspaceSlug` is known only to Computer, which reads it from the Workspace registration. */
+export function workspaceParkedDescription(
+  reason: DaemonConnectRejectionReason,
+  workspace: ParkedWorkspace,
+): string {
+  const kept =
+    "This Computer stopped connecting to it and stopped its Agents; local files are kept.";
+  return reason === "workspace_deleted"
+    ? `Workspace ${workspace.workspaceId} was deleted in CoForge (${reason}). ${kept}`
+    : `This Computer was removed from Workspace ${workspace.workspaceSlug ?? workspace.workspaceId} in CoForge (${reason}). ${kept}`;
+}
+
+/** The commands that move on from a parked Workspace. Without a slug the setup command keeps a
+ * placeholder. */
+export function workspaceParkedRecovery(
+  reason: DaemonConnectRejectionReason,
+  workspace: ParkedWorkspace,
+): string {
+  const selector = workspace.workspaceSlug ?? workspace.workspaceId;
+  return reason === "workspace_deleted"
+    ? `Run 'coforge-computer setup --workspace <workspace-slug>' to attach this Computer to another Workspace, or 'coforge-computer stop --workspace ${selector}' to stop this binding.`
+    : `Run 'coforge-computer setup --workspace ${workspace.workspaceSlug ?? "<workspace-slug>"}' to attach it again.`;
+}
+
+/** The one sentence every surface uses to report a parked Workspace: the description, then the
+ * recovery. */
+export function workspaceParkedMessage(
+  reason: DaemonConnectRejectionReason,
+  workspace: ParkedWorkspace,
+): string {
+  return `${workspaceParkedDescription(reason, workspace)} ${workspaceParkedRecovery(reason, workspace)}`;
+}
+
+/** A lifecycle command refused because the Workspace is parked. `code` is the stable reason and
+ * crosses the local RPC boundary as the refusal's `error_code`. */
+export class WorkspaceParkedError extends Error {
+  constructor(
+    readonly workspaceId: string,
+    readonly code: DaemonConnectRejectionReason,
+  ) {
+    super(workspaceParkedMessage(code, { workspaceId }));
+    this.name = "WorkspaceParkedError";
+  }
 }
 
 /** Where one Workspace's durable health record lives under its own state directory (the same
@@ -119,9 +178,29 @@ export class WorkspaceHealthJournal {
     await this.#write({ ...record, terminal: { reason, at: this.now() } });
   }
 
+  /** Parks the Workspace for a connection the cloud refused for good. */
+  async markParked(reason: DaemonConnectRejectionReason): Promise<void> {
+    const record = await this.#read();
+    await this.#write({ ...record, parked: { reason, at: this.now() } });
+  }
+
+  /** What a rebind (setup attaching this Workspace again) calls: lifts the park and every other
+   * latch, since the new registration is a fresh start. */
+  async clearParked(): Promise<void> {
+    const record = await this.#read();
+    await this.#write({
+      ...record,
+      crashes: [],
+      terminal: undefined,
+      degraded: undefined,
+      parked: undefined,
+    });
+  }
+
   /** What an explicit operator start/restart calls: clears both the terminal and crash-loop
-   * latches so the Workspace gets a fresh budget. Never touches the live marker - the next
-   * `recordStart()` sets that independently. */
+   * latches so the Workspace gets a fresh budget. A park stays: restarting cannot bring a deleted
+   * Workspace back. Never touches the live marker - the next `recordStart()` sets that
+   * independently. */
   async clear(): Promise<void> {
     const record = await this.#read();
     await this.#write({ ...record, crashes: [], terminal: undefined, degraded: undefined });
@@ -129,6 +208,12 @@ export class WorkspaceHealthJournal {
 
   async state(): Promise<WorkspaceHealthState> {
     const record = await this.#read();
+    if (record.parked)
+      return {
+        status: "parked",
+        reason: record.parked.reason,
+        since: new Date(record.parked.at).toISOString(),
+      };
     if (record.terminal) {
       return {
         status: "degraded",
@@ -183,6 +268,12 @@ function valid(value: unknown): value is PersistedWorkspaceHealth {
     const terminal = record.terminal as Record<string, unknown>;
     if (typeof terminal !== "object" || terminal === null) return false;
     if (typeof terminal.reason !== "string" || !Number.isFinite(terminal.at)) return false;
+  }
+  if (record.parked !== undefined) {
+    const parked = record.parked as Record<string, unknown>;
+    if (typeof parked !== "object" || parked === null) return false;
+    if (!isDaemonConnectRejectionReason(parked.reason)) return false;
+    if (!Number.isFinite(parked.at)) return false;
   }
   if (record.degraded !== undefined) {
     const degraded = record.degraded as Record<string, unknown>;

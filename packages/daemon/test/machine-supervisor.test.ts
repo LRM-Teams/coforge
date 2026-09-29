@@ -6,6 +6,7 @@ import {
   type ManagedBinding,
   type PendingUpgradeSettler,
 } from "#src/supervisor/machine-supervisor";
+import { WorkspaceParkedError } from "#src/supervisor/workspace-health-journal";
 import {
   UpgradeLaunchesPausedError,
   UpgradeOperationPendingError,
@@ -764,4 +765,114 @@ test("automatic recovery on Coordinator startup never clears a Workspace's healt
   await supervisor.recover();
 
   expect(cleared).toEqual([]);
+});
+
+function parkedFixture(bindings: ManagedBinding[], parked: Map<string, "workspace_deleted">) {
+  const calls: string[] = [];
+  const running = new Map<string, string>();
+  const state = { saved: structuredClone(bindings) };
+  const supervisor = new MachineSupervisor(
+    {
+      load: async () => structuredClone(state.saved),
+      save: async (next) => {
+        state.saved = structuredClone(next);
+      },
+    },
+    {
+      start: async (binding) => {
+        calls.push(`start:${binding.workspaceId}`);
+        const id = crypto.randomUUID();
+        running.set(binding.workspaceId, id);
+        return id;
+      },
+      stop: async (binding) => {
+        calls.push(`stop:${binding.workspaceId}`);
+        running.delete(binding.workspaceId);
+      },
+      instance: async (binding) => running.get(binding.workspaceId) ?? null,
+      clearHealth: async (binding) => {
+        calls.push(`clear:${binding.workspaceId}`);
+      },
+      parkedReason: async (binding) => parked.get(binding.workspaceId),
+      clearParked: async (binding) => {
+        calls.push(`unpark:${binding.workspaceId}`);
+        parked.delete(binding.workspaceId);
+      },
+    },
+  );
+  return { calls, state, supervisor };
+}
+
+test("automatic recovery leaves a parked Workspace down and still starts the others", async () => {
+  const { calls, supervisor } = parkedFixture(
+    [
+      { workspaceId: "gone", computerId: "c", workspaceRoot: "/gone", enabled: true },
+      { workspaceId: "live", computerId: "c", workspaceRoot: "/live", enabled: true },
+    ],
+    new Map([["gone", "workspace_deleted"]]),
+  );
+
+  await supervisor.recover();
+
+  expect(calls).toEqual(["start:live"]);
+});
+
+test("an unscoped start starts the other Workspaces, then refuses with the parked one's reason", async () => {
+  const { calls, supervisor } = parkedFixture(
+    [
+      { workspaceId: "gone", computerId: "c", workspaceRoot: "/gone", enabled: true },
+      { workspaceId: "live", computerId: "c", workspaceRoot: "/live", enabled: false },
+    ],
+    new Map([["gone", "workspace_deleted"]]),
+  );
+  await supervisor.recover();
+
+  const refusal = await supervisor.command("start").catch((error: unknown) => error);
+
+  expect(refusal).toBeInstanceOf(WorkspaceParkedError);
+  expect(refusal).toMatchObject({ code: "workspace_deleted", workspaceId: "gone" });
+  expect(calls).toEqual(["stop:live", "clear:live", "start:live"]);
+});
+
+test("a scoped restart of a parked Workspace refuses without opening a restart", async () => {
+  const { calls, state, supervisor } = parkedFixture(
+    [{ workspaceId: "gone", computerId: "c", workspaceRoot: "/gone", enabled: true }],
+    new Map([["gone", "workspace_deleted"]]),
+  );
+  await supervisor.recover();
+
+  await expect(supervisor.command("restart", "gone", "request-1")).rejects.toBeInstanceOf(
+    WorkspaceParkedError,
+  );
+
+  expect(calls).toEqual([]);
+  expect(state.saved[0]?.restart).toBeUndefined();
+});
+
+test("configuring a parked Workspace again lifts the park before starting it", async () => {
+  const { calls, supervisor } = parkedFixture(
+    [{ workspaceId: "gone", computerId: "c", workspaceRoot: "/gone", enabled: true }],
+    new Map([["gone", "workspace_deleted"]]),
+  );
+  await supervisor.recover();
+
+  await supervisor.configure({ workspaceId: "gone", computerId: "c2", workspaceRoot: "/gone" });
+
+  expect(calls).toEqual(["stop:gone", "unpark:gone", "start:gone"]);
+});
+
+test("an unscoped start leaves a parked Workspace the operator stopped alone", async () => {
+  const { calls, supervisor } = parkedFixture(
+    [
+      { workspaceId: "gone", computerId: "c", workspaceRoot: "/gone", enabled: false },
+      { workspaceId: "live", computerId: "c", workspaceRoot: "/live", enabled: false },
+    ],
+    new Map([["gone", "workspace_deleted"]]),
+  );
+  await supervisor.recover();
+  calls.length = 0;
+
+  await supervisor.command("start");
+
+  expect(calls).toEqual(["clear:live", "start:live"]);
 });

@@ -160,6 +160,8 @@ async function runWithSupervisorLock(
   await writeFile(join(lockMarker, "owner"), String(process.pid), { mode: 0o600 });
   const holdPath = join(stateDirectory, "launch-hold");
   const workspaceDirectory = (id: string) => workspaceStateDirectory(stateDirectory, id);
+  const workspaceHealth = (id: string) =>
+    new WorkspaceHealthJournal(workspaceHealthJournalPath(workspaceDirectory(id)));
   const children = new Map<
     string,
     { instance: WorkspaceInstance; identity: ManagedRuntimeIdentity; osInstanceId: string }
@@ -335,9 +337,8 @@ async function runWithSupervisorLock(
         // Workspace stalled Coordinator recovery for ~37s and the client-side handshake gave up
         // after its own 10s timeout with a misleading "did not accept the local handshake"
         // message, never seeing the real reason at all).
-        const health = await new WorkspaceHealthJournal(
-          workspaceHealthJournalPath(directory),
-        ).state();
+        // A parked Workspace never gets here: `MachineSupervisor` checks `parkedReason` first.
+        const health = await workspaceHealth(binding.workspaceId).state();
         if (health.status === "degraded") {
           const message = workspaceDegradedMessage(health.reason, binding.workspaceId);
           supervisorLogger.error(message, {
@@ -410,10 +411,12 @@ async function runWithSupervisorLock(
         holdWorkspaceRunners(binding.workspaceId, "hold", reason, "restart"),
       release: (binding, reason) =>
         holdWorkspaceRunners(binding.workspaceId, "release", reason, "restart"),
-      clearHealth: (binding) =>
-        new WorkspaceHealthJournal(
-          workspaceHealthJournalPath(workspaceDirectory(binding.workspaceId)),
-        ).clear(),
+      clearHealth: (binding) => workspaceHealth(binding.workspaceId).clear(),
+      async parkedReason(binding) {
+        const health = await workspaceHealth(binding.workspaceId).state();
+        return health.status === "parked" ? health.reason : undefined;
+      },
+      clearParked: (binding) => workspaceHealth(binding.workspaceId).clearParked(),
     },
     Date.now,
     {},

@@ -79,3 +79,22 @@ test("an already-degraded journal exits immediately without recording another cr
     since: ((await journal.state()) as { since: string }).since,
   });
 });
+
+test("a parked Workspace stays parked on boot without recording a crash", async () => {
+  const journal = new WorkspaceHealthJournal(path(), () => Date.parse("2026-09-29T08:00:00.000Z"));
+  await journal.markParked("workspace_deleted");
+  await journal.recordStart();
+
+  const outcome = await guardWorkspaceRunnerStart(journal);
+
+  expect(outcome).toEqual({
+    action: "parked",
+    reason: "workspace_deleted",
+    since: "2026-09-29T08:00:00.000Z",
+  });
+  expect(await journal.state()).toEqual({
+    status: "parked",
+    reason: "workspace_deleted",
+    since: "2026-09-29T08:00:00.000Z",
+  });
+});

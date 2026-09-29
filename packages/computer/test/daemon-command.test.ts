@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import type { DaemonCommandRunner } from "@lrm/coforge-daemon";
+import { DaemonCommandRejectedError, type DaemonCommandRunner } from "@lrm/coforge-daemon";
 import { createCommand } from "#src/daemon-client/index";
+import { CliError } from "#src/errors";
 
 const output = () => {
   const lines: string[] = [];
@@ -88,7 +89,7 @@ test("scoped restart reports which Workspace runtime the command acted on", asyn
         },
       ],
     },
-    resolveWorkspace: async () => "ws-a",
+    resolveWorkspace: async () => ({ id: "ws-a", slug: "workspace-slug" }),
     write: progress.write,
   });
   await command.restart("workspace-slug");
@@ -180,4 +181,54 @@ test("restart waits for the supervisor's completed replacement response", async 
   }
   // No unconditional start: the supervisor preserves stopped bindings on global restart.
   expect(calls).toEqual(["restart"]);
+});
+
+test("starting a Workspace the cloud removed this Computer from names the setup command that attaches it again", async () => {
+  const command = createCommand({
+    daemon: {
+      ensureRunning: async () => {},
+      command: async () => {
+        throw new DaemonCommandRejectedError(
+          "start",
+          "Workspace ws-a is parked",
+          "computer_unlinked",
+        );
+      },
+    },
+    resolveWorkspace: async () => ({ id: "ws-a", slug: "acme" }),
+  });
+
+  const failure = await command.start("acme").catch((error: unknown) => error);
+
+  expect(failure).toBeInstanceOf(CliError);
+  expect(failure).toMatchObject({
+    code: "COMPUTER_UNLINKED",
+    message:
+      "This Computer was removed from Workspace acme in CoForge (computer_unlinked). This Computer stopped connecting to it and stopped its Agents; local files are kept.",
+    hint: "Run 'coforge-computer setup --workspace acme' to attach it again.",
+  });
+});
+
+test("an unscoped restart refused for a deleted Workspace keeps the daemon's sentence and points at status", async () => {
+  const command = createCommand({
+    daemon: {
+      ensureRunning: async () => {},
+      command: async () => {
+        throw new DaemonCommandRejectedError(
+          "restart",
+          "Workspace ws-gone was deleted in CoForge (workspace_deleted).",
+          "workspace_deleted",
+        );
+      },
+    },
+  });
+
+  const failure = await command.restart().catch((error: unknown) => error);
+
+  expect(failure).toBeInstanceOf(CliError);
+  expect(failure).toMatchObject({
+    code: "WORKSPACE_DELETED",
+    message: "Workspace ws-gone was deleted in CoForge (workspace_deleted).",
+    hint: "Run 'coforge-computer status' to see which Workspace binding is parked and the command that moves on.",
+  });
 });

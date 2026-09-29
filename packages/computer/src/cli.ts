@@ -629,7 +629,7 @@ function createCommand(
       );
       const binding = await config.loadRegistration(selector);
       if (!binding) throw new Error(`Workspace '${selector}' is not registered locally`);
-      return binding.id;
+      return { id: binding.id, slug: binding.slug };
     },
     write: io.stdout,
   });
@@ -856,6 +856,7 @@ export async function runComputer(): Promise<void> {
             platform: platform.os,
             installDirectory,
             stateDirectory,
+            registrations: config,
             releaseFeedUrl: COFORGE_RELEASE_FEED_URL,
             serverUrl: COFORGE_SERVER_URL,
           }),

@@ -101,6 +101,7 @@ async function collectWorkspaces(
   const runtimeByWorkspace = new Map(
     snapshot.reachable ? snapshot.runtimes.map((runtime) => [runtime.workspaceId, runtime]) : [],
   );
+  const slugs = await ports.readWorkspaceSlugs();
   const osJobPidByWorkspace = new Map(
     agents.workspaces.map((workspace) => [workspace.workspaceId, workspace.workspaceJobPid]),
   );
@@ -121,6 +122,7 @@ async function collectWorkspaces(
           snapshotPid !== null ? "daemon-snapshot" : osJobPid !== null ? "os-job" : null;
         return {
           workspaceId: binding.workspaceId,
+          workspaceSlug: slugs.get(binding.workspaceId) ?? null,
           serverHttpUrl: binding.serverHttpUrl ?? null,
           enabled: binding.enabled,
           running: pid !== null,

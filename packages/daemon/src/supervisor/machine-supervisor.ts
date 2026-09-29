@@ -1,7 +1,9 @@
 import { getLogger } from "@logtape/logtape";
+import type { DaemonConnectRejectionReason } from "@lrm/coforge-sdk/internal";
 import type { DaemonConfig } from "#src/daemon-runtime/runtime";
 import { holdRunnersUntilQuiescent, type RunnerHoldSnapshot } from "./runner-hold";
 import { UpgradeLaunchesPausedError, UpgradeOperationPendingError } from "./upgrade-error";
+import { WorkspaceParkedError } from "./workspace-health-journal";
 
 export type RestartProgress = {
   requestId: string;
@@ -102,6 +104,10 @@ export interface WorkspaceProcesses {
    * cannot clear its own latch. Optional: a `WorkspaceProcesses` with no health journal to clear
    * simply never latches. */
   clearHealth?(binding: ManagedBinding): Promise<void>;
+  /** Why the cloud refused this Workspace for good, if it did. A parked Workspace is never
+   * started by recovery, start, or restart; only `configure` (a rebind) lifts the park. */
+  parkedReason?(binding: ManagedBinding): Promise<DaemonConnectRejectionReason | undefined>;
+  clearParked?(binding: ManagedBinding): Promise<void>;
 }
 
 /** Test seam for the bounded restart hold; production takes every default. */
@@ -165,6 +171,7 @@ export class MachineSupervisor {
         throw new Error("Workspace restart is in progress; stop it before configuring");
       if (previous) await this.#stop(previous);
       const binding = { ...config, enabled: true, restartResults: previous?.restartResults };
+      await this.processes.clearParked?.(binding);
       await this.#saveBinding(binding);
       await this.#start(binding);
     });
@@ -178,6 +185,7 @@ export class MachineSupervisor {
         (binding) => !workspaceId || binding.workspaceId === workspaceId,
       );
       if (workspaceId && !targets.length) throw new Error("Workspace is not registered locally");
+      let refused: WorkspaceParkedError | undefined;
       for (let binding of targets) {
         if (operation === "restart" && !workspaceId && !binding.enabled) continue;
         if (operation === "stop") {
@@ -193,6 +201,14 @@ export class MachineSupervisor {
               : binding.restartResults,
           });
           await this.#stop(binding);
+          continue;
+        }
+        // The other targets still start; the refusal names the parked one once they have.
+        const reason = await this.processes.parkedReason?.(binding);
+        // A parked binding the operator stopped stays out of an unscoped start.
+        if (reason && !workspaceId && !binding.enabled) continue;
+        if (reason) {
+          refused ??= new WorkspaceParkedError(binding.workspaceId, reason);
           continue;
         }
         // Reached only for "start" and "restart": an explicit operator lifecycle command, the one
@@ -223,6 +239,7 @@ export class MachineSupervisor {
           await this.#start(binding);
         }
       }
+      if (refused) throw refused;
     });
   }
 
@@ -370,6 +387,7 @@ export class MachineSupervisor {
       const binding = this.#bindings.find((entry) => entry.workspaceId === workspaceId)!;
       try {
         if (!binding.enabled) await this.#stop(binding);
+        else if (await this.processes.parkedReason?.(binding)) continue;
         else if (binding.restart) await this.#advanceRestart(binding);
         else await this.#start(binding);
       } catch (cause) {

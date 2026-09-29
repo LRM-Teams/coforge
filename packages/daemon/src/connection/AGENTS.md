@@ -10,6 +10,12 @@ Rules for the Workspace cloud connection in `src/connection/`. They extend
   `daemon-runtime/` and below.
 - `built-server.ts` supplies the build-inlined server and WSS endpoint. Do not
   read them from anywhere else.
+- A Centrifugo disconnect whose code and reason name a
+  `DaemonConnectRejectionReason` is a refusal for good: it rejects a pending
+  `start`, or reaches `onConnectionRefused` once the connection was up. The
+  connection only classifies it; stopping Agents and parking belong to
+  `daemon-runtime/` and the Workspace process entrypoint. Any other disconnect
+  keeps the client's own reconnect backoff.
 - Every initial ready, reconnect ready, and ready retry obtains a fresh request
   and the current running Agent ID snapshot from the runtime. Never reuse a
   cached one.

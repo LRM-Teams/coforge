@@ -9,6 +9,7 @@ import {
   DaemonConnection,
   type CentrifugeWorkspaceClient,
 } from "#src/connection/daemon-connection";
+import { DaemonConnectionRefusedError } from "#src/connection/daemon-connection-refused-error";
 import type { AgentSendDecisionResponse } from "@lrm/coforge-sdk/agent";
 import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
 import {
@@ -69,12 +70,12 @@ const TEST_AGENT_API_KEY = `sk_agent_${"a".repeat(43)}`;
 function fakeClient() {
   let connected = () => {};
   let failed = (_error: unknown) => {};
-  let disconnected = () => {};
+  let disconnected = (_context?: { code: number; reason: string }) => {};
   let publication = (_event: { channel: string; data: Uint8Array }) => {};
   const client: CentrifugeWorkspaceClient = {
     on(event, callback) {
       if (event === "connected") connected = callback as () => void;
-      else if (event === "disconnected") disconnected = callback as () => void;
+      else if (event === "disconnected") disconnected = callback as typeof disconnected;
       else if (event === "error") failed = callback as (error: unknown) => void;
       else publication = callback as typeof publication;
     },
@@ -87,7 +88,7 @@ function fakeClient() {
   return {
     client,
     connect: () => connected(),
-    disconnect: () => disconnected(),
+    disconnect: (context?: { code: number; reason: string }) => disconnected(context),
     fail: (error: unknown) => failed(error),
     publish: (channel: string, data: Uint8Array) => publication({ channel, data }),
   };
@@ -137,7 +138,32 @@ test("sends the Daemon API key as Connect Proxy data instead of a JWT token", as
   expect(connection?.token).toBe("");
   expect(JSON.parse(new TextDecoder().decode(connection?.data))).toEqual({
     daemonApiKey: "daemon-api-key",
+    workspaceId: config.workspaceId,
   });
+});
+
+test("start fails with the cloud's reason when it refuses the Workspace connection for good", async () => {
+  const fake = fakeClient();
+  fake.client.connect = () => fake.disconnect({ code: 4501, reason: "workspace_deleted" });
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+
+  const failure = await transport.start("secret", config).catch((error: unknown) => error);
+
+  expect(failure).toBeInstanceOf(DaemonConnectionRefusedError);
+  expect(failure).toMatchObject({ reason: "workspace_deleted" });
+});
+
+test("a refusal after the connection was up reaches the refusal listener once", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const refusals: string[] = [];
+  transport.onConnectionRefused((reason) => refusals.push(reason));
+  await transport.start("secret", config);
+
+  fake.disconnect({ code: 3000, reason: "transport closed" });
+  fake.disconnect({ code: 4502, reason: "computer_unlinked" });
+
+  expect(refusals).toEqual(["computer_unlinked"]);
 });
 
 test("publishes Agent activity best effort on its restricted channel", async () => {

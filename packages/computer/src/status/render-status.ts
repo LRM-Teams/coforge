@@ -1,4 +1,4 @@
-import { workspaceHealthRecoveryCommand } from "@lrm/coforge-daemon";
+import { workspaceHealthRecoveryCommand, workspaceParkedMessage } from "@lrm/coforge-daemon";
 import { terminalText } from "#src/terminal-output";
 import type {
   ComputerStatusReport,
@@ -86,6 +86,7 @@ function renderWorkspaces(report: ComputerStatusReport): string[] {
     for (const unsettled of workspace.unsettledUpgrades)
       lines.push(`    unsettled upgrade: ${renderUnsettledUpgrade(unsettled)}`);
     if (workspace.health.status === "degraded") lines.push(...renderDegradedHealth(workspace));
+    if (workspace.health.status === "parked") lines.push(...renderParkedHealth(workspace));
   }
   return lines;
 }
@@ -101,6 +102,26 @@ function renderDegradedHealth(workspace: {
   return [
     `    degraded: ${terminalText(health.reason)}  crashes=${health.crashCount}  since=${terminalText(health.since)}`,
     `      recover: ${terminalText(workspaceHealthRecoveryCommand(workspace.workspaceId))}`,
+  ];
+}
+
+/** A parked Workspace: the stable reason, then the sentence that says what happened and which
+ * command moves on. */
+function renderParkedHealth(workspace: {
+  workspaceId: string;
+  workspaceSlug: string | null;
+  health: WorkspaceHealth;
+}): string[] {
+  const { health } = workspace;
+  if (health.status !== "parked") return [];
+  return [
+    `    parked: ${health.reason}  since=${terminalText(health.since)}`,
+    `      ${terminalText(
+      workspaceParkedMessage(health.reason, {
+        workspaceId: workspace.workspaceId,
+        workspaceSlug: workspace.workspaceSlug ?? undefined,
+      }),
+    )}`,
   ];
 }
 

@@ -943,6 +943,7 @@ export * from "./message-sender";
 export * from "./agent-name";
 export * from "./workspace-slug";
 export * from "./uuid";
+export * from "./daemon-connect-rejection";
 export * from "./weekly-report-limits";
 export * from "./codec";
 export * from "./agent-send-budget";

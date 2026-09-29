@@ -26,6 +26,7 @@ const REPORT: ComputerStatusReport = {
     workspaces: [
       {
         workspaceId: "ws-1",
+        workspaceSlug: "acme",
         serverHttpUrl: "https://coforge.cn",
         enabled: true,
         running: true,
@@ -119,6 +120,7 @@ test("renderStatusHuman shows which source a Workspace's pid came from", () => {
       workspaces: [
         {
           workspaceId: "ws-1",
+          workspaceSlug: "acme",
           serverHttpUrl: "https://coforge.cn",
           enabled: true,
           running: true,
@@ -143,6 +145,7 @@ test("renderStatusHuman states a degraded Workspace's real reason and the recove
       workspaces: [
         {
           workspaceId: "ws-1",
+          workspaceSlug: "acme",
           serverHttpUrl: "https://coforge.cn",
           enabled: true,
           running: false,
@@ -168,6 +171,39 @@ test("renderStatusHuman states a degraded Workspace's real reason and the recove
   expect(text).toContain("recover: coforge-computer restart --workspace ws-1");
 });
 
+test("renderStatusHuman states why a Workspace is parked and the setup command that attaches it again", () => {
+  const lines = renderStatusHuman({
+    ...REPORT,
+    workspaces: {
+      readable: true,
+      workspaces: [
+        {
+          workspaceId: "ws-1",
+          workspaceSlug: "acme",
+          serverHttpUrl: "https://coforge.cn",
+          enabled: true,
+          running: false,
+          pid: null,
+          pidSource: null,
+          pending: [],
+          unsettledUpgrades: [],
+          health: {
+            status: "parked",
+            reason: "computer_unlinked",
+            since: "2026-09-29T08:00:00.000Z",
+          },
+        },
+      ],
+    },
+  });
+  const text = lines.join("\n");
+
+  expect(text).toContain("    parked: computer_unlinked  since=2026-09-29T08:00:00.000Z");
+  expect(text).toContain(
+    "      This Computer was removed from Workspace acme in CoForge (computer_unlinked). This Computer stopped connecting to it and stopped its Agents; local files are kept. Run 'coforge-computer setup --workspace acme' to attach it again.",
+  );
+});
+
 test("renderStatusHuman prints nothing extra for a healthy Workspace's health", () => {
   const lines = renderStatusHuman(REPORT);
 
@@ -182,6 +218,7 @@ test("renderStatusHuman never crashes on control characters embedded in untruste
       workspaces: [
         {
           workspaceId: "ws--evil",
+          workspaceSlug: null,
           serverHttpUrl: null,
           enabled: false,
           running: false,

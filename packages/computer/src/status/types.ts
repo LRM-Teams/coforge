@@ -59,13 +59,16 @@ export type UnsettledUpgradeOperation = {
 export type WorkspacePidSource = "daemon-snapshot" | "os-job";
 
 /** What the Workspace's own durable health journal reports (see `@lrm/coforge-daemon`'s
- * `WorkspaceHealthJournal`): `ok`, or latched `degraded` with the real reason, how many
- * unexpected deaths landed inside the crash window, and when the latch was set. An explicit
- * operator `restart` is the only thing that clears it. */
+ * `WorkspaceHealthJournal`): `ok`; latched `degraded` with the real reason, how many unexpected
+ * deaths landed inside the crash window, and when the latch was set (an explicit operator
+ * `restart` clears it); or `parked` with the stable reason the cloud refused the Workspace for
+ * good (only `setup` attaching it again lifts it). */
 export type WorkspaceHealth = WorkspaceHealthState;
 
 export type WorkspaceStatus = {
   workspaceId: string;
+  /** From the local Workspace registration; `null` when none is readable. */
+  workspaceSlug: string | null;
   serverHttpUrl: string | null;
   enabled: boolean;
   running: boolean;
@@ -164,4 +167,6 @@ export interface StatusPorts {
   readSupervisorLockOwner(): Promise<number | null>;
   listLeftoverUpgradeJobs: { supported: boolean; list(): Promise<LeftoverJob[]> };
   readWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
+  /** Workspace id to slug, from the local Workspace registrations; empty when unreadable. */
+  readWorkspaceSlugs(): Promise<ReadonlyMap<string, string>>;
 }

@@ -29,6 +29,8 @@ export const Route = createFileRoute("/api/internal/centrifugo-connect")({
                 select: { id: true },
               }),
             ),
+          workspaceExists: async (id) =>
+            Boolean(await db.workspace.findUnique({ where: { id }, select: { id: true } })),
         });
       },
     },

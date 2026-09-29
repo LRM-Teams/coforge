@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { LocalInboxRequest } from "@lrm/coforge-sdk/internal";
+import type { DaemonConnectRejectionReason, LocalInboxRequest } from "@lrm/coforge-sdk/internal";
 import { dispose, getLogger, withContext } from "@logtape/logtape";
 import { startDaemonLocalRpcServer } from "#src/local-rpc";
 import { startAgentProxy, type AgentProxyRuntime } from "#src/agent-proxy";
@@ -18,6 +18,7 @@ import {
   DaemonConnection,
   defaultCentrifugeWorkspaceClientFactory,
 } from "#src/connection/daemon-connection";
+import { DaemonConnectionRefusedError } from "#src/connection/daemon-connection-refused-error";
 import { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "#src/connection/built-server";
 import { COFORGE_DAEMON_VERSION } from "#src/version";
 import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
@@ -28,6 +29,7 @@ import {
   WorkspaceHealthJournal,
   workspaceDegradedMessage,
   workspaceHealthJournalPath,
+  workspaceParkedMessage,
 } from "#src/supervisor/workspace-health-journal";
 import { guardWorkspaceRunnerStart } from "#src/supervisor/workspace-runner-guard";
 export { launchdJobs } from "#src/platform/launchd-job";
@@ -42,6 +44,9 @@ export {
   workspaceDegradedMessage,
   workspaceHealthJournalPath,
   workspaceHealthRecoveryCommand,
+  workspaceParkedDescription,
+  workspaceParkedMessage,
+  workspaceParkedRecovery,
 } from "#src/supervisor/workspace-health-journal";
 export type { WorkspaceHealthState } from "#src/supervisor/workspace-health-journal";
 export { runMachineSupervisor } from "#src/supervisor/run-supervisor";
@@ -82,7 +87,11 @@ export {
   windowsDaemonTaskXml,
   windowsTaskUserId,
 } from "#src/daemon-host/index";
-export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "#src/daemon-host/launcher";
+export {
+  DaemonCommandRejectedError,
+  LocalDaemonLauncher,
+  resolveDaemonExecutablePath,
+} from "#src/daemon-host/launcher";
 export { cleanupComputerUpgradeJob } from "#src/platform/computer-upgrade-launcher";
 export { acquireProcessLock, isLockContention } from "#src/platform/process-lock";
 export { readOperatingSystem } from "#src/platform/operating-system";
@@ -203,6 +212,17 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       // Before any real work (Agent proxy, Workspace connection): let the health journal say
       // whether the previous run(s) died unexpectedly often enough to stop this restart loop.
       const guard = await guardWorkspaceRunnerStart(healthJournal);
+      const logParked = (reason: DaemonConnectRejectionReason) =>
+        logger.error(workspaceParkedMessage(reason, { workspaceId: config?.workspaceId ?? "" }), {
+          event: "daemon:workspace_parked",
+          reason,
+        });
+      if (guard.action === "parked") {
+        logParked(guard.reason);
+        await dispose();
+        process.exitCode = 0;
+        return;
+      }
       if (guard.action === "exit") {
         logger.error(workspaceDegradedMessage(guard.reason, config?.workspaceId), {
           event: "daemon:workspace_degraded",
@@ -289,6 +309,19 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           socketPath: supervisorSocket!,
           spawn: () => {},
         }).control(...request);
+      // Assigned once `shutdown` exists, before `daemon.start()`; a refusal can only arrive
+      // from a started runtime.
+      let park: (reason: DaemonConnectRejectionReason) => Promise<void> = async () => {};
+      /** Every runtime start goes through here, so a refusal parks whichever caller started it:
+       * boot recovery or a local configure/start/restart request. */
+      const startRuntime = async (next: DaemonRuntime, connection: DaemonConfig) => {
+        try {
+          await next.start(connection);
+        } catch (error) {
+          if (error instanceof DaemonConnectionRefusedError) void park(error.reason);
+          throw error;
+        }
+      };
       const createRuntime = (connection: DaemonConfig) =>
         new DaemonRuntime(
           connection,
@@ -327,6 +360,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
                   await supervisorControl("restart", config.workspaceId, requestId);
                 }
               : undefined,
+            connectionRefused: (reason) => void park(reason),
             requestUpgrade: async (requestId: string, expectedVersion?: string) => {
               if (!config) throw new Error("Workspace is not configured");
               if (!expectedVersion) throw new Error("upgrade expected version is unavailable");
@@ -343,12 +377,12 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           await runtime?.stop();
           config = nextConfig;
           runtime = createRuntime(config);
-          await runtime.start(config);
+          await startRuntime(runtime, config);
         },
         async start() {
           if (!config) return;
           runtime ??= createRuntime(config);
-          await runtime.start(config);
+          await startRuntime(runtime, config);
         },
         async stopAll() {
           await runtime?.stop();
@@ -384,15 +418,6 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
         credentials,
         configStore,
       });
-      try {
-        await daemon.start();
-      } catch (error) {
-        logger.error("Daemon failed to recover configured Workspace", {
-          event: "daemon:workspace_recovery_failed",
-          error_code: diagnosticErrorCode(error),
-          outcome: "failed",
-        });
-      }
       let shuttingDown = false;
       const shutdown = async () => {
         if (shuttingDown) return;
@@ -414,6 +439,24 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       });
       process.once("SIGINT", () => void shutdown());
       process.once("SIGTERM", () => void shutdown());
+      // The cloud refused this Workspace for good: park it before stopping, so neither this
+      // process's clean exit (0 ends both OS supervisors' restarts) nor a later boot retries it.
+      park = async (reason) => {
+        await healthJournal.markParked(reason);
+        logParked(reason);
+        await shutdown();
+      };
+      try {
+        await daemon.start();
+      } catch (error) {
+        // A refusal is already parking the Workspace; see `startRuntime`.
+        if (!(error instanceof DaemonConnectionRefusedError))
+          logger.error("Daemon failed to recover configured Workspace", {
+            event: "daemon:workspace_recovery_failed",
+            error_code: diagnosticErrorCode(error),
+            outcome: "failed",
+          });
+      }
       await shutdownRequested;
     },
   );

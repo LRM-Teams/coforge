@@ -1,8 +1,10 @@
+import type { DaemonConnectRejectionReason } from "@lrm/coforge-sdk/internal";
 import type { WorkspaceHealthJournal } from "./workspace-health-journal";
 
 export type WorkspaceRunnerGuardOutcome =
   | { action: "proceed" }
-  | { action: "exit"; reason: string; crashCount: number; since: string };
+  | { action: "exit"; reason: string; crashCount: number; since: string }
+  | { action: "parked"; reason: DaemonConnectRejectionReason; since: string };
 
 /**
  * The Workspace daemon's own boot-time health decision. There is no process supervising this
@@ -10,6 +12,8 @@ export type WorkspaceRunnerGuardOutcome =
  * place that can notice its predecessor died unexpectedly, and the only place that can decide the
  * restart loop has gone bad often enough to stop itself.
  *
+ * Returns `"parked"` when the cloud refused this Workspace for good; the caller exits 0 the same
+ * way, and a predecessor's live marker is not counted as a crash.
  * Returns `"exit"` when the Workspace is already latched degraded (a prior terminal condition, or
  * this call's own crash just reached the budget); the caller must then exit 0 without starting
  * real Workspace work; exit 0 is what stops both supervisors from restarting it again. Returns
@@ -19,6 +23,8 @@ export async function guardWorkspaceRunnerStart(
   journal: WorkspaceHealthJournal,
 ): Promise<WorkspaceRunnerGuardOutcome> {
   const before = await journal.state();
+  if (before.status === "parked")
+    return { action: "parked", reason: before.reason, since: before.since };
   if (before.status === "degraded") return { action: "exit", ...degraded(before) };
   if (await journal.wasLeftRunning()) {
     await journal.recordCrash();
