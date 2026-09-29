@@ -31,6 +31,15 @@ to add tests or run stress checks.
 - [ ] 手工验证设置保存、主题/语言/时区、Workspace 切换、登录与错误状态。
 - [ ] 记录每个 Todo 的验证结果、浏览器/viewport、主题和发现的问题；不新增 UI 单元测试。
 
+## Browser end-to-end tests
+
+- `apps/web/test/*.e2e.ts` are opt-in: `bun test` does not discover `.e2e.ts`, and CI never runs them. They need a local Web service, `agent-browser`, and a local database. Each file's doc comment states its own prerequisites and what it writes under `.amp/e2e/`.
+- Run one by name: `mise run test:e2e:web` lists them, `mise run test:e2e:web <file>` runs one (the `.e2e.ts` suffix is optional). Use `scripts/e2e/run-web-e2e.sh` directly when you want the listing without mise.
+- **Pass the file as a path, never as a bare name.** `bun test e2e-x.e2e.ts` treats the argument as a *filter* and runs zero tests, printing only a hint; `bun test ./test/e2e-x.e2e.ts` loads the file. The two spellings differ by one `./`, and `scripts/ci/test-invocations.test.ts` guards the invocations that scripts, `mise.toml` and workflows name.
+- The shared runner defaults `COFORGE_E2E_WEB_URL` to `http://127.0.0.1:8788`, the dev server's port (the same default `run-mobile-overflow.sh` uses). The standard managed stack publishes Web on **8789** instead, so a file run against that one needs `COFORGE_E2E_WEB_URL=http://127.0.0.1:8789`.
+- A file that needs more than the shared environment (Centrifugo, the worker key material, a provider key, a viewport) has its own runner and mise task; run it through that one. The shared runner sets `DATABASE_URL`, `REDIS_URL` and `COFORGE_E2E_WEB_URL` only.
+- A new browser e2e needs no wiring to become reachable: the runner lists the directory, so it is runnable the moment the file exists. Its prerequisite checks must throw with the missing value named, never skip silently, so that an unrun test is visibly unrun rather than green.
+
 ## General principles
 
 - Test observable behavior through the owning module's public contract rather than private implementation details.
