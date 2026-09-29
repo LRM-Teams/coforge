@@ -12,3 +12,10 @@ These rules apply to `src/server/computers/`.
   `/api/computer/attach` routes to `workspace:get` and `computer:register`.
   It is composition only; `ComputerRegistrar` owns registration authorization,
   idempotency, and persistence.
+- A flow that removes a Computer from a Workspace calls
+  `DaemonCredentialRevocations.recordForComputer(tx, {workspaceId, computerId})`
+  inside its transaction, before anything revokes or cascades those daemon
+  keys, so the Computer parks that binding with `computer_unlinked`. Deleting a
+  Computer row or its owner cascades the keys without a record: those
+  Computers get the ordinary retryable failure. Add a record there too when
+  such a delete path is built.

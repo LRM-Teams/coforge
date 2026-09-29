@@ -9,7 +9,15 @@ staging.coforge.cn {
 	# Realtime transport stays standalone Centrifugo; everything else is the
 	# web application. Route order: explicit realtime prefixes first.
 	@realtime path /connection/*
-	reverse_proxy @realtime centrifugo:8000
+	handle @realtime {
+		reverse_proxy centrifugo:8000
+	}
 
-	reverse_proxy web:3000
+	# The web application compresses nothing itself, so HTML, JS, CSS and
+	# Server Function JSON are compressed here (zstd, else gzip). The realtime
+	# route above stays unencoded.
+	handle {
+		encode
+		reverse_proxy web:3000
+	}
 }

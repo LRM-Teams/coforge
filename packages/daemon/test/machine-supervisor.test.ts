@@ -7,6 +7,7 @@ import {
   type PendingUpgradeSettler,
 } from "#src/supervisor/machine-supervisor";
 import { WorkspaceParkedError } from "#src/supervisor/workspace-health-journal";
+import { WorkspaceStillStartingError } from "#src/supervisor/workspace-start-outcome";
 import {
   UpgradeLaunchesPausedError,
   UpgradeOperationPendingError,
@@ -875,4 +876,63 @@ test("an unscoped start leaves a parked Workspace the operator stopped alone", a
   await supervisor.command("start");
 
   expect(calls).toEqual(["clear:live", "start:live"]);
+});
+
+test("a Workspace that parks while it starts is reported after the other Workspaces start", async () => {
+  const started: string[] = [];
+  const supervisor = new MachineSupervisor(
+    {
+      load: async () => [
+        { workspaceId: "gone", computerId: "c", workspaceRoot: "/gone", enabled: false },
+        { workspaceId: "live", computerId: "c", workspaceRoot: "/live", enabled: false },
+      ],
+      save: async () => {},
+    },
+    {
+      start: async (binding) => {
+        if (binding.workspaceId === "gone")
+          throw new WorkspaceParkedError("gone", "workspace_deleted");
+        started.push(binding.workspaceId);
+        return "instance";
+      },
+      stop: async () => {},
+      instance: async () => null,
+    },
+  );
+  await supervisor.recover();
+
+  await expect(supervisor.command("start")).rejects.toMatchObject({
+    code: "workspace_deleted",
+    workspaceId: "gone",
+  });
+  expect(started).toEqual(["live"]);
+});
+
+test("an operator start passes its deadline to each start and names the Workspaces it started and those still starting", async () => {
+  const deadlines: Array<number | undefined> = [];
+  const supervisor = new MachineSupervisor(
+    {
+      load: async () => [
+        { workspaceId: "slow", computerId: "c", workspaceRoot: "/slow", enabled: false },
+        { workspaceId: "fast", computerId: "c", workspaceRoot: "/fast", enabled: false },
+      ],
+      save: async () => {},
+    },
+    {
+      start: async (binding, options) => {
+        deadlines.push(options?.deadline);
+        if (binding.workspaceId === "slow") throw new WorkspaceStillStartingError("slow");
+        return "instance";
+      },
+      stop: async () => {},
+      instance: async () => null,
+    },
+  );
+  await supervisor.recover();
+
+  expect(await supervisor.command("start", undefined, undefined, { deadline: 1_234 })).toEqual({
+    started: ["fast"],
+    stillStarting: ["slow"],
+  });
+  expect(deadlines).toEqual([1_234, 1_234]);
 });

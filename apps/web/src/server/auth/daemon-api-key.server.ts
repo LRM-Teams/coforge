@@ -28,6 +28,11 @@ const DAEMON_API_KEY = /^dk_[A-Za-z0-9_-]{43}$/;
  * timestamp: writing it per request would serialize one Computer's traffic on its key row. */
 const LAST_USED_RESOLUTION_MS = 60_000;
 
+/** Whether `value` has the shape of a daemon API key this server mints. */
+export function isDaemonApiKey(value: string): boolean {
+  return DAEMON_API_KEY.test(value);
+}
+
 export function hashDaemonApiKey(value: string): string {
   return new Bun.CryptoHasher("sha256").update(value).digest("hex");
 }
@@ -74,7 +79,7 @@ export async function verifyDaemonApiKey(
   repository: DaemonApiKeyRepository,
   now: Date = new Date(),
 ): Promise<DaemonApiKeyClaims> {
-  if (!DAEMON_API_KEY.test(apiKey)) throw new Error("invalid Daemon API key");
+  if (!isDaemonApiKey(apiKey)) throw new Error("invalid Daemon API key");
   const actual = Buffer.from(hashDaemonApiKey(apiKey));
   const record = await repository.findByHash(actual.toString());
   if (!record || record.revokedAt) throw new Error("invalid Daemon API key");

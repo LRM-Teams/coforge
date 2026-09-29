@@ -3,12 +3,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DAEMON_CONNECT_REJECTION_CODES } from "@lrm/coforge-sdk/internal";
-import { DaemonConnection } from "#src/connection/daemon-connection";
+import {
+  DaemonConnection,
+  defaultCentrifugeWorkspaceClientFactory,
+} from "#src/connection/daemon-connection";
 import { DaemonConnectionRefusedError } from "#src/connection/daemon-connection-refused-error";
 
 // Runs the Daemon's real connection against the Centrifugo image staging uses, behind a connect
-// proxy that answers the way the Web proxy does. Run it explicitly (Docker required):
-//   bun test ./packages/daemon/test/daemon-connection-refusal.integration.ts
+// proxy that answers the way the Web proxy does. Docker required: `mise run test:centrifugo`.
 
 const WORKSPACE_ID = "0f3c2b8e-5d6a-4c1e-9b7f-2a4d6e8f0a1b";
 const COMPUTER_ID = "0f3c2b8e-5d6a-4c1e-9b7f-2a4d6e8f0a1c";
@@ -90,16 +92,31 @@ afterAll(async () => {
 const endpoint = () => `ws://127.0.0.1:${centrifugoPort}/connection/websocket`;
 const config = { workspaceId: WORKSPACE_ID, computerId: COMPUTER_ID };
 
+/** The real client, plus the state it was in each time it reported `disconnected`. The client
+ * emits `disconnected` only once it has given up; while it will reconnect it reports
+ * `connecting` instead, so a `"disconnected"` state here is the proof it will not try again. */
+function observedConnection() {
+  const states: string[] = [];
+  let client: { state: string } | undefined;
+  const connection = new DaemonConnection(endpoint(), (url, token, data) => {
+    const created = defaultCentrifugeWorkspaceClientFactory(url, token, data);
+    client = created as unknown as { state: string };
+    created.on("disconnected", () => states.push(client!.state));
+    return created;
+  });
+  return { connection, states };
+}
+
 test("a refusal on the first connect fails start with its reason and never reconnects", async () => {
   answer = "workspace_deleted";
   connectAttempts = 0;
-  const connection = new DaemonConnection(endpoint());
+  const { connection, states } = observedConnection();
 
   const failure = await connection.start("dk_unknown", config).catch((error: unknown) => error);
-  await Bun.sleep(3_000);
 
   expect(failure).toBeInstanceOf(DaemonConnectionRefusedError);
   expect(failure).toMatchObject({ reason: "workspace_deleted" });
+  expect(states[0]).toBe("disconnected");
   expect(connectAttempts).toBe(1);
   await connection.stop();
 }, 30_000);
@@ -107,7 +124,7 @@ test("a refusal on the first connect fails start with its reason and never recon
 test("a refusal when a running connection reconnects reaches the refusal listener and ends reconnecting", async () => {
   answer = "accept";
   connectAttempts = 0;
-  const connection = new DaemonConnection(endpoint());
+  const { connection, states } = observedConnection();
   const refused = Promise.withResolvers<string>();
   connection.onConnectionRefused((reason) => refused.resolve(reason));
   await connection.start("dk_known", config);
@@ -122,10 +139,9 @@ test("a refusal when a running connection reconnects reaches the refusal listene
   expect(disconnect.status).toBe(200);
 
   expect(await refused.promise).toBe("workspace_deleted");
-  const attemptsAtRefusal = connectAttempts;
-  await Bun.sleep(3_000);
-  expect(attemptsAtRefusal).toBe(2);
-  expect(connectAttempts).toBe(attemptsAtRefusal);
+  // The server's own disconnect (3001) was a reconnecting one; only the refusal ended it.
+  expect(states).toEqual(["disconnected"]);
+  expect(connectAttempts).toBe(2);
   await connection.stop();
 }, 30_000);
 

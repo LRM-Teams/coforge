@@ -129,7 +129,7 @@ test("actionPrepare posts {target, action} to the registered local proxy route",
   expect(body).toEqual({ target: "#general", action });
 });
 
-test("actionPrepare maps a 4xx proxy response to PREPARE_FAILED with the server's error text", async () => {
+test("actionPrepare never relays a body outside the proxy contract", async () => {
   spyOn(globalThis, "fetch").mockResolvedValue(
     Response.json(
       { error: "INVALID_HANDLE", message: "unknown human handle: @nobody" },
@@ -148,7 +148,7 @@ test("actionPrepare maps a 4xx proxy response to PREPARE_FAILED with the server'
 
   expect(error).toBeInstanceOf(CliError);
   expect((error as CliError).code).toBe("PREPARE_FAILED");
-  expect((error as CliError).message).toBe("unknown human handle: @nobody");
+  expect((error as CliError).message).toBe("HTTP 422");
 });
 
 test("actionPrepare maps a 5xx proxy response to SERVER_5XX", async () => {

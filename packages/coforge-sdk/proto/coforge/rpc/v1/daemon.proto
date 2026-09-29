@@ -15,6 +15,10 @@ message DaemonHandshakeResponse {
   string server_url = 5;
   string version = 6;
   uint32 process_id = 7;
+  // Where this Workspace daemon's latest cloud connect stands: "connecting", "connected", or
+  // "not_connected" with cloud_connection_error. A refusal for good parks the Workspace and exits.
+  optional string cloud_connection = 8;
+  optional string cloud_connection_error = 9;
 }
 
 message DaemonCommandRequest {
@@ -34,6 +38,8 @@ message DaemonCommandResponse {
   // server; lets a refused daemon:upgrade/etc. carry the real reason instead of a closed socket.
   optional string error = 5;
   optional string error_code = 6;
+  // The Workspace a refusal is about, when it is about one (a parked Workspace).
+  optional string workspace_id = 7;
 }
 
 message ManagedRuntimeIdentity {
@@ -43,4 +49,10 @@ message ManagedRuntimeIdentity {
   uint32 process_id = 4;
   string instance_id = 5;
   string version = 6;
+  // Why the cloud refused this Workspace for good, when it is parked.
+  optional string park_reason = 7;
+  // Set only on the Workspaces an operator start or restart just started: where their first cloud
+  // connect stood when the command answered (see DaemonHandshakeResponse).
+  optional string cloud_connection = 8;
+  optional string cloud_connection_error = 9;
 }

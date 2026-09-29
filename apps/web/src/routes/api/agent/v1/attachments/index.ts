@@ -7,6 +7,7 @@ import { PrismaDirectConversationRepository } from "#src/server/db/repositories/
 import { isAppError } from "#src/lib/app-error";
 import {
   dmPeerNotInWorkspaceResponse,
+  targetNotAccessibleResponse,
   targetResolutionStatus,
 } from "#src/server/agents/agent-target-status.server";
 
@@ -64,10 +65,7 @@ export async function handleAgentAttachmentUpload(
   } catch (error) {
     const refused = dmPeerNotInWorkspaceResponse(error, parentTarget);
     if (refused) return refused;
-    return Response.json(
-      { error: "target is not accessible" },
-      { status: targetResolutionStatus(error) },
-    );
+    return targetNotAccessibleResponse(targetResolutionStatus(error));
   }
 
   const contentType = mimeTypeField || file.type || "application/octet-stream";

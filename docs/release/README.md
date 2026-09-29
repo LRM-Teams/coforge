@@ -34,6 +34,8 @@ implements this contract without duplicating it.
   project. Do not release a host binary or add an application systemd unit.
 - Keep application ports private. Caddy owns the public HTTPS/WSS entry point;
   a routine application release must not rewrite shared Caddy configuration.
+  An approved Caddyfile change reaches staging through the same deploy
+  pipeline, validated with `caddy validate` and covered by snapshot rollback.
 - Do not expose public plaintext HTTP for CoForge, including redirect-only
   listeners. The staging deployment verifies that port 80 is unreachable while
   trusted HTTPS/WSS on 443 remains healthy.

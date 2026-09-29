@@ -2,6 +2,7 @@ import {
   AgentTransportError,
   type AgentTransportFailureClass,
 } from "#src/connection/agent-transport-error";
+import { AgentExplainedRefusalError } from "#src/connection/agent-explained-refusal-error";
 import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
 import { AgentTaskRequestError } from "#src/connection/agent-task-request-error";
 import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
@@ -112,7 +113,10 @@ function classifyFailure(
     causeCode: string,
     options: {
       publicError?: string;
-      topLevelCode?: string;
+      /** `null`: the failure has no code of its own (a refusal whose server named none). */
+      topLevelCode?: string | null;
+      /** The server's own answer to "can the same request succeed later", when it gave one. */
+      retryable?: boolean;
       detail?: string;
       upstreamLayer?: string;
       upstreamStatus?: number;
@@ -125,7 +129,10 @@ function classifyFailure(
   ): AgentProxyClassifiedFailure => {
     const body: AgentProxyFailureBody = {
       error: options.publicError ?? "upstream HTTP response failed",
-      code: options.topLevelCode ?? "agent_proxy_failed",
+      ...(options.topLevelCode !== null
+        ? { code: options.topLevelCode ?? "agent_proxy_failed" }
+        : {}),
+      ...(options.retryable !== undefined ? { retryable: options.retryable } : {}),
       ...(options.detail !== undefined ? { detail: options.detail } : {}),
       proxy: {
         layer: "local_daemon_proxy",
@@ -208,6 +215,21 @@ function classifyFailure(
       responseComplete: true,
     });
   }
+
+  // The server refused with a reason written for the Agent (`DM_PEER_NOT_IN_WORKSPACE`, "target is
+  // not accessible"): the caller gets the real status, that reason, and the code when it named
+  // one, bounded and credential-free like any detail.
+  if (error instanceof AgentExplainedRefusalError)
+    return build(error.status, "upstream_refusal", error.code ?? `HTTP_${error.status}`, {
+      publicError: boundedDetail(error.message),
+      topLevelCode: error.code ?? null,
+      retryable: error.retryable,
+      upstreamLayer: "http_status",
+      upstreamStatus: error.status,
+      responseStarted: true,
+      responseComplete: true,
+      upstreamCode: error.code,
+    });
 
   // A refusal the upstream named with a business code (a 403 "this agent is not allowed", a 409
   // "the task changed since you saw it") is not a transport failure: the caller gets the real

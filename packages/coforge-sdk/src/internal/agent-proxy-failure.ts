@@ -9,6 +9,7 @@ export type AgentProxyFailureClass =
   | "protocol_mismatch"
   | "local_precondition"
   | "request_validation"
+  | "upstream_refusal"
   | "unclassified";
 
 /** Code-specific data a local precondition carries for the caller's `--json` output. */
@@ -19,7 +20,9 @@ export type AgentProxyFailureDetails = {
 
 export type AgentProxyFailureBody = {
   error: string;
-  code: string;
+  /** Absent only on an `upstream_refusal` whose server named no code; the caller then reports it
+   * under its own operation's code. On an `upstream_refusal` it is always the server's code. */
+  code?: string;
   detail?: string;
   /** `suggested_next_action`, `retryable` and `proxy.draft_saved` come from the daemon's verdict
    * when the failure carries one. An absent `retryable` means "decide from the class". */

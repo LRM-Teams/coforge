@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { authenticateCentrifugoConnect } from "#src/server/centrifugo/connect-proxy.server";
+import {
+  authenticateCentrifugoConnect,
+  centrifugoConnectDependencies,
+} from "#src/server/centrifugo/connect-proxy.server";
 import { getDatabaseClient } from "#src/server/db/client.server";
-import { PrismaDaemonApiKeyRepository } from "#src/server/db/repositories/daemon-api-key.repositories.server";
 
 export const Route = createFileRoute("/api/internal/centrifugo-connect")({
   server: {
@@ -20,18 +22,7 @@ export const Route = createFileRoute("/api/internal/centrifugo-connect")({
             { error: { code: 503, message: "database unavailable" } },
             { status: 503 },
           );
-        return authenticateCentrifugoConnect(request, {
-          daemonApiKeys: new PrismaDaemonApiKeyRepository(db),
-          computerBelongsToWorkspace: async (workspaceId, computerId) =>
-            Boolean(
-              await db.workspaceComputer.findUnique({
-                where: { workspaceId_computerId: { workspaceId, computerId } },
-                select: { id: true },
-              }),
-            ),
-          workspaceExists: async (id) =>
-            Boolean(await db.workspace.findUnique({ where: { id }, select: { id: true } })),
-        });
+        return authenticateCentrifugoConnect(request, centrifugoConnectDependencies(db));
       },
     },
   },

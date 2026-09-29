@@ -264,6 +264,9 @@ describe("remote-deploy.sh compose invocation shape", () => {
       await writeFile(join(root, "docker-compose.yml"), "name: coforge-staging\n");
       await mkdir(join(root, "centrifugo"));
       await writeFile(join(root, "centrifugo/config.yaml"), "client:\n  allowed_origins: []\n");
+      await mkdir(join(root, "caddy"));
+      const caddyfile = "staging.example.test {\n\treverse_proxy web:3000\n}\n";
+      await writeFile(join(root, "caddy/Caddyfile"), caddyfile);
       const files: Record<string, string> = {
         postgres_password: "pg-pass",
         redis_password: "redis-pass",
@@ -312,6 +315,9 @@ describe("remote-deploy.sh compose invocation shape", () => {
       expect(envFile).not.toContain("AUTHING_");
       expect(envFile).not.toContain("COFORGE_SESSION_SECRET");
       expect(envFile).toContain("COFORGE_CENTRIFUGO_CONFIG_SHA256=");
+      expect(envFile).toContain(
+        `COFORGE_CADDYFILE_SHA256=${createHash("sha256").update(caddyfile).digest("hex")}`,
+      );
       expect((await stat(envPath)).mode & 0o777).toBe(0o600);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -328,6 +334,8 @@ describe("candidate failure diagnostics", () => {
         await mkdir(join(root, "secrets"));
         await mkdir(join(root, "centrifugo"));
         await Bun.write(join(root, "centrifugo/config.yaml"), "client: {}\n");
+        await mkdir(join(root, "caddy"));
+        await Bun.write(join(root, "caddy/Caddyfile"), "staging.example.test {\n}\n");
         await Bun.write(join(root, "compose.yml"), "services: {}\n");
         for (const name of [
           "authing_app_id",
@@ -487,6 +495,11 @@ describe("Centrifugo configuration guard and release snapshot", () => {
       await mkdir(join(root, "secrets"));
       await mkdir(join(root, "centrifugo"));
       await Bun.write(join(root, "centrifugo/config.yaml"), "client: {}\n");
+      await mkdir(join(root, "caddy"));
+      await Bun.write(join(root, "caddy/Caddyfile"), "staging.example.test {\n}\n");
+      await mkdir(join(root, "last-healthy/centrifugo"), { recursive: true });
+      const healthyConfig = "client: {}\n# last healthy\n";
+      await Bun.write(join(root, "last-healthy/centrifugo/config.yaml"), healthyConfig);
       await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
       for (const name of requiredSecretNames) {
         await Bun.write(join(root, "secrets", name), "fixture-private-value");
@@ -537,6 +550,10 @@ exit 0
       expect(outputs.outcome).toBe("failed");
       expect(outputs.healthResult).toBe("failed: Centrifugo configuration validation failed");
       expect(await Bun.file(join(root, "state.env")).text()).toBe(state);
+      expect(await Bun.file(join(root, "centrifugo/config.yaml")).text()).toBe(healthyConfig);
+      expect(await Bun.file(join(root, ".env")).text()).toContain(
+        `COFORGE_CENTRIFUGO_CONFIG_SHA256=${createHash("sha256").update(healthyConfig).digest("hex")}`,
+      );
       const calls = await Bun.file(join(root, "calls")).text();
       expect(calls).not.toMatch(/ up -d/);
       expect(calls).toContain("pull --quiet centrifugo");
@@ -553,6 +570,8 @@ exit 0
       await mkdir(join(root, "secrets"));
       await mkdir(join(root, "centrifugo"));
       await Bun.write(join(root, "centrifugo/config.yaml"), "client: {}\n");
+      await mkdir(join(root, "caddy"));
+      await Bun.write(join(root, "caddy/Caddyfile"), "staging.example.test {\n}\n");
       await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
       for (const name of requiredSecretNames) {
         await Bun.write(join(root, "secrets", name), "fixture-private-value");
@@ -611,6 +630,88 @@ exit 0
     }
   });
 
+  test("a Caddyfile the pinned image rejects stops the deployment before anything is recreated", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-deploy-caddy-reject-"));
+    try {
+      await mkdir(join(root, "bin"));
+      await mkdir(join(root, "secrets"));
+      await mkdir(join(root, "centrifugo"));
+      await Bun.write(join(root, "centrifugo/config.yaml"), "client: {}\n");
+      await mkdir(join(root, "caddy"));
+      await Bun.write(
+        join(root, "caddy/Caddyfile"),
+        "staging.example.test {\n\tnot_a_directive\n}\n",
+      );
+      await mkdir(join(root, "last-healthy/caddy"), { recursive: true });
+      const healthyCaddyfile = "staging.example.test {\n}\n# last healthy\n";
+      await Bun.write(join(root, "last-healthy/caddy/Caddyfile"), healthyCaddyfile);
+      await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
+      for (const name of requiredSecretNames) {
+        await Bun.write(join(root, "secrets", name), "fixture-private-value");
+      }
+      const previous = `coforge/web@sha256:${"c".repeat(64)}`;
+      const state = `CURRENT_WEB_IMAGE=${previous}\nPREVIOUS_WEB_IMAGE=\n`;
+      await Bun.write(join(root, "state.env"), state);
+      await writeFile(
+        join(root, "bin/docker"),
+        `#!/bin/bash
+echo "$*" >> "$FIXTURE_ROOT/calls"
+if [[ "$1" = compose ]]; then
+  shift 5
+  if [[ "$1" = run && "$*" == *"caddy validate"* ]]; then
+    exit 1
+  fi
+fi
+exit 0
+`,
+        { mode: 0o700 },
+      );
+      const proc = Bun.spawn(
+        [
+          "bash",
+          new URL("./remote-deploy.sh", import.meta.url).pathname,
+          "--image",
+          registryImage,
+          "--compose-file",
+          join(root, "docker-compose.yml"),
+          "--secrets-dir",
+          join(root, "secrets"),
+          "--state-file",
+          join(root, "state.env"),
+          "--web-health-url",
+          "http://127.0.0.1/health",
+          "--public-health-url",
+          "https://example.test/health",
+        ],
+        {
+          env: { ...Bun.env, PATH: `${join(root, "bin")}:${Bun.env.PATH}`, FIXTURE_ROOT: root },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+      expect(code).toBe(0);
+      const outputs = parseRemoteOutputs(stdout);
+      expect(outputs.outcome).toBe("failed");
+      expect(outputs.healthResult).toBe("failed: Caddy configuration validation failed");
+      expect(await Bun.file(join(root, "state.env")).text()).toBe(state);
+      // The rejected file must not stay live: a later Caddy restart (host
+      // reboot, daemon restart) would load it and take the site down.
+      expect(await Bun.file(join(root, "caddy/Caddyfile")).text()).toBe(healthyCaddyfile);
+      const env = await Bun.file(join(root, ".env")).text();
+      expect(env).toContain(`COFORGE_WEB_IMAGE=${previous}\n`);
+      expect(env).toContain(
+        `COFORGE_CADDYFILE_SHA256=${createHash("sha256").update(healthyCaddyfile).digest("hex")}`,
+      );
+      const calls = await Bun.file(join(root, "calls")).text();
+      expect(calls).not.toMatch(/ up -d/);
+      expect(calls).toContain("run --rm --no-deps caddy caddy validate");
+      expect(calls).not.toContain("pull --quiet web");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("rollback restores the last healthy release configuration together with the image", async () => {
     const root = await mkdtemp(join(tmpdir(), "coforge-deploy-rollback-snapshot-"));
     try {
@@ -621,6 +722,14 @@ exit 0
       const marker = "client: {}\n# last healthy\n";
       await Bun.write(join(root, "last-healthy/centrifugo/config.yaml"), marker);
       await Bun.write(join(root, "centrifugo/config.yaml"), "client: {}\n# stale candidate\n");
+      await mkdir(join(root, "caddy"));
+      await mkdir(join(root, "last-healthy/caddy"), { recursive: true });
+      const caddyMarker = "staging.example.test {\n}\n# last healthy\n";
+      await Bun.write(join(root, "last-healthy/caddy/Caddyfile"), caddyMarker);
+      await Bun.write(
+        join(root, "caddy/Caddyfile"),
+        "staging.example.test {\n}\n# stale candidate\n",
+      );
       await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
       for (const name of requiredSecretNames) {
         await Bun.write(join(root, "secrets", name), "fixture-private-value");
@@ -706,6 +815,9 @@ exit 0
       const markerSha256 = createHash("sha256").update(marker).digest("hex");
       const env = await Bun.file(join(root, ".env")).text();
       expect(env).toContain(`COFORGE_CENTRIFUGO_CONFIG_SHA256=${markerSha256}`);
+      expect(await Bun.file(join(root, "caddy/Caddyfile")).text()).toBe(caddyMarker);
+      const caddyMarkerSha256 = createHash("sha256").update(caddyMarker).digest("hex");
+      expect(env).toContain(`COFORGE_CADDYFILE_SHA256=${caddyMarkerSha256}`);
       expect(stderr).toContain("restored the last healthy release configuration");
       const calls = await Bun.file(join(root, "calls")).text();
       // Count the command, not a flag order: the snapshot rollback passes
@@ -726,6 +838,8 @@ exit 0
       await mkdir(join(root, "centrifugo"));
       const shipped = "client: {}\n# shipped candidate\n";
       await Bun.write(join(root, "centrifugo/config.yaml"), shipped);
+      await mkdir(join(root, "caddy"));
+      await Bun.write(join(root, "caddy/Caddyfile"), "staging.example.test {\n}\n");
       await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
       for (const name of requiredSecretNames) {
         await Bun.write(join(root, "secrets", name), "fixture-private-value");
@@ -802,6 +916,26 @@ exit 0
   });
 });
 
+test("Caddy and Centrifugo are recreated when their bind-mounted configuration changes", async () => {
+  // Compose does not track bind-mount contents; each service reads the hash
+  // remote-deploy.sh writes, so a changed file changes the service definition.
+  const compose = await Bun.file(
+    new URL("../../infra/staging/docker-compose.yml", import.meta.url),
+  ).text();
+  const service = (name: string) => {
+    const start = compose.indexOf(`\n  ${name}:\n`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const next = compose.slice(start + 1).search(/\n  [a-z]/);
+    return compose.slice(start, next < 0 ? undefined : start + 1 + next);
+  };
+  expect(service("caddy")).toMatch(
+    /^ {6}COFORGE_CADDYFILE_SHA256: \$\{COFORGE_CADDYFILE_SHA256:\?[^}]*\}$/m,
+  );
+  expect(service("centrifugo")).toMatch(
+    /^ {6}COFORGE_CENTRIFUGO_CONFIG_SHA256: \$\{COFORGE_CENTRIFUGO_CONFIG_SHA256:\?[^}]*\}$/m,
+  );
+});
+
 describe("check-centrifugo-config.sh", () => {
   test("checks both configuration files against the digest-pinned image the staging Compose file ships", async () => {
     const script = await Bun.file(new URL("./check-centrifugo-config.sh", import.meta.url)).text();
@@ -833,6 +967,18 @@ describe("check-centrifugo-config.sh", () => {
     const packageJson = await Bun.file(new URL("../../package.json", import.meta.url)).text();
     expect(packageJson).toContain("check-centrifugo-config.sh");
     expect(packageJson).toContain("remote-deploy.sh");
+  });
+});
+
+describe("check-caddy-config.sh", () => {
+  test("validates the staging Caddyfile with the digest-pinned image the staging Compose file ships, in check:deploy", async () => {
+    const script = await Bun.file(new URL("./check-caddy-config.sh", import.meta.url)).text();
+    expect(script).toContain("set -euo pipefail");
+    expect(script).toContain("infra/staging/caddy/Caddyfile");
+    expect(script).toContain("caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile");
+    expect(script).toContain("is not pinned to a digest");
+    const packageJson = await Bun.file(new URL("../../package.json", import.meta.url)).text();
+    expect(packageJson).toContain("check-caddy-config.sh");
   });
 });
 

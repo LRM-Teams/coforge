@@ -578,6 +578,18 @@ export type DaemonCommandRequest = {
   workspaceId?: string;
   expectedVersion?: string;
 };
+/** Where a Workspace daemon's latest cloud connect stands. */
+export const WORKSPACE_CLOUD_CONNECTION_STATES = [
+  "connecting",
+  "connected",
+  "not_connected",
+] as const;
+export type WorkspaceCloudConnection = (typeof WORKSPACE_CLOUD_CONNECTION_STATES)[number];
+
+function cloudConnection(value: string | undefined): WorkspaceCloudConnection | undefined {
+  return WORKSPACE_CLOUD_CONNECTION_STATES.find((state) => state === value);
+}
+
 export type ManagedRuntimeIdentity = {
   workspaceId: string;
   computerId: string;
@@ -585,6 +597,11 @@ export type ManagedRuntimeIdentity = {
   processId: number;
   instanceId: string;
   version: string;
+  /** Why the cloud refused this Workspace for good, when it is parked. */
+  parkReason?: string;
+  /** Only on the Workspaces an operator start or restart just started. */
+  cloudConnection?: WorkspaceCloudConnection;
+  cloudConnectionError?: string;
 };
 export type DaemonCommandResponse = {
   protocolMajor: number;
@@ -597,6 +614,8 @@ export type DaemonCommandResponse = {
   /** See `UPGRADE_ERROR_CODE` (the only vocabulary a lifecycle refusal currently uses); may be
    * absent even when `error` is set, and may name a code this build does not know yet. */
   errorCode?: string;
+  /** The Workspace a refusal is about, when it is about one (a parked Workspace). */
+  workspaceId?: string;
 };
 export type LocalRpcRequest = { method: string; payload: Uint8Array };
 export type LocalRpcResponse = { method: string; payload: Uint8Array };
@@ -676,18 +695,19 @@ export function decodeDaemonCommandResponse(bytes: Uint8Array): DaemonCommandRes
     protocolMajor: value.protocolMajor,
     requestId: value.requestId,
     accepted: value.accepted,
-    runtimes: value.runtimes.map(
-      ({ workspaceId, computerId, enabled, processId, instanceId, version }) => ({
-        workspaceId,
-        computerId,
-        enabled,
-        processId,
-        instanceId,
-        version,
-      }),
-    ),
+    runtimes: value.runtimes.map((runtime) => ({
+      workspaceId: runtime.workspaceId,
+      computerId: runtime.computerId,
+      enabled: runtime.enabled,
+      processId: runtime.processId,
+      instanceId: runtime.instanceId,
+      version: runtime.version,
+      ...(runtime.parkReason ? { parkReason: runtime.parkReason } : {}),
+      ...connectionFields(runtime),
+    })),
     ...(value.error ? { error: value.error } : {}),
     ...(value.errorCode ? { errorCode: value.errorCode } : {}),
+    ...(value.workspaceId ? { workspaceId: value.workspaceId } : {}),
   };
 }
 
@@ -704,6 +724,9 @@ export type DaemonHandshakeResponse = {
   serverUrl: string;
   version?: string;
   processId?: number;
+  /** Where the Workspace daemon's latest cloud connect stands. */
+  cloudConnection?: WorkspaceCloudConnection;
+  cloudConnectionError?: string;
 };
 
 export function encodeDaemonHandshakeRequest(value: DaemonHandshakeRequest): Uint8Array {
@@ -732,6 +755,7 @@ export function decodeDaemonHandshakeResponse(bytes: Uint8Array): DaemonHandshak
     serverUrl: value.serverUrl,
     version: value.version || undefined,
     processId: value.processId || undefined,
+    ...connectionFields(value),
   };
 }
 
@@ -835,5 +859,13 @@ export function decodeDaemonHoldResponse(bytes: Uint8Array): DaemonHoldResponse 
       busySinceMs: Number(agent.busySinceMs),
     })),
     unreachableWorkspaceIds: [...value.unreachableWorkspaceIds],
+  };
+}
+
+function connectionFields(value: { cloudConnection?: string; cloudConnectionError?: string }) {
+  const state = cloudConnection(value.cloudConnection);
+  return {
+    ...(state ? { cloudConnection: state } : {}),
+    ...(value.cloudConnectionError ? { cloudConnectionError: value.cloudConnectionError } : {}),
   };
 }

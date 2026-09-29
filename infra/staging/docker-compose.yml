@@ -18,7 +18,7 @@ x-journald-logging: &journald-logging
 services:
   caddy:
     logging: *journald-logging
-    image: caddy:2.10.2@sha256:df17219f4add3e4b1f0cafe3912eb97da96e38963faf018a92f39a868d1f888c
+    image: caddy:2.10.2@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb
     command:
       - caddy
       - run
@@ -26,6 +26,11 @@ services:
       - /etc/caddy/Caddyfile
       - --adapter
       - caddyfile
+    environment:
+      # Bind-mount contents are not part of Compose's service change detection.
+      # The deploy script refreshes this value from the Caddyfile so only a
+      # Caddyfile change recreates this container (admin is off: no reload).
+      COFORGE_CADDYFILE_SHA256: ${COFORGE_CADDYFILE_SHA256:?deploy script writes .env}
     ports:
       - "443:443"
     volumes:

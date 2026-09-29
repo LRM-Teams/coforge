@@ -49,6 +49,9 @@ test("assistant context manifests expose structure without report bodies", async
     weeklyReportFavorite: {
       findUnique: async () => null,
     },
+    weeklyReportTemplate: {
+      findMany: async () => [],
+    },
   } as unknown as PrismaClient;
 
   const manifest = await new RecordCatalog(db).loadAssistantContextManifest({
@@ -71,6 +74,7 @@ test("assistant context manifests expose structure without report bodies", async
       "visible_member_reports",
       "favorites",
     ],
+    templateFormats: [],
     contextVersion: "2026-09-18T00:00:00.000Z",
   });
   expect(JSON.stringify(manifest)).not.toContain("private body");

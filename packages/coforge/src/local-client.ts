@@ -23,6 +23,7 @@ import type {
 } from "../index";
 import {
   agentApiRoutes,
+  decodeAgentApiRefusal,
   decodeAgentChannelErrorResponse,
   decodeAgentManualErrorResponse,
   decodeAgentManualGetResponse,
@@ -56,6 +57,7 @@ import {
   NO_MESSAGE_SENT_NEXT_ACTION,
   unknownDeliveryNextAction,
 } from "./cli-error";
+import { refusalNextAction } from "./refusal-guidance";
 
 /** The local daemon proxy's JSON error contract (`AgentProxyFailureBody` in the SDK). A few proxy
  * refusals decided before a request is parsed (`unauthorized`, `not found`, `bad request`, …) are
@@ -69,7 +71,7 @@ async function readProxyErrorBody(response: Response): Promise<{ json?: AgentPro
   const text = await response.text().catch(() => "");
   try {
     const parsed = JSON.parse(text) as unknown;
-    if (parsed && typeof parsed === "object" && "code" in parsed)
+    if (parsed && typeof parsed === "object" && ("code" in parsed || "proxy" in parsed))
       return { json: parsed as AgentProxyErrorBody };
   } catch {
     // A bare-text proxy refusal (unauthorized, not found, ...): no body to relay.
@@ -123,6 +125,11 @@ function proxyHttpFailure(
   const isSend = operation === "send";
   const proxy = body.json?.proxy;
   const isLocalPrecondition = proxy?.failure_class === "local_precondition";
+  // A server refusal names its own next step (`refusal-guidance.ts`).
+  const refusalNext =
+    proxy?.failure_class === "upstream_refusal"
+      ? refusalNextAction(operation, body.json?.code, target ?? "", body.json?.retryable)
+      : undefined;
   // A local precondition usually means nothing was saved, but a guard that saves a draft before
   // refusing (e.g. --target-confirmed) says so explicitly via `draft_saved`; honour it when present.
   const draftSaved = proxy?.draft_saved !== undefined ? proxy.draft_saved : !isLocalPrecondition;
@@ -146,13 +153,16 @@ function proxyHttpFailure(
         }
       : { upstreamStatus: status },
     // The daemon names the next step when it knows better than the generic line: a precondition
-    // with its own remedy, or a failed same-key replay whose draft may or may not be retried.
-    suggestedNextAction: isSend
-      ? (body.json?.suggested_next_action ??
-        (isLocalPrecondition
+    // with its own remedy, or a failed same-key replay whose draft may or may not be retried. A
+    // server refusal names its own.
+    suggestedNextAction:
+      body.json?.suggested_next_action ??
+      refusalNext ??
+      (isSend
+        ? isLocalPrecondition
           ? NO_MESSAGE_SENT_NEXT_ACTION
-          : unknownDeliveryNextAction(target ?? "")))
-      : body.json?.suggested_next_action,
+          : unknownDeliveryNextAction(target ?? "")
+        : undefined),
     ...(body.json?.details ? { details: body.json.details } : {}),
   });
 }
@@ -169,6 +179,9 @@ function failureCode(operation: string, status: number, json: AgentProxyErrorBod
       return json?.code ?? operationFailedCode(operation);
     case "protocol_mismatch":
       return "INVALID_JSON_RESPONSE";
+    // The server's own stable code when its refusal named one (`DM_PEER_NOT_IN_WORKSPACE`).
+    case "upstream_refusal":
+      return json?.code ?? operationFailedCode(operation);
     case "upstream_http_response":
       return (proxy?.upstream_status ?? status) >= 500
         ? "SERVER_5XX"
@@ -749,19 +762,32 @@ export function connectLocal(
     sizeBytes: number;
   };
 
-  /** Reads a non-ok local-proxy JSON error body, tolerating a legacy bare-text body. */
-  async function readAttachmentErrorBody(
-    response: Response,
-  ): Promise<{ message: string; code?: string; retryable?: boolean }> {
+  /**
+   * The failure a non-ok upload answer reports. The upload routes pass the server's body through
+   * unchanged, so only a 4xx in the Agent API's refusal shape is shown, with its code and next
+   * step; anything else is its HTTP status alone.
+   */
+  async function attachmentFailure(response: Response, target: string): Promise<CliError> {
     const text = await response.text().catch(() => "");
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(text) as { error?: string; code?: string; retryable?: boolean };
-      if (parsed && typeof parsed.error === "string")
-        return { message: parsed.error, code: parsed.code, retryable: parsed.retryable };
+      parsed = JSON.parse(text);
     } catch {
-      // Not JSON: keep the raw text (e.g. a legacy bare-text proxy error).
+      // Not JSON: never relayed.
     }
-    return { message: text };
+    const refusal = response.status < 500 ? decodeAgentApiRefusal(parsed) : undefined;
+    if (!refusal)
+      return new CliError({
+        code: response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED",
+        message: `HTTP ${response.status}`,
+        retryable: false,
+      });
+    return new CliError({
+      code: refusal.code ?? "UPLOAD_FAILED",
+      message: refusal.error,
+      retryable: refusal.retryable === true,
+      suggestedNextAction: refusalNextAction("upload", refusal.code, target, refusal.retryable),
+    });
   }
 
   async function callAttachmentUpload(input: {
@@ -832,14 +858,7 @@ export function connectLocal(
           retryable: false,
         });
       }
-      if (!response.ok) {
-        const { message } = await readAttachmentErrorBody(response);
-        throw new CliError({
-          code: response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED",
-          message: message || `HTTP ${response.status}`,
-          retryable: false,
-        });
-      }
+      if (!response.ok) throw await attachmentFailure(response, multipart.target);
       return (await response.json()) as AttachmentUploadResult;
     }
   }
@@ -884,14 +903,7 @@ export function connectLocal(
         retryable: false,
       });
     }
-    if (!response.ok) {
-      const { message, code } = await readAttachmentErrorBody(response);
-      throw new CliError({
-        code: code ?? (response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED"),
-        message: message || `HTTP ${response.status}`,
-        retryable: false,
-      });
-    }
+    if (!response.ok) throw await attachmentFailure(response, input.target);
     const created = (await response.json()) as {
       uploadId: string;
       upload: { url: string; headers: Record<string, string> };
@@ -910,7 +922,7 @@ export function connectLocal(
     // ambiguous network failure the server may still have received — falls through to the
     // server's own HEAD-based verification, exactly as Raft 1.0.32 does.
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const completed = await callAttachmentUploadSessionComplete(created.uploadId);
+      const completed = await callAttachmentUploadSessionComplete(created.uploadId, input.target);
       if (completed.ok) return completed.attachment;
       if (!completed.retryable || attempt === 2) throw completed.error;
       await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
@@ -924,6 +936,7 @@ export function connectLocal(
 
   async function callAttachmentUploadSessionComplete(
     uploadId: string,
+    target: string,
   ): Promise<
     | { ok: true; attachment: AttachmentUploadResult }
     | { ok: false; retryable: boolean; error: CliError }
@@ -953,16 +966,8 @@ export function connectLocal(
       const body = (await response.json()) as { attachment: AttachmentUploadResult };
       return { ok: true, attachment: body.attachment };
     }
-    const { message, code, retryable } = await readAttachmentErrorBody(response);
-    return {
-      ok: false,
-      retryable: retryable === true,
-      error: new CliError({
-        code: code ?? (response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED"),
-        message: message || `HTTP ${response.status}`,
-        retryable: retryable === true,
-      }),
-    };
+    const error = await attachmentFailure(response, target);
+    return { ok: false, retryable: error.retryable === true, error };
   }
 
   async function callAttachmentUploadSessionCancel(uploadId: string): Promise<void> {
@@ -1148,7 +1153,8 @@ export function connectLocal(
     return response.json();
   }
 
-  /** Server non-2xx maps to `PREPARE_FAILED` (4xx, server error text) or `SERVER_5XX`. */
+  /** A non-2xx maps like any other proxied operation: a refusal keeps the server's code, reason
+   * and next step; anything else is `PREPARE_FAILED` or `SERVER_5XX`. */
   async function callActionPrepare(
     target: string,
     action: ActionCardAction,
@@ -1171,21 +1177,13 @@ export function connectLocal(
         retryable: false,
       });
     }
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      let message = text;
-      try {
-        const json = JSON.parse(text) as { error?: string; message?: string };
-        message = json.message || json.error || text;
-      } catch {
-        // A legacy or bare-text proxy error; fall through with the raw text.
-      }
-      throw new CliError({
-        code: response.status >= 500 ? "SERVER_5XX" : "PREPARE_FAILED",
-        message: message || `HTTP ${response.status}`,
-        retryable: false,
-      });
-    }
+    if (!response.ok)
+      throw proxyHttpFailure(
+        "prepare",
+        response.status,
+        await readProxyErrorBody(response),
+        target,
+      );
     return (await response.json()) as ActionPrepareResult;
   }
 
