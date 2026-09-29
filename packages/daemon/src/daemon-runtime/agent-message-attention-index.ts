@@ -16,6 +16,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import type { AgentHistoryConsumptionScope } from "@lrm/coforge-sdk/agent";
 import type { AgentProcessManager } from "#src/agent-runtime/agent-process-manager";
+import { isTrackedMention } from "./mention-delivery-tracker";
 import type {
   AgentConsumedSeqEntry,
   AgentConsumedSeqPort,
@@ -264,6 +265,31 @@ export class AgentMessageAttentionIndex {
       method: AGENT_MESSAGE_ACK_METHOD,
       requestId: message.requestId,
     });
+  }
+
+  /**
+   * Tells the Agent's session about one delivery without acknowledging it and without holding it:
+   * for a tracked mention, whose acknowledgement `MentionDeliveryTracker` owns. A delivery an
+   * earlier notice already announced (or is announcing) is not announced again. Resolves `told`
+   * once a notice of it was accepted, `gone` when the Agent's process went away first; rejects
+   * when the session refused the notice.
+   */
+  async announce(message: AgentMessageDelivery): Promise<"told" | "gone"> {
+    if (message.workspaceId !== this.#workspaceId)
+      throw new Error("agent message targets another Workspace");
+    if (!hasDeliveryScope(message)) throw new Error("invalid agent message scope");
+    const generation = this.#generation(message.agentId);
+    if (!generation.seenDeliveryIds.has(message.deliveryId)) {
+      this.#remember(generation, message.deliveryId);
+      await this.#notify(message, this.#recordAttention(message));
+    } else if (!generation.notified.has(message.deliveryId))
+      await (generation.notificationAttempts.get(message.deliveryId) ?? this.#notify(message));
+    return this.#generations.get(message.agentId) === generation ? "told" : "gone";
+  }
+
+  /** Whether the Agent's current session accepted a notice of this delivery. */
+  wasNotified(message: AgentMessageDelivery): boolean {
+    return this.#generations.get(message.agentId)?.notified.has(message.deliveryId) === true;
   }
 
   /** Records one delivery the Agent has not been shown yet: its target's attention, pending
@@ -561,8 +587,14 @@ Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or h
 ${rows.join("\n")}
 ${INBOX_DRAIN_HINT}]`,
     );
+    // The session names these back if the notice never reaches the model (`notice-undelivered`).
+    const trackedIds = announced.filter(isTrackedMention).map((delivery) => delivery.deliveryId);
     const notification = Promise.resolve()
-      .then(() => session.notify!(notice))
+      .then(() =>
+        trackedIds.length
+          ? session.notify!(notice, { deliveryIds: trackedIds })
+          : session.notify!(notice),
+      )
       .then(() => {
         if (this.#generations.get(message.agentId) === generation) {
           generation.notified.add(message.deliveryId);

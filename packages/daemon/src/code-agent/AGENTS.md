@@ -20,6 +20,10 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   codes here.
 - Adapters emit only official display events and explicit lineage, never raw
   reasoning.
+- A `notice-undelivered` for a turn comes before that turn's `completed`, and
+  echoes the `deliveryIds` `notify` was given: the daemon settles tracked
+  mentions on `completed`. Kiro waits, bounded, for the turn's steering
+  outcome before reporting the turn ended.
 
 ## Runtime inventory and models
 

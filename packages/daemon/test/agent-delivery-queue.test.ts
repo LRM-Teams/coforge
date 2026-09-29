@@ -61,7 +61,7 @@ test("an explicit hold gates delivery independent of busy/idle and blocks idle d
   const queue = new AgentDeliveryQueue();
   queue.setProvider("agent-1", "pi");
   expect(queue.shouldHold("agent-1")).toBe(false);
-  queue.hold("agent-1", Date.now() + 60_000);
+  queue.hold("agent-1", "runtime_error_backoff");
   expect(queue.shouldHold("agent-1")).toBe(true);
   queue.enqueue("agent-1", delivery("one"));
   // Idle would ordinarily drain; the explicit hold keeps it queued.
@@ -76,7 +76,7 @@ test("release while still busy clears the explicit hold but does not drain", () 
   const queue = new AgentDeliveryQueue();
   queue.setMode("agent-1", "queue_until_idle");
   queue.busy("agent-1");
-  queue.hold("agent-1");
+  queue.hold("agent-1", "fingerprint_fence");
   queue.enqueue("agent-1", delivery("one"));
   const released = queue.release("agent-1");
   expect(released).toEqual([]);
@@ -112,7 +112,7 @@ test("discardPending unconditionally drains, ignoring busy and an explicit hold"
   const queue = new AgentDeliveryQueue();
   queue.setMode("agent-1", "queue_until_idle");
   queue.busy("agent-1");
-  queue.hold("agent-1");
+  queue.hold("agent-1", "fingerprint_fence");
   queue.enqueue("agent-1", delivery("one"));
   queue.enqueue("agent-1", delivery("two"));
   const dropped = queue.discardPending("agent-1");

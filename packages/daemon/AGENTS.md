@@ -73,7 +73,7 @@ Directories with their own `AGENTS.md` add rules for that directory only.
 | `index.ts`             | Process entrypoint and package exports; dependency assembly only                      |
 | `src/daemon-host/`     | Login-session startup through launchd, systemd user, and Windows tasks                |
 | `src/supervisor/`      | Machine Coordinator: Workspace binding registry and per-Workspace process lifecycle   |
-| `src/daemon-runtime/`  | One Workspace child's runtime: cloud use cases, Message attention, delivery to Agents |
+| `src/daemon-runtime/`  | One Workspace child's runtime: cloud use cases, attention, delivery, mention tracking |
 | `src/connection/`      | The Workspace's WSS connection, ordered replay, reconnect, and Agent HTTPS transport  |
 | `src/agent-runtime/`   | Agent lifecycle state machine, control, native Session state, and Activity            |
 | `src/code-agent/`      | `CodeAgentProvider` seam, provider adapters, runtime inventory, standing instructions |

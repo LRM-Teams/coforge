@@ -24,6 +24,7 @@ import {
 } from "#src/agent-runtime/runtime-error-activity";
 import {
   classifyRuntimeErrorText,
+  RUNTIME_ERROR_CLASS,
   RUNTIME_ERROR_RETRY_DECISION,
   type RuntimeErrorClassification,
 } from "#src/agent-runtime/runtime-error-classification";
@@ -71,6 +72,7 @@ import {
   type DaemonShutdownReason,
   type RunnerHoldReason,
   AGENT_MESSAGE_REJECT_METHOD,
+  MENTION_DELIVERY_TERMINAL_CODES,
   AGENT_ACTIVITY_DETAIL_KIND,
   truncateCodePoints,
   type AgentActivity,
@@ -82,6 +84,7 @@ import {
   type WorkspaceInfoRequest,
   type WorkspaceInfoResponse,
   type AgentStartIntent,
+  type AgentSessionReport,
   type AgentStopIntent,
   type SessionIdentity,
   type AgentActivityProbe,
@@ -139,6 +142,12 @@ import {
 } from "#src/agent-runtime/agent-workspace-files";
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
 import { AgentDeliveryQueue } from "./agent-delivery-queue";
+import {
+  isTrackedMention,
+  MentionDeliveryTracker,
+  type RunningMentionIdentity,
+  type TrackedMentionDelivery,
+} from "./mention-delivery-tracker";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
 import {
   locallyHeldSend,
@@ -515,6 +524,10 @@ export class DaemonRuntime {
    * Raft's `refreshChain`. */
   #modelRefreshChain: Promise<void> = Promise.resolve();
   readonly #messageAttention: AgentMessageAttentionIndex;
+  readonly #mentionDeliveries: MentionDeliveryTracker;
+  /** The launch and native session last reported to the cloud per Agent: the identity a tracked
+   * mention's envelope must name, while that launch is still the running one. */
+  readonly #reportedSessions = new Map<string, RunningMentionIdentity>();
   /** Busy-gated delivery holding for providers with no safe busy path. */
   readonly #deliveryQueue = new AgentDeliveryQueue();
   /** Launch failures of message-triggered wakes, per Agent: while one owes a cooldown, a delivery
@@ -638,6 +651,21 @@ export class DaemonRuntime {
     this.#agentProxy = agentProxy;
     this.#codeAgentDiscovery = codeAgentDiscovery ?? defaultCodeAgentDiscovery(stateDirectory);
     this.#transport = transportFactory.create(connection);
+    this.#mentionDeliveries = new MentionDeliveryTracker(connection.computerId, {
+      transition: (report) =>
+        this.#transport.sendAgentMentionDeliveryTransition?.(report) ?? Promise.resolve(),
+      terminalError: (report) =>
+        this.#transport.sendAgentMentionDeliveryTerminalError?.(report) ?? Promise.resolve(),
+      acknowledge: (message) => this.#messageAttention.acknowledge(message),
+      running: (agentId) => this.#runningMentionIdentity(agentId),
+      consumed: (message) => this.#messageAttention.hasConsumed(message),
+      told: (message) => this.#messageAttention.wasNotified(message),
+      announce: (message) => this.#messageAttention.announce(message),
+      busy: (agentId) => this.#deliveryQueue.isBusy(agentId),
+      blocked: (agentId) =>
+        this.#deliveryQueue.explicitHold(agentId) ??
+        (this.#deliveryQueue.shouldHold(agentId) ? "queued_until_idle" : undefined),
+    });
     this.#messageAttention = new AgentMessageAttentionIndex(
       connection.workspaceId,
       this.#agentProcessManager,
@@ -688,7 +716,7 @@ export class DaemonRuntime {
       new MemoryAgentRuntimeStateStore(connection.workspaceRoot, connection.workspaceId),
     );
     this.#agentSessions = new AgentSessions(state, async (snapshot) => {
-      await this.#transport.reportAgentSession?.({
+      await this.#reportAgentSession({
         protocolMajor: snapshot.protocolMajor,
         requestId: crypto.randomUUID(),
         workspaceId: snapshot.workspaceId,
@@ -1829,7 +1857,9 @@ export class DaemonRuntime {
       if (!item) return;
       try {
         if (item.kind === "delivery") {
-          await this.#messageAttention.receive(item.message);
+          await (isTrackedMention(item.message)
+            ? this.#mentionDeliveries.deliver(item.message)
+            : this.#messageAttention.receive(item.message));
           logger.info("Agent delivery indexed", {
             event: "agent.message.delivery_indexed",
             agent_id: agentId,
@@ -1981,6 +2011,13 @@ export class DaemonRuntime {
     if (!queue) return;
     queue.items = queue.items.filter((item) => {
       if (item.kind !== "delivery") return true;
+      // A tracked mention named a launch that never came up; it never waits for the next one.
+      if (
+        this.#mentionDeliveries.drop(item.message, MENTION_DELIVERY_TERMINAL_CODES.IDENTITY_UNKNOWN)
+      ) {
+        item.completion.resolve();
+        return false;
+      }
       this.#deliveryQueue.enqueue(agentId, item.message);
       this.#acknowledgeCustody(item.message);
       // Kept, not failed: the delivery is not lost, so it is not reported as a failed delivery.
@@ -2180,7 +2217,7 @@ export class DaemonRuntime {
                   ),
                 );
               }
-              await this.#transport.reportAgentSession!({
+              await this.#reportAgentSession({
                 protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
                 requestId: crypto.randomUUID(),
                 workspaceId: this.#connection.workspaceId,
@@ -2417,7 +2454,7 @@ export class DaemonRuntime {
     // it does not yet trust the new `launchId` alone.
     if (identity?.sessionId && this.#transport.reportAgentSession) {
       try {
-        await this.#transport.reportAgentSession({
+        await this.#reportAgentSession({
           protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
           requestId: crypto.randomUUID(),
           workspaceId: this.#connection.workspaceId,
@@ -2643,8 +2680,14 @@ export class DaemonRuntime {
       // the model (Kiro's own steering buffer discarded it, or the steer call itself was never
       // accepted). Hold the exact text for redelivery once this Agent is next idle — no ACK
       // bookkeeping here; whatever originally accepted this text already settled its own ACK (or
-      // never had one, for an App Inbox notice).
-      this.#deliveryQueue.holdFallbackNotice(agentId, event.text);
+      // never had one, for an App Inbox notice). The tracked mentions it carried were not told:
+      // that redelivery settles them, not this turn's end.
+      this.#deliveryQueue.holdFallbackNotice(agentId, {
+        text: event.text,
+        ...(event.deliveryIds?.length ? { deliveryIds: event.deliveryIds } : {}),
+      });
+      if (event.deliveryIds?.length)
+        this.#mentionDeliveries.markUndelivered(agentId, event.deliveryIds);
       return;
     }
     if (event.type !== "completed") return;
@@ -2667,6 +2710,8 @@ export class DaemonRuntime {
     // *next* turn end instead of racing the notice the flush just started sending.
     this.#releaseHeldAppItems(agentId);
     this.#releaseFallbackNotices(agentId);
+    // Tracked mentions told during this turn end with it.
+    void this.#mentionDeliveries.settleTurnEnd(agentId);
     // A turn ending means a still-open compaction is done; report that before the turn's own
     // idle/failed/interrupted Activity.
     if (this.#compactionTracker.finish(agentId) === "finished")
@@ -2864,12 +2909,13 @@ export class DaemonRuntime {
 
   async handleAgentMessage(message: AgentMessageDelivery): Promise<void> {
     this.#assertRunning();
-    if (this.#stoppingAgents.has(message.agentId))
-      throw new Error(`Agent runtime is stopping: ${message.agentId}`);
     if (message.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR)
       throw new Error("unsupported agent protocol major");
     if (message.workspaceId !== this.#connection.workspaceId)
       throw new Error("agent message targets another Workspace");
+    if (isTrackedMention(message)) return this.#handleTrackedMention(message);
+    if (this.#stoppingAgents.has(message.agentId))
+      throw new Error(`Agent runtime is stopping: ${message.agentId}`);
     const exited =
       this.#runnerHold === undefined &&
       !this.#agentProcessManager.session(message.agentId) &&
@@ -2911,6 +2957,56 @@ export class DaemonRuntime {
       this.#ensureAgentInputDrain(message.agentId);
     // Otherwise a launch is in flight, and it drains the queue once its session is up.
     return delivery;
+  }
+
+  /**
+   * A tracked @mention: told only to the running launch and session its envelope names, and ACKed
+   * only once drained there (`MentionDeliveryTracker`). It never wakes an Agent, waits for a
+   * launch or a pending server Start, or becomes `no_process`: with no running session it is
+   * drained if already consumed and refused as `IDENTITY_UNKNOWN` otherwise, and the server
+   * decides what happens next. A runner hold queues it unacknowledged like any delivery.
+   */
+  #handleTrackedMention(message: TrackedMentionDelivery): Promise<void> {
+    const { agentId } = message;
+    const refusal = this.#mentionDeliveries.admissionRefusal(message);
+    if (refusal) return this.#mentionDeliveries.refuse(message, refusal);
+    if (
+      this.#runnerHold === undefined &&
+      (this.#stoppingAgents.has(agentId) || !this.#agentProcessManager.session(agentId))
+    ) {
+      this.#mentionDeliveries.drop(message, MENTION_DELIVERY_TERMINAL_CODES.IDENTITY_UNKNOWN);
+      return Promise.resolve();
+    }
+    const delivery = this.#enqueueAgentInput(agentId, (completion) => ({
+      kind: "delivery",
+      message,
+      completion,
+    }));
+    if (this.#runnerHold !== undefined) {
+      void delivery.catch(() => {});
+      return Promise.resolve();
+    }
+    this.#ensureAgentInputDrain(agentId);
+    return delivery;
+  }
+
+  /** The launch and native session a tracked mention may name: the ones last reported for this
+   * Agent, while that launch is the one running. */
+  #runningMentionIdentity(agentId: string): RunningMentionIdentity | undefined {
+    if (!this.#agentProcessManager.session(agentId)) return undefined;
+    const reported = this.#reportedSessions.get(agentId);
+    const launch = this.#currentActivityLaunches.get(agentId);
+    return reported && launch?.launchId === reported.launchId ? reported : undefined;
+  }
+
+  /** Sends a session report, and remembers the launch and session it names for tracked
+   * mentions. */
+  async #reportAgentSession(report: AgentSessionReport): Promise<void> {
+    await this.#transport.reportAgentSession?.(report);
+    this.#reportedSessions.set(report.agentId, {
+      launchId: report.launchId,
+      sessionId: report.sessionId,
+    });
   }
 
   /** A delivery for an Agent with no hold, session, or launch in flight. */
@@ -3006,6 +3102,9 @@ export class DaemonRuntime {
         ?.items.flatMap((item) => (item.kind === "delivery" ? [item.message] : [])) ?? [];
     this.#closeAgentInputQueue(message.agentId, new Error("Agent is inactive"));
     for (const rejected of [...queued, message]) {
+      // A tracked mention a lifted runner hold left queued names a launch that is gone.
+      if (this.#mentionDeliveries.drop(rejected, MENTION_DELIVERY_TERMINAL_CODES.IDENTITY_UNKNOWN))
+        continue;
       logger.info("Agent delivery rejected: no process to take it", {
         event: "agent.message.delivery_rejected",
         agent_id: rejected.agentId,
@@ -3053,8 +3152,15 @@ export class DaemonRuntime {
       queue.items = queue.items.filter((item) => {
         if (item.kind !== "delivery" || !conversations.has(item.message.conversationId))
           return true;
-        // Taken and dropped: acknowledged, so the server does not bring it back after a rejoin.
-        this.#acknowledgeCustody(item.message);
+        // Taken and dropped: acknowledged, so the server does not bring it back after a rejoin. A
+        // tracked mention is never ACKed untold: the Agent will not be told it, so it is rejected.
+        if (
+          !this.#mentionDeliveries.drop(
+            item.message,
+            MENTION_DELIVERY_TERMINAL_CODES.DELIVERY_REJECTED,
+          )
+        )
+          this.#acknowledgeCustody(item.message);
         item.completion.resolve();
         dropped++;
         return false;
@@ -3262,9 +3368,14 @@ export class DaemonRuntime {
       return this.#runtimeErrorFingerprintFenceActivity(built, fence);
     }
     const backoff = this.#runtimeErrorDeliveryBackoff.recordFailure(agentId);
-    // No deadline handed to the queue: it only records *that* the Agent is held, and this
-    // release timer is the single owner of *when* that ends.
-    this.#deliveryQueue.hold(agentId);
+    // The queue records that the Agent is held and why; this release timer is the single owner
+    // of when that ends.
+    this.#deliveryQueue.hold(
+      agentId,
+      classification.errorClass === RUNTIME_ERROR_CLASS.RATE_LIMIT
+        ? "rate_limit_backoff"
+        : "runtime_error_backoff",
+    );
     this.#scheduleRuntimeErrorDeliveryBackoffRelease(agentId, backoff.delayMs);
     return built;
   }
@@ -3317,7 +3428,7 @@ export class DaemonRuntime {
    */
   #applyRuntimeErrorFingerprintFence(agentId: string): void {
     this.#clearRuntimeErrorBackoffTimer(agentId);
-    this.#deliveryQueue.hold(agentId);
+    this.#deliveryQueue.hold(agentId, "fingerprint_fence");
   }
 
   /** A genuinely successful turn: forgets both streaks entirely. */
@@ -4650,18 +4761,30 @@ export class DaemonRuntime {
    * losing it.
    */
   #releaseFallbackNotices(agentId: string): void {
-    const texts = this.#deliveryQueue.releaseFallbackNotices(agentId);
-    if (!texts.length) return;
+    const notices = this.#deliveryQueue.releaseFallbackNotices(agentId);
+    if (!notices.length) return;
     const session = this.#agentProcessManager.session(agentId);
-    if (!session?.notify) return;
-    for (const text of texts)
-      void session.notify(text).catch((error: unknown) => {
-        logger.warn("A steered notice could not be redelivered after its turn ended", {
-          event: "agent.delivery_queue.fallback_notice_rejected",
-          agent_id: agentId,
-          error_code: error instanceof Error ? error.name : "UnknownError",
-        });
-      });
+    for (const { text, deliveryIds = [] } of notices) {
+      if (!session?.notify) {
+        void this.#mentionDeliveries.settleRedelivery(agentId, deliveryIds, false);
+        continue;
+      }
+      // The tracked mentions it carries are drained once it is accepted, so it names them again.
+      const redelivery = deliveryIds.length
+        ? session.notify(text, { deliveryIds })
+        : session.notify(text);
+      void redelivery.then(
+        () => this.#mentionDeliveries.settleRedelivery(agentId, deliveryIds, true),
+        (error: unknown) => {
+          logger.warn("A steered notice could not be redelivered after its turn ended", {
+            event: "agent.delivery_queue.fallback_notice_rejected",
+            agent_id: agentId,
+            error_code: error instanceof Error ? error.name : "UnknownError",
+          });
+          return this.#mentionDeliveries.settleRedelivery(agentId, deliveryIds, false);
+        },
+      );
+    }
   }
 
   #agentIdForContext(context: string): string {
@@ -4768,10 +4891,31 @@ export class DaemonRuntime {
         reason: this.#runnerHold.reason,
       });
     this.#runnerHold = undefined;
+    this.#dropHeldMentionsWithoutSession();
     // Copied deliberately: #ensureAgentInputDrain deletes drained queues from this very map.
     const queued = Array.from(this.#agentInputQueues.keys());
     for (const agentId of queued) this.#ensureAgentInputDrain(agentId);
     return this.busyAgents();
+  }
+
+  /** The tracked mentions a runner hold kept for an Agent that has no session and no launch in
+   * flight: they name a launch that is gone, so each is settled now rather than left queued. */
+  #dropHeldMentionsWithoutSession(): void {
+    for (const [agentId, queue] of this.#agentInputQueues) {
+      if (this.#agentProcessManager.session(agentId) || this.#agentLaunches.has(agentId)) continue;
+      queue.items = queue.items.filter((item) => {
+        if (
+          item.kind !== "delivery" ||
+          !this.#mentionDeliveries.drop(
+            item.message,
+            MENTION_DELIVERY_TERMINAL_CODES.IDENTITY_UNKNOWN,
+          )
+        )
+          return true;
+        item.completion.resolve();
+        return false;
+      });
+    }
   }
 
   get runnerHeld(): boolean {
