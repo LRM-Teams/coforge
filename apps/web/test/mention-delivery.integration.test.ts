@@ -25,9 +25,12 @@ import {
   type CentrifugoRpcMethod,
 } from "#src/server/centrifugo/rpc-handler.server";
 import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
 import {
   MentionDeliveryIssuer,
+  MentionDeliveryLookup,
   MentionDeliveryReports,
+  type SenderMentionDeliveries,
 } from "#src/server/conversations/mention-deliveries.server";
 import type { MessageRequestIdempotency } from "#src/server/conversations/message-request-idempotency.server";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
@@ -1250,6 +1253,93 @@ test.skipIf(!connectionString)(
       expect(await t.row(unknown.id, t.carol.id)).toMatchObject({
         mentionOutcome: "pending",
         mentionLaunchId: "launch-carol-3",
+      });
+    } finally {
+      await t.cleanup();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "the Agent that sent a message reads each @mentioned Agent's outcome; no one else can",
+  async () => {
+    const t = await setup();
+    try {
+      const published: AgentMessageDelivery[] = [];
+      const publisher = {
+        async publish(_channel: string, bytes: Uint8Array) {
+          published.push(decodeAgentMessageDelivery(bytes));
+        },
+      } as unknown as CentrifugoServerApi;
+      const sender = new SendDirectMessage(
+        new PrismaDirectConversationRepository(t.db),
+        passThrough,
+        publisher,
+        undefined,
+        undefined,
+        new MentionDeliveryIssuer(t.repository),
+      );
+      const sent = await sender.executeFromAgent({
+        requestId: crypto.randomUUID(),
+        workspaceId: t.workspace.id,
+        agentId: t.bob.id,
+        target: `#team-${t.suffix}`,
+        body: `@carol-${t.suffix} @dave-${t.suffix} can you both take a look`,
+      });
+      // Carol is running and her runtime refuses the mention for quota; Dave is woken without an
+      // envelope, so his mention stays pending.
+      await t.terminal(t.pushTo(published, t.carol.id), "QUOTA_LIMITED");
+
+      const lookup = new MentionDeliveryLookup(t.repository);
+      const scope = (agentId: string) => ({ workspaceId: t.workspace.id, agentId });
+      const found = {
+        state: "found",
+        messageId: sent.id,
+        deliveries: [
+          { targetHandle: `@carol-${t.suffix}`, outcome: "lost", reasonCategory: "quota" },
+          { targetHandle: `@dave-${t.suffix}`, outcome: "pending" },
+        ],
+      } satisfies SenderMentionDeliveries;
+      expect(await lookup.forSender(scope(t.bob.id), sent.id)).toEqual(found);
+      // The eight-hex prefix `message read` shows names the same message.
+      expect(await lookup.forSender(scope(t.bob.id), sent.id.slice(0, 8))).toEqual(found);
+
+      // Another Agent, even one the message mentioned, cannot read it: not found.
+      const notFound = { state: "not_found" } satisfies SenderMentionDeliveries;
+      expect(await lookup.forSender(scope(t.carol.id), sent.id)).toEqual(notFound);
+      expect(await lookup.forSender(scope(t.carol.id), sent.id.slice(0, 8))).toEqual(notFound);
+      // Nor can Bob read a message a person sent, or an id that names no message.
+      const byPerson = await t.send(`@bob-${t.suffix} over to you`);
+      expect(await lookup.forSender(scope(t.bob.id), byPerson.id)).toEqual(notFound);
+      expect(await lookup.forSender(scope(t.bob.id), crypto.randomUUID())).toEqual(notFound);
+      expect(await lookup.forSender(scope(t.bob.id), "not-a-message-id")).toEqual(notFound);
+      expect(await lookup.forSender(scope(t.bob.id), sent.id.slice(0, 6))).toEqual(notFound);
+
+      // A deleted Agent whose name was taken again still reads as the handle Bob wrote.
+      await t.db.agent.update({
+        where: { id: t.dave.id },
+        data: { deletedAt: new Date(), name: `dave-${t.suffix}-deleted-000000000000` },
+      });
+      expect(await lookup.forSender(scope(t.bob.id), sent.id)).toEqual({
+        ...found,
+        deliveries: [
+          found.deliveries[0],
+          { targetHandle: `@dave-${t.suffix}`, targetDeleted: true, outcome: "pending" },
+        ],
+      });
+
+      // A message of Bob's that tracked no mention answers an empty list.
+      const plain = await sender.executeFromAgent({
+        requestId: crypto.randomUUID(),
+        workspaceId: t.workspace.id,
+        agentId: t.bob.id,
+        target: `#team-${t.suffix}`,
+        body: "status update, nobody in particular",
+      });
+      expect(await lookup.forSender(scope(t.bob.id), plain.id)).toEqual({
+        state: "found",
+        messageId: plain.id,
+        deliveries: [],
       });
     } finally {
       await t.cleanup();

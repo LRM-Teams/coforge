@@ -187,6 +187,8 @@ import type {
   AgentMentionExecuteRequest,
   AgentMentionExecuteResponse,
   AgentMentionPendingResponse,
+  AgentMentionDeliveryRequest,
+  AgentMentionDeliveryResponse,
 } from "@lrm/coforge-sdk/agent";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
@@ -4248,6 +4250,17 @@ export class DaemonRuntime {
     if (!this.#transport.mentionExecute)
       throw new Error("Agent mention actions endpoint is not configured");
     return this.#transport.mentionExecute(request, agentApiKey);
+  }
+
+  async mentionDelivery(
+    context: string,
+    request: AgentMentionDeliveryRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionDeliveryResponse> {
+    this.#authorizedAgent(context, agentApiKey);
+    if (!this.#transport.mentionDelivery)
+      throw new Error("Agent mention delivery endpoint is not configured");
+    return this.#transport.mentionDelivery(request, agentApiKey);
   }
 
   /** Dispatches one task command to the cloud task route over its HTTPS path. The body is the

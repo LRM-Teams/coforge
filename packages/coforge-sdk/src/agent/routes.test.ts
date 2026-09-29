@@ -95,3 +95,15 @@ test("exposes the mention action routes identically to the Proxy, the local clie
     expect(surface.mentionActions.execute).toEqual(execute);
   }
 });
+
+test("exposes a sent message's mention deliveries identically to the Proxy, the local client, and the cloud", () => {
+  for (const surface of [agentApiRoutes.proxy, agentApiRoutes.local, agentApiRoutes.cloud]) {
+    expect(surface.mentionDeliveries.method).toBe("GET");
+    expect(surface.mentionDeliveries.path("11111111-1111-4111-8111-111111111111")).toBe(
+      "/api/agent/v1/messages/11111111-1111-4111-8111-111111111111/mention-deliveries",
+    );
+    expect(surface.mentionDeliveries.path("abcd1234")).toBe(
+      "/api/agent/v1/messages/abcd1234/mention-deliveries",
+    );
+  }
+});

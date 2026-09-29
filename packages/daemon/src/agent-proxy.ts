@@ -46,6 +46,8 @@ import {
   type AgentMentionExecuteRequest,
   type AgentMentionExecuteResponse,
   type AgentMentionPendingResponse,
+  type AgentMentionDeliveryRequest,
+  type AgentMentionDeliveryResponse,
 } from "@lrm/coforge-sdk/agent";
 import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import { classifyAgentProxyFailure, AGENT_PROXY_CORRELATION_HEADER } from "./agent-proxy-failure";
@@ -54,6 +56,7 @@ import { AgentManualRequestError } from "#src/connection/agent-manual-request-er
 import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
 import { AgentProfileRequestError } from "#src/connection/agent-profile-request-error";
 import { AgentMentionActionRequestError } from "#src/connection/agent-mention-action-request-error";
+import { AgentMentionDeliveryRequestError } from "#src/connection/agent-mention-delivery-request-error";
 import {
   validateWeeklyReportCollectCommand,
   type WeeklyReportCollectCommand,
@@ -166,6 +169,11 @@ export type AgentProxyRuntime = {
     request: AgentMentionExecuteRequest,
     agentApiKey: string,
   ): Promise<AgentMentionExecuteResponse>;
+  mentionDelivery?(
+    context: string,
+    request: AgentMentionDeliveryRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionDeliveryResponse>;
   githubCredential?(
     context: string,
     request: GitHubCredentialRequest,
@@ -219,6 +227,12 @@ const LOCAL_UPLOAD_SESSION_ROUTE_PREFIX =
 const UPLOAD_SESSION_COMPLETE_SUFFIX = "/complete";
 const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
 const LOCAL_USER_ROUTE_PREFIX = LOCAL_PROXY_ROUTES.users.path("");
+// Mention delivery is `<prefix><messageId>/mention-deliveries`; the prefix is what the route's
+// own path puts before an empty id.
+const MENTION_DELIVERY_SUFFIX = "/mention-deliveries";
+const LOCAL_MENTION_DELIVERY_ROUTE_PREFIX = LOCAL_PROXY_ROUTES.mentionDeliveries
+  .path("")
+  .slice(0, -MENTION_DELIVERY_SUFFIX.length);
 const MAX_BODY_BYTES = 64 * 1024;
 /** Covers `WEEKLY_REPORT_MARKDOWN_MAX_CHARS` plus JSON framing. A byte budget, so it is not the
  * same number as that character cap — see `internal/weekly-report-limits.ts`. */
@@ -406,6 +420,15 @@ function openvikingDomainFailure(error: unknown): Response | undefined {
 /** Same convention as `profileDomainFailure`, for the mention action routes. */
 function mentionActionDomainFailure(error: unknown): Response | undefined {
   if (!(error instanceof AgentMentionActionRequestError)) return undefined;
+  return Response.json(
+    { ok: false, errorCode: error.errorCode, error: error.message },
+    { status: error.status },
+  );
+}
+
+/** Same convention, for mention delivery (a message the Agent did not send is its 404). */
+function mentionDeliveryDomainFailure(error: unknown): Response | undefined {
+  if (!(error instanceof AgentMentionDeliveryRequestError)) return undefined;
   return Response.json(
     { ok: false, errorCode: error.errorCode, error: error.message },
     { status: error.status },
@@ -701,6 +724,19 @@ const ROUTE_TABLE: readonly ProxyRoute[] = [
     handler: "mentionExecute",
     parse: ({ fields }) => parseMentionExecuteFields(fields),
     domainFailure: mentionActionDomainFailure,
+  }),
+  defineRoute({
+    family: "agent-api/mention-delivery",
+    method: LOCAL_PROXY_ROUTES.mentionDeliveries.method,
+    match: pathParam(LOCAL_MENTION_DELIVERY_ROUTE_PREFIX, MENTION_DELIVERY_SUFFIX),
+    body: "none",
+    handler: "mentionDelivery",
+    parse: ({ param }) => {
+      const messageId = decodePathParam(param);
+      if (messageId instanceof Response) return messageId;
+      return MESSAGE_ID_ANCHOR.test(messageId) ? { messageId } : badRequest();
+    },
+    domainFailure: mentionDeliveryDomainFailure,
   }),
   defineRoute({
     family: "agent-api/attachment",

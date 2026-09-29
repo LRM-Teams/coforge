@@ -32,6 +32,9 @@ import type {
   AgentMentionExecuteRequest,
   AgentMentionExecuteResponse,
   AgentMentionPendingResponse,
+  AgentMentionDeliveryErrorCode,
+  AgentMentionDeliveryRequest,
+  AgentMentionDeliveryResponse,
 } from "@lrm/coforge-sdk/agent";
 import {
   decodeGitHubCredentialResponse,
@@ -53,6 +56,7 @@ import { AGENT_SEND_REQUEST_TIMEOUT_MS } from "@lrm/coforge-sdk/internal";
 import { AgentTransportError } from "./agent-transport-error";
 import { AgentUserInfoRequestError } from "./agent-user-info-request-error";
 import { AgentProfileRequestError } from "./agent-profile-request-error";
+import { AgentMentionDeliveryRequestError } from "./agent-mention-delivery-request-error";
 import { AgentWeeklyReportRequestError } from "./agent-weekly-report-request-error";
 import { AgentUpstreamRefusalError } from "./agent-upstream-refusal-error";
 import {
@@ -125,6 +129,9 @@ export interface AgentMessageHttpClient {
   requestMentionExecute?(
     input: AgentHttpInput<AgentMentionExecuteRequest>,
   ): Promise<AgentMentionExecuteResponse>;
+  requestMentionDelivery?(
+    input: AgentHttpInput<AgentMentionDeliveryRequest>,
+  ): Promise<AgentMentionDeliveryResponse>;
 }
 
 /**
@@ -559,6 +566,17 @@ export const createAgentMessageHttpClient = (
       httpClient,
       { ...keys, what: "agent mention action", body: request },
       mentionActionError,
+    ),
+  requestMentionDelivery: ({ request: _request, ...keys }) =>
+    getAgentEnvelopeJson<AgentMentionDeliveryResponse>(
+      httpClient,
+      { ...keys, what: "agent mention delivery", query: {} },
+      (errorCode, message, status) =>
+        new AgentMentionDeliveryRequestError(
+          errorCode as AgentMentionDeliveryErrorCode,
+          message,
+          status,
+        ),
     ),
   async requestGitHubCredential({ url, request, ...keys }) {
     const response = await httpClient(url, {

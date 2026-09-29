@@ -7,7 +7,10 @@ import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import { leftoverMentionHandles } from "./unresolved-mentions.server";
 import { AgentDeliveryPublisher, channelTarget } from "./agent-delivery.server";
 import { MentionDeliveryIssuer } from "./mention-deliveries.server";
-import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
+import {
+  PrismaMentionDeliveryRepository,
+  type MentionDeliveryDb,
+} from "#src/server/db/repositories/mention-delivery.repositories.server";
 import { MESSAGE_MENTIONS_SELECT } from "./mentions.server";
 import { agentMessageSender } from "./sender-display.server";
 import {
@@ -564,7 +567,7 @@ export async function refuseAgentMentionAdds(
  * replays one it missed.
  */
 export async function publishNonMemberDeliveries(
-  db: Pick<PrismaClient, "agentMessageDelivery" | "$queryRaw" | "$transaction">,
+  db: MentionDeliveryDb,
   publisher: Pick<CentrifugoServerApi, "publish">,
   workspaceId: string,
   deliveries: readonly NonMemberDelivery[],
@@ -647,6 +650,7 @@ export async function notifyAgentMentionTargets(
     | "pendingMentionAction"
     | "conversationMember"
     | "agentMessageDelivery"
+    | "message"
     | "$queryRaw"
     | "$transaction"
   >,

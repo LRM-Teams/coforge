@@ -20,6 +20,8 @@ import type {
   AgentMentionExecuteRequest,
   AgentMentionExecuteResponse,
   AgentMentionPendingResponse,
+  AgentMentionDeliveryRequest,
+  AgentMentionDeliveryResponse,
   AgentSendReconciliationResponse,
 } from "@lrm/coforge-sdk/agent";
 import {
@@ -292,6 +294,10 @@ export interface DaemonConnectionClient {
     request: AgentMentionExecuteRequest,
     agentApiKey: string,
   ): Promise<AgentMentionExecuteResponse>;
+  mentionDelivery?(
+    request: AgentMentionDeliveryRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionDeliveryResponse>;
   onAgentWorkspaceReset?(callback: (request: AgentWorkspaceResetRequest) => void): () => void;
   sendAgentControlResult?(result: AgentControlResult): Promise<void>;
   start(token: string, config: DaemonConnectionConfig): Promise<void>;
@@ -1384,6 +1390,24 @@ export class DaemonConnection implements DaemonConnectionClient {
       url: this.#serverEndpoint(
         "Agent mention action",
         agentApiRoutes.cloud.mentionActions.execute.path,
+      ),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
+  async mentionDelivery(
+    request: AgentMentionDeliveryRequest,
+    agentApiKey: string,
+  ): Promise<AgentMentionDeliveryResponse> {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("Agent mention delivery endpoint is not configured");
+    if (!this.agentMessageHttpClient.requestMentionDelivery)
+      throw new Error("Agent mention delivery HTTP client is unavailable");
+    return this.agentMessageHttpClient.requestMentionDelivery({
+      url: this.#serverEndpoint(
+        "Agent mention delivery",
+        agentApiRoutes.cloud.mentionDeliveries.path(request.messageId),
       ),
       ...this.#agentKeys(agentApiKey),
       request,

@@ -9,6 +9,7 @@ import { AgentTransportError } from "#src/connection/agent-transport-error";
 import { AgentManualRequestError } from "#src/connection/agent-manual-request-error";
 import { AgentUserInfoRequestError } from "#src/connection/agent-user-info-request-error";
 import { AgentMentionActionRequestError } from "#src/connection/agent-mention-action-request-error";
+import { AgentMentionDeliveryRequestError } from "#src/connection/agent-mention-delivery-request-error";
 import type { AgentProxyFailureBody } from "#src/agent-proxy-failure";
 
 const proxies: Array<{ close(): void }> = [];
@@ -2009,4 +2010,105 @@ test("an unknown agent-api route is rejected instead of falling through", async 
     body: JSON.stringify({ op: "search" }),
   });
   expect([404, 405]).toContain(response.status);
+});
+
+const SENT_MESSAGE_ID = "11111111-1111-4111-8111-111111111111";
+
+test("proxy forwards a sent message's mention deliveries with the calling Agent's key", async () => {
+  const calls: unknown[] = [];
+  const answer = {
+    ok: true as const,
+    messageId: SENT_MESSAGE_ID,
+    deliveries: [
+      { targetHandle: "@bob", outcome: "lost" as const, reasonCategory: "quota" as const },
+    ],
+  };
+  const agentApiKey = `sk_agent_${"a".repeat(43)}`;
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      issueAgentContext: (agentId: string) => agentId,
+      mentionDelivery: async (context, request, key) => {
+        calls.push({ context, request, key });
+        return answer;
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", agentApiKey);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionDeliveries.path(SENT_MESSAGE_ID),
+    ),
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual(answer);
+  // The eight-hex prefix `message read` shows goes through as it is; the cloud resolves it.
+  const byPrefix = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionDeliveries.path("11111111"),
+    ),
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  expect(byPrefix.status).toBe(200);
+  expect(calls).toEqual([
+    { context: "agent-a", request: { messageId: SENT_MESSAGE_ID }, key: agentApiKey },
+    { context: "agent-a", request: { messageId: "11111111" }, key: agentApiKey },
+  ]);
+});
+
+test("proxy answers a message the Agent did not send with the cloud's not-found error", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      mentionDelivery: async () => {
+        throw new AgentMentionDeliveryRequestError(
+          "message_not_found",
+          "You sent no message with that id.",
+          404,
+        );
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.proxy.mentionDeliveries.path(SENT_MESSAGE_ID),
+    ),
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({
+    ok: false,
+    errorCode: "message_not_found",
+    error: "You sent no message with that id.",
+  });
+});
+
+test("proxy refuses a mention delivery whose message id is neither a UUID nor its eight-hex prefix", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      mentionDelivery: async () => {
+        throw new Error("should not be called");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  for (const messageId of ["abcd12", "not-a-message"]) {
+    const response = await fetch(
+      proxy.url.replace(
+        agentApiRoutes.proxy.messages.path,
+        agentApiRoutes.proxy.mentionDeliveries.path(messageId),
+      ),
+      { headers: { authorization: `Bearer ${token}` } },
+    );
+    expect(response.status).toBe(400);
+  }
 });

@@ -1,10 +1,16 @@
+import type {
+  AgentMentionDeliveryOutcome,
+  AgentMentionDeliveryReasonCategory,
+} from "@lrm/coforge-sdk/agent";
 import type { MentionDeliveryEnvelope, MentionDeliveryStage } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
+import { messageAnchorWhere } from "#src/server/db/message-anchor.server";
 import { parseRuntimeSessionReference } from "./agent-session.repositories.server";
 
-/** A tracked @mention's outcome; the migration's CHECK holds the column to these. */
-export type MentionOutcome = "pending" | "delivered" | "lost" | "unknown";
-export type MentionReasonCategory = "quota" | "runtime_error" | "not_launched" | "unclassified";
+/** A tracked @mention's outcome, as the SDK names them; the migration's CHECK holds the column to
+ * these. */
+export type MentionOutcome = AgentMentionDeliveryOutcome;
+export type MentionReasonCategory = AgentMentionDeliveryReasonCategory;
 
 /** A delivery row's tracked-mention state, as a write that touches it returns it. */
 export type TrackedMentionState = {
@@ -131,7 +137,13 @@ function reportedRowWhere(
   } satisfies Prisma.AgentMessageDeliveryWhereInput;
 }
 
-type MentionDeliveryDb = Pick<PrismaClient, "agentMessageDelivery" | "$queryRaw" | "$transaction">;
+export type MentionDeliveryDb = Pick<
+  PrismaClient,
+  "agentMessageDelivery" | "message" | "$queryRaw" | "$transaction"
+>;
+
+/** The most messages an anchor is read for: a second one makes it ambiguous. */
+const SENDER_ANCHOR_READ_LIMIT = 2;
 
 /** The Agent `a` of delivery `d` may still be woken: not stopped by a person, not deleted, and on
  * a Computer. */
@@ -197,6 +209,54 @@ async function setEnvelopes(
 export class PrismaMentionDeliveryRepository {
   constructor(private readonly db: MentionDeliveryDb) {}
 
+  /**
+   * The messages the Agent sent that an anchor (a full id, or its eight-hex prefix) names, at most
+   * two, each with its tracked mentions: the mentioned Agent, whether it is deleted, the handle
+   * the message wrote for it (from its mention, or its non-member mention action), and the
+   * outcome as stored.
+   */
+  async readSenderDeliveries(workspaceId: string, agentId: string, anchor: string) {
+    const messages = await this.db.message.findMany({
+      where: { workspaceId, sender: { agentId }, id: messageAnchorWhere(anchor) },
+      take: SENDER_ANCHOR_READ_LIMIT,
+      select: {
+        id: true,
+        mentions: { where: { kind: "agent" }, select: { actorId: true, handle: true } },
+        pendingMentionActions: {
+          where: { targetAgentId: { not: null } },
+          select: { targetAgentId: true, targetHandle: true },
+        },
+        deliveries: {
+          where: { mentionOutcome: { not: null } },
+          select: {
+            agentId: true,
+            mentionOutcome: true,
+            mentionReasonCategory: true,
+            agent: { select: { name: true, deletedAt: true } },
+          },
+        },
+      },
+    });
+    return messages.map((message) => {
+      const written = new Map<string, string>([
+        ...message.pendingMentionActions.map(
+          (action) => [action.targetAgentId!, action.targetHandle] as const,
+        ),
+        ...message.mentions.map((mention) => [mention.actorId, mention.handle] as const),
+      ]);
+      return {
+        messageId: message.id,
+        deliveries: message.deliveries.map((row) => ({
+          agentId: row.agentId,
+          writtenHandle: written.get(row.agentId),
+          currentName: row.agent.name,
+          deleted: row.agent.deletedAt !== null,
+          outcome: row.mentionOutcome as MentionOutcome,
+          reasonCategory: row.mentionReasonCategory as MentionReasonCategory | null,
+        })),
+      };
+    });
+  }
   /**
    * Issues a send's mentioning deliveries in one transaction. It holds their Agents' rows
    * (`FOR SHARE`) before reading their state, so `decide` plans from what a session report or a

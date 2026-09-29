@@ -4298,6 +4298,168 @@ test("mention notify of a target that was already queued prints no recipient gui
   );
 });
 
+const SENT_ID = "55555555-6666-4777-8888-999999999999";
+const MESSAGE_ID_HINT =
+  "Use the Message ID `coforge message send` printed, or the msg= id of your own message in coforge message read --target <target>, then run coforge mention delivery --message <id>";
+
+test("mention delivery takes the message by full id or eight-hex prefix", () => {
+  expect(parseArgs(["mention", "delivery", "--message", SENT_ID])).toEqual({
+    command: "mention-delivery",
+    messageId: SENT_ID,
+  });
+  expect(parseArgs(["mention", "delivery", "--json", "--message", "55555555"])).toEqual({
+    command: "mention-delivery",
+    messageId: "55555555",
+    json: true,
+  });
+  expect(() => parseArgs(["mention", "delivery", "--message", SENT_ID, "extra"])).toThrow("Usage:");
+});
+
+test("mention delivery without a message id says why and where to find one", () => {
+  const failure = (args: string[]) => {
+    try {
+      parseArgs(args);
+    } catch (caught) {
+      return caught as CliError;
+    }
+    throw new Error("expected a failure");
+  };
+  const missing = failure(["mention", "delivery", "--json"]);
+  expect(missing).toBeInstanceOf(CliError);
+  expect(missing.code).toBe("INVALID_ARG");
+  expect(missing.message).toBe("--message <id> is required.");
+  expect(missing.suggestedNextAction).toBe(MESSAGE_ID_HINT);
+  expect(missing.outputMode).toBe("json");
+  const short = failure(["mention", "delivery", "--message", "555555"]);
+  expect(short.code).toBe("INVALID_ARG");
+  expect(short.message).toBe(
+    "--message takes a message id (a full UUID or its first eight hex characters), not 555555.",
+  );
+  expect(short.suggestedNextAction).toBe(MESSAGE_ID_HINT);
+});
+
+test("mention delivery prints one line per mentioned Agent with what to do next", async () => {
+  const calls: string[] = [];
+  const deliveries = [
+    { targetHandle: "@bob", outcome: "lost" as const, reasonCategory: "quota" as const },
+    { targetHandle: "@carol", outcome: "pending" as const },
+    { targetHandle: "@dave", outcome: "delivered" as const },
+    { targetHandle: "@erin", outcome: "unknown" as const },
+    { targetHandle: "@frank", outcome: "lost" as const, reasonCategory: "runtime_error" as const },
+    {
+      targetHandle: "@gina",
+      targetDeleted: true as const,
+      outcome: "lost" as const,
+      reasonCategory: "not_launched" as const,
+    },
+    { targetHandle: "@hal", outcome: "lost" as const, reasonCategory: "unclassified" as const },
+  ];
+  const transport = {
+    ...MINIMAL_TRANSPORT,
+    mentionDelivery: async (messageId: string) => {
+      calls.push(messageId);
+      return { ok: true as const, messageId: SENT_ID, deliveries };
+    },
+  };
+  expect(await run(["mention", "delivery", "--message", "55555555"], transport)).toBe(
+    [
+      `Mention delivery for message ${SENT_ID}`,
+      "",
+      "- @bob: lost (quota) — the Agent is rate- or quota-limited, so this mention will not arrive. Route the request another way, or retry later.",
+      "- @carol: pending — not settled yet. Do not conclude that it arrived or that it was lost.",
+      "- @dave: delivered — it reached the Agent's running session.",
+      "- @erin: unknown — delivery tracking could not see whether it arrived. Do not conclude either way.",
+      "- @frank: lost (runtime_error) — the Agent's runtime refused the mention. Route the request another way.",
+      "- @gina (deleted): lost (not_launched) — the Agent was not running and was not started. Ask a person to start it, or route the request another way.",
+      "- @hal: lost (unclassified) — lost for a reason outside the known categories. Route the request another way.",
+      "",
+      `Check again later: coforge mention delivery --message ${SENT_ID}`,
+    ].join("\n"),
+  );
+  expect(await run(["mention", "delivery", "--message", SENT_ID, "--json"], transport)).toEqual({
+    ok: true,
+    messageId: SENT_ID,
+    deliveries,
+  });
+  expect(calls).toEqual(["55555555", SENT_ID]);
+});
+
+test("mention delivery of a message that tracked no mention says so", async () => {
+  const output = await run(["mention", "delivery", "--message", SENT_ID], {
+    ...MINIMAL_TRANSPORT,
+    mentionDelivery: async (messageId: string) => ({
+      ok: true as const,
+      messageId,
+      deliveries: [],
+    }),
+  });
+  expect(output).toBe(
+    [
+      `Mention delivery for message ${SENT_ID}`,
+      "",
+      "No tracked @mentions: only @mentions of Agents this message was delivered to are tracked. For @mentions that reached no one, run coforge mention pending",
+    ].join("\n"),
+  );
+});
+
+test("a failed mention delivery keeps its cause and names the next step", async () => {
+  const failWith = async (error: CliError, json = false) =>
+    (await run(["mention", "delivery", "--message", SENT_ID, ...(json ? ["--json"] : [])], {
+      ...MINIMAL_TRANSPORT,
+      mentionDelivery: async () => {
+        throw error;
+      },
+    }).catch((caught: unknown) => caught)) as CliError;
+
+  const notFound = await failWith(
+    new CliError({
+      code: "MESSAGE_NOT_FOUND",
+      message: `You sent no message with id ${SENT_ID}.`,
+      retryable: false,
+      details: { messageId: SENT_ID },
+    }),
+    true,
+  );
+  expect(notFound).toBeInstanceOf(CliError);
+  expect(notFound.code).toBe("MESSAGE_NOT_FOUND");
+  expect(notFound.message).toBe(`You sent no message with id ${SENT_ID}.`);
+  expect(notFound.retryable).toBe(false);
+  expect(notFound.outputMode).toBe("json");
+  expect(notFound.details).toEqual({ messageId: SENT_ID });
+  expect(notFound.suggestedNextAction).toBe(
+    `Only a message you sent can be checked. ${MESSAGE_ID_HINT}`,
+  );
+
+  const ambiguous = await failWith(
+    new CliError({ code: "AMBIGUOUS_MESSAGE_ID", message: "use its full id", retryable: false }),
+  );
+  expect(ambiguous.suggestedNextAction).toBe(
+    "Use the full Message ID `coforge message send` printed: coforge mention delivery --message <full-id>",
+  );
+
+  const unavailable = await failWith(
+    new CliError({ code: "SERVER_5XX", message: "upstream failed", retryable: true }),
+  );
+  expect(unavailable.code).toBe("SERVER_5XX");
+  expect(unavailable.retryable).toBe(true);
+  expect(unavailable.outputMode).toBe("text");
+  expect(unavailable.suggestedNextAction).toBe(
+    `This lookup changes nothing, so it is safe to repeat: coforge mention delivery --message ${SENT_ID}`,
+  );
+
+  const refused = await failWith(
+    new CliError({
+      code: "MENTION_DELIVERY_LOOKUP_FAILED",
+      message: "unauthorized",
+      retryable: false,
+    }),
+  );
+  expect(refused.retryable).toBe(false);
+  expect(refused.suggestedNextAction).toBe(
+    `Fix the reason above, then run coforge mention delivery --message ${SENT_ID} again`,
+  );
+});
+
 test("mention notify fails unless every requested target was queued", async () => {
   const error = (await run(["mention", "notify", PENDING_ROW.resolutionId], {
     ...MINIMAL_TRANSPORT,

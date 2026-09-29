@@ -12,4 +12,5 @@ export * from "./memory-citations";
 export * from "./openviking-memory";
 export * from "./memory-tool-fences";
 export * from "./mention-actions";
+export * from "./mention-delivery";
 export * from "./refusal";
