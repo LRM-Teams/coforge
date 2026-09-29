@@ -32,7 +32,8 @@ These rules apply to `src/features/conversations/`.
   activity strip looks a DM up by its Agent.
 - The sidebar's channel and DM lists live in `sidebar-collections.ts` (collections and changes,
   tested without React) and `sidebar-lists.ts` (hooks). The chat layout's (`_chat`) loader fetches
-  them, in the browser, into the TanStack Query cache; the same keys back TanStack DB
+  them, in the browser, into the TanStack Query cache (a later page load restores the browser's
+  copy first, `../cache-persistence/`); the same keys back TanStack DB
   collections. Every channel's name (`channelNamesQuery`, for body channel links
   and the `#` list) lives in the same cache; the create-channel dialog reads projects on open.
 - Realtime keeps every Chat list live, so the loader (run on each navigation inside Chat) reads

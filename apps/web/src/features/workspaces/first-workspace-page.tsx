@@ -1,5 +1,6 @@
 import { Button } from "#src/components/base/buttons/button";
 import { AuthSplitLayout } from "#src/features/auth/auth-split-layout";
+import { signOut } from "#src/features/auth/sign-out";
 import { m } from "#src/paraglide/messages";
 import {
   CreateWorkspaceForm,
@@ -33,7 +34,7 @@ export function FirstWorkspacePage({ viewerEmail }: { viewerEmail: string }) {
           <span className="break-all">{m.workspace_join_signed_in_as({ email: viewerEmail })}</span>
           <span aria-hidden="true">·</span>
           {/* Signing out goes through Authing and lands on the homepage. */}
-          <Button href="/auth/logout" color="link-gray" size="sm">
+          <Button onPress={() => void signOut()} color="link-gray" size="sm">
             {m.controls_sign_out()}
           </Button>
         </p>
