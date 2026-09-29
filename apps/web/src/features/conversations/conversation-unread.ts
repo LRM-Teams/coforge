@@ -108,7 +108,7 @@ export function unknownAgentOf(
 export function closedConversationLists(
   event: UnreadEventInput,
   listed: ReadonlySet<string>,
-): readonly SidebarList[] {
+): readonly ChatList[] {
   if (event.threadRootId || listed.has(event.conversationId)) return [];
   return event.agentId !== undefined || event.peerUserId !== undefined ? ["dms"] : ["channels"];
 }
@@ -301,7 +301,7 @@ export function useChannelUnread({
   listedConversationIds: ReadonlySet<string>;
   /** A new message arrived in a closed chat, or a DM the list has not read yet: these lists
    * bring it in. */
-  onClosedConversationActivity: (lists: readonly SidebarList[], event: UnreadEventInput) => void;
+  onClosedConversationActivity: (lists: readonly ChatList[], event: UnreadEventInput) => void;
   /** These lists are stale: a channel was created, renamed, described, archived or unarchived
    * (`channel.created.v1`, `channel.updated.v1`), or the viewer's own place in a chat changed
    * elsewhere (`ViewerEvent`). */
