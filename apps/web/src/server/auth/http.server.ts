@@ -14,6 +14,7 @@ import {
 import { UserIdentityRepository } from "./user-identity.repository.server";
 import { getDatabaseClient } from "#src/server/db/client.server";
 import { toPublicServerError } from "#src/server/errors/public-error.server";
+import { publicOrigin } from "#src/server/http/public-origin.server";
 import { workspaceIdForUser } from "#src/server/workspaces/enrollment.server";
 import { localizedReturnHref } from "#src/features/auth/return-to";
 
@@ -44,7 +45,7 @@ export async function handleLoginCallback(input: {
   const url = new URL(input.request.url);
   const code = url.searchParams.get("code") ?? "";
   const state = url.searchParams.get("state") ?? "";
-  const origin = url.origin;
+  const origin = publicOrigin(input.request);
   try {
     const completed = await completeBrowserLogin({
       config: input.config,

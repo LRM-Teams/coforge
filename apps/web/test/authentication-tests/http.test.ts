@@ -165,6 +165,21 @@ test("login callback fails closed when the database is unavailable", async () =>
   }
 });
 
+test("a failed sign-in behind the proxy returns to login on the site the browser reached", async () => {
+  const response = await handleLoginCallback({
+    // TLS ends at the proxy, so the request URL the server sees is http.
+    request: new Request("http://staging.coforge.cn/auth/callback?code=valid-code&state=forged", {
+      headers: { "x-forwarded-proto": "https", "x-forwarded-host": "staging.coforge.cn" },
+    }),
+    config,
+    sessionSecret,
+  });
+  expect(response.status).toBe(302);
+  expect(response.headers.get("location")).toStartWith(
+    "https://staging.coforge.cn/login?error=login_failed",
+  );
+});
+
 test("login callback returns to login when Authing state is invalid", async () => {
   const response = await handleLoginCallback({
     request: new Request("http://localhost:3000/auth/callback?code=valid-code&state=forged"),
