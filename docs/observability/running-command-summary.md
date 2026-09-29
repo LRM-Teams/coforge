@@ -74,8 +74,8 @@ Activity envelope 包含 `request_id`、`workspace_id`、`agent_id` 和上述固
 `request_id` 只用于关联诊断。`launch_id` 与 `client_seq` 是观察端未来拒绝旧 launch 和
 旧序号的可信依据，但当前 Web 没有跨连接的 current-launch 事实来源，不伪装提供服务端
 stale rejection；当前保证来自 Daemon 的 current-launch gate。
-生命周期错误使用 `activity=launch_failed|stop_failed` 和 `level=error`，只发送稳定、
-脱敏且可操作的原因，不上传命令参数、绝对路径、凭据或 stderr。provider 错误/警告
+生命周期错误使用 `level=error`，只发送稳定、脱敏且可操作的原因，不上传命令参数、
+绝对路径、凭据或 stderr；启动失败的稳定原因见[启动失败原因](activity-delivery-and-errors.md#启动失败原因)。provider 错误/警告
 使用 `activity=error|warning` 和对应的 `level`；provider 只上报原始事实（消息文本，以及
 可选的 provider 原生错误代码/类别提示），从不自行分类；provider 的报错文案按上报原样
 显示，进程崩溃摘要的脱敏和长度上限，以及分类为[稳定类别](activity-delivery-and-errors.md)，都是 Daemon 核心

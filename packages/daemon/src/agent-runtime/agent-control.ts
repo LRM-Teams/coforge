@@ -9,7 +9,7 @@ import type {
 } from "@lrm/coforge-sdk/internal";
 import { AgentSessionRecoveryError } from "#src/code-agent/contract";
 import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
-import { launchFailureTrace } from "./launch-failure";
+import { launchFailureLogFields } from "./launch-failure";
 import type { AgentRuntimeRecord, AgentRuntimeState } from "./agent-runtime-state";
 import type { AgentSessions } from "./agent-session";
 import { LAUNCH_FAILURE_MAX_ATTEMPTS, LaunchFailureBackoff } from "./launch-failure-backoff";
@@ -527,7 +527,7 @@ export class AgentControl {
           retry_at_ms: failure.untilMs,
           outcome: "retry",
           error_code: diagnosticErrorCode(launchError),
-          ...launchFailureTrace(launchError),
+          ...launchFailureLogFields(launchError),
         });
         // The record deliberately stays "starting": a live phase, so the next daemon instance
         // repairs a launch that died mid-cooldown instead of fencing on it
@@ -555,7 +555,7 @@ export class AgentControl {
         // The terminal record of an exhausted launch carries the same classified evidence as the
         // retry warnings above: once the retries are gone this is the only log line left, so the
         // category/provider/model facts must not be stranded on the earlier `launch_retry_scheduled`.
-        ...launchFailureTrace(launchError),
+        ...launchFailureLogFields(launchError),
       });
       await this.store.write(intent.agentId, record);
     }

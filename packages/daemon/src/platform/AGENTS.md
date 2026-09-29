@@ -20,6 +20,11 @@ Rules for OS primitives in `src/platform/`. They extend
 - `launchd-process.ts` runs external Agent stdio and cleanup in a separate
   launchd job behind the process-tree interface. Its internal runner is
   embedded in Computer, never another installed product.
+- An executable the Agent's PATH cannot resolve fails the spawn with
+  `RuntimeExecutableNotFoundError` (`code: "runtime_not_found"`), whether it
+  is spawned directly, through launchd, or into a Job Object. Any other
+  `ENOENT` while spawning (a missing working directory) stays the plain
+  spawn error.
 - `windows-job-object.ts` owns Win32 Job Object create/assign/terminate and
   ActiveProcesses queries. On Windows, `process-tree.ts` places external Agent
   children in a Job Object and waits for an empty job before allowing a

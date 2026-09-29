@@ -1,9 +1,13 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverPiModels } from "@coforge/agent";
-import type { AgentRuntimeEvent } from "#src/code-agent/contract";
+import {
+  ModelProviderSettingError,
+  RuntimeModelNotFoundError,
+  type AgentRuntimeEvent,
+} from "#src/code-agent/contract";
 import { CoforgeProvider, PiProvider } from "#src/code-agent/pi/provider";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
@@ -937,4 +941,65 @@ test("Pi notify resets the per-triggering-message memory budget like sendMessage
     server.stop(true);
     await rm(root, { recursive: true, force: true });
   }
+});
+
+describe("a Pi launch its model settings cannot satisfy fails with a typed error", () => {
+  async function launchPi(runtime: {
+    modelProvider?: string;
+    model: string;
+    providerConfig?: { kind: "coforge"; providerId: string; apiKey?: string };
+  }) {
+    const root = await mkdtemp(join(tmpdir(), "coforge-pi-typed-"));
+    const agentDir = join(root, "host-pi-agent");
+    await mkdir(agentDir, { recursive: true });
+    await Bun.write(
+      join(agentDir, "models.json"),
+      JSON.stringify({
+        providers: {
+          openai: {
+            baseUrl: "http://127.0.0.1:9/v1",
+            models: [{ id: "host-custom", name: "Host Custom", api: "openai-completions" }],
+          },
+        },
+      }),
+    );
+    try {
+      await new PiProvider().createAgentSession({
+        agentWorkspaceDirectory: root,
+        instructions: TEST_AGENT_INSTRUCTIONS,
+        environment: { PI_CODING_AGENT_DIR: agentDir },
+        runtime: { provider: "pi", reasoning: "", ...runtime },
+      });
+      return undefined;
+    } catch (error) {
+      return error;
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  test("a model the catalog does not have is RuntimeModelNotFoundError naming the model", async () => {
+    const error = await launchPi({ modelProvider: "openai", model: "missing-model" });
+    expect(error).toBeInstanceOf(RuntimeModelNotFoundError);
+    expect(error).toMatchObject({ code: "model_not_found", model: "missing-model" });
+  });
+
+  test("a model provider the catalog does not have is ModelProviderSettingError", async () => {
+    const error = await launchPi({ modelProvider: "no-such-provider", model: "any" });
+    expect(error).toBeInstanceOf(ModelProviderSettingError);
+    expect(error).toMatchObject({ code: "model_provider_not_configured" });
+  });
+
+  test("an Agent key for another provider than the selected model's is ModelProviderSettingError", async () => {
+    const error = await launchPi({
+      modelProvider: "openai",
+      model: "host-custom",
+      providerConfig: { kind: "coforge", providerId: "deepseek", apiKey: "agent-key" },
+    });
+    expect(error).toBeInstanceOf(ModelProviderSettingError);
+    expect(error).toMatchObject({
+      code: "model_provider_not_configured",
+      message: "Pi runtime provider does not match the selected model",
+    });
+  });
 });

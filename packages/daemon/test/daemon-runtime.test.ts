@@ -13,11 +13,15 @@ import { tmpdir, userInfo } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { DaemonRuntime } from "#src/daemon-runtime/runtime";
+import { RuntimeExecutableNotFoundError } from "#src/platform/runtime-executable-not-found";
 import { DaemonConnectionStoppedError } from "#src/connection/daemon-connection-stopped-error";
 import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
   AgentSessionRecoveryError,
+  ModelProviderSettingError,
+  RuntimeModelNotFoundError,
+  RuntimeVersionUnsupportedError,
   UsageUnavailableError,
   type AgentRuntimeConfig,
   type AgentRuntimeEvent,
@@ -7273,7 +7277,9 @@ describe("DaemonRuntime", () => {
       ).toBe(true);
       fail = true;
       await expect(runtime.startAgent("agent-b", config)).rejects.toThrow("private-provider-token");
-      expect(activities.at(-1)?.detail).toBe("Agent runtime could not be started.");
+      expect(activities.at(-1)?.detail).toBe(
+        "Agent runtime could not be started. See `coforge-computer logs` for the cause, then start the Agent again.",
+      );
       expect(JSON.stringify(activities)).not.toContain("private-provider-token");
     } finally {
       await runtime.stop();
@@ -10223,5 +10229,160 @@ describe("the Agent read boundary (Raft 1.0.38's exact seen sequences)", () => {
     } finally {
       await harness.runtime.stop();
     }
+  });
+});
+
+describe("a launch that cannot start says why", () => {
+  /** Starts one Agent whose launch fails the way `fail` says and returns the Activity the failure
+   * produced. `fail.credential` rejects the launch-config request instead of the session. */
+  async function failedLaunch(
+    fail: { session?: () => unknown; credential?: () => unknown },
+    agentConfig: AgentRuntimeConfig = config,
+  ) {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: agentConfig.provider,
+        async createAgentSession() {
+          if (fail.session) throw fail.session();
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentLaunchConfig() {
+            if (fail.credential) throw fail.credential();
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    try {
+      await runtime.start(connection);
+      await expect(runtime.startAgent("agent-a", agentConfig)).rejects.toBeDefined();
+      return activities.at(-1);
+    } finally {
+      await runtime.stop();
+    }
+  }
+
+  const logsNextStep = " See `coforge-computer logs` for the cause, then start the Agent again.";
+
+  test("a runtime executable the spawner cannot find is reported as runtime_not_found", async () => {
+    const activity = await failedLaunch(
+      { session: () => new RuntimeExecutableNotFoundError("codex") },
+      { ...config, provider: "codex", model: "gpt-5.5", modelProvider: undefined },
+    );
+    expect(activity).toMatchObject({
+      detailKind: "runtime_error",
+      level: "error",
+      detail:
+        "Codex is not installed on this Computer, or it is not on the PATH the Computer starts " +
+        "Agents with. Install Codex, then start the Agent again.",
+      runtimeError: { errorClass: "LauncherError", errorReason: "runtime_not_found" },
+    });
+  });
+
+  test("any other ENOENT during launch is runtime_spawn_failed, not a missing runtime", async () => {
+    const activity = await failedLaunch({
+      session: () =>
+        Object.assign(new Error("ENOENT: no such file or directory, open 'MEMORY.md'"), {
+          code: "ENOENT",
+        }),
+    });
+    expect(activity).toMatchObject({
+      detail: `Agent runtime could not be started.${logsNextStep}`,
+      runtimeError: { errorClass: "LauncherError", errorReason: "runtime_spawn_failed" },
+    });
+  });
+
+  test("a model the runtime does not offer is reported as model_not_found, naming it", async () => {
+    const activity = await failedLaunch({
+      session: () => new RuntimeModelNotFoundError("claude-9"),
+    });
+    expect(activity).toMatchObject({
+      detailKind: "runtime_error",
+      detail:
+        "Model claude-9 is not available to Pi on this Computer. Choose another model in the " +
+        "Agent's settings, then start it again.",
+      runtimeError: { errorClass: "LauncherError", errorReason: "model_not_found" },
+    });
+  });
+
+  test("a model provider setting the runtime cannot use is model_provider_not_configured", async () => {
+    const activity = await failedLaunch({
+      session: () =>
+        new ModelProviderSettingError("Pi runtime provider does not match the selected model"),
+    });
+    expect(activity).toMatchObject({
+      detailKind: "runtime_error",
+      detail:
+        "Pi cannot use the Agent's model provider setting. Configure the model provider in the " +
+        "Agent's settings, then start it again.",
+      runtimeError: { errorClass: "LauncherError", errorReason: "model_provider_not_configured" },
+    });
+  });
+
+  test("a runtime CLI below the supported version is reported as runtime_version_too_old", async () => {
+    const refusal =
+      "Kiro CLI 2.16.0 is unsupported; requires Kiro CLI >= 2.21.2. Upgrade kiro-cli before starting this runtime.";
+    const activity = await failedLaunch(
+      { session: () => new RuntimeVersionUnsupportedError(refusal) },
+      { ...config, provider: "kiro", model: "auto", modelProvider: undefined },
+    );
+    expect(activity).toMatchObject({
+      detailKind: "runtime_error",
+      detail: refusal,
+      runtimeError: { errorClass: "LauncherError", errorReason: "runtime_version_too_old" },
+    });
+  });
+
+  test("a launch the server does not authorize is reported as agent_authorization_failed", async () => {
+    const activity = await failedLaunch({
+      credential: () => new Error("Agent launch config request failed (403)"),
+    });
+    expect(activity).toMatchObject({
+      detailKind: "runtime_error",
+      detail:
+        "Agent authorization could not be prepared: this Computer could not obtain the Agent's " +
+        "launch credentials from the server. Check the Workspace connection and this Computer's " +
+        "version with `coforge-computer status`; if the Computer is behind the server, update it " +
+        "with `coforge-computer upgrade`, then start the Agent again.",
+      runtimeError: { errorClass: "LauncherError", errorReason: "agent_authorization_failed" },
+    });
+  });
+
+  test("every failed launch, woken or managed, is logged with its reason and cause", async () => {
+    const { records } = await captureLogs(() =>
+      failedLaunch({ session: () => new RuntimeModelNotFoundError("claude-9") }),
+    );
+    const failure = records.find(
+      (record) => record.properties.event === "agent_runtime:launch_failed",
+    );
+    expect(failure?.properties).toMatchObject({
+      agent_id: "agent-a",
+      provider: "pi",
+      failure_reason: "model_not_found",
+      error_message: "Model claude-9 is not available to this runtime",
+    });
+  });
+
+  test("a message that merely mentions a missing model is not classified as model_not_found", async () => {
+    const activity = await failedLaunch({ session: () => new Error("model claude-9 not found") });
+    expect(activity).toMatchObject({
+      detail: `Agent runtime could not be started.${logsNextStep}`,
+      runtimeError: { errorClass: "LauncherError", errorReason: "runtime_spawn_failed" },
+    });
   });
 });

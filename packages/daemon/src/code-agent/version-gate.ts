@@ -1,5 +1,6 @@
 import { getLogger } from "@logtape/logtape";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
+import { RuntimeVersionUnsupportedError } from "./contract";
 
 const logger = getLogger(["coforge", "daemon", "runtime-inventory"]);
 
@@ -104,7 +105,7 @@ export function cliVersionGate(options: {
       }
       if (!version || !isUnsupported(version)) return;
       logUnsupported(options.executable, version);
-      throw new Error(
+      throw new RuntimeVersionUnsupportedError(
         `${options.label} ${version} is unsupported; requires ${options.label} >= ${options.minimum}. ` +
           `Upgrade ${options.executable} before starting this runtime.`,
       );
