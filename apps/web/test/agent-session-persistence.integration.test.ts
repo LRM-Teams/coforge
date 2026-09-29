@@ -111,6 +111,7 @@ test.skipIf(!connectionString)(
       const sessions = new AgentSessions(
         new PrismaAgentSessionRepository(db),
         async () => "daemon",
+        { resendForCurrentSession: async () => {} },
       );
       const intent = {
         protocolMajor: 1,
@@ -144,6 +145,7 @@ test.skipIf(!connectionString)(
       const recreated = new AgentSessions(
         new PrismaAgentSessionRepository(db),
         async () => "replacement-daemon",
+        { resendForCurrentSession: async () => {} },
       );
       expect((await recreated.prepare({ ...intent, requestId: "new-start" })).sessionId).toBe(
         "persisted-thread",
@@ -195,11 +197,15 @@ test.skipIf(!connectionString)(
       await db.agent.update({ where: { id: agentId }, data: { runtimeSession: Prisma.DbNull } });
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
-      const delayed = new AgentSessions(new PrismaAgentSessionRepository(db), async () => {
-        entered.resolve();
-        await release.promise;
-        return "replacement-daemon";
-      });
+      const delayed = new AgentSessions(
+        new PrismaAgentSessionRepository(db),
+        async () => {
+          entered.resolve();
+          await release.promise;
+          return "replacement-daemon";
+        },
+        { resendForCurrentSession: async () => {} },
+      );
       const oldStart = delayed.prepare({ ...intent, requestId: "empty-start", controlEpoch: 2 });
       try {
         await entered.promise;

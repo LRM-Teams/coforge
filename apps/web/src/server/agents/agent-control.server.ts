@@ -17,7 +17,7 @@ import { assertAgentLive } from "./active-agent.server";
 import { AppError } from "#src/lib/app-error";
 import { canSeeAgent } from "./agent-visibility.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
-import type { AgentSessions } from "./agent-sessions.server";
+import type { AcceptedSessionMentions, AgentSessions } from "./agent-sessions.server";
 import { LocalAgentControlSignal, type AgentControlSignal } from "./agent-control-signal.server";
 import {
   assertHasAgentControlCapability,
@@ -125,8 +125,9 @@ export type AgentControlAgent = {
    * reconcile one the Daemon still runs; the user-initiated `execute()` refuses it outright. */
   deletedAt?: Date | null;
 };
-/** The tracked @mentions a person's Stop settles as not launched. */
-export type StoppedAgentMentions = {
+/** The tracked @mentions a control change affects: a person's Stop settles them as not launched,
+ * and a launch that started with its session issues them again for it. */
+export type AgentControlMentions = AcceptedSessionMentions & {
   settleStopped(input: { workspaceId: string; agentId: string; stoppedAt: Date }): Promise<void>;
 };
 /** get/replace both require current owner membership and Workspace–Computer assignment. */
@@ -279,8 +280,9 @@ export class AgentControl {
     /** Only consulted for a user-initiated `execute({action:"start"})`; Restart/Reset/Full reset
      * and the internal `recover`/`publishStart` paths are unchanged. */
     private readonly conversations?: AgentControlRecoveryReader,
-    /** Settles the tracked mentions a person's Stop leaves undelivered. */
-    private readonly stoppedMentions?: StoppedAgentMentions,
+    /** Settles the tracked mentions a person's Stop leaves undelivered, and issues them again for
+     * a launch that started with its session. */
+    private readonly mentions?: AgentControlMentions,
   ) {}
 
   /** WeeklyReportAssistant subject launches override the global current session for one start. */
@@ -546,7 +548,7 @@ export class AgentControl {
    * already recorded, so a failure here is logged and never fails it. */
   private async settleStoppedMentions(agent: AgentControlAgent, stoppedAt: Date) {
     try {
-      await this.stoppedMentions?.settleStopped({
+      await this.mentions?.settleStopped({
         workspaceId: agent.workspaceId,
         agentId: agent.id,
         stoppedAt,
@@ -1015,6 +1017,15 @@ export class AgentControl {
       ...(result.errorCode ? { errorCode: result.errorCode } : {}),
     };
     if (!(await this.store.replace(agent, next))) throw new Error("Control result lost its fence");
+    // A launch that started with its session binds the Agent's current identity, as an accepted
+    // session report does. The result's reply does not wait for the re-send, which logs its own
+    // failures (`MentionDeliveryReports`).
+    if (result.phase === "started" && result.identity)
+      void this.mentions?.resendForCurrentSession({
+        workspaceId: agent.workspaceId,
+        computerId: claim.computerId,
+        agentId: agent.id,
+      });
     if (next.phase === "stopped" || next.phase === "workspace-reset") {
       // Publish failure stays silent so the waiter's fallback re-read republishes the phase.
       const advanced = await this.advance(agent.id, next.requestId).then(

@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { z } from "zod";
 import {
   AgentSessions,
+  type AcceptedSessionMentions,
   type AgentSessionRepository,
   type AgentSessionWriteScope,
   type RuntimeSessionReference,
@@ -177,10 +178,11 @@ export class PrismaAgentSessionRepository implements AgentSessionRepository {
   }
 }
 
-export function createAgentSessions(db: PrismaClient) {
+export function createAgentSessions(db: PrismaClient, mentions: AcceptedSessionMentions) {
   return new AgentSessions(
     new PrismaAgentSessionRepository(db),
     async (workspaceId, computerId) =>
       (await getComputerRestartStore().identity?.({ workspaceId, computerId }))?.workerInstanceId,
+    mentions,
   );
 }

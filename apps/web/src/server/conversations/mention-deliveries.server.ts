@@ -5,7 +5,10 @@
  * (delivered) or a terminal error (lost with a reason category, or unknown). An Agent that is not
  * running is woken as before, without an envelope, and its mention stays pending; one nothing may
  * wake is not launched. Delivered and lost are final, except that a daemon's echoed ACK overrides
- * a person's Stop settling the mention; unknown is not final.
+ * a person's Stop settling the mention; unknown is not final. A pending mention that went out
+ * without an envelope, or with one for a launch that is no longer the Agent's, is issued again for
+ * its current launch and session when a launch's session is accepted and when its daemon comes
+ * back ready; nothing re-issues on a timer.
  */
 import {
   MENTION_DELIVERY_TERMINAL_CODES,
@@ -18,8 +21,10 @@ import type {
   MentionAgentState,
   MentionDeliveryReportKey,
   MentionIdentity,
+  MentionIssuePlan,
   MentionOutcome,
   MentionReasonCategory,
+  PendingMention,
   PrismaMentionDeliveryRepository,
   TrackedMentionState,
 } from "#src/server/db/repositories/mention-delivery.repositories.server";
@@ -67,10 +72,7 @@ const errorType = (error: unknown) => (error instanceof Error ? error.name : typ
 /** Issues tracked mentions as a send pushes them. */
 export class MentionDeliveryIssuer {
   constructor(
-    private readonly repository: Pick<
-      PrismaMentionDeliveryRepository,
-      "readIssuable" | "issue" | "clearEnvelopes"
-    >,
+    private readonly repository: Pick<PrismaMentionDeliveryRepository, "issue" | "clearEnvelopes">,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -78,10 +80,11 @@ export class MentionDeliveryIssuer {
    * Records each mentioning delivery and returns the envelope each push to a running Agent
    * carries, by delivery id: pending with an envelope for a running Agent, pending without one
    * for an Agent that is woken, and not launched at once for an Agent nothing may wake (stopped by
-   * a person, deleted, or on no Computer). A delivery whose mention already settled keeps its
-   * outcome and goes out without an envelope, so an idempotent replay of a send never reopens it.
-   * One read and one transaction, however many Agents the message mentions. Never throws: when
-   * issuing fails the pushes go out untracked, and no pending row keeps naming an envelope.
+   * a person, deleted, or on no Computer). The plan is made from the Agents' state as the issuing
+   * transaction holds it. A delivery whose mention already settled keeps its outcome and goes out
+   * without an envelope, so an idempotent replay of a send never reopens it. One transaction,
+   * however many Agents the message mentions. Never throws: when issuing fails the pushes go out
+   * untracked, and no pending row keeps naming an envelope.
    */
   async issue(
     workspaceId: string,
@@ -91,29 +94,25 @@ export class MentionDeliveryIssuer {
     if (!tracked.length) return new Map();
     const deliveryIds = tracked.map((delivery) => delivery.deliveryId);
     try {
-      const rows = await this.repository.readIssuable(workspaceId, deliveryIds);
-      const wakes: string[] = [];
-      const enveloped: { deliveryId: string; messageId: string; identity: MentionIdentity }[] = [];
-      for (const row of rows) {
-        const identity = currentIdentity(row.agent);
-        if (identity) enveloped.push({ ...row, identity });
-        else if (wakeable(row.agent)) wakes.push(row.deliveryId);
-      }
+      const envelopes = new Map<string, MentionDeliveryEnvelope>();
       const marked = await this.repository.issue(
         workspaceId,
-        {
-          deliveryIds: rows.map((row) => row.deliveryId),
-          agentIds: rows.map((row) => row.agentId),
-          wakes,
-          enveloped,
+        deliveryIds,
+        (mentions) => {
+          const plan: MentionIssuePlan = { enveloped: [], wakes: [], notLaunched: [] };
+          for (const mention of mentions) {
+            const identity = currentIdentity(mention.agent);
+            if (identity) {
+              plan.enveloped.push({ deliveryId: mention.deliveryId, identity });
+              envelopes.set(mention.deliveryId, envelopeFor(mention.messageId, identity));
+            } else if (wakeable(mention.agent)) plan.wakes.push(mention.deliveryId);
+            else plan.notLaunched.push(mention.deliveryId);
+          }
+          return plan;
         },
         this.now(),
       );
-      return new Map(
-        enveloped
-          .filter((row) => marked.has(row.deliveryId))
-          .map((row) => [row.deliveryId, envelopeFor(row.messageId, row.identity)]),
-      );
+      return new Map([...envelopes].filter(([deliveryId]) => marked.has(deliveryId)));
     } catch (error) {
       console.warn(
         JSON.stringify({
@@ -153,7 +152,7 @@ type DeliveryConversations = {
   readPendingAgentDeliveries(
     workspaceId: string,
     agentId: string,
-    only?: { deliveryIds: readonly string[] },
+    select?: { deliveryIds: readonly string[]; orUnreceived?: boolean },
   ): Promise<PendingAgentDelivery[]>;
 };
 
@@ -186,9 +185,42 @@ function settleableByAck(state: TrackedMentionState) {
   );
 }
 
-/** Receives a daemon's reports on the deliveries it was pushed: ACKs and tracked-mention
- * transitions and terminal errors. A report is authorized by its delivery's Agent being on the
- * reporting Computer; an envelope naming another Computer is a drift. */
+/** An Agent on the Computer that reports for it. */
+export type MentionAgentScope = { workspaceId: string; computerId: string; agentId: string };
+
+/** The tracked deliveries a send goes out with: the envelope each carries, or none for a wake. */
+type TrackedPushes = Map<string, MentionDeliveryEnvelope | undefined>;
+
+/** An Agent's pending mentions after a re-issue: those issued just now for its current launch,
+ * what each tracked one goes out with, and those a concurrent re-issue or drift answer took. */
+type ReissuedMentions = { reissued: string[]; tracked: TrackedPushes; taken: Set<string> };
+
+const NOTHING_REISSUED: ReissuedMentions = { reissued: [], tracked: new Map(), taken: new Set() };
+
+/** Whether a mention went out as `identity` would issue it: with its envelope, or none without. */
+function issuedFor(mention: PendingMention, identity: MentionIdentity | undefined) {
+  return identity
+    ? mention.mentionLaunchId === identity.launchId &&
+        mention.mentionSessionId === identity.sessionId
+    : mention.mentionLaunchId === null;
+}
+
+function sameIdentity(identity: MentionIdentity, envelope: MentionDeliveryEnvelope) {
+  return (
+    identity.launchId === envelope.launchId &&
+    identity.sessionId === envelope.sessionId &&
+    identity.computerId === envelope.computerId
+  );
+}
+
+/**
+ * Receives a daemon's reports on the deliveries it was pushed and on its Agents: ACKs,
+ * tracked-mention transitions and terminal errors, a launch's accepted session, and its ready. A
+ * delivery report is authorized by its delivery's Agent being on the reporting Computer; an
+ * envelope naming another Computer is a drift. A pending mention that went out without an
+ * envelope, or with one for another launch or session, is issued again for the Agent's current
+ * ones when a session is accepted and when its daemon is ready; nothing re-issues on a timer.
+ */
 export class MentionDeliveryReports {
   constructor(
     private readonly repository: Pick<
@@ -196,9 +228,11 @@ export class MentionDeliveryReports {
       | "settleDrained"
       | "settleUnechoed"
       | "recordStage"
-      | "readReported"
       | "settleTerminal"
-      | "reissue"
+      | "answerReported"
+      | "readPending"
+      | "reissuePending"
+      | "settleStopped"
     >,
     private readonly publisher: Parameters<typeof publishPendingDelivery>[0],
     private readonly conversations: DeliveryConversations,
@@ -232,17 +266,50 @@ export class MentionDeliveryReports {
 
   async receiveTerminalError(report: AgentMentionDeliveryTerminalError, computerId: string) {
     const key = reportKey({ ...report, computerId }, report.mentionDelivery);
-    if (key.envelope.computerId !== computerId)
-      return this.reissueForCurrentLaunch(key, MENTION_DELIVERY_TERMINAL_CODES.IDENTITY_DRIFT);
+    if (key.envelope.computerId !== computerId) return this.answerDrift(key);
     if (report.code === MENTION_DELIVERY_TERMINAL_CODES.IDENTITY_UNKNOWN)
       return this.wakeWithoutEnvelope(key, report.code);
     if (report.code === MENTION_DELIVERY_TERMINAL_CODES.IDENTITY_DRIFT)
-      return this.reissueForCurrentLaunch(key, report.code);
+      return this.answerDrift(key);
     await this.repository.settleTerminal(
       key,
       { ...(SETTLED_BY_CODE[report.code] ?? UNCLASSIFIED), code: report.code },
       this.now(),
     );
+  }
+
+  /** A person stopped the Agent: its pending tracked mentions will not be launched. */
+  async settleStopped(input: { workspaceId: string; agentId: string; stoppedAt: Date }) {
+    await this.repository.settleStopped(input);
+  }
+
+  /** A launch's session was accepted as the Agent's current one: issues its pending mentions for
+   * it and sends the ones it issued. Never throws: a failure is logged. */
+  async resendForCurrentSession(scope: MentionAgentScope): Promise<void> {
+    try {
+      const { reissued, tracked } = await this.reissuePending(scope);
+      if (reissued.length) await this.sendTracked(scope, { deliveryIds: reissued }, tracked);
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "mention_delivery:session_resend_failed",
+          workspace_id: scope.workspaceId,
+          computer_id: scope.computerId,
+          agent_id: scope.agentId,
+          error_type: errorType(error),
+        }),
+      );
+    }
+  }
+
+  /**
+   * The Agent's daemon is ready and the Agent running: sends it every delivery it has not
+   * received and every mention just issued for its current launch, each tracked one with the
+   * envelope issued for that launch. A mention a concurrent re-issue took is left to it.
+   */
+  async resendPending(scope: MentionAgentScope): Promise<void> {
+    const { reissued, tracked, taken } = await this.reissuePending(scope);
+    await this.sendTracked(scope, { deliveryIds: reissued, orUnreceived: true }, tracked, taken);
   }
 
   private async settleAck(ack: ReceivedDeliveryAck) {
@@ -253,8 +320,7 @@ export class MentionDeliveryReports {
     }
     if (envelope.messageId !== ack.messageId) return;
     const key = reportKey(ack, envelope);
-    if (envelope.computerId !== ack.computerId)
-      await this.reissueForCurrentLaunch(key, MENTION_DELIVERY_TERMINAL_CODES.IDENTITY_DRIFT);
+    if (envelope.computerId !== ack.computerId) await this.answerDrift(key);
     else await this.repository.settleDrained(key, this.now());
   }
 
@@ -262,45 +328,127 @@ export class MentionDeliveryReports {
    * mention does, once, and leave the mention pending; an Agent nothing may wake was not
    * launched. */
   private async wakeWithoutEnvelope(key: MentionDeliveryReportKey, code: string) {
-    const reported = await this.repository.readReported(key);
-    if (!reported) return;
-    if (!wakeable(reported.agent)) {
-      await this.repository.settleTerminal(key, { ...NOT_LAUNCHED, code }, this.now());
-      return;
-    }
-    if (await this.repository.reissue(key, undefined, code)) await this.resend(key, undefined);
-  }
-
-  /** The envelope named a launch, session or Computer that is no longer the Agent's. Issue it
-   * once more for the current one; a second drift, or nothing newer to issue for, was not
-   * launched. */
-  private async reissueForCurrentLaunch(key: MentionDeliveryReportKey, code: string) {
-    const reported = await this.repository.readReported(key);
-    if (!reported) return;
-    const identity = currentIdentity(reported.agent);
-    const newer =
-      identity &&
-      (identity.launchId !== key.envelope.launchId ||
-        identity.sessionId !== key.envelope.sessionId ||
-        identity.computerId !== key.envelope.computerId);
-    if (reported.terminalCode === code || !newer) {
-      await this.repository.settleTerminal(key, { ...NOT_LAUNCHED, code }, this.now());
-      return;
-    }
-    if (await this.repository.reissue(key, identity, code)) await this.resend(key, identity);
-  }
-
-  /** Pushes the same delivery again, received or not, with the new envelope or none. */
-  private async resend(key: MentionDeliveryReportKey, identity: MentionIdentity | undefined) {
-    const [delivery] = await this.conversations.readPendingAgentDeliveries(
-      key.workspaceId,
-      key.agentId,
-      { deliveryIds: [key.deliveryId] },
+    const answer = await this.repository.answerReported(
+      key,
+      (reported) =>
+        wakeable(reported.agent)
+          ? { reissue: undefined, code }
+          : { settle: { ...NOT_LAUNCHED, code } },
+      this.now(),
     );
-    if (!delivery) return;
-    await publishPendingDelivery(this.publisher, key, delivery, {
-      mentionDelivery: identity ? envelopeFor(delivery.messageId, identity) : undefined,
-    });
+    if (answer && "reissue" in answer)
+      await this.sendTracked(
+        key,
+        { deliveryIds: [key.deliveryId] },
+        new Map([[key.deliveryId, undefined]]),
+      );
+  }
+
+  /**
+   * The envelope named a launch, session or Computer that is no longer the Agent's. When the
+   * cloud already knows a newer launch, the mention is issued for it at once, once per launch it
+   * reached; otherwise it keeps pending without an envelope, and the next accepted session issues
+   * it. Either way the outcome does not depend on whether the drift or the session came first.
+   * Only an Agent nothing may wake settles, as not launched. The answer is read and written
+   * while the Agent's row is held, so it never interleaves with a session being accepted.
+   */
+  private async answerDrift(key: MentionDeliveryReportKey) {
+    const code = MENTION_DELIVERY_TERMINAL_CODES.IDENTITY_DRIFT;
+    const answer = await this.repository.answerReported(
+      key,
+      (reported) => {
+        if (!wakeable(reported.agent)) return { settle: { ...NOT_LAUNCHED, code } };
+        const identity = currentIdentity(reported.agent);
+        const newer =
+          identity && !sameIdentity(identity, key.envelope) && reported.terminalCode !== code;
+        return { reissue: newer ? identity : undefined, code };
+      },
+      this.now(),
+    );
+    if (answer && "reissue" in answer && answer.reissue)
+      await this.sendTracked(
+        key,
+        { deliveryIds: [key.deliveryId] },
+        new Map([[key.deliveryId, envelopeFor(key.envelope.messageId, answer.reissue)]]),
+      );
+  }
+
+  /**
+   * Issues the Agent's pending mentions that went out without an envelope or with one for another
+   * launch or session, for its current ones. An Agent running without a session yet has those
+   * envelopes cleared instead, so the wake it is sent is not taken for an ACK that lost its
+   * envelope; an Agent nothing may wake is left to its Stop.
+   */
+  private async reissuePending(scope: MentionAgentScope): Promise<ReissuedMentions> {
+    const read = await this.repository.readPending(scope.workspaceId, scope.agentId);
+    if (!read || read.agent.computerId !== scope.computerId || !wakeable(read.agent))
+      return NOTHING_REISSUED;
+    const identity = currentIdentity(read.agent);
+    const stale = read.mentions.filter((mention) => !issuedFor(mention, identity));
+    const issued = new Set(await this.repository.reissuePending(scope, stale, identity));
+    const tracked: TrackedPushes = new Map();
+    const taken = new Set<string>();
+    for (const mention of read.mentions) {
+      if (issuedFor(mention, identity) || issued.has(mention.deliveryId))
+        tracked.set(
+          mention.deliveryId,
+          identity ? envelopeFor(mention.messageId, identity) : undefined,
+        );
+      else taken.add(mention.deliveryId);
+    }
+    return { reissued: identity ? [...issued] : [], tracked, taken };
+  }
+
+  /**
+   * Sends the Agent the deliveries `select` reads back (less those `skip` names), each tracked
+   * one with what `tracked` gives it. An envelope that did not go out, because its delivery was
+   * not read back or its send failed, is cleared, so the next accepted session or ready issues it
+   * again.
+   */
+  private async sendTracked(
+    scope: MentionAgentScope,
+    select: { deliveryIds: readonly string[]; orUnreceived?: boolean },
+    tracked: TrackedPushes,
+    skip: ReadonlySet<string> = new Set(),
+  ) {
+    const deliveries = (
+      await this.conversations.readPendingAgentDeliveries(scope.workspaceId, scope.agentId, select)
+    ).filter((delivery) => !skip.has(delivery.deliveryId));
+    const results = await Promise.allSettled(
+      deliveries.map((delivery) =>
+        publishPendingDelivery(
+          this.publisher,
+          scope,
+          delivery,
+          tracked.has(delivery.deliveryId)
+            ? { mentionDelivery: tracked.get(delivery.deliveryId) }
+            : undefined,
+        ),
+      ),
+    );
+    const sent = new Set(
+      deliveries
+        .filter((_, index) => results[index]!.status === "fulfilled")
+        .map((delivery) => delivery.deliveryId),
+    );
+    const meant = new Set([
+      ...select.deliveryIds,
+      ...deliveries.map((delivery) => delivery.deliveryId),
+    ]);
+    const unsent: PendingMention[] = [];
+    for (const deliveryId of meant) {
+      const envelope = tracked.get(deliveryId);
+      if (envelope && !sent.has(deliveryId))
+        unsent.push({
+          deliveryId,
+          messageId: envelope.messageId,
+          mentionLaunchId: envelope.launchId,
+          mentionSessionId: envelope.sessionId,
+        });
+    }
+    if (unsent.length) await this.repository.reissuePending(scope, unsent, undefined);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
   }
 }
 

@@ -33,6 +33,16 @@ export interface AgentSessionRepository {
   ): Promise<boolean>;
 }
 
+/** The tracked mentions an Agent's newly accepted launch and session issue again
+ * (`MentionDeliveryReports`). It never throws. */
+export type AcceptedSessionMentions = {
+  resendForCurrentSession(scope: {
+    workspaceId: string;
+    computerId: string;
+    agentId: string;
+  }): Promise<void>;
+};
+
 /** Cloud owns selection; CAS fencing prevents a retired launch from changing it. */
 export class AgentSessions {
   constructor(
@@ -41,6 +51,8 @@ export class AgentSessions {
       workspaceId: string,
       computerId: string,
     ) => Promise<string | undefined>,
+    /** Required, so an accepted session can never leave its Agent's pending mentions behind. */
+    private readonly mentions: AcceptedSessionMentions,
   ) {}
 
   async prepare(intent: AgentStartIntent): Promise<AgentStartIntent> {
@@ -147,6 +159,8 @@ export class AgentSessions {
     return old;
   }
 
+  /** Records the report's launch and session as the Agent's current ones, then issues its pending
+   * tracked mentions for them. */
   async accept(report: AgentSessionReport): Promise<void> {
     const old = await this.verify(report);
     const { state: _observedState, ...reference } = old;
@@ -165,6 +179,11 @@ export class AgentSessions {
       ))
     )
       throw new Error("Agent session identity changed concurrently");
+    await this.mentions.resendForCurrentSession({
+      workspaceId: report.workspaceId,
+      computerId: report.computerId,
+      agentId: report.agentId,
+    });
   }
 
   async retire(agentId: string, workspaceId: string, computerId: string): Promise<void> {

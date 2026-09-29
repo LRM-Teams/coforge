@@ -4,6 +4,8 @@ import { getAgentControlSignal } from "#src/server/agents/agent-control-signal.s
 import { getAgentRuntimeLock } from "#src/server/agents/agent-runtime-lock.server";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
+import { MentionDeliveryReports } from "#src/server/conversations/mention-deliveries.server";
 import { PrismaAgentControlStore } from "#src/server/db/repositories/agent-control.repositories.server";
 import { createAgentSessions } from "#src/server/db/repositories/agent-session.repositories.server";
 
@@ -91,14 +93,21 @@ export async function alignWeeklyReportAssistantSubjectRuntime(
 export function createWeeklyReportAssistantSubjectRuntime(
   db: PrismaClient,
 ): WeeklyReportAssistantSubjectRuntime {
+  const centrifugo = createCentrifugoServerApi();
+  const conversations = new PrismaDirectConversationRepository(db);
+  const mentions = new MentionDeliveryReports(
+    new PrismaMentionDeliveryRepository(db),
+    centrifugo,
+    conversations,
+  );
   const control = new AgentControl(
     new PrismaAgentControlStore(db),
-    createCentrifugoServerApi(),
+    centrifugo,
     getAgentRuntimeLock(),
     undefined,
-    createAgentSessions(db),
+    createAgentSessions(db, mentions),
     getAgentControlSignal(),
-    new PrismaDirectConversationRepository(db),
+    conversations,
   );
   return {
     presence: (input) => control.readLaunchPresence(input),

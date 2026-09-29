@@ -70,6 +70,9 @@ import {
 import { getAgentStatusCache } from "#src/server/agents/agent-status.server";
 import { getComputerStatusCache } from "#src/server/centrifugo/computer-status.server";
 import { createAgentSessions } from "#src/server/db/repositories/agent-session.repositories.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { PrismaMentionDeliveryRepository } from "#src/server/db/repositories/mention-delivery.repositories.server";
+import { MentionDeliveryReports } from "#src/server/conversations/mention-deliveries.server";
 import { getAgentDisplay } from "#src/server/agents/agent-display.server";
 import { AgentEnvironment } from "#src/server/agents/agent-environment.server";
 import {
@@ -84,7 +87,13 @@ type Database = ReturnType<typeof requireDatabaseClient>;
 /** Runtime start/stop publisher wired to one database and Agent repository. */
 function runtimeControl(db: Database, agents: PrismaAgentRepository) {
   const centrifugo = createCentrifugoServerApi();
-  const sessions = createAgentSessions(db);
+  const conversations = new PrismaDirectConversationRepository(db);
+  const mentions = new MentionDeliveryReports(
+    new PrismaMentionDeliveryRepository(db),
+    centrifugo,
+    conversations,
+  );
+  const sessions = createAgentSessions(db, mentions);
   return new PublishAgentRuntimeControl(
     new RepositoryAgentAuthorization(agents),
     centrifugo,

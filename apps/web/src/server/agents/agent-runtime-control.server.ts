@@ -8,7 +8,7 @@ import {
   type AgentStartIntent,
   type AgentStopIntent,
 } from "@lrm/coforge-sdk/internal";
-import { publishPendingDelivery } from "#src/server/conversations/agent-delivery.server";
+import type { MentionDeliveryReports } from "#src/server/conversations/mention-deliveries.server";
 import {
   daemonControlChannel,
   type CentrifugoServerApi,
@@ -18,10 +18,7 @@ import type { AgentSessions } from "./agent-sessions.server";
 import type { AgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type { AgentControl, AgentControlStore } from "./agent-control.server";
-import type {
-  AgentRecoveryContext,
-  PendingAgentDelivery,
-} from "#src/server/db/repositories/direct-conversation.repositories.server";
+import type { AgentRecoveryContext } from "#src/server/db/repositories/direct-conversation.repositories.server";
 
 export type AgentRuntimeControlAuthorization = {
   computerIdForAuthorizedAgent(
@@ -95,13 +92,11 @@ export class WorkspaceAgentRecovery {
     private readonly agents: AgentRepository,
     private readonly conversations: {
       readAgentRecoveryContext(workspaceId: string, agentId: string): Promise<AgentRecoveryContext>;
-      readPendingAgentDeliveries(
-        workspaceId: string,
-        agentId: string,
-      ): Promise<PendingAgentDelivery[]>;
     },
     private readonly api: Pick<CentrifugoServerApi, "publish">,
     private readonly runtimeLock: AgentRuntimeLock,
+    /** Sends a running Agent what it has not received (`MentionDeliveryReports`). */
+    private readonly pendingDeliveries: Pick<MentionDeliveryReports, "resendPending">,
     private readonly sessions?: AgentSessions,
     private readonly control?: AgentControl,
     /** `control`'s own store: the Agent is read through it once, here, and handed to `recover`. */
@@ -156,19 +151,11 @@ export class WorkspaceAgentRecovery {
             return;
           }
           if (runningAgents.has(agent.id)) {
-            const deliveries = await this.conversations.readPendingAgentDeliveries(
+            await this.pendingDeliveries.resendPending({
               workspaceId,
-              agent.id,
-            );
-            await Promise.all(
-              deliveries.map((delivery) =>
-                publishPendingDelivery(
-                  this.api,
-                  { workspaceId, computerId, agentId: agent.id },
-                  delivery,
-                ),
-              ),
-            );
+              computerId,
+              agentId: agent.id,
+            });
             return;
           }
           const recovery = await this.conversations.readAgentRecoveryContext(workspaceId, agent.id);

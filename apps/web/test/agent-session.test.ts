@@ -86,6 +86,7 @@ test("Session RPC preserves control state and rejects stale scope, revoked acces
       },
       // Not exercised by `.authorize`/`.accept`, only by `.invalidate`.
       async () => "daemon",
+      { resendForCurrentSession: async () => {} },
     ),
   );
   const principal = { userId: "owner", workspaceId: "workspace", computerId: "computer" };
@@ -194,6 +195,7 @@ test("session invalidate clears a matching Session association and leaves every 
       },
     },
     async () => "daemon-current",
+    { resendForCurrentSession: async () => {} },
   );
   const claim = { workspaceId: "workspace", computerId: "computer" };
 
@@ -227,6 +229,7 @@ test("session invalidate is a no-op when the Agent has no server control state",
       },
     },
     async () => "daemon-current",
+    { resendForCurrentSession: async () => {} },
   );
 
   await receiver.invalidate({ workspaceId: "workspace", computerId: "computer" }, message);
@@ -244,6 +247,7 @@ test("session invalidate silently drops a lost compare-and-swap race instead of 
       replace: async () => false,
     },
     async () => "daemon-current",
+    { resendForCurrentSession: async () => {} },
   );
 
   await expect(
@@ -262,6 +266,7 @@ test("session invalidate propagates a genuine store failure instead of swallowin
       },
     },
     async () => "daemon-current",
+    { resendForCurrentSession: async () => {} },
   );
 
   await expect(
@@ -282,6 +287,7 @@ test("session invalidate ignores a non-matching session id, launch id, or scope 
       },
     },
     async () => "daemon-current",
+    { resendForCurrentSession: async () => {} },
   );
   const claim = { workspaceId: "workspace", computerId: "computer" };
 
@@ -313,6 +319,7 @@ test("session invalidate from a stale daemon instance is ignored, not rejected",
       },
     },
     async () => "a-different-daemon-instance",
+    { resendForCurrentSession: async () => {} },
   );
 
   await receiver.invalidate({ workspaceId: "workspace", computerId: "computer" }, message);
@@ -344,6 +351,7 @@ test("session invalidate for an old launch can never clear a newer Session", asy
       },
     },
     async () => "daemon-current",
+    { resendForCurrentSession: async () => {} },
   );
 
   await receiver.invalidate({ workspaceId: "workspace", computerId: "computer" }, message);

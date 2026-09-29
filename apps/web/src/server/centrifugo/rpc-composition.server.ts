@@ -217,9 +217,14 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
     const centrifugo = createCentrifugoServerApi();
     // Real traffic: idempotent per process, inert until this composition runs.
     ensureAgentActivitySweep();
-    const sessions = createAgentSessions(db);
     const controlStore = new PrismaAgentControlStore(db);
     const directConversations = new PrismaDirectConversationRepository(db);
+    const mentionReports = new MentionDeliveryReports(
+      new PrismaMentionDeliveryRepository(db),
+      centrifugo,
+      directConversations,
+    );
+    const sessions = createAgentSessions(db, mentionReports);
     const control = new AgentControl(
       controlStore,
       centrifugo,
@@ -228,16 +233,13 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       sessions,
       getAgentControlSignal(),
       directConversations,
+      mentionReports,
     );
     const sessionReceiver = new AgentSessionReceiver(
       controlStore,
       async (workspaceId, computerId) =>
         (await getComputerRestartStore().identity?.({ workspaceId, computerId }))?.workerInstanceId,
-    );
-    const mentionReports = new MentionDeliveryReports(
-      new PrismaMentionDeliveryRepository(db),
-      centrifugo,
-      directConversations,
+      mentionReports,
     );
     const reminderRepository = new PrismaReminderRepository(db);
     const reminderLease = getReminderCapabilityLease();
@@ -270,6 +272,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
             directConversations,
             centrifugo,
             getAgentRuntimeLock(),
+            mentionReports,
             sessions,
             control,
             controlStore,

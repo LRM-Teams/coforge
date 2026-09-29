@@ -222,6 +222,7 @@ test("a Daemon reconnect still starts an Agent whose last Start failed", async (
     agent.conversations,
     { publish: async () => {} },
     agent.lock,
+    { resendPending: async () => {} },
     undefined,
     agent.control,
   );
@@ -344,6 +345,7 @@ test("ready recovery reads the Agent's control record once to start it", async (
     agent.conversations,
     { publish: async () => {} },
     agent.lock,
+    { resendPending: async () => {} },
     undefined,
     agent.control,
     agent.store,

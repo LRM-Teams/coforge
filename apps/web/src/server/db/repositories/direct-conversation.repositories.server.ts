@@ -1459,10 +1459,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   async readPendingAgentDeliveries(
     workspaceId: string,
     agentId: string,
-    /** Only these deliveries, received or not, when given: a mention re-sent after a daemon's
-     * report. */
-    only?: { deliveryIds: readonly string[] },
+    /** These deliveries, received or not (a tracked mention issued again), and with
+     * `orUnreceived` every unreceived one too. Without it, only the unreceived ones. */
+    select?: { deliveryIds: readonly string[]; orUnreceived?: boolean },
   ): Promise<AgentFacing<PendingAgentDelivery>[]> {
+    const unreceived = { receivedAt: null } satisfies Prisma.AgentMessageDeliveryWhereInput;
+    const chosen = { deliveryId: { in: [...(select?.deliveryIds ?? [])] } };
+    const selected = !select
+      ? unreceived
+      : { AND: [select.orUnreceived ? { OR: [unreceived, chosen] } : chosen] };
     const deliveries = await this.db.agentMessageDelivery.findMany({
       // Deliveries into a channel hidden from the Workspace wait there until it is restored. A
       // channel the Agent has left (or was removed from, or left by going private) no longer
@@ -1471,7 +1476,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       where: {
         workspaceId,
         agentId,
-        ...(only ? { deliveryId: { in: [...only.deliveryIds] } } : { receivedAt: null }),
+        ...selected,
         conversation: VISIBLE_CONVERSATION_WHERE,
         OR: [
           { conversation: { channelName: null } },

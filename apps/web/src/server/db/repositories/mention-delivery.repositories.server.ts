@@ -1,5 +1,5 @@
 import type { MentionDeliveryEnvelope, MentionDeliveryStage } from "@lrm/coforge-sdk/internal";
-import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { parseRuntimeSessionReference } from "./agent-session.repositories.server";
 
 /** A tracked @mention's outcome; the migration's CHECK holds the column to these. */
@@ -43,15 +43,30 @@ export type MentionDeliveryReportKey = {
   envelope: MentionDeliveryEnvelope;
 };
 
+/** A mentioning delivery a send may still (re)issue, with its Agent's stored state. */
+export type IssuableMention = {
+  deliveryId: string;
+  messageId: string;
+  agentId: string;
+  agent: MentionAgentState;
+};
+
 /** How a send issues the mentions it pushes; `MentionDeliveryIssuer` decides the plan. */
 export type MentionIssuePlan = {
-  /** Every mentioning delivery planned below, and their Agents. */
-  deliveryIds: string[];
-  agentIds: string[];
-  /** Pushed as a wake, without an envelope. */
-  wakes: string[];
   /** Pushed with an envelope for the Agent's current identity. */
   enveloped: { deliveryId: string; identity: MentionIdentity }[];
+  /** Pushed as a wake, without an envelope. */
+  wakes: string[];
+  /** For an Agent nothing may wake. */
+  notLaunched: string[];
+};
+
+/** A pending tracked mention and the envelope it last went out with (none: as a wake). */
+export type PendingMention = {
+  deliveryId: string;
+  messageId: string;
+  mentionLaunchId: string | null;
+  mentionSessionId: string | null;
 };
 
 const OPEN_OUTCOMES: MentionOutcome[] = ["pending", "unknown"];
@@ -118,6 +133,63 @@ function reportedRowWhere(
 
 type MentionDeliveryDb = Pick<PrismaClient, "agentMessageDelivery" | "$queryRaw" | "$transaction">;
 
+/** The Agent `a` of delivery `d` may still be woken: not stopped by a person, not deleted, and on
+ * a Computer. */
+const WAKEABLE_AGENT_SQL = Prisma.sql`a.id = d."agentId"
+  AND a."stoppedAt" IS NULL
+  AND a."deletedAt" IS NULL
+  AND a."computerId" IS NOT NULL`;
+/** A mention not yet settled, which a send may (re)issue. */
+const ISSUABLE_SQL = Prisma.sql`(d."mentionOutcome" IS NULL OR d."mentionOutcome" = ${ISSUABLE_OUTCOME})`;
+/** A pending mention that still carries the envelope `v` read it with. */
+const STILL_CARRIED_SQL = Prisma.sql`d."mentionOutcome" = ${ISSUABLE_OUTCOME}
+  AND d."mentionLaunchId" IS NOT DISTINCT FROM v."fromLaunchId"
+  AND d."mentionSessionId" IS NOT DISTINCT FROM v."fromSessionId"`;
+
+/** One delivery's next envelope (none: a wake), and the one it must still carry, if checked. */
+type EnvelopeWrite = {
+  deliveryId: string;
+  identity: MentionIdentity | undefined;
+  carried?: { mentionLaunchId: string | null; mentionSessionId: string | null };
+};
+
+/**
+ * Issues each delivery pending with its next envelope while `condition` holds and its Agent may
+ * still be woken, and returns the ones it issued. The stage always clears; the terminal code only
+ * with `clearCode`.
+ */
+async function setEnvelopes(
+  db: Pick<PrismaClient, "$queryRaw">,
+  workspaceId: string,
+  writes: readonly EnvelopeWrite[],
+  condition: Prisma.Sql,
+  clearCode: boolean,
+): Promise<string[]> {
+  if (!writes.length) return [];
+  const rows = await db.$queryRaw<{ deliveryId: string }[]>`
+    UPDATE "agent_message_deliveries" AS d
+    SET "mentionOutcome" = ${ISSUABLE_OUTCOME},
+        "mentionStage" = NULL,
+        ${clearCode ? Prisma.sql`"mentionTerminalCode" = NULL,` : Prisma.empty}
+        "mentionSettledAt" = NULL,
+        "mentionLaunchId" = v."launchId",
+        "mentionSessionId" = v."sessionId"
+    FROM unnest(
+      ${writes.map((write) => write.deliveryId)}::uuid[],
+      ${writes.map((write) => write.identity?.launchId ?? null)}::text[],
+      ${writes.map((write) => write.identity?.sessionId ?? null)}::text[],
+      ${writes.map((write) => write.carried?.mentionLaunchId ?? null)}::text[],
+      ${writes.map((write) => write.carried?.mentionSessionId ?? null)}::text[]
+    ) AS v("deliveryId", "launchId", "sessionId", "fromLaunchId", "fromSessionId"),
+      "agents" AS a
+    WHERE d."deliveryId" = v."deliveryId"
+      AND d."workspaceId" = ${workspaceId}::uuid
+      AND ${condition}
+      AND ${WAKEABLE_AGENT_SQL}
+    RETURNING d."deliveryId"::text AS "deliveryId"`;
+  return rows.map((row) => row.deliveryId);
+}
+
 /**
  * Storage for tracked @mention outcomes on `agent_message_deliveries`. Every write is conditional
  * on the row still being open, so a late or repeated report never reopens a final outcome.
@@ -125,92 +197,102 @@ type MentionDeliveryDb = Pick<PrismaClient, "agentMessageDelivery" | "$queryRaw"
 export class PrismaMentionDeliveryRepository {
   constructor(private readonly db: MentionDeliveryDb) {}
 
-  /** The deliveries a send may still (re)issue, each with its Agent's stored state. */
-  async readIssuable(workspaceId: string, deliveryIds: readonly string[]) {
-    const rows = await this.db.agentMessageDelivery.findMany({
-      where: { ...ISSUABLE_WHERE, workspaceId, deliveryId: { in: [...deliveryIds] } },
-      select: {
-        deliveryId: true,
-        messageId: true,
-        agentId: true,
-        agent: { select: AGENT_STATE_SELECT },
-      },
-    });
-    return rows.map(({ agent, ...row }) => ({ ...row, agent: agentState(agent) }));
-  }
-
   /**
-   * Writes an issue plan in one transaction that holds each Agent's row, so a person's Stop
-   * either commits first and is seen here, or waits and then settles what this wrote. A planned
-   * delivery whose Agent can no longer be woken is settled not launched instead. Returns the
-   * enveloped deliveries it marked.
+   * Issues a send's mentioning deliveries in one transaction. It holds their Agents' rows
+   * (`FOR SHARE`) before reading their state, so `decide` plans from what a session report or a
+   * person's Stop committed first, and one that comes later waits for this to commit and then sees
+   * what it wrote. Returns the enveloped deliveries it issued.
    */
-  async issue(workspaceId: string, plan: MentionIssuePlan, now: Date): Promise<Set<string>> {
-    if (!plan.deliveryIds.length) return new Set();
+  async issue(
+    workspaceId: string,
+    deliveryIds: readonly string[],
+    decide: (mentions: IssuableMention[]) => MentionIssuePlan,
+    now: Date,
+  ): Promise<Set<string>> {
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw`
-        SELECT id FROM "agents"
-        WHERE id = ANY(${[...new Set(plan.agentIds)].sort()}::uuid[])
-        ORDER BY id
-        FOR SHARE`;
-      const wakeableAgent = {
-        agent: { stoppedAt: null, deletedAt: null, computerId: { not: null } },
-      } satisfies Prisma.AgentMessageDeliveryWhereInput;
-      const marked = plan.enveloped.length
-        ? await tx.$queryRaw<{ deliveryId: string }[]>`
-            UPDATE "agent_message_deliveries" AS d
-            SET "mentionOutcome" = ${ISSUABLE_OUTCOME},
-                "mentionStage" = NULL,
-                "mentionTerminalCode" = NULL,
-                "mentionLaunchId" = v."launchId",
-                "mentionSessionId" = v."sessionId"
-            FROM unnest(
-              ${plan.enveloped.map((row) => row.deliveryId)}::uuid[],
-              ${plan.enveloped.map((row) => row.identity.launchId)}::text[],
-              ${plan.enveloped.map((row) => row.identity.sessionId)}::text[]
-            ) AS v("deliveryId", "launchId", "sessionId"), "agents" AS a
-            WHERE d."deliveryId" = v."deliveryId"
-              AND d."workspaceId" = ${workspaceId}::uuid
-              AND (d."mentionOutcome" IS NULL OR d."mentionOutcome" = ${ISSUABLE_OUTCOME})
-              AND a.id = d."agentId"
-              AND a."stoppedAt" IS NULL
-              AND a."deletedAt" IS NULL
-              AND a."computerId" IS NOT NULL
-            RETURNING d."deliveryId"::text AS "deliveryId"`
-        : [];
-      if (plan.wakes.length)
+        SELECT a.id FROM "agents" AS a
+        JOIN "agent_message_deliveries" AS d ON d."agentId" = a.id
+        WHERE d."workspaceId" = ${workspaceId}::uuid
+          AND d."deliveryId" = ANY(${[...deliveryIds]}::uuid[])
+        ORDER BY a.id
+        FOR SHARE OF a`;
+      const rows = await tx.agentMessageDelivery.findMany({
+        where: { ...ISSUABLE_WHERE, workspaceId, deliveryId: { in: [...deliveryIds] } },
+        select: {
+          deliveryId: true,
+          messageId: true,
+          agentId: true,
+          agent: { select: AGENT_STATE_SELECT },
+        },
+      });
+      const plan = decide(rows.map(({ agent, ...row }) => ({ ...row, agent: agentState(agent) })));
+      const enveloped = await setEnvelopes(
+        tx,
+        workspaceId,
+        [
+          ...plan.enveloped,
+          ...plan.wakes.map((deliveryId) => ({ deliveryId, identity: undefined })),
+        ],
+        ISSUABLE_SQL,
+        true,
+      );
+      if (plan.notLaunched.length)
         await tx.agentMessageDelivery.updateMany({
-          where: {
-            ...ISSUABLE_WHERE,
-            ...wakeableAgent,
-            workspaceId,
-            deliveryId: { in: plan.wakes },
-          },
+          where: { ...ISSUABLE_WHERE, workspaceId, deliveryId: { in: plan.notLaunched } },
           data: {
-            mentionOutcome: ISSUABLE_OUTCOME,
+            ...notLaunched(now),
             mentionStage: null,
             mentionTerminalCode: null,
             mentionLaunchId: null,
             mentionSessionId: null,
           },
         });
-      await tx.agentMessageDelivery.updateMany({
-        where: {
-          ...ISSUABLE_WHERE,
-          workspaceId,
-          deliveryId: { in: plan.deliveryIds },
-          NOT: wakeableAgent,
-        },
-        data: {
-          ...notLaunched(now),
-          mentionStage: null,
-          mentionTerminalCode: null,
-          mentionLaunchId: null,
-          mentionSessionId: null,
+      const wakes = new Set(plan.wakes);
+      return new Set(enveloped.filter((deliveryId) => !wakes.has(deliveryId)));
+    });
+  }
+
+  /** An Agent's stored state and its pending tracked mentions, read together; undefined when it
+   * has none in the Workspace. */
+  async readPending(workspaceId: string, agentId: string) {
+    return this.db.$transaction(async (tx) => {
+      const mentions: PendingMention[] = await tx.agentMessageDelivery.findMany({
+        where: { workspaceId, agentId, mentionOutcome: ISSUABLE_OUTCOME },
+        select: {
+          deliveryId: true,
+          messageId: true,
+          mentionLaunchId: true,
+          mentionSessionId: true,
         },
       });
-      return new Set(marked.map((row) => row.deliveryId));
+      if (!mentions.length) return undefined;
+      const agent = await tx.agent.findFirst({
+        where: { id: agentId, workspaceId },
+        select: AGENT_STATE_SELECT,
+      });
+      return agent ? { agent: agentState(agent), mentions } : undefined;
     });
+  }
+
+  /**
+   * Issues an Agent's pending mentions again: for `identity`, clearing the terminal code a drift
+   * counted against the launch they left; or, with none, as wakes that keep it. Each changes only
+   * while it still carries the envelope it was read with, so a concurrent re-issue or drift answer
+   * wins and this leaves it alone. Returns the deliveries it issued.
+   */
+  async reissuePending(
+    scope: { workspaceId: string; agentId: string },
+    mentions: readonly PendingMention[],
+    identity: MentionIdentity | undefined,
+  ): Promise<string[]> {
+    return setEnvelopes(
+      this.db,
+      scope.workspaceId,
+      mentions.map((mention) => ({ deliveryId: mention.deliveryId, identity, carried: mention })),
+      Prisma.sql`d."agentId" = ${scope.agentId}::uuid AND ${STILL_CARRIED_SQL}`,
+      identity !== undefined,
+    );
   }
 
   /** After a failed issue, the pushes carry no envelope: no pending row may still name one. */
@@ -278,54 +360,73 @@ export class PrismaMentionDeliveryRepository {
   }
 
   /** The open row a report answers: the code already recorded and its Agent's state. */
-  async readReported(key: MentionDeliveryReportKey) {
-    const row = await this.db.agentMessageDelivery.findFirst({
-      where: reportedRowWhere(key),
-      select: { mentionTerminalCode: true, agent: { select: AGENT_STATE_SELECT } },
-    });
-    return row
-      ? { terminalCode: row.mentionTerminalCode, agent: agentState(row.agent) }
-      : undefined;
-  }
-
-  async settleTerminal(
-    key: MentionDeliveryReportKey,
-    result: {
-      outcome: Extract<MentionOutcome, "lost" | "unknown">;
-      reason: MentionReasonCategory | null;
-      code: string;
-    },
-    now: Date,
-  ) {
+  async settleTerminal(key: MentionDeliveryReportKey, result: TerminalSettlement, now: Date) {
     await this.db.agentMessageDelivery.updateMany({
       where: reportedRowWhere(key),
-      data: {
-        mentionOutcome: result.outcome,
-        mentionReasonCategory: result.reason,
-        mentionTerminalCode: result.code,
-        mentionSettledAt: now,
-      },
+      data: settledData(result, now),
     });
   }
 
-  /** Keeps the mention pending under a new identity (none for a wake), recording the code that
-   * caused it. */
-  async reissue(
+  /**
+   * Answers an identity report in one transaction that holds the Agent's row (`FOR SHARE`) while
+   * it reads the reported mention and writes `decide`'s answer, so a session that is being
+   * accepted either committed first and is seen, or waits for this and then re-issues what it
+   * wrote. Returns the answer written, or undefined when the mention no longer carries the
+   * report's envelope.
+   */
+  async answerReported(
     key: MentionDeliveryReportKey,
-    identity: MentionIdentity | undefined,
-    code: string,
-  ) {
-    const { count } = await this.db.agentMessageDelivery.updateMany({
-      where: reportedRowWhere(key),
-      data: {
-        mentionOutcome: ISSUABLE_OUTCOME,
-        mentionStage: null,
-        mentionLaunchId: identity?.launchId ?? null,
-        mentionSessionId: identity?.sessionId ?? null,
-        mentionTerminalCode: code,
-        mentionSettledAt: null,
-      },
+    decide: (reported: { terminalCode: string | null; agent: MentionAgentState }) => ReportAnswer,
+    now: Date,
+  ): Promise<ReportAnswer | undefined> {
+    return this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "agents" WHERE id = ${key.agentId}::uuid FOR SHARE`;
+      const row = await tx.agentMessageDelivery.findFirst({
+        where: reportedRowWhere(key),
+        select: { mentionTerminalCode: true, agent: { select: AGENT_STATE_SELECT } },
+      });
+      if (!row) return undefined;
+      const answer = decide({
+        terminalCode: row.mentionTerminalCode,
+        agent: agentState(row.agent),
+      });
+      const { count } = await tx.agentMessageDelivery.updateMany({
+        where: reportedRowWhere(key),
+        data:
+          "settle" in answer
+            ? settledData(answer.settle, now)
+            : {
+                mentionOutcome: ISSUABLE_OUTCOME,
+                mentionStage: null,
+                mentionLaunchId: answer.reissue?.launchId ?? null,
+                mentionSessionId: answer.reissue?.sessionId ?? null,
+                mentionTerminalCode: answer.code,
+                mentionSettledAt: null,
+              },
+      });
+      return count === 1 ? answer : undefined;
     });
-    return count === 1;
   }
+}
+
+/** How a daemon's terminal report settles a mention. */
+export type TerminalSettlement = {
+  outcome: Extract<MentionOutcome, "lost" | "unknown">;
+  reason: MentionReasonCategory | null;
+  code: string;
+};
+
+/** An identity report's answer: settle the mention, or keep it pending for `reissue` (none:
+ * without an envelope), recording the report's code. */
+export type ReportAnswer =
+  | { settle: TerminalSettlement }
+  | { reissue: MentionIdentity | undefined; code: string };
+
+function settledData(result: TerminalSettlement, now: Date) {
+  return {
+    mentionOutcome: result.outcome,
+    mentionReasonCategory: result.reason,
+    mentionTerminalCode: result.code,
+    mentionSettledAt: now,
+  } satisfies Prisma.AgentMessageDeliveryUpdateManyMutationInput;
 }

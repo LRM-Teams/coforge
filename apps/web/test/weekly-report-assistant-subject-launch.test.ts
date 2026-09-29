@@ -162,6 +162,7 @@ test("startOnSession publishes the mapped session instead of the Agent's current
       replace: async () => true,
     },
     async () => "daemon-1",
+    { resendForCurrentSession: async () => {} },
   );
   control = new AgentControl(
     {
