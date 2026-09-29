@@ -467,7 +467,8 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
         message.sender?.user?.avatarObjectKey ?? null,
       ),
       body: message.body,
-      createdAt: message.createdAt,
+      // An ISO string, like the stream it joins (`mapBrowserMessage`).
+      createdAt: message.createdAt.toISOString(),
       mentions: message.mentions.map(browserMessageMention),
       attachments: message.attachments.map((attachment) => attachmentView(attachment)),
       reactions: undefined,

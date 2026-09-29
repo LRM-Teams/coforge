@@ -81,7 +81,10 @@ export function mapBrowserMessage(message: BrowserMessageRow, workspaceId: strin
           )
         : null,
     body: message.body,
-    createdAt: message.createdAt,
+    // An ISO string, not a `Date`: TanStack Query's structural sharing keeps an unchanged
+    // message's cached object across a re-read only for JSON-compatible values, and a new object
+    // re-renders its memoized row.
+    createdAt: message.createdAt.toISOString(),
     mentions: message.mentions.map(browserMessageMention),
     attachments: message.attachments.map((attachment) => attachmentView(attachment)),
     reactions: reactionSummaries(message.reactions),

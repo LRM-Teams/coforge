@@ -182,14 +182,19 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     () => ({ counts, clear: unread.clear }),
     [counts, unread.clear],
   );
+  // This renders on every live Agent or sidebar change; a new value each time would re-render
+  // every reader, the open conversation's panes included.
+  const detailVisible = desktop || !showList;
+  const listControls = useMemo(
+    () => ({
+      showList: () => setBrowsing(true),
+      closeList: () => setBrowsing(false),
+      detailVisible,
+    }),
+    [detailVisible],
+  );
   return (
-    <ConversationListContext
-      value={{
-        showList: () => setBrowsing(true),
-        closeList: () => setBrowsing(false),
-        detailVisible: desktop || !showList,
-      }}
-    >
+    <ConversationListContext value={listControls}>
       <ConversationHostProvider channels={channelNames}>
         <UnreadContext value={controls}>
           <main className="flex h-svh min-w-0 flex-col bg-primary lg:flex-row">
