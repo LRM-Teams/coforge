@@ -14,6 +14,7 @@ import {
 } from "./agent-channel-management-error.server";
 import { PublicChannels } from "./public-channels.server";
 import {
+  announceChannelCreated,
   announceMemberChanged,
   announceJoinedOrLeft,
   type ConversationRealtime,
@@ -215,8 +216,9 @@ export class AgentChannelManagement {
     await this.assertCallerNotPrivate(workspaceId, agentId, "create");
     const name = this.normalizeChannelName(rawName);
     if (name === "general") throw new AgentChannelManagementError(409, "general is reserved");
+    let channel: { id: string; channelName: string | null; description: string };
     try {
-      const channel = await this.db.conversation.create({
+      channel = await this.db.conversation.create({
         data: {
           workspaceId,
           channelName: name,
@@ -225,19 +227,20 @@ export class AgentChannelManagement {
           members: { create: { agentId, channelRole: "admin" } },
         },
       });
-      return {
-        target: `#${channel.channelName}`,
-        channel: {
-          id: channel.id,
-          name: `#${channel.channelName}`,
-          description: channel.description,
-        },
-      };
     } catch (error) {
       if (isUniqueViolation(error))
         throw new AgentChannelManagementError(409, "channel name is already in use");
       throw error;
     }
+    await announceChannelCreated(this.realtime, { workspaceId, conversationId: channel.id });
+    return {
+      target: `#${channel.channelName}`,
+      channel: {
+        id: channel.id,
+        name: `#${channel.channelName}`,
+        description: channel.description,
+      },
+    };
   }
 
   async update(

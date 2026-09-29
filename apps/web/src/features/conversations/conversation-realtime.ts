@@ -7,8 +7,8 @@ export const conversationRealtimeChannel = (conversationId: string) => `chat:${c
  * versioned `message.available.v1` payloads as `chat:<conversationId>`, but
  * one subscription per open Workspace keeps the sidebar unread counts live
  * without holding a per-conversation subscription for every channel in the
- * list. It also carries `channel.updated.v1`, so the sidebar re-reads a renamed, deleted
- * or archived channel, and `task.changed.v1` (`features/tasks/task-realtime.ts`), so an open
+ * list. It also carries `channel.created.v1` and `channel.updated.v1`, so the sidebar re-reads a
+ * created, renamed, deleted or archived channel, and `task.changed.v1` (`features/tasks/task-realtime.ts`), so an open
  * Tasks page updates the rows a Task write changed, and `workspace.deleted.v1`
  * (`features/workspaces/workspace-realtime.ts`), so every open page leaves a deleted Workspace. Authorization mirrors the status/activity workspace channels: the
  * subscription token is issued only to Workspace members.
@@ -249,8 +249,9 @@ const viewerEvent = z.discriminatedUnion("type", [
 
 export type ViewerEvent = z.infer<typeof viewerEvent>;
 
-/** The event, or undefined for any other publication on the viewer's channel (most are messages). */
-export function decodeViewerEvent(value: unknown): ViewerEvent | undefined {
+/** A publication's JSON (raw bytes or already parsed) read as `schema`, or undefined when it is
+ * some other publication on the channel. */
+function decodeJsonPublication<T>(schema: z.ZodType<T>, value: unknown): T | undefined {
   let data = value;
   if (value instanceof Uint8Array) {
     try {
@@ -259,6 +260,29 @@ export function decodeViewerEvent(value: unknown): ViewerEvent | undefined {
       return undefined;
     }
   }
-  const parsed = viewerEvent.safeParse(data);
+  const parsed = schema.safeParse(data);
   return parsed.success ? parsed.data : undefined;
+}
+
+/** The event, or undefined for any other publication on the viewer's channel (most are messages). */
+export function decodeViewerEvent(value: unknown): ViewerEvent | undefined {
+  return decodeJsonPublication(viewerEvent, value);
+}
+
+const channelCreatedEvent = z.object({
+  type: z.literal("channel.created.v1"),
+  workspaceId: z.string().min(1),
+  conversationId: z.string().min(1),
+});
+
+/**
+ * A channel was created in the Workspace, by a person, an Agent or an action card (Slack's
+ * `channel_created`). Published on the Workspace channel, so every member's sidebar re-reads its
+ * channel list; like `channel.updated.v1` it names ids only.
+ */
+export type ChannelCreatedEvent = z.infer<typeof channelCreatedEvent>;
+
+/** The event, or undefined for any other publication on the Workspace channel. */
+export function decodeChannelCreatedEvent(value: unknown): ChannelCreatedEvent | undefined {
+  return decodeJsonPublication(channelCreatedEvent, value);
 }

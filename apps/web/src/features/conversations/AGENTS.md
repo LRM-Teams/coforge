@@ -38,8 +38,8 @@ These rules apply to `src/features/conversations/`.
   only through `useSidebarActions` (optimistic: the row changes at once, a
   saved change is written into the synced list, a failed save rolls it back);
   never `router.invalidate` for a sidebar change. A change made
-  outside the sidebar (a channel's rename or archive, here or signalled by
-  `channel.updated.v1`, or the viewer leaving, muting or pinning it from the
+  outside the sidebar (a channel's creation, rename or archive, here or signalled by
+  `channel.created.v1` or `channel.updated.v1`, or the viewer leaving, muting or pinning it from the
   settings panel) re-reads only the
   channel list through `useRefreshSidebarChannels`. The viewer's own changes made on another
   page, tab or device arrive as a `ViewerEvent` on their `chat:user:` channel (Slack's
