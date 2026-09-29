@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package coforge.rpc.v1;
 
-
 message TaskView {
   string message_id = 1;
   string conversation_id = 2;
