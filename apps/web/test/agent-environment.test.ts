@@ -162,7 +162,7 @@ test("invalid maps fail before stop and never echo values", async () => {
   }
   const f = fixture();
   await expect(f.environment.save(principal, "agent-1", { PATH: "secret" })).rejects.toThrow(
-    "reserved variable name",
+    "agent-environment-reserved-name",
   );
   expect(f.events).toEqual(["lock", "unlock"]);
   expect(
@@ -179,6 +179,21 @@ test("invalid maps fail before stop and never echo values", async () => {
       ),
     ),
   ).toHaveLength(64);
+});
+
+test("a refused variable names the rule it broke, so the editor can say why", async () => {
+  const f = fixture();
+  // The SDK's own test owns the rule table; this only shows a violation leaves as its errorId.
+  for (const [input, errorId] of [
+    [{ "11": "11" }, "agent-environment-invalid-name"],
+    [{ PATH: "secret" }, "agent-environment-reserved-name"],
+  ] as const) {
+    await expect(f.environment.save(principal, "agent-1", input)).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      errorId,
+    });
+  }
+  expect(f.events).toEqual(["lock", "unlock", "lock", "unlock"]);
 });
 
 test("a stopped Agent saves the environment without the stop -> ... -> start dance", async () => {

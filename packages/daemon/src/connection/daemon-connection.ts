@@ -126,12 +126,7 @@ import {
   type TaskResponse,
   type WeeklyReportRequest,
   type WeeklyReportResponse,
-  AGENT_ENVIRONMENT_MAX_NAME_LENGTH,
-  AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH,
-  AGENT_ENVIRONMENT_MAX_VALUE_LENGTH,
-  AGENT_ENVIRONMENT_MAX_VARIABLES,
-  AGENT_ENVIRONMENT_NAME_PATTERN,
-  isReservedAgentEnvironmentName,
+  agentEnvironmentViolation,
   utf8Encoder,
 } from "@lrm/coforge-sdk/internal";
 import { isAgentApiKey } from "#src/credentials/agent-api-key";
@@ -2024,27 +2019,15 @@ function parseAgentApiKey(value: unknown): string {
 
 function parseAgentEnvironment(value: unknown): Record<string, string> {
   if (value === undefined) return {};
-  const invalid = () => new Error("invalid Agent environment response");
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
-  const entries = Object.entries(value);
   if (
-    entries.length > AGENT_ENVIRONMENT_MAX_VARIABLES ||
-    JSON.stringify(value).length > AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    agentEnvironmentViolation(value as Record<string, unknown>)
   )
-    throw invalid();
+    throw new Error("invalid Agent environment response");
   const envVars: Record<string, string> = Object.create(null);
-  for (const [name, entry] of entries) {
-    if (
-      !AGENT_ENVIRONMENT_NAME_PATTERN.test(name) ||
-      name.length > AGENT_ENVIRONMENT_MAX_NAME_LENGTH ||
-      isReservedAgentEnvironmentName(name) ||
-      typeof entry !== "string" ||
-      entry.includes("\0") ||
-      entry.length > AGENT_ENVIRONMENT_MAX_VALUE_LENGTH
-    )
-      throw invalid();
-    envVars[name] = entry;
-  }
+  for (const [name, entry] of Object.entries(value)) envVars[name] = entry as string;
   return envVars;
 }
 
