@@ -1,9 +1,5 @@
 import { lockConversation } from "#src/server/conversations/conversation-lock.server";
-import {
-  agentDirectKey,
-  isPeopleDirectKey,
-  peopleDirectKeyPair,
-} from "#src/features/conversations/direct-key";
+import { agentDirectKey, peopleDirectPeerId } from "#src/features/conversations/direct-key";
 import {
   UUID_LIKE_SOURCE,
   type MessageSenderKind,
@@ -938,9 +934,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     },
     viewerId: string,
   ): Promise<PeerProfile | null> {
-    if (!conversation.directKey || !isPeopleDirectKey(conversation.directKey)) return null;
-    const [first, second] = peopleDirectKeyPair(conversation.directKey);
-    const peerId = first === viewerId ? second : first;
+    const peerId = peopleDirectPeerId(conversation.directKey, viewerId);
+    if (!peerId) return null;
     return (
       conversation.members.find((member) => member.userId === peerId)?.user ??
       this.db.user.findUnique({ where: { id: peerId }, select: PEER_PROFILE_SELECT })

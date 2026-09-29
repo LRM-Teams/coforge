@@ -513,7 +513,7 @@ function SearchResultRow({
   const workspaceSlug = useWorkspaceSlug();
   const place = conversation.channelName
     ? `#${conversation.channelName}`
-    : `@${conversation.directAgent?.displayName ?? message.senderName}`;
+    : `@${conversation.directAgent?.displayName ?? conversation.directPeer?.displayName ?? message.senderName}`;
   const text = message.body
     ? messagePlainText({ body: message.body, mentions: message.mentions })
     : (message.attachments[0]?.fileName ?? "");

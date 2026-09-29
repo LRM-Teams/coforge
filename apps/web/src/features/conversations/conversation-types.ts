@@ -82,6 +82,9 @@ export type { OwnMessageIndexEntry };
 export type ConversationProps = {
   conversation: DirectConversationView;
   agentStatus?: "active" | "inactive";
+  /** Whether the composer offers @-completion; off where a mention stays plain text (a DM between
+   * members). The members still resolve names and fill a Task's assignee list. */
+  mentionCompletion?: boolean;
   onSend: (
     body: string,
     requestId: string,

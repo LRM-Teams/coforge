@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+  messagePreviewTarget,
   searchPreviewOpenParam,
   searchPreviewTarget,
 } from "#src/features/search/search-preview-context";
@@ -17,4 +18,20 @@ test("a previewed channel or direct conversation survives the search address", (
   }
   // Anything else in `open` previews nothing.
   expect(searchPageSearchSchema.parse({ open: `agent:${id}` }).open).toBeUndefined();
+});
+
+test("a message in any direct conversation previews that conversation", () => {
+  const withAgent = {
+    id,
+    channelName: null,
+    directKey: "agent:a|user:u",
+    directAgent: { id: "a" },
+  };
+  const betweenMembers = { id, channelName: null, directKey: "user:u|user:v", directAgent: null };
+  for (const conversation of [withAgent, betweenMembers])
+    expect(messagePreviewTarget(conversation, { id: msg })).toEqual({
+      kind: "dm",
+      id,
+      messageId: msg,
+    });
 });

@@ -6,7 +6,7 @@ import {
 import { HUMAN_UNREAD_MESSAGE_SQL } from "#src/server/conversations/human-unread.server";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { viewerDirectConversationWhere } from "#src/server/conversations/viewer-direct-conversations.server";
-import { isPeopleDirectKey, peopleDirectKeyPair } from "#src/features/conversations/direct-key";
+import { peopleDirectPeerId } from "#src/features/conversations/direct-key";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 
 /** A direct conversation of the viewer's, by its id, and the viewer's own member row in it. */
@@ -146,10 +146,8 @@ export class PrismaDirectConversationPreferences {
     // The member on the other side comes from the key, so it survives their leaving the Workspace.
     const peerIds = new Map<string, string>();
     for (const { conversation } of memberships) {
-      const { directKey } = conversation;
-      if (!directKey || !isPeopleDirectKey(directKey)) continue;
-      const [first, second] = peopleDirectKeyPair(directKey);
-      peerIds.set(conversation.id, first === userId ? second : first);
+      const peerId = peopleDirectPeerId(conversation.directKey, userId);
+      if (peerId) peerIds.set(conversation.id, peerId);
     }
     const people = peerIds.size
       ? await this.db.user.findMany({

@@ -28,18 +28,6 @@ export const openDirectConversation = createServerFn({ method: "POST" })
     new DirectConversations(context.db).open(context.workspaceId, context.user.id, data),
   );
 
-/** Who a direct conversation of the viewer's (`dm/<id>`) is with. */
-export const loadDirectConversationTarget = createServerFn({ method: "GET" })
-  .middleware([workspaceUserMiddleware])
-  .validator(directConversationInputSchema)
-  .handler(({ data, context }) =>
-    new DirectConversations(context.db).authorize(
-      context.workspaceId,
-      context.user.id,
-      data.conversationId,
-    ),
-  );
-
 export const loadDirectConversation = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(directConversationPageInputSchema)

@@ -41,6 +41,7 @@ import { cn } from "#src/lib/utils";
 import { m } from "#src/paraglide/messages";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { InviteMemberDialog } from "#src/features/workspaces/invite-member-dialog";
+import { MemberAvatar } from "#src/features/workspaces/member-avatar";
 import { useMemberOnline } from "#src/features/workspaces/member-presence";
 import { conversationLayoutStorage } from "#src/features/conversations/layout-storage";
 import type { AgentStatusView } from "./agent-status-realtime";
@@ -478,17 +479,27 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
   const { total, items } = person.createdAgents;
   const more = total - items.length;
   const online = useMemberOnline(person.id);
+  const openDirectConversation = useOpenDirectConversation();
   return (
     <GridListItem id={person.id} textValue={person.displayName} className={CARD_CLASS}>
-      <Avatar
-        size="lg"
-        alt={person.displayName}
-        src={person.avatarUrl ?? undefined}
-        initials={avatarInitial(person.displayName)}
-        contentClassName={avatarToneClassName(person.displayName)}
-        // No dot until presence is known: an unknown state is never drawn as offline.
-        status={online === undefined ? undefined : online ? "online" : "offline"}
-      />
+      <div className="flex items-start justify-between gap-3">
+        <MemberAvatar
+          size="lg"
+          userId={person.id}
+          name={person.displayName}
+          src={person.avatarUrl}
+        />
+        {/* Every member card offers it, the viewer's own too: that opens their DM with themself. */}
+        <div className="flex min-h-9 shrink-0 items-center">
+          <Button
+            size="sm"
+            color="secondary"
+            onPress={() => void openDirectConversation({ userId: person.id })}
+          >
+            {m.member_private_chat()}
+          </Button>
+        </div>
+      </div>
       <div className="min-w-0">
         <h2 className="truncate text-md font-semibold text-primary">
           {person.displayName}

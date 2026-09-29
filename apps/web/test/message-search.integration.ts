@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
+import { peopleDirectKey } from "#src/features/conversations/direct-key";
 import { searchMessages } from "#src/server/conversations/message-search.server";
 
 /**
@@ -247,6 +248,111 @@ test("searches the messages a human may read, with filters, sorting and paging",
   } finally {
     // Workspace deletion cascades conversations, members, messages and mentions with them.
     await db.workspace.deleteMany({ where: { slug: { in: slugs } } });
+    await db.user.deleteMany({ where: { username: { in: usernames } } });
+    await db.$disconnect();
+  }
+});
+
+/**
+ * A hit in a direct conversation between members names the member on the other side, and one in a
+ * member's conversation with themself names that member, so the result reads where it was posted.
+ */
+test("a hit in a DM between members names the other member", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString)
+    throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
+
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID();
+  const slug = `search-people-${suffix}`;
+  const usernames = ["alice", "bob"].map((name) => `search-people-${name}-${suffix}`);
+  try {
+    const [alice, bob] = await Promise.all(
+      usernames.map((username, index) =>
+        db.user.create({ data: { username, displayName: ["Alice", "Bob"][index] } }),
+      ),
+    );
+    const workspace = await db.workspace.create({ data: { slug, name: "Search people" } });
+    const workspaceId = workspace.id;
+    await db.workspaceMembership.createMany({
+      data: [alice!, bob!].map((user) => ({ workspaceId, userId: user.id, role: "member" })),
+    });
+    const dm = await db.conversation.create({
+      data: { workspaceId, directKey: peopleDirectKey(alice!.id, bob!.id) },
+    });
+    const selfDm = await db.conversation.create({
+      data: { workspaceId, directKey: peopleDirectKey(alice!.id, alice!.id) },
+    });
+    const [aliceInDm] = await Promise.all([
+      db.conversationMember.create({
+        data: { conversationId: dm.id, workspaceId, userId: alice!.id },
+      }),
+      db.conversationMember.create({
+        data: { conversationId: dm.id, workspaceId, userId: bob!.id },
+      }),
+    ]);
+    const aliceInSelfDm = await db.conversationMember.create({
+      data: { conversationId: selfDm.id, workspaceId, userId: alice!.id },
+    });
+    const post = (conversationId: string, senderMemberId: string, body: string, minutes: number) =>
+      db.message.create({
+        data: {
+          conversationId,
+          workspaceId,
+          senderMemberId,
+          body,
+          sequence: 1,
+          createdAt: new Date(Date.now() - minutes * 60_000),
+        },
+      });
+    const inDm = await post(dm.id, aliceInDm.id, "people 交接 notes", 2);
+    const inSelfDm = await post(selfDm.id, aliceInSelfDm.id, "self 交接 notes", 1);
+
+    const hits = async (userId: string) =>
+      (
+        await searchMessages(db, {
+          workspaceId,
+          userId,
+          query: "交接",
+          sort: "recent",
+          limit: 20,
+          offset: 0,
+        })
+      ).results.map((hit) => ({ id: hit.message.id, conversation: hit.conversation }));
+
+    const peer = (user: { id: string; username: string }, displayName: string) => ({
+      id: user.id,
+      username: user.username,
+      displayName,
+    });
+    expect(await hits(alice!.id)).toEqual([
+      {
+        id: inSelfDm.id,
+        conversation: expect.objectContaining({
+          id: selfDm.id,
+          channelName: null,
+          directAgent: null,
+          directPeer: peer(alice!, "Alice"),
+        }),
+      },
+      {
+        id: inDm.id,
+        conversation: expect.objectContaining({
+          id: dm.id,
+          directAgent: null,
+          directPeer: peer(bob!, "Bob"),
+        }),
+      },
+    ]);
+    // The other member sees the same conversation named after the viewer's side of it.
+    expect(await hits(bob!.id)).toEqual([
+      {
+        id: inDm.id,
+        conversation: expect.objectContaining({ directPeer: peer(alice!, "Alice") }),
+      },
+    ]);
+  } finally {
+    await db.workspace.deleteMany({ where: { slug } });
     await db.user.deleteMany({ where: { username: { in: usernames } } });
     await db.$disconnect();
   }

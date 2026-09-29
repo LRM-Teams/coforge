@@ -1,4 +1,5 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
+import { peopleDirectPeerId } from "#src/features/conversations/direct-key";
 import { AppError } from "#src/lib/app-error";
 import { searchTerms } from "#src/lib/search-terms";
 import {
@@ -6,6 +7,7 @@ import {
   type MessageSearchSort,
 } from "#src/server/db/repositories/message-search.repositories.server";
 import { browserMessageFields, mapBrowserMessage } from "./conversation-history.server";
+import { browserSenderName } from "./sender-display.server";
 
 export type MessageSearchInput = {
   workspaceId: string;
@@ -35,7 +37,8 @@ const searchHitSelect = {
       channelName: true,
       directKey: true,
       archivedAt: true,
-      // A direct conversation's other side is its one Agent member.
+      // A direct conversation with an Agent names its one Agent member; one between members
+      // names the other member from its key (`peerOf`).
       members: {
         where: { agentId: { not: null } },
         select: { agent: { select: { id: true, name: true, displayName: true } } },
@@ -46,13 +49,15 @@ const searchHitSelect = {
 } as const;
 
 export type MessageSearchHit = {
-  /** Where the message was posted; a direct conversation names its Agent. */
+  /** Where the message was posted; a direct conversation names its Agent, or the member on the
+   * viewer's other side (the viewer themself in their conversation with themself). */
   conversation: {
     id: string;
     channelName: string | null;
     directKey: string | null;
     archived: boolean;
     directAgent: { id: string; name: string; displayName: string } | null;
+    directPeer: { id: string; username: string; displayName: string } | null;
   };
   message: ReturnType<typeof mapBrowserMessage>;
 };
@@ -103,10 +108,26 @@ export async function searchMessages(
     select: searchHitSelect,
   });
   const byId = new Map(rows.map((row) => [row.id, row]));
+  const peerOf = (directKey: string | null) => peopleDirectPeerId(directKey, input.userId);
+  const peerIds = [...new Set(rows.flatMap((row) => peerOf(row.conversation.directKey) ?? []))];
+  const peers = new Map(
+    peerIds.length
+      ? (
+          await db.user.findMany({
+            where: { id: { in: peerIds } },
+            select: { id: true, username: true, displayName: true },
+          })
+        ).map((user) => [
+          user.id,
+          { id: user.id, username: user.username, displayName: browserSenderName({ user }) },
+        ])
+      : [],
+  );
   const results = pageIds.flatMap((id) => {
     const row = byId.get(id);
     if (!row) return [];
     const { conversation, ...message } = row;
+    const peerId = peerOf(conversation.directKey);
     return [
       {
         conversation: {
@@ -116,6 +137,7 @@ export async function searchMessages(
           archived: conversation.archivedAt !== null,
           directAgent:
             conversation.channelName === null ? (conversation.members[0]?.agent ?? null) : null,
+          directPeer: peerId ? (peers.get(peerId) ?? null) : null,
         },
         message: mapBrowserMessage(message, input.workspaceId),
       },

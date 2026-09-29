@@ -10,6 +10,14 @@ export function peopleDirectKey(userId: string, otherUserId: string) {
     .join("|");
 }
 
+/** The member on the other side of a DM between people, from the viewer's seat (the viewer in their
+ * conversation with themself); `undefined` for any other key. */
+export function peopleDirectPeerId(directKey: string | null, viewerId: string) {
+  if (!directKey || !isPeopleDirectKey(directKey)) return undefined;
+  const [first, second] = peopleDirectKeyPair(directKey);
+  return first === viewerId ? second : first;
+}
+
 /** The key of a member's direct conversation with an Agent (`agent:` sorts before `user:`). */
 export function agentDirectKey(userId: string, agentId: string) {
   return `agent:${agentId}|user:${userId}`;

@@ -16,6 +16,11 @@ import type { DirectConversationView } from "./conversation-types";
 import { latestTopLevelSequence, persistReadCursor } from "./conversation-unread";
 import { markDirectConversationRead } from "./conversations.functions";
 import { DirectConversation, DirectConversationHeader } from "./direct-conversation";
+import {
+  PeopleDirectConversation,
+  PeopleDirectConversationHeader,
+  type PeopleDirectConversationView,
+} from "./people-direct-conversation";
 import { useChannelConversation, useDirectConversation } from "./use-conversation-data";
 import { useConversationView, useShownConversationTab } from "./use-conversation-view";
 
@@ -83,9 +88,11 @@ function DirectConversationPage({
 }: ConversationPageProps & { conversationId: string }) {
   const data = useDirectConversation(conversationId);
   const { conversation } = data.page;
-  // A DM between members has no page yet: its route answers not found before this renders.
-  if (conversation.kind !== "agent") return null;
-  return <AgentDirectConversationPage {...props} data={data} conversation={conversation} />;
+  return conversation.kind === "agent" ? (
+    <AgentDirectConversationPage {...props} data={data} conversation={conversation} />
+  ) : (
+    <PeopleDirectConversationPage {...props} data={data} conversation={conversation} />
+  );
 }
 
 function AgentDirectConversationPage({
@@ -128,6 +135,47 @@ function AgentDirectConversationPage({
           conversation={conversation}
           {...chat}
           agentStatus={agentStatus}
+        />
+      )}
+    />
+  );
+}
+
+function PeopleDirectConversationPage({
+  data: { page, taskView, conversationProps },
+  conversation,
+  ...props
+}: ConversationPageProps & {
+  data: ReturnType<typeof useDirectConversation>;
+  /** The page's conversation, known to be between members. */
+  conversation: PeopleDirectConversationView;
+}) {
+  const { conversationId } = conversation;
+  const advanceReadCursor = useServerFn(markDirectConversationRead);
+  return (
+    <ConversationPageBody
+      {...props}
+      unreadKey={conversationId}
+      page={page}
+      taskView={taskView}
+      isMember
+      name={conversation.peer.displayName}
+      readCursor={{
+        key: `dm:${conversationId}`,
+        advance: (throughSequence) =>
+          advanceReadCursor({ data: { conversationId, throughSequence } }),
+      }}
+      header={(tabs) => <PeopleDirectConversationHeader conversation={conversation} {...tabs} />}
+      conversation={({ jumpMessage, tasksPane, onShowTasks, onShowFiles, onReadLatest }) => (
+        <PeopleDirectConversation
+          key={conversationId}
+          {...conversationProps}
+          conversation={conversation}
+          jumpMessage={jumpMessage}
+          tasksPane={tasksPane}
+          onShowTasks={onShowTasks}
+          onShowFiles={onShowFiles}
+          onReadLatest={onReadLatest}
         />
       )}
     />
