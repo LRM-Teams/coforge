@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { ChevronDown } from "@untitledui/icons";
 
 import { Button } from "#src/components/base/buttons/button";
@@ -33,9 +33,10 @@ function summaryLabel({ total, parts }: SystemGroupSummary): string {
  * default. Opening it shows the notices themselves (`children`, ordinary system rows) beneath the
  * line. The group's row carries its first message's id, so opening the conversation on that
  * message (the unread boundary starts a group, never falls inside one) and keeping the reading
- * position across a history load both find it like any other row.
+ * position across a history load both find it like any other row. Memoized like `MessageRow`: a
+ * folded group renders again only when its messages or its dividers change.
  */
-export function SystemMessageGroup({
+export const SystemMessageGroup = memo(function SystemMessageGroup({
   id,
   messages,
   expanded,
@@ -48,7 +49,8 @@ export function SystemMessageGroup({
   id: string;
   messages: readonly { id: string; body: string; createdAt: Date | string }[];
   expanded: boolean;
-  onToggleExpanded: () => void;
+  /** Called with this group's messages, so one stable handler serves every group. */
+  onToggleExpanded: (messages: readonly { id: string }[]) => void;
   dayChanged: boolean;
   unreadStartsHere: boolean;
   dateLocale?: string;
@@ -69,7 +71,7 @@ export function SystemMessageGroup({
           className="max-w-full text-center text-xs font-medium whitespace-normal"
           aria-expanded={expanded}
           aria-controls={expanded ? listId : undefined}
-          onPress={onToggleExpanded}
+          onPress={() => onToggleExpanded(messages)}
           iconTrailing={
             <ChevronDown
               aria-hidden="true"
@@ -87,4 +89,4 @@ export function SystemMessageGroup({
       )}
     </li>
   );
-}
+});

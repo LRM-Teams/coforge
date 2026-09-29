@@ -17,7 +17,7 @@ import { agentStartIntent } from "./manage-agents.server";
 import type { AgentSessions } from "./agent-sessions.server";
 import type { AgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
-import type { AgentControl } from "./agent-control.server";
+import type { AgentControl, AgentControlStore } from "./agent-control.server";
 import type {
   AgentRecoveryContext,
   PendingAgentDelivery,
@@ -104,6 +104,8 @@ export class WorkspaceAgentRecovery {
     private readonly runtimeLock: AgentRuntimeLock,
     private readonly sessions?: AgentSessions,
     private readonly control?: AgentControl,
+    /** `control`'s own store: the Agent is read through it once, here, and handed to `recover`. */
+    private readonly controlAgents?: Pick<AgentControlStore, "get">,
   ) {}
 
   async recoverWorkspace(
@@ -172,7 +174,12 @@ export class WorkspaceAgentRecovery {
           const recovery = await this.conversations.readAgentRecoveryContext(workspaceId, agent.id);
           const intent: AgentStartIntent = { ...agentStartIntent(agent, computerId), ...recovery };
           if (this.control) {
-            await this.control.recover(intent, agent.ownerId);
+            // `agent` above is the repository record, which carries no control state; the control
+            // record is read once, under this lock, instead of again inside `recover`.
+            const loaded = await this.controlAgents?.get(agent.id);
+            if (this.controlAgents && !loaded)
+              throw new Error("Agent is not authorized or assigned");
+            await this.control.recover(intent, agent.ownerId, loaded);
             return;
           }
           await this.api.publish(

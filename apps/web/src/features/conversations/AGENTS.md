@@ -67,6 +67,11 @@ These rules apply to `src/features/conversations/`.
   `ThreadStoreProvider`.
   Never pass rows a render callback or a value built from the conversation's
   Tasks, threads or live Agents: a change to one would re-render every row.
+- A message a server function returns holds JSON-compatible values only (a time
+  is an ISO string, as `mapBrowserMessage` gives it): TanStack Query's structural
+  sharing then keeps each unchanged message's object across a re-read (focus,
+  remount, invalidation, reconcile). A `Date` or class instance makes every
+  message new on every re-read, and every row renders and parses again.
 - TanStack DB collections are client-only: create them through the
   per-`QueryClient` factory after hydration, never at module scope, and keep
   the chat pages server-rendered.

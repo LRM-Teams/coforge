@@ -38,7 +38,7 @@ const taskRequestSchema = z
   .object({
     operation: z.enum(taskOperations),
     idempotencyKey: z.string().min(1),
-    conversationId: z.string().uuid().optional(),
+    conversationId: z.uuid().optional(),
     target: z.string().min(1).optional(),
     number: z.number().int().positive().optional(),
     numbers: z.array(z.number().int().positive()).min(1).optional(),
@@ -62,7 +62,7 @@ const taskRequestSchema = z
       })
       .optional(),
     freshnessContextMode: z.enum(["inline", "withheld"]).optional(),
-    attachmentId: z.string().uuid().optional(),
+    attachmentId: z.uuid().optional(),
     status: z.enum(taskStatuses).optional(),
     expectedRevision: z.number().int().nonnegative().optional(),
   })

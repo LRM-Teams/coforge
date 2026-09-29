@@ -2,6 +2,7 @@ import {
   completeBrowserLogin,
   createAuthingExchanger,
   endBrowserLogin,
+  pendingLoginReturnTo,
   readBrowserSession,
   startBrowserLogin,
   type AuthingConfig,
@@ -13,14 +14,17 @@ import { UserIdentityRepository } from "./user-identity.repository.server";
 import { getDatabaseClient } from "#src/server/db/client.server";
 import { toPublicServerError } from "#src/server/errors/public-error.server";
 import { workspaceIdForUser } from "#src/server/workspaces/enrollment.server";
+import { localizedReturnHref } from "#src/features/auth/return-to";
 
 export function handleLoginStart(input: {
   config: AuthingConfig;
   sessionSecret: string;
+  returnTo?: string | null;
 }): Response {
   const started = startBrowserLogin({
     config: input.config,
     sessionSecret: input.sessionSecret,
+    returnTo: input.returnTo,
   });
   return redirect(started.authorizationUrl, {
     "set-cookie": started.stateCookie,
@@ -60,15 +64,20 @@ export async function handleLoginCallback(input: {
         input.request.headers.get("accept-language") ?? "",
       );
     }
-    return redirect("/", {
+    return redirect(completed.returnTo ? localizedReturnHref(completed.returnTo) : "/", {
       "set-cookie": [completed.sessionCookie, completed.clearStateCookie],
       "cache-control": "no-store",
     });
   } catch (error) {
     toPublicServerError(error);
-    return redirect(`${origin}/login?error=login_failed`, {
-      "cache-control": "no-store",
+    const failed = new URL("/login", origin);
+    failed.searchParams.set("error", "login_failed");
+    const returnTo = pendingLoginReturnTo({
+      sessionSecret: input.sessionSecret,
+      cookieHeader: input.request.headers.get("cookie") ?? "",
     });
+    if (returnTo) failed.searchParams.set("returnTo", returnTo);
+    return redirect(failed.toString(), { "cache-control": "no-store" });
   }
 }
 

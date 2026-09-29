@@ -243,6 +243,23 @@ export async function requireCurrentAgentScope(
   return { ...agent, state };
 }
 
+/** The Agent, when `userId` owns it in `workspaceId`; the internal control paths' authorization. */
+function authorizedAgent(
+  agent: AgentControlAgent | undefined,
+  userId: string,
+  workspaceId: string,
+  agentId: string,
+): AgentControlAgent {
+  if (
+    !agent ||
+    agent.id !== agentId ||
+    agent.ownerId !== userId ||
+    agent.workspaceId !== workspaceId
+  )
+    throw new Error("Agent is not authorized or assigned");
+  return agent;
+}
+
 /** One current control operation on the Agent record, not a durable command queue. */
 export class AgentControl {
   constructor(
@@ -289,9 +306,18 @@ export class AgentControl {
    * `begin` supersedes on any *owner-initiated* retry through
    * `execute`/`publishStart`/`publishStop`, unconditionally — `recover` is the one path that
    * still only republishes.
+   *
+   * `loaded` is the Agent the caller already read under this Agent's runtime lock; it is
+   * authorized in memory instead of being read again. Nothing can move the control fence between
+   * that read, `begin`'s compare-and-swap and the publish: every other writer that could (user
+   * control, configuration, deletion) takes the same lock, and Session reports and control
+   * results are fenced by a request the Daemon has not been sent yet. Without it, the Agent is
+   * read here.
    */
-  async recover(intent: AgentStartIntent, userId: string) {
-    const agent = await this.authorized(userId, intent.workspaceId, intent.agentId);
+  async recover(intent: AgentStartIntent, userId: string, loaded?: AgentControlAgent) {
+    const agent = loaded
+      ? authorizedAgent(loaded, userId, intent.workspaceId, intent.agentId)
+      : await this.authorized(userId, intent.workspaceId, intent.agentId);
     // Recovery never starts a deleted Agent. `WorkspaceAgentRecovery` already lists
     // deleted Agents separately and stops them instead, so this is the last line of defence for a
     // Daemon `ready` that races a delete.
@@ -301,7 +327,9 @@ export class AgentControl {
       return;
     }
     const state = await this.begin(agent, "start", intent.requestId);
-    await this.publishCurrent(agent.id, state.requestId, intent);
+    // `begin` built `state` from `agent` (a retry only after checking the Computer and
+    // configuration it publishes did not change), so it is published without reading it back.
+    await this.#publish(agent, state, intent);
   }
   private async advance(agentId: string, requestId: string, recovery?: AgentRecoveryFields) {
     const agent = await this.store.get(agentId);
@@ -472,10 +500,7 @@ export class AgentControl {
     return results;
   }
   private async authorized(userId: string, workspaceId: string, agentId: string) {
-    const agent = await this.store.get(agentId);
-    if (!agent || agent.ownerId !== userId || agent.workspaceId !== workspaceId)
-      throw new Error("Agent is not authorized or assigned");
-    return agent;
+    return authorizedAgent(await this.store.get(agentId), userId, workspaceId, agentId);
   }
   /**
    * execute() and stopMany() are the user-initiated control paths; they authorize by the actor's
@@ -761,6 +786,16 @@ export class AgentControl {
     const state = agent?.state;
     if (!agent || !state || state.requestId !== requestId || !current(agent, state))
       throw new Error("Agent configuration changed");
+    await this.#publish(agent, state, recovery);
+  }
+  /** Sends the command for `state`'s phase; `agent` is the record `state` is current for. */
+  async #publish(
+    agent: AgentControlAgent,
+    state: AgentControlState,
+    recovery?: AgentRecoveryFields,
+  ) {
+    const agentId = agent.id;
+    const { requestId } = state;
     if (state.phase === "stopping") {
       await this.sendStop(state);
     } else if (state.phase === "clearing") {

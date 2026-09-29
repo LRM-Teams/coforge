@@ -170,5 +170,36 @@
   "workspace_join_link_prepare_failed": "邀请链接准备失败，请稍后重试。",
   "workspace_join_link_update_failed": "更新失败，请稍后重试。",
   "workspace_join_link_revoke_failed": "作废失败，请稍后重试。",
-  "workspace_join_link_create_failed": "创建失败，请稍后重试。"
+  "workspace_join_link_create_failed": "创建失败，请稍后重试。",
+  "workspace_join_title": "加入 {name}",
+  "workspace_join_description": "用这个链接加入 CoForge 上的 {name}。",
+  "workspace_join_count_members": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 位成员"
+      }
+    }
+  ],
+  "workspace_join_count_agents": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=other": "{count} 个 Agent"
+      }
+    }
+  ],
+  "workspace_join_counts_both": "里面有 {members}和 {agents}。",
+  "workspace_join_counts_one": "里面有 {count}。",
+  "workspace_join_sign_in": "登录后加入",
+  "workspace_join_submit": "加入 {name}",
+  "workspace_join_open": "进入 {name}",
+  "workspace_join_signed_in_as": "当前账号 {email}",
+  "workspace_join_switch_account": "换一个账号",
+  "workspace_join_failed": "加入失败，请稍后重试。",
+  "workspace_join_invalid_title": "邀请链接不可用",
+  "workspace_join_invalid_description": "这个邀请链接无效或已过期，请向邀请你的人要一个新链接。",
+  "workspace_join_back": "返回 CoForge"
 }

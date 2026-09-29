@@ -21,9 +21,12 @@ test("a user who never saved a preference reads the defaults, and saving keeps t
   try {
     const preferences = new UserPreferences(new PrismaUserPreferencesRepository(db));
 
-    expect(await preferences.get(user.id)).toBeNull();
+    expect(await preferences.read(user.id)).toEqual({
+      timeZone: null,
+      timeFormat: null,
+      conversationOpenMode: "first-unread",
+    });
     expect(await preferences.getBrowserNotificationsEnabled(user.id)).toBeFalse();
-    expect(await preferences.getConversationOpenMode(user.id)).toBe("first-unread");
 
     expect(await preferences.set(user.id, "Asia/Tokyo")).toBe("Asia/Tokyo");
     expect(await preferences.setBrowserNotificationsEnabled(user.id, true)).toBeTrue();
@@ -31,16 +34,22 @@ test("a user who never saved a preference reads the defaults, and saving keeps t
       "newest-unread",
     );
 
-    expect(await preferences.get(user.id)).toBe("Asia/Tokyo");
     expect(await preferences.getBrowserNotificationsEnabled(user.id)).toBeTrue();
-    expect(await preferences.getConversationOpenMode(user.id)).toBe("newest-unread");
+    expect(await preferences.read(user.id)).toEqual({
+      timeZone: "Asia/Tokyo",
+      timeFormat: null,
+      conversationOpenMode: "newest-unread",
+    });
 
-    expect(await preferences.getTimeFormat(user.id)).toBeNull();
     expect(await preferences.setTimeFormat(user.id, "24h")).toBe("24h");
-    expect(await preferences.getTimeFormat(user.id)).toBe("24h");
+    expect((await preferences.read(user.id)).timeFormat).toBe("24h");
 
     expect(await preferences.set(user.id, null)).toBeNull();
-    expect(await preferences.getConversationOpenMode(user.id)).toBe("newest-unread");
+    expect(await preferences.read(user.id)).toEqual({
+      timeZone: null,
+      timeFormat: "24h",
+      conversationOpenMode: "newest-unread",
+    });
   } finally {
     await db.user.delete({ where: { id: user.id } });
     await db.$disconnect();

@@ -222,7 +222,8 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
             profile?.avatarObjectKey ?? null,
           ),
           body: message.body,
-          createdAt: message.createdAt,
+          // An ISO string, like the stream it joins (`mapBrowserMessage`).
+          createdAt: message.createdAt.toISOString(),
           // DMs carry no mention structure; only channel bodies are normalized to token form.
           mentions: [],
           attachments: message.attachments,

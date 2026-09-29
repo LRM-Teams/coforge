@@ -272,6 +272,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
             getAgentRuntimeLock(),
             sessions,
             control,
+            controlStore,
           ),
           getComputerRestartStore(),
           reminderLease,

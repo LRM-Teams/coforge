@@ -178,7 +178,7 @@ describe("saved messages collection", () => {
       senderDeleted: false,
       senderAvatarUrl: null,
       mentions: [],
-      createdAt: new Date("2026-09-24T01:00:00.000Z"),
+      createdAt: "2026-09-24T01:00:00.000Z",
     });
   });
 

@@ -30,7 +30,7 @@ const installationRefSchema = z.object({
   app_id: idSchema,
   account: z.object({ login: z.string().min(1).max(100) }),
   repository_selection: z.enum(["all", "selected"]),
-  html_url: z.string().url().optional(),
+  html_url: z.url().optional(),
 });
 const installationEventSchema = z.object({
   action: z.string(),

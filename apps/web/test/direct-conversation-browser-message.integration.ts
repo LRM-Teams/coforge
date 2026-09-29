@@ -139,7 +139,7 @@ test("a direct conversation's page and poll return the same browser message shap
         senderDeleted: false,
         senderAvatarUrl: workspaceUserAvatarUrl(workspace.id, user.id, userAvatarKey),
         body: "release plan",
-        createdAt: root.createdAt,
+        createdAt: root.createdAt.toISOString(),
         mentions: [],
         attachments: [
           { id: attachment.id, fileName: "notes.txt", contentType: "text/plain", sizeBytes: 12 },
@@ -158,7 +158,7 @@ test("a direct conversation's page and poll return the same browser message shap
         senderDeleted: false,
         senderAvatarUrl: agentAvatarUrl(workspace.id, agent.id, agentAvatarKey),
         body: `on it <@human:${user.id}>`,
-        createdAt: reply.createdAt,
+        createdAt: reply.createdAt.toISOString(),
         mentions: [
           { kind: "user" as const, actorId: user.id, handle: username, label: "Ada Lovelace" },
         ],
@@ -177,7 +177,7 @@ test("a direct conversation's page and poll return the same browser message shap
         senderDeleted: false,
         senderAvatarUrl: null,
         body: "joined",
-        createdAt: system.createdAt,
+        createdAt: system.createdAt.toISOString(),
         mentions: [],
         attachments: [],
         reactions: undefined,

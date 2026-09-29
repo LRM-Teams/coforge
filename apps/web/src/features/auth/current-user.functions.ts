@@ -8,3 +8,11 @@ export const getAuthenticationStatus = createServerFn({ method: "GET" }).handler
   declareNoStore();
   return (await optionalBrowserUser(getRequest().headers.get("cookie") ?? undefined)) !== null;
 });
+
+/** The signed-in person's email, or null signed out: for pages that work either way. */
+export const getSignedInEmail = createServerFn({ method: "GET" }).handler(async () => {
+  declareNoStore();
+  return (
+    (await optionalBrowserUser(getRequest().headers.get("cookie") ?? undefined))?.email ?? null
+  );
+});

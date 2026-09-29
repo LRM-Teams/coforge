@@ -38,9 +38,13 @@ function fixture(options: { stoppedAt?: Date; deletedAt?: Date } = {}) {
     ...(options.stoppedAt ? { stoppedAt: options.stoppedAt } : {}),
     ...(options.deletedAt ? { deletedAt: options.deletedAt } : {}),
   };
+  let reads = 0;
   const store: AgentControlStore = {
     memberRole: async () => "owner",
-    get: async () => structuredClone(agent),
+    get: async () => {
+      reads++;
+      return structuredClone(agent);
+    },
     replace: async (before, state, replaceOptions) => {
       if (JSON.stringify(before.state) !== JSON.stringify(agent.state)) return false;
       agent = {
@@ -87,8 +91,11 @@ function fixture(options: { stoppedAt?: Date; deletedAt?: Date } = {}) {
   let sequence = 0;
   return {
     starts,
+    store,
     control,
     conversations,
+    /** How many times the Agent's control record has been read. */
+    reads: () => reads,
     lock,
     current: () => agent,
     whileWaitingForLock: (change: () => Promise<unknown>) =>
@@ -296,4 +303,55 @@ test("a person's Stop that lands while a rejection waits for the lock keeps the 
   await expect(agent.reject()).resolves.toBe("stopped");
 
   expect(agent.starts).toEqual([]);
+});
+
+test("a rejection that wakes the Agent reads it once before its lock and once under it", async () => {
+  const agent = fixture();
+
+  await expect(agent.reject()).resolves.toBe("woken");
+
+  expect(agent.starts).toHaveLength(1);
+  expect(agent.reads()).toBe(2);
+});
+
+test("ready recovery reads the Agent's control record once to start it", async () => {
+  const agent = fixture();
+  const record = {
+    id: "a",
+    workspaceId: "w",
+    ownerId: "owner",
+    computerId: "c",
+    runtimeConfig,
+    stoppedAt: null,
+    name: "a",
+    displayName: "A",
+    createdAt: new Date(),
+  };
+  const recovery = new WorkspaceAgentRecovery(
+    {
+      getById: async () => record,
+      listOwnedInWorkspace: async () => [],
+      listInWorkspace: async () => [],
+      listForComputer: async () => [record],
+      listDeletedForComputer: async () => [],
+      create: async () => {
+        throw new Error("not used");
+      },
+      update: async () => {
+        throw new Error("not used");
+      },
+    },
+    agent.conversations,
+    { publish: async () => {} },
+    agent.lock,
+    undefined,
+    agent.control,
+    agent.store,
+  );
+
+  await recovery.recoverWorkspace("w", "c", []);
+
+  expect(agent.starts).toHaveLength(1);
+  expect(agent.current().state).toMatchObject({ action: "start", phase: "starting" });
+  expect(agent.reads()).toBe(1);
 });

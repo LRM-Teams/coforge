@@ -29,7 +29,7 @@ export type ConversationFile = {
 /** Every file ever sent in one conversation, newest first, for the chat page's Files tab. */
 export const loadConversationFiles = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
-  .validator(z.object({ conversationId: z.string().uuid() }))
+  .validator(z.object({ conversationId: z.uuid() }))
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
     // Files carry no per-attachment ACL of their own: the visibility boundary is the

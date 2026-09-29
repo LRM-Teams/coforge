@@ -1,4 +1,6 @@
 import { utf8Encoder, utf8Decoder } from "@lrm/coforge-sdk/internal";
+
+import { safeReturnTo } from "#src/features/auth/return-to";
 export type BrowserUser = {
   id: string;
   email: string;
@@ -48,6 +50,8 @@ type SignedState = {
   state: string;
   codeVerifier: string;
   exp: number;
+  /** The page sign-in started from; signed, so the callback can trust where it sends people. */
+  returnTo?: string;
 };
 
 type SignedSession = BrowserUser & { exp: number; idToken?: string };
@@ -55,6 +59,8 @@ type SignedSession = BrowserUser & { exp: number; idToken?: string };
 export function startBrowserLogin(input: {
   config: AuthingConfig;
   sessionSecret: string;
+  /** Kept only when it is a page of this site (`safeReturnTo`). */
+  returnTo?: string | null;
   now?: () => number;
   randomBytes?: (size: number) => Uint8Array;
 }): { authorizationUrl: string; stateCookie: string } {
@@ -62,10 +68,12 @@ export function startBrowserLogin(input: {
   const randomBytes = input.randomBytes ?? defaultRandomBytes;
   const state = toBase64Url(randomBytes(16));
   const codeVerifier = toBase64Url(randomBytes(32));
+  const returnTo = safeReturnTo(input.returnTo);
   const payload: SignedState = {
     state,
     codeVerifier,
     exp: Math.floor(now() / 1000) + STATE_TTL_SECONDS,
+    ...(returnTo ? { returnTo } : {}),
   };
   const url = new URL(input.config.authorizationEndpoint);
   url.searchParams.set("client_id", input.config.appId);
@@ -99,6 +107,8 @@ export async function completeBrowserLogin(input: {
   user: BrowserUser;
   sessionCookie: string;
   clearStateCookie: string;
+  /** Where sign-in started, when that was a page of this site. */
+  returnTo?: string;
 }> {
   const now = input.now ?? Date.now;
   const signedState = readSigned<SignedState>(
@@ -109,6 +119,7 @@ export async function completeBrowserLogin(input: {
     throw new Error("invalid login state");
   }
 
+  const returnTo = pendingReturnTo(signedState);
   const tokens = await input.authing.exchangeAuthorizationCode({
     code: input.code,
     redirectUri: input.config.redirectUri,
@@ -149,7 +160,26 @@ export async function completeBrowserLogin(input: {
       input.config.redirectUri,
     ),
     clearStateCookie: clearCookie(STATE_COOKIE, input.config.redirectUri),
+    ...(returnTo ? { returnTo } : {}),
   };
+}
+
+/**
+ * The page a sign-in in progress started from, read from its signed state cookie; `undefined`
+ * when the cookie is missing, forged, or names no page of this site. A failed callback uses it to
+ * offer the same sign-in again.
+ */
+export function pendingLoginReturnTo(input: {
+  sessionSecret: string;
+  cookieHeader: string;
+}): string | undefined {
+  return pendingReturnTo(
+    readSigned<SignedState>(readCookie(input.cookieHeader, STATE_COOKIE), input.sessionSecret),
+  );
+}
+
+function pendingReturnTo(state: SignedState | null): string | undefined {
+  return safeReturnTo(state?.returnTo);
 }
 
 // The real callback supplies the persistence resolver. This deterministic fallback
