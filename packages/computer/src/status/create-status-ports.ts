@@ -117,9 +117,7 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
           runtimes: runtimes.map((runtime) => ({
             workspaceId: runtime.workspaceId,
             processId: runtime.processId,
-            // The Coordinator answers a Workspace whose start or restart is under way as
-            // still connecting.
-            ...(runtime.cloudConnection === "connecting" ? { underWay: true } : {}),
+            ...(runtime.lifecycleUnderWay ? { underWay: true } : {}),
           })),
         };
       } catch (error) {

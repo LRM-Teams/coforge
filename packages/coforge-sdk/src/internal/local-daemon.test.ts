@@ -4,10 +4,12 @@ import {
   decodeDaemonHandshakeRequest,
   decodeDaemonHandshakeResponse,
   decodeDaemonRuntimeConfigureRequest,
+  decodeDaemonRuntimeConfigureResponse,
   encodeDaemonCommandResponse,
   encodeDaemonHandshakeRequest,
   encodeDaemonHandshakeResponse,
   encodeDaemonRuntimeConfigureRequest,
+  encodeDaemonRuntimeConfigureResponse,
   frameLocalRpc,
   readLocalRpcFrame,
   readLocalRpcFrames,
@@ -76,6 +78,15 @@ describe("local daemon RPC", () => {
           version: "v",
           cloudConnection: "connecting" as const,
         },
+        {
+          workspaceId: "workspace-3",
+          computerId: "computer-1",
+          enabled: true,
+          processId: 0,
+          instanceId: "",
+          version: "",
+          lifecycleUnderWay: true,
+        },
       ],
       error: "Workspace workspace-1 was deleted in CoForge (workspace_deleted).",
       errorCode: "workspace_deleted",
@@ -113,4 +124,16 @@ describe("local daemon RPC", () => {
       remainder: partial,
     });
   });
+});
+
+test("a configure answered while its start is still under way round trips that", () => {
+  const response = {
+    protocolMajor: 1,
+    requestId: "request-1",
+    accepted: true,
+    lifecycleUnderWay: true,
+  };
+  expect(
+    decodeDaemonRuntimeConfigureResponse(encodeDaemonRuntimeConfigureResponse(response)),
+  ).toEqual(response);
 });

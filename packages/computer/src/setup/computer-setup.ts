@@ -10,7 +10,12 @@ import type { WorkspaceLookup } from "#src/workspace/lookup";
 
 export type ComputerPlatformName = "darwin" | "linux" | "win32";
 
-export type SetupResult = { workspace: AccessibleWorkspace; configPath: string };
+export type SetupResult = {
+  workspace: AccessibleWorkspace;
+  configPath: string;
+  /** The Daemon took the configuration, but the Workspace was still starting when it answered. */
+  daemonStillStarting?: true;
+};
 
 export interface ComputerMetadataProvider {
   get(): Promise<{
@@ -139,6 +144,7 @@ export class ComputerSetup {
     }
 
     let configPath: string;
+    let daemonStillStarting = false;
     let registeredRegistration:
       | Parameters<NonNullable<ComputerConfig["discardRegistration"]>>[0]
       | undefined;
@@ -183,13 +189,16 @@ export class ComputerSetup {
       // Start first: the Daemon must accept its credential before local
       // configuration advertises this registration as usable.
       try {
-        await launcher.ensureStarted({
+        // The Coordinator answers by its deadline: the configuration is taken even when the
+        // Workspace is still starting, so the registration below is still saved.
+        const started = await launcher.ensureStarted({
           workspaceId: response.workspaceId,
           computerId: response.computerId,
           workspaceRoot: this.options.workspaceRoot,
           daemonApiKey: response.daemonApiKey,
           serverHttpUrl: serverUrl,
         });
+        daemonStillStarting = started?.lifecycleUnderWay === true;
       } catch (error) {
         if (error instanceof CliError) throw error;
         throw setupError("SETUP_DAEMON_START_FAILED", "The Daemon could not be started.");
@@ -213,6 +222,6 @@ export class ComputerSetup {
       );
     }
 
-    return { workspace, configPath };
+    return { workspace, configPath, ...(daemonStillStarting ? { daemonStillStarting: true } : {}) };
   }
 }

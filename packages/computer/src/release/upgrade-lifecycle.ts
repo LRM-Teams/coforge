@@ -121,10 +121,10 @@ export type SupervisorUpgradeIntegrationOptions = {
 };
 
 /**
- * How long an upgrade waits for Workspace start/restart work already under way before it pauses
- * the Coordinator: one restart's runner hold (30 s), its stop, and its readiness (30 s), with
- * room for a second Workspace behind it. Pausing earlier would queue behind that work and outlast
- * the local lifecycle client's 35 s timeout.
+ * How long an upgrade, once it paused the Coordinator, waits for the Workspace lifecycle work
+ * already running to finish: one restart's runner hold (30 s), its stop, and its readiness
+ * (30 s), with room to spare. Work still queued is refused by the pause, so only running work is
+ * waited for.
  */
 const LIFECYCLE_SETTLE = { timeoutMs: 120_000, pollMs: 500 };
 
@@ -233,13 +233,21 @@ export function createSupervisorUpgradeLifecycle(
     },
     async pauseLaunches(requestId) {
       await mkdir(options.supervisorStatePath, { recursive: true, mode: 0o700 });
-      await settleLifecycleWork(local, options.lifecycleSettle ?? LIFECYCLE_SETTLE);
       await writeFile(holdPath, `${requestId}\n`, { mode: 0o600 });
       supervisorWasRunning = await local.identity().then(
         () => true,
         () => false,
       );
-      if (supervisorWasRunning) await local.control("pause");
+      if (!supervisorWasRunning) return;
+      // The pause takes effect at once, so nothing queued can start behind this check; then wait
+      // for the work already running to finish.
+      await local.control("pause");
+      try {
+        await settleLifecycleWork(local, options.lifecycleSettle ?? LIFECYCLE_SETTLE);
+      } catch (error) {
+        await this.resumeLaunches(requestId).catch(() => {});
+        throw error;
+      }
     },
     async holdRunners() {
       if (!supervisorWasRunning) return;
@@ -437,8 +445,8 @@ export function createSupervisorUpgradeLifecycle(
 }
 
 /**
- * Waits until no Workspace start or restart is under way (the Coordinator answers those as still
- * connecting), or gives up naming them. No Coordinator running means nothing is under way.
+ * Waits until no Workspace start, restart, or configure is under way (`lifecycleUnderWay` in the
+ * Coordinator's snapshot), or gives up naming them.
  */
 async function settleLifecycleWork(
   local: LocalDaemonLauncher,
@@ -447,7 +455,7 @@ async function settleLifecycleWork(
   const deadline = Date.now() + settle.timeoutMs;
   while (true) {
     const runtimes = await local.control("snapshot").catch(() => []);
-    const underWay = runtimes.filter((runtime) => runtime.cloudConnection === "connecting");
+    const underWay = runtimes.filter((runtime) => runtime.lifecycleUnderWay);
     if (!underWay.length) return;
     if (Date.now() >= deadline) {
       const ids = underWay.map((runtime) => runtime.workspaceId);

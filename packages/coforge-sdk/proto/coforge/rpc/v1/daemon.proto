@@ -53,8 +53,12 @@ message ManagedRuntimeIdentity {
   string version = 6;
   // Why the cloud refused this Workspace for good, when it is parked.
   optional string park_reason = 7;
-  // Set only on the Workspaces an operator start or restart just started: where their first cloud
-  // connect stood when the command answered (see DaemonHandshakeResponse).
+  // Where this Workspace's cloud connection stands, as its own handshake reports it (see
+  // DaemonHandshakeResponse). Set only on the Workspaces an operator start or restart just
+  // started, as their first cloud connect stood when the command answered.
   optional string cloud_connection = 8;
   optional string cloud_connection_error = 9;
+  // A start, restart, or configure of this Workspace is queued or running in the Coordinator. A
+  // lifecycle state, not a cloud connection state.
+  optional bool lifecycle_under_way = 10;
 }

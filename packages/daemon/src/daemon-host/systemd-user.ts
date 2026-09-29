@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
 import { nativeCommandDiagnostic, type NativeCommandResult } from "#src/platform/native-command";
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
+import type { DaemonLauncher, DaemonStarted, DaemonWorkspaceConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<NativeCommandResult>;
 
@@ -58,12 +58,12 @@ export class SystemdUserDaemonHost implements DaemonLauncher {
     return this.#local.preflight();
   }
 
-  async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
+  async ensureStarted(config: DaemonWorkspaceConfig): Promise<DaemonStarted> {
     await this.#writeFile(this.#unitPath, this.#unit);
     await this.#run(["systemctl", "--user", "daemon-reload"]);
     await this.#run(["systemctl", "--user", "enable", this.#serviceName]);
     await this.ensureRunning();
-    await this.#local.ensureStarted(config);
+    return this.#local.ensureStarted(config);
   }
 
   async ensureRunning(): Promise<void> {

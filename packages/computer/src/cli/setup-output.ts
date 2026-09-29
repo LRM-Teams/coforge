@@ -13,7 +13,8 @@ export function writeSetupResult(
         workspace: result.workspace,
         config_path: result.configPath,
         server_registration_created: true,
-        daemon_started: true,
+        daemon_started: !result.daemonStillStarting,
+        ...(result.daemonStillStarting ? { daemon_still_starting: true } : {}),
       }),
     );
     return;
@@ -24,5 +25,9 @@ export function writeSetupResult(
   );
   writeLine(`Configuration saved:   ${terminalText(result.configPath)}`);
   writeLine("Computer:              registered");
-  writeLine("Daemon:                started");
+  writeLine(
+    result.daemonStillStarting
+      ? "Daemon:                still starting; run 'coforge-computer status' to follow it"
+      : "Daemon:                started",
+  );
 }

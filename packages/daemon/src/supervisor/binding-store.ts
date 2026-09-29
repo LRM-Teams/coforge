@@ -29,6 +29,7 @@ export class FileBindingStore implements BindingStore {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     }
+    dropMalformedLastFailures(value);
     validateBindings(value);
     this.#assertEnvironment(value);
     return value.map((binding) => migrateLegacyUpgradeRequests(binding, this.now()));
@@ -80,6 +81,24 @@ function record(value: unknown): value is Record<string, unknown> {
 function text(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
+function validLastFailure(failure: unknown): boolean {
+  return (
+    record(failure) &&
+    (LIFECYCLE_FAILURE_OPERATIONS as readonly unknown[]).includes(failure.operation) &&
+    text(failure.message) &&
+    integer(failure.at)
+  );
+}
+
+/** `lastFailure` is only a diagnostic for `status`: a malformed one is dropped on load rather
+ * than taking the whole registry, and every Workspace in it, down. */
+function dropMalformedLastFailures(value: unknown): void {
+  if (!Array.isArray(value)) return;
+  for (const binding of value)
+    if (record(binding) && "lastFailure" in binding && !validLastFailure(binding.lastFailure))
+      delete binding.lastFailure;
+}
+
 function validateBindings(value: unknown): asserts value is ManagedBinding[] {
   if (!Array.isArray(value)) throw new Error("invalid binding registry");
   const ids = new Set<string>();
@@ -115,7 +134,8 @@ function validateBindings(value: unknown): asserts value is ManagedBinding[] {
           !text(result.requestId) ||
           requests.has(result.requestId) ||
           !(
-            result.status === "cancelled" ||
+            (result.status === "cancelled" &&
+              (result.by === undefined || result.by === "stop" || result.by === "configure")) ||
             (result.status === "completed" && text(result.instanceId))
           )
         )
@@ -125,16 +145,8 @@ function validateBindings(value: unknown): asserts value is ManagedBinding[] {
       if (record(binding.restart) && requests.has(String(binding.restart.requestId)))
         throw new Error("invalid binding registry conflicting restart");
     }
-    if (binding.lastFailure !== undefined) {
-      const failure = binding.lastFailure;
-      if (
-        !record(failure) ||
-        !(LIFECYCLE_FAILURE_OPERATIONS as readonly unknown[]).includes(failure.operation) ||
-        !text(failure.message) ||
-        !integer(failure.at)
-      )
-        throw new Error("invalid binding registry last failure");
-    }
+    if (binding.lastFailure !== undefined && !validLastFailure(binding.lastFailure))
+      throw new Error("invalid binding registry last failure");
     if (binding.upgradeRequestIds !== undefined) {
       if (
         !Array.isArray(binding.upgradeRequestIds) ||

@@ -31,6 +31,8 @@ import type { DaemonConfig } from "#src/daemon-runtime/runtime";
 import type { DaemonCredentialStore } from "#src/credentials/credential-store";
 import type { DaemonConfigStore } from "#src/persistence/daemon-config";
 import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
+import { WorkspaceLifecycleSupersededError } from "#src/supervisor/lifecycle-superseded-error";
+import type { DaemonStarted } from "#src/daemon-host/launcher";
 
 const logger = getLogger(["coforge", "daemon", "local-rpc"]);
 
@@ -47,7 +49,8 @@ export type DaemonHoldReport = {
 };
 
 type DaemonRuntimePort = Partial<{
-  configure(connection: DaemonConfig): Promise<void>;
+  /** May answer before the Workspace's start is done (the Coordinator's deadline). */
+  configure(connection: DaemonConfig): Promise<void | DaemonStarted>;
   start(): Promise<void>;
   stopAll(): Promise<void>;
   restart(): Promise<void>;
@@ -323,21 +326,27 @@ class LocalRpcDispatcher {
         Boolean,
       ) &&
       (await this.input.validateCredential(request.daemonApiKey));
-    if (valid) await this.#adoptConfiguration(request);
+    const adopted = valid ? await this.#adoptConfiguration(request) : undefined;
     return encodeDaemonRuntimeConfigureResponse({
       protocolMajor: 1,
       requestId: request.requestId,
       accepted: valid,
+      ...(adopted?.lifecycleUnderWay ? { lifecycleUnderWay: true } : {}),
     });
   }
 
-  /** Saves the credential and connection, rolling both back if the runtime refuses them. */
+  /**
+   * Saves the credential and connection, rolling both back if the runtime refuses them. A configure
+   * a later stop or setup superseded is not refused: the cloud already registered this key (and
+   * revoked the one before it), so it stays. A rollback also restores only what this attempt
+   * wrote, never a key a newer setup saved since.
+   */
   async #adoptConfiguration(request: {
     workspaceId: string;
     computerId: string;
     workspaceRoot: string;
     daemonApiKey: string;
-  }): Promise<void> {
+  }): Promise<void | DaemonStarted> {
     const { runtime, credentials, configStore } = this.input;
     const { workspaceId, computerId } = request;
     const saved = await credentials.load(workspaceId, computerId);
@@ -352,10 +361,15 @@ class LocalRpcDispatcher {
     };
     try {
       if (!runtime.configure) throw new Error("daemon configuration is unavailable");
-      await runtime.configure(connection);
+      const configured = await runtime.configure(connection);
       await configStore?.save(connection);
+      return configured;
     } catch (error) {
-      if (credentialChanged) {
+      if (error instanceof WorkspaceLifecycleSupersededError) throw error;
+      if (
+        credentialChanged &&
+        (await credentials.load(workspaceId, computerId)) === request.daemonApiKey
+      ) {
         if (saved !== null) await credentials.save(workspaceId, computerId, saved);
         else await credentials.delete(workspaceId, computerId);
       }
