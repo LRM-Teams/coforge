@@ -28,6 +28,7 @@ import { Route as OauthDeviceRouteImport } from './routes/oauth/device'
 import { Route as OauthTokenRouteImport } from './routes/oauth/token'
 import { Route as OauthVerifyRouteImport } from './routes/oauth/verify'
 import { Route as WWorkspaceSlugRouteImport } from './routes/w.$workspaceSlug'
+import { Route as WorkspacesNewRouteImport } from './routes/workspaces.new'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments.$attachmentId'
 import { Route as ApiComputerAttachRouteImport } from './routes/api/computer/attach'
 import { Route as ApiComputerWorkspaceRouteImport } from './routes/api/computer/workspace'
@@ -206,6 +207,11 @@ const OauthVerifyRoute = OauthVerifyRouteImport.update({
 const WWorkspaceSlugRoute = WWorkspaceSlugRouteImport.update({
   id: '/w/$workspaceSlug',
   path: '/w/$workspaceSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WorkspacesNewRoute = WorkspacesNewRouteImport.update({
+  id: '/workspaces/new',
+  path: '/workspaces/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAttachmentsAttachmentIdRoute =
@@ -699,6 +705,7 @@ export interface FileRoutesByFullPath {
   '/oauth/token': typeof OauthTokenRoute
   '/oauth/verify': typeof OauthVerifyRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugRouteWithChildren
+  '/workspaces/new': typeof WorkspacesNewRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -801,6 +808,7 @@ export interface FileRoutesByTo {
   '/oauth/token': typeof OauthTokenRoute
   '/oauth/verify': typeof OauthVerifyRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugChatIndexRoute
+  '/workspaces/new': typeof WorkspacesNewRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -902,6 +910,7 @@ export interface FileRoutesById {
   '/oauth/token': typeof OauthTokenRoute
   '/oauth/verify': typeof OauthVerifyRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugRouteWithChildren
+  '/workspaces/new': typeof WorkspacesNewRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -1008,6 +1017,7 @@ export interface FileRouteTypes {
     | '/oauth/token'
     | '/oauth/verify'
     | '/w/$workspaceSlug'
+    | '/workspaces/new'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -1110,6 +1120,7 @@ export interface FileRouteTypes {
     | '/oauth/token'
     | '/oauth/verify'
     | '/w/$workspaceSlug'
+    | '/workspaces/new'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -1210,6 +1221,7 @@ export interface FileRouteTypes {
     | '/oauth/token'
     | '/oauth/verify'
     | '/w/$workspaceSlug'
+    | '/workspaces/new'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -1315,6 +1327,7 @@ export interface RootRouteChildren {
   OauthTokenRoute: typeof OauthTokenRoute
   OauthVerifyRoute: typeof OauthVerifyRoute
   WWorkspaceSlugRoute: typeof WWorkspaceSlugRouteWithChildren
+  WorkspacesNewRoute: typeof WorkspacesNewRoute
   ApiComputerAttachRoute: typeof ApiComputerAttachRoute
   ApiComputerWorkspaceRoute: typeof ApiComputerWorkspaceRoute
   ApiInternalCentrifugoRoute: typeof ApiInternalCentrifugoRoute
@@ -1497,6 +1510,13 @@ declare module '@tanstack/react-router' {
       path: '/w/$workspaceSlug'
       fullPath: '/w/$workspaceSlug'
       preLoaderRoute: typeof WWorkspaceSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/workspaces/new': {
+      id: '/workspaces/new'
+      path: '/workspaces/new'
+      fullPath: '/workspaces/new'
+      preLoaderRoute: typeof WorkspacesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/attachments/$attachmentId': {
@@ -2271,6 +2291,7 @@ const rootRouteChildren: RootRouteChildren = {
   OauthTokenRoute: OauthTokenRoute,
   OauthVerifyRoute: OauthVerifyRoute,
   WWorkspaceSlugRoute: WWorkspaceSlugRouteWithChildren,
+  WorkspacesNewRoute: WorkspacesNewRoute,
   ApiComputerAttachRoute: ApiComputerAttachRoute,
   ApiComputerWorkspaceRoute: ApiComputerWorkspaceRoute,
   ApiInternalCentrifugoRoute: ApiInternalCentrifugoRoute,

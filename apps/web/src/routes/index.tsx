@@ -15,10 +15,11 @@ export const Route = createFileRoute("/")({
       // Workspace they last opened; a root URL carrying a query is a link with its own intent and
       // opens the Workspace.
       const start = await getStartPage({ data: { resume: !location.searchStr } });
-      if (start) throw redirect({ href: localizeHref(start) });
+      // In no Workspace (left or deleted the last one): create one.
+      throw start ? redirect({ href: localizeHref(start) }) : redirect({ to: "/workspaces/new" });
     }
-    // The start page shows no Workspace (none left after leaving or deleting one). A preload runs
-    // while a Workspace is still on screen, so it keeps that Workspace's cache.
+    // The public home page shows no Workspace (a session that ended while one was open). A preload
+    // runs while a Workspace is still on screen, so it keeps that Workspace's cache.
     if (!preload) forgetShownWorkspace(context.queryClient);
   },
   loader: async () => ({ installOrigin: await getInstallOrigin() }),

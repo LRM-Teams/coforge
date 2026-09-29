@@ -9,7 +9,7 @@ import { decodeWorkspaceDeletedEvent } from "./workspace-realtime";
 
 /**
  * Takes this page out of the Workspace once its owner deletes it (`workspace.deleted.v1`): `/`
- * opens the next Workspace the viewer is in, or the start page when there is none. Renders nothing;
+ * opens the next Workspace the viewer is in, or creating a first one when there is none. Renders nothing;
  * it must sit below `BrowserRealtimeProvider`.
  */
 export function LeaveDeletedWorkspace({ workspaceId }: { workspaceId: string }) {
