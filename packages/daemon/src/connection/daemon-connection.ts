@@ -151,6 +151,7 @@ import type { AgentLaunchIdentity } from "#src/code-agent/agent-instructions";
 import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import { controlPayloadShape } from "./control-payload";
 import { connectionLiveness, INBOUND_STALLED_MS } from "./connection-liveness";
+import { DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS } from "./shutdown-notice-timeout";
 import { getLogger } from "@logtape/logtape";
 import { AGENT_RPC_TIMEOUT_MS, agentHeaders, channelEndpointFor } from "./agent-http-wire";
 import {
@@ -210,10 +211,6 @@ const RESUME_CONNECT_MAX_MS = 30_000;
 const STABLE_CONNECTION_MS = 60_000;
 const REMEMBERED_REQUEST_IDS = 256;
 const logger = getLogger(["coforge", "daemon", "connection"]);
-
-/** How long a deliberate shutdown waits for the server to take its shutdown notice. The whole
- * stop, Agents included, has to fit in the service manager's grace period (launchd: 5 s). */
-export const DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS = 1_000;
 
 /** A run of failed connect attempts: how many, since when, and how many of them were the
  * daemon's own reconnects after the client gave up (those set the resume delay). */

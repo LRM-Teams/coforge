@@ -646,6 +646,8 @@ export class ReminderScheduler {
   }
 
   #armServerRetry(job: ReminderJob, retryAt: number): void {
+    // Reached after a receipt delete that may have been under way when `stop()` cleared the timers.
+    if (!this.#running) return;
     const key = this.#scheduleKey(job.ownerAgentId, job.reminderId);
     const timer = this.clock.schedule(
       () => {

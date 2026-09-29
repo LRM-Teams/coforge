@@ -62,6 +62,7 @@ import type {
   DaemonConnectionClient,
   DaemonConnectionClientFactory,
 } from "#src/connection/daemon-connection";
+import { DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS } from "#src/connection/shutdown-notice-timeout";
 import type { AgentMessageTransportResponse } from "#src/connection/agent-http-clients";
 import { DaemonConnectionStoppedError } from "#src/connection/daemon-connection-stopped-error";
 import { HeldPublications } from "#src/connection/held-publications";
@@ -4971,6 +4972,43 @@ export class DaemonRuntime {
     return this.#stopPromise;
   }
 
+  /**
+   * Waits for the reminder work that was already running when `stop()` closed the scheduler: a fire
+   * request awaiting the cloud, a wake, and the receipt writes they lead to. A receipt is the
+   * re-fire fence, so a write that has begun must land before the state directory is released
+   * (a caller that removes it right after `stop()` would otherwise see the write recreate it).
+   * The scheduler starts nothing new once stopped; this only lets the started work finish.
+   *
+   * The bound is `DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS`, the one teardown bound that fits the whole
+   * stop in the service manager's grace period (launchd: 5 s). This wait runs alongside the
+   * notice, so it never extends the stop past what the notice's own bound allows. The fire
+   * request's own timeout cannot be the bound:
+   * centrifuge-js gives every RPC its default 5 s (`timeout`), which nothing here changes, and that
+   * alone would use the whole grace period. A stop that gives up leaves the receipt written before
+   * the fire in place, so the next daemon repeats the same request.
+   */
+  async #settleReminders(): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<"timed_out">((resolve) => {
+      timer = setTimeout(() => resolve("timed_out"), DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS);
+    });
+    try {
+      const settled = await Promise.race([
+        this.#reminders.awaitIdle().then(() => "settled" as const),
+        timedOut,
+      ]);
+      if (settled === "timed_out")
+        logger.info("Stop gave up waiting for reminder work that was still running", {
+          event: "daemon_runtime:reminder_settle_timed_out",
+          outcome: "unknown",
+          duration_ms: DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS,
+        });
+    } finally {
+      // A pending timer would keep the process alive for the rest of the bound.
+      clearTimeout(timer);
+    }
+  }
+
   async #stop(shutdownReason: DaemonShutdownReason): Promise<void> {
     if (this.#startPromise) {
       try {
@@ -5006,8 +5044,10 @@ export class DaemonRuntime {
     // Every Agent process is down now. Each key they were using gets its one revoke request,
     // best-effort: a failure is logged, never fails teardown, and is not retried. The shutdown
     // notice goes out alongside, never ahead of them: its own bound must not push the revokes
-    // past the service manager's grace period. The transport bounds it and never throws.
+    // past the service manager's grace period. The transport bounds it and never throws. Reminder
+    // work already running settles alongside too, on the same bound, before the transport closes.
     await Promise.all([
+      this.#settleReminders(),
       this.#connection.computerId
         ? this.#transport.sendShutdownNotice?.({
             protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
