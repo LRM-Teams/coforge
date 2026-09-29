@@ -31,6 +31,9 @@ Rules for the Workspace cloud connection in `src/connection/`. They extend
 - Every initial ready, reconnect ready, and ready retry obtains a fresh request
   and the current running Agent ID snapshot from the runtime. Never reuse a
   cached one.
+- The first ready retries like a reconnect ready (same backoff and
+  escalation): `ready` settles only when the cloud accepts it, on `stop`, or
+  when its `signal` aborts. Only a reconnect ready reaches `onReconnect`.
 
 ## Agent HTTPS refusals
 

@@ -13,6 +13,10 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   identity and launch references for already-authorized wakes.
 - A launch this runtime initiates itself follows the launch-identity rules in
   [`agent-runtime/AGENTS.md`](../agent-runtime/AGENTS.md).
+- A start that fails stops its transport before replacing it, so a connection
+  that came up never keeps reporting the Computer online for a Workspace that
+  did not start. `stop` aborts a start still waiting on the cloud (connect or
+  first ready).
 - Context-usage change detection lives here: skip an unchanged reading and
   forget the last reading on launch end or dispose. `connection/` only sends.
 

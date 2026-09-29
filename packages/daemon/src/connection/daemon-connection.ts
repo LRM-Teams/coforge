@@ -290,7 +290,9 @@ export interface DaemonConnectionClient {
   onAgentWorkspaceReset?(callback: (request: AgentWorkspaceResetRequest) => void): () => void;
   sendAgentControlResult?(result: AgentControlResult): Promise<void>;
   start(token: string, config: DaemonConnectionConfig): Promise<void>;
-  ready(createRequest: () => DaemonRuntimeReadyRequest): Promise<void>;
+  /** Resolves once the cloud accepts the first ready, retrying like a reconnect ready until then.
+   * Rejects only on `stop` or `signal` aborting. */
+  ready(createRequest: () => DaemonRuntimeReadyRequest, signal?: AbortSignal): Promise<void>;
   updateCodeAgents?(request: DaemonRuntimeCodeAgentsUpdateRequest): Promise<void>;
   onSkillsList?(callback: (request: AgentSkillsListRequest) => Promise<void>): () => void;
   sendSkillsListResult?(result: AgentSkillsListResult): Promise<void>;
@@ -494,6 +496,8 @@ export class DaemonConnection implements DaemonConnectionClient {
   #readyRecoveryClient: CentrifugeWorkspaceClient | undefined;
   #readyRetryTimer: unknown;
   #readyRetryAttempts = 0;
+  /** Settles the first `ready`; set only while it waits for the cloud to accept it. */
+  #firstReady: ReturnType<typeof Promise.withResolvers<void>> | undefined;
   /** When the current run of ready failures began, so a log line can say how long this machine has
    * been connected without a recovered Workspace. Cleared the moment ready succeeds. */
   #readyFailingSinceMs: number | undefined;
@@ -1903,35 +1907,32 @@ export class DaemonConnection implements DaemonConnectionClient {
     });
   }
 
-  async ready(createRequest: () => DaemonRuntimeReadyRequest): Promise<void> {
+  async ready(createRequest: () => DaemonRuntimeReadyRequest, signal?: AbortSignal): Promise<void> {
     const client = this.#requireClient();
+    signal?.throwIfAborted();
     this.#readyPublications = [];
-    const request = createRequest();
-    const scope = {
-      request_id: request.requestId,
-      workspace_id: request.workspaceId,
-      computer_id: request.computerId,
-    };
+    // The first ready takes the reconnect path: a failure is retried with the same backoff and
+    // escalation instead of failing the start and leaving the Workspace connected but dead.
+    this.#readyRequestFactory = createRequest;
+    const firstReady = Promise.withResolvers<void>();
+    this.#firstReady = firstReady;
+    const onAbort = () => this.#failFirstReady(signal?.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    this.#startReadyRecovery(client, createRequest);
     try {
-      await this.#sendReady(client, request);
-      this.#readyRequestFactory = createRequest;
-      logger.info("Daemon ready recovery completed", {
-        event: "daemon_ready:completed",
-        ...scope,
-        running_agent_count: request.runningAgentIds.length,
-        outcome: "ok",
-      });
-    } catch (error) {
-      logger.error("Daemon ready recovery failed", {
-        event: "daemon_ready:failed",
-        ...scope,
-        error_code: diagnosticErrorCode(error),
-        outcome: "failed",
-      });
-      throw error;
+      await firstReady.promise;
     } finally {
-      this.#dispatchReadyPublications();
+      signal?.removeEventListener("abort", onAbort);
     }
+  }
+
+  /** Gives up a first ready still retrying: its recovery stops and `ready` rejects. */
+  #failFirstReady(error: unknown): void {
+    if (!this.#firstReady) return;
+    this.#cancelReadyRecovery();
+    const firstReady = this.#firstReady;
+    this.#firstReady = undefined;
+    firstReady?.reject(error);
   }
 
   async updateCodeAgents(request: DaemonRuntimeCodeAgentsUpdateRequest): Promise<void> {
@@ -1989,6 +1990,11 @@ export class DaemonConnection implements DaemonConnectionClient {
       client === this.#client && client === this.#readyRecoveryClient && this.#connected;
     if (!recovering()) return;
     const request = createRequest();
+    const scope = {
+      request_id: request.requestId,
+      workspace_id: request.workspaceId,
+      computer_id: request.computerId,
+    };
     try {
       await this.#sendReady(client, request);
     } catch (error) {
@@ -2003,9 +2009,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       const stage = readyFailureStage(error);
       const details = {
         event: "daemon_ready:retry_scheduled",
-        request_id: request.requestId,
-        workspace_id: request.workspaceId,
-        computer_id: request.computerId,
+        ...scope,
         error_code: diagnosticErrorCode(error),
         // Which step of the server's ready the failure came from, when it said so. Named here so
         // the failing machine's own log explains itself instead of requiring server logs.
@@ -2018,10 +2022,10 @@ export class DaemonConnection implements DaemonConnectionClient {
       // nothing looked wrong, while no Agent on the machine could be reached.
       if (escalates(this.#readyRetryAttempts, READY_RETRY_ESCALATE_AFTER))
         logger.error(
-          "Daemon reconnect recovery keeps failing: this Computer is connected but its Workspace is not recovered, so its Agents cannot be reached",
+          "Daemon ready keeps failing: this Computer is connected but its Workspace is not recovered, so its Agents cannot be reached",
           details,
         );
-      else logger.warning("Daemon reconnect recovery will retry", details);
+      else logger.warning("Daemon ready failed; retrying", details);
       this.#readyRetryTimer = this.timing.schedule(() => {
         this.#readyRetryTimer = undefined;
         void this.#attemptReadyRecovery(client, createRequest);
@@ -2032,9 +2036,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     if (this.#readyFailingSinceMs !== undefined)
       logger.info("Daemon reconnect recovery succeeded after failing", {
         event: "daemon_ready:recovered",
-        request_id: request.requestId,
-        workspace_id: request.workspaceId,
-        computer_id: request.computerId,
+        ...scope,
         attempts: this.#readyRetryAttempts,
         failed_for_ms: Date.now() - this.#readyFailingSinceMs,
       });
@@ -2042,7 +2044,20 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#readyRetryAttempts = 0;
     this.#readyRecoveryClient = undefined;
     this.#dispatchReadyPublications();
-    this.#reconnect.current?.();
+    const firstReady = this.#firstReady;
+    if (!firstReady) {
+      this.#reconnect.current?.();
+      return;
+    }
+    // The runtime's own start reports what a reconnect would; this is not a reconnect.
+    this.#firstReady = undefined;
+    logger.info("Daemon ready completed", {
+      event: "daemon_ready:completed",
+      ...scope,
+      running_agent_count: request.runningAgentIds.length,
+      outcome: "ok",
+    });
+    firstReady.resolve();
   }
 
   #cancelReadyRecovery(): void {
@@ -2061,6 +2076,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   async stop(): Promise<void> {
     const client = this.#client;
     this.#failPendingStart?.(new DaemonConnectionStoppedError());
+    this.#failFirstReady(new DaemonConnectionStoppedError());
     this.#cancelReadyRecovery();
     this.#cancelResume();
     this.#outage = undefined;
