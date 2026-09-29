@@ -12,8 +12,9 @@ version. Its build, upload, integrity checks, and selector update stay together
 in one publication transaction; expand that step to see each platform and object.
 
 `Validate` reuses CI. Package jobs run tests, static checks, and a build where
-applicable; separate jobs check macOS lifecycle, Windows executables, and the
-Windows installer. These checks can run in parallel. `CI passed` is the final
+applicable. The Web deployment omits the preliminary package build: Docker
+builds and tests the runtime image once before publishing. Separate jobs check
+macOS lifecycle, Windows executables, and the Windows installer. These checks can run in parallel. `CI passed` is the final
 required check and keeps its existing name for branch protection.
 
 CI has one reusable validation definition in `.github/workflows/ci.yml`, invoked
@@ -22,7 +23,11 @@ with three scopes selected by `scripts/ci/selection.ts`:
 - Pull requests validate changed modules and affected downstream consumers.
   Web-only changes run Web gates; Daemon changes also validate Computer.
   Agent changes additionally validate Web's imported Agent test contract.
-  Client module changes retain native macOS and Windows smoke checks;
+  Client source changes retain native macOS and Windows smoke checks. Changes
+  confined to Computer/Daemon test files run their owning package; the three
+  macOS lifecycle test files also run on macOS. Shared fixtures retain full
+  consumer checks. Workspace manifests select their package's consumers plus
+  Web's frozen image install; lockfile changes still select full coverage.
   PowerShell installer changes run both PowerShell parsers and lint. Both
   installers are embedded in the Web image, so changing either also validates Web.
 - Each `main` push checks whether the Web image or deployment inputs changed.
@@ -38,14 +43,16 @@ with three scopes selected by `scripts/ci/selection.ts`:
 Shared protocol, global toolchain/configuration, lockfile, CI, and unclassified
 paths select full PR coverage. Only known documentation locations are exempt;
 Markdown assets inside source directories remain code inputs. Documentation-only
-PRs run CI-policy tests, workflow/static lint, and changed-line whitespace checks,
-not application builds. No documentation link checker is currently configured.
+PRs run path selection and changed-line whitespace checks without installing
+workspace dependencies. CI-policy tests and workflow/static lint run as a
+parallel script suite when shared inputs, CI, or unclassified files change.
+No documentation link checker is currently configured.
 PR diffs use the merge base; a push diffs from the head of the last successful
 run of the same workflow on that branch, so commits whose runs were superseded,
 cancelled, or failed stay in scope. Renames include both old and new paths, and
 a push with no earlier successful run gets full coverage.
 
-Every run ends with `CI passed`, which requires selection/static validation and
+Every run ends with `CI passed`, which requires successful selection and
 every selected job to succeed. An unexpectedly skipped, failed, cancelled, or
 missing selected job cannot pass. Configure branch protection to require this
 aggregate rather than individual conditional/matrix job names; changing that
@@ -62,7 +69,17 @@ still uses `mise run test`, `mise run check`, and `mise run build`; CI-policy
 regressions can be exercised alone with `bun run test:ci` and `bun run check:ci`.
 Track-specific pre-release validation is not replaced by a mutable "latest
 successful CI" result. Docker image builds and version/feed-specific
-cross-compilation remain independent artifact builds, not redundant gates.
+cross-compilation remain artifact builds. Web deployment relies on its Docker
+build instead of also building a disposable host bundle.
+
+Package validation caches Bun's download cache by runner OS, architecture,
+toolchain configuration, and lockfile. Every job still runs a frozen install;
+cache hits never skip dependency validation. The image job installs only Bun on
+the host; workspace dependencies are installed inside Docker.
+
+The external realtime probe requires a successful WebSocket handshake within
+ten seconds. HTTP error pages, including 404 and 502, fail deployment verification;
+the probe does not claim to validate an authenticated application session.
 
 Publishing a local-distribution release is **manual**. The workflow exposes only
 `workflow_dispatch`; it is not triggered by merging to `main`. Continuous publish

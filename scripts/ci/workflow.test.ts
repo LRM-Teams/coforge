@@ -5,6 +5,33 @@ import { join } from "node:path";
 
 const ci = Bun.YAML.parse(await Bun.file(".github/workflows/ci.yml").text());
 
+test("deployment readiness requires a successful WebSocket handshake, rejecting HTTP error pages", async () => {
+  const deploy = Bun.YAML.parse(await Bun.file(".github/workflows/deploy-staging.yml").text());
+  const script = deploy.jobs.deploy.steps.find(
+    (step: { name: string }) => step.name === "Check realtime endpoint responds",
+  ).run;
+  for (const status of [404, 502, 101]) {
+    const server = Bun.serve({
+      port: 0,
+      fetch(request, server) {
+        if (status === 101 && server.upgrade(request)) return;
+        return new Response("unavailable", { status });
+      },
+      websocket: { message() {} },
+    });
+    try {
+      const child = Bun.spawn(["bash", "-e", "-o", "pipefail", "-c", script], {
+        env: { ...Bun.env, REALTIME_URL: `ws://127.0.0.1:${server.port}/connection/websocket` },
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      expect(await child.exited).toBe(status === 101 ? 0 : 1);
+    } finally {
+      await server.stop(true);
+    }
+  }
+});
+
 test("the aggregate gate executes even after failure and rejects missing, skipped, or cancelled required jobs", () => {
   const gate = ci.jobs["ci-passed"];
   expect(gate?.if).toBe("always()");
@@ -102,7 +129,7 @@ test("the workflow diffs PRs from their merge base and includes both sides of a 
     git("commit", "-m", "move web source to documentation");
     expect(select("push", head, git("rev-parse", "HEAD"))).toContain('checks=["web"]\n');
     expect(select("push", "0".repeat(40), head)).toContain(
-      'contracts=["cdn-certs","deploy","oss-cdn","release"]\n',
+      'contracts=["cdn-certs","ci","deploy","oss-cdn","release"]\n',
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

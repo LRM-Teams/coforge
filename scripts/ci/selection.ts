@@ -1,6 +1,7 @@
 const allChecks = [
   "agent",
   "cdn-certs",
+  "ci",
   "coforge",
   "coforge-sdk",
   "computer",
@@ -24,15 +25,18 @@ export function selectChecks(paths: string[], track: "changes" | "web" | "local"
     // Markdown prompts) inside application directories may affect runtime behavior.
     if (/^(docs\/|[^/]+\.md$)/.test(path) || /\/(AGENTS|README)\.md$/.test(path)) continue;
     let affected: string[];
-    if (/^(apps|packages)\/[^/]+\/package\.json$/.test(path)) {
-      // All workspace manifests participate in the shared frozen install and Docker build.
-      affected = allChecks;
-    } else if (path === "scripts/release/install.ps1") {
+    if (path === "scripts/release/install.ps1") {
       affected = ["release", "web", "windows-installer"];
     } else if (path === "scripts/release/install.sh") {
       affected = ["release", "web"];
     } else if (path.startsWith("apps/web/")) {
       affected = ["web"];
+    } else if (/^packages\/(computer|daemon)\/test\/.*\.test\.ts$/.test(path)) {
+      affected = [path.split("/")[1]!];
+      const nativeTest = /\/(launchd-job|launchd-process|macos-supervisor)\.test\.ts$/;
+      if (path.startsWith("packages/daemon/") && nativeTest.test(path)) {
+        affected.push("macos-lifecycle");
+      }
     } else if (path.startsWith("packages/computer/")) {
       affected = ["computer", "macos-lifecycle", "windows-release"];
     } else if (/^packages\/(agent|cli|coforge|daemon)\//.test(path)) {
@@ -51,9 +55,15 @@ export function selectChecks(paths: string[], track: "changes" | "web" | "local"
       // SDK, toolchain, CI, lockfiles, and unclassified new paths get full coverage.
       affected = allChecks;
     }
+    // The image copies workspace manifests for its frozen install, even for client packages.
+    if (/^(apps|packages)\/[^/]+\/package\.json$/.test(path)) checks.add("web");
     for (const check of affected) checks.add(check);
   }
-  if (track === "web") return checks.has("web") ? ["deploy", "coforge-sdk", "web"] : [];
+  if (track === "web") {
+    return checks.has("web")
+      ? [...(checks.has("ci") ? ["ci"] : []), "deploy", "coforge-sdk", "web"]
+      : [];
+  }
   return [...checks].sort();
 }
 
@@ -66,7 +76,7 @@ if (import.meta.main) {
   const checks = selectChecks(paths, track);
   const libraries = checks.filter((check) => ["coforge-sdk", "agent", "coforge"].includes(check));
   const contracts = checks.filter((check) =>
-    ["cdn-certs", "deploy", "release", "oss-cdn"].includes(check),
+    ["cdn-certs", "ci", "deploy", "release", "oss-cdn"].includes(check),
   );
   const jobs = [
     "changes",
