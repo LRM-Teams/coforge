@@ -139,13 +139,13 @@ function normalizeSuggestion(value: unknown): WeeklyReportAssistantSuggestion | 
       return null;
     if (typeof row.allMembers !== "boolean" || !Array.isArray(row.recipientUserIds)) return null;
     if (!Array.isArray(row.sections) || row.sections.length === 0) return null;
-    const sections = row.sections.filter(
-      (section): section is TemplateOutlineSection =>
+    const sections = (row.sections as unknown[]).filter(
+      (section: unknown): section is TemplateOutlineSection =>
         Boolean(section) &&
         typeof section === "object" &&
         typeof section.title === "string" &&
         Array.isArray(section.children) &&
-        section.children.every((child) => typeof child === "string"),
+        section.children.every((child: unknown) => typeof child === "string"),
     );
     if (sections.length !== row.sections.length) return null;
     return {

@@ -1396,13 +1396,14 @@ export function RecordSidePanel({
               message.author === "assistant" ? m.records_side_chat_assistant() : viewerName;
             const suggestion = message.suggestion ?? null;
             const showSuggestion =
-              (suggestion !== null && suggestion.type === "body-edit") ||
-              suggestion.type === "key-point-edit" ||
-              suggestion.type === "template-create";
+              suggestion !== null &&
+              (suggestion.type === "body-edit" ||
+                suggestion.type === "key-point-edit" ||
+                suggestion.type === "template-create");
             const suggestionApplied = appliedSuggestionIds.includes(message.id);
             const suggestionDismissed = dismissedSuggestionIds.includes(message.id);
             const suggestionFrozen = suggestionApplied || suggestionDismissed;
-            const preview = showSuggestion ? suggestionPreview(suggestion) : "";
+            const preview = showSuggestion && suggestion ? suggestionPreview(suggestion) : "";
             return (
               <article key={item.id} className="space-y-2">
                 <div className="flex items-center gap-2">
@@ -1428,7 +1429,7 @@ export function RecordSidePanel({
                     }}
                   />
                 ) : null}
-                {showSuggestion ? (
+                {showSuggestion && suggestion ? (
                   <div
                     className={`space-y-2 rounded-lg border p-3 ${
                       suggestionFrozen
