@@ -275,6 +275,20 @@ export const loadGeneralChannelHidden = createServerFn({ method: "GET" })
     }
   });
 
+/** The Workspace's archived channels for Settings → Workspace profile, newest archive first;
+ * none for anyone but a Workspace owner or admin. */
+export const loadArchivedChannels = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context }) => {
+    const { channels, workspaceId, userId } = channelScope(context);
+    try {
+      return await channels.archived(workspaceId, userId);
+    } catch (error) {
+      if (isAppError(error) && error.code === "ACCESS_DENIED") return [];
+      throw error;
+    }
+  });
+
 /** Hides `#general` from the whole Workspace, or restores it (owner/admin only). */
 export const setGeneralChannelHidden = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
