@@ -1,4 +1,6 @@
+import { hasErrorCode } from "@lrm/coforge-sdk/internal";
 import { LaunchdProcessOwner } from "./launchd-process";
+import { RuntimeExecutableNotFoundError } from "./runtime-executable-not-found";
 import {
   createWindowsJobObject,
   windowsJobObjectsAvailable,
@@ -50,6 +52,28 @@ const runCommand: ProcessCommandRunner = async (command) => {
   if (exitCode !== 0) throw new Error(`${command[0]} exited ${exitCode}`);
 };
 
+/** Runs `spawn`; a spawn `ENOENT` for an executable the Agent's PATH cannot resolve becomes a
+ * `RuntimeExecutableNotFoundError`. Any other `ENOENT` (a missing working directory) is rethrown
+ * as it is. */
+function spawnRuntime<T>(
+  command: readonly string[],
+  cwd: string,
+  environment: Readonly<Record<string, string>>,
+  spawn: () => T,
+): T {
+  try {
+    return spawn();
+  } catch (error) {
+    const executable = command[0] ?? "";
+    if (
+      hasErrorCode(error, "ENOENT") &&
+      !Bun.which(executable, { cwd, PATH: environment.PATH ?? "" })
+    )
+      throw new RuntimeExecutableNotFoundError(executable, { cause: error });
+    throw error;
+  }
+}
+
 /** Owns the platform-specific process tree while exposing one lifecycle seam. */
 export class ProcessTreeOwner implements ProcessTreeSpawner {
   constructor(
@@ -74,16 +98,18 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
         runner: [process.execPath, "__managed-agent"],
       }).spawn(command, cwd, environment);
     }
-    const spawned = Bun.spawn({
-      cmd: [...command],
-      cwd,
-      env: { ...environment },
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      detached: true,
-      windowsHide: true,
-    });
+    const spawned = spawnRuntime(command, cwd, environment, () =>
+      Bun.spawn({
+        cmd: [...command],
+        cwd,
+        env: { ...environment },
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        detached: true,
+        windowsHide: true,
+      }),
+    );
     const child: OwnedChildProcess = {
       get pid() {
         return spawned.pid;
@@ -143,15 +169,23 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
       throw new Error("Windows Agent process isolation is unavailable", { cause: error });
     }
 
-    const spawned = Bun.spawn({
-      cmd: [...command],
-      cwd,
-      env: { ...environment },
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      windowsHide: true,
-    });
+    let spawned;
+    try {
+      spawned = spawnRuntime(command, cwd, environment, () =>
+        Bun.spawn({
+          cmd: [...command],
+          cwd,
+          env: { ...environment },
+          stdin: "pipe",
+          stdout: "pipe",
+          stderr: "pipe",
+          windowsHide: true,
+        }),
+      );
+    } catch (error) {
+      job.close();
+      throw error;
+    }
     const pid = spawned.pid;
     if (pid === undefined) {
       job.close();

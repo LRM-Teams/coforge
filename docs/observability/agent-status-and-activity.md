@@ -38,7 +38,8 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | `idle` | Agent 当前没有执行中的 turn（一次 turn 完成） |
 | `running_command` | Agent 正在执行命令 |
 | `reading_file` / `writing_file` / `editing_file` | Agent 的文件工具操作 |
-| `launch_failed` / `stop_failed` | 启动或安全回收失败；使用脱敏后的可操作原因 |
+| `runtime_error`（`runtimeError.errorClass=LauncherError`） | 启动失败：`errorReason` 为稳定原因（见[启动失败原因](activity-delivery-and-errors.md#启动失败原因)），`detail` 给出原因和下一步 |
+| `runtime_error`（无 `runtimeError`） | 安全回收失败（进程未确认退出）；使用脱敏后的可操作原因 |
 | `error` / `warning` | provider 运行错误或可恢复警告 |
 
 `detailKind` 上还有以下值，只在对应 provider 确有真实信号时才

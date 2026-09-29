@@ -74,9 +74,11 @@ test("Kiro launch is rejected before any workspace side effect when the resolved
         instructions: "Keep the asymmetric marker 719 in the system prompt.",
         runtime: { provider: "kiro", model: "auto", reasoning: "" },
       }),
-    ).rejects.toThrow(
-      "Kiro CLI 2.16.0 is unsupported; requires Kiro CLI >= 2.21.2. Upgrade kiro-cli before starting this runtime.",
-    );
+    ).rejects.toMatchObject({
+      code: "runtime_version_too_old",
+      message:
+        "Kiro CLI 2.16.0 is unsupported; requires Kiro CLI >= 2.21.2. Upgrade kiro-cli before starting this runtime.",
+    });
     // The gate rejects before mkdir, so the workspace's agent profile directory never exists.
     await expect(readdir(join(cwd, ".kiro/agents"))).rejects.toThrow();
   } finally {

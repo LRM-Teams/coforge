@@ -13,6 +13,11 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   adapters.
 - Higher layers consume normalized status and Activity messages and must not
   parse Claude Code, Codex, Pi, or any other provider's output.
+- A Provider that knows why a launch cannot start throws a typed launch error
+  from `contract.ts` (`RuntimeVersionUnsupportedError`,
+  `RuntimeModelNotFoundError`, `ModelProviderSettingError`), keeping any SDK
+  error as its `cause`. The Pi Provider maps the SDK's `PiLaunchError` policy
+  codes here.
 - Adapters emit only official display events and explicit lineage, never raw
   reasoning.
 

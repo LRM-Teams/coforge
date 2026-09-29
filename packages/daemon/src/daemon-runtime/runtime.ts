@@ -40,7 +40,11 @@ import {
   type AgentRuntime,
 } from "#src/agent-runtime/agent-process-manager";
 import { parseAssignedSkillPacks } from "#src/code-agent/assigned-skills";
-import { launchCategoryText, launchFailureTrace } from "#src/agent-runtime/launch-failure";
+import {
+  AgentAuthorizationError,
+  launchFailureActivity,
+  launchFailureLogFields,
+} from "#src/agent-runtime/launch-failure";
 import { LaunchFailureBackoff } from "#src/agent-runtime/launch-failure-backoff";
 import { agentRuntimeContextEnvironment } from "#src/code-agent/environment";
 import { toolActivity } from "#src/code-agent/tool-activity";
@@ -2098,9 +2102,12 @@ export class DaemonRuntime {
     }
     const current = () => this.#currentActivityLaunches.get(agentId) === launch && !launch.stopping;
     let agentApiKey: string | undefined;
-    let stage: "credential" | "runtime" = "credential";
     try {
-      const launchConfig = await this.#requestLaunchConfig(agentId, managedScope);
+      const launchConfig = await this.#requestLaunchConfig(agentId, managedScope).catch(
+        (error: unknown) => {
+          throw new AgentAuthorizationError(error);
+        },
+      );
       agentApiKey = launchConfig.agentApiKey;
       this.#assertRunning();
       this.#assertAgentNotStopping(agentId);
@@ -2113,7 +2120,6 @@ export class DaemonRuntime {
         this.#connection.workspaceId,
         agentId,
       );
-      stage = "runtime";
       const runtime = await this.#agentProcessManager.start(
         agentId,
         {
@@ -2318,11 +2324,20 @@ export class DaemonRuntime {
         }
       }
       if (!this.#stopping && !this.#stoppingAgents.has(agentId)) {
+        // The Activity sends people to the Computer log for the cause; this is that line.
+        logger.warning("Agent launch failed", {
+          event: "agent_runtime:launch_failed",
+          agent_id: agentId,
+          provider: config.provider,
+          launch_id: launch.launchId,
+          ...launchFailureLogFields(error),
+          outcome: "failed",
+        });
         this.#sendAgentStatus(agentId, "inactive");
         this.#emitAgentActivity(
           agentId,
           launch,
-          this.#runtimeErrorActivity(agentId, this.#launchFailureMessage(agentId, stage, error)),
+          this.#launchFailureActivity(agentId, config.provider, error),
         );
       }
       if (this.#currentActivityLaunches.get(agentId) === launch) {
@@ -3198,8 +3213,18 @@ export class DaemonRuntime {
     };
   }
 
-  #runtimeErrorActivity(agentId: string, detail: string): ActivityDraft {
-    return this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR, "error", detail);
+  #runtimeErrorActivity(
+    agentId: string,
+    detail: string,
+    runtimeError?: ActivityDraft["runtimeError"],
+  ): ActivityDraft {
+    return this.#activity(
+      agentId,
+      AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+      "error",
+      detail,
+      runtimeError ? { runtimeError } : {},
+    );
   }
 
   /**
@@ -3480,15 +3505,17 @@ export class DaemonRuntime {
     );
   }
 
-  #launchFailureMessage(agentId: string, stage: "credential" | "runtime", error: unknown): string {
-    if (this.#cleanupUnconfirmed(agentId, error)) return CLEANUP_UNCONFIRMED;
-    const base =
-      stage === "credential"
-        ? "Agent authorization could not be prepared."
-        : "Agent runtime could not be started.";
-    const detail = launchFailureTrace(error).launchCategory;
-    const category = launchCategoryText(detail);
-    return category ? `${base} Reason: ${category}.` : base;
+  /** The error Activity for a launch that did not start: its typed reason rides `runtimeError`
+   * (class `LauncherError`) beside the sentence that explains it. */
+  #launchFailureActivity(
+    agentId: string,
+    provider: RuntimeProvider,
+    error: unknown,
+  ): ActivityDraft {
+    if (this.#cleanupUnconfirmed(agentId, error))
+      return this.#runtimeErrorActivity(agentId, CLEANUP_UNCONFIRMED);
+    const { detail, runtimeError } = launchFailureActivity(error, runtimeDisplayName(provider));
+    return this.#runtimeErrorActivity(agentId, detail, runtimeError);
   }
 
   /**

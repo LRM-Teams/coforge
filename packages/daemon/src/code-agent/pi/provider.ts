@@ -4,7 +4,12 @@ import type {
   AgentSessionIdentity,
   AgentSessionOptions,
 } from "@coforge/agent";
-import { AgentSessionRecoveryError, type CodeAgentProvider } from "#src/code-agent/contract";
+import {
+  AgentSessionRecoveryError,
+  ModelProviderSettingError,
+  RuntimeModelNotFoundError,
+  type CodeAgentProvider,
+} from "#src/code-agent/contract";
 import { agentEnvironment } from "#src/code-agent/environment";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
@@ -37,9 +42,9 @@ export class PiProvider implements CodeAgentProvider {
     const credential =
       runtime?.providerConfig?.kind === "coforge" ? runtime.providerConfig : undefined;
     if (credential && credential.providerId !== runtime?.modelProvider)
-      throw new Error("Pi runtime provider does not match the selected model");
+      throw new ModelProviderSettingError("Pi runtime provider does not match the selected model");
     if (credential?.apiKey && !runtime?.modelProvider)
-      throw new Error("Pi model provider is required for an Agent API key");
+      throw new ModelProviderSettingError("Pi model provider is required for an Agent API key");
     const environment = agentEnvironment(options.environment, Bun.env, process.platform, {
       envVars: runtime?.envVars,
       gitHooks: options.gitHooks,
@@ -59,6 +64,8 @@ export class PiProvider implements CodeAgentProvider {
       environment,
       sessionKind: "pi",
       toolProfile: runtime?.toolProfile,
+    }).catch((error: unknown) => {
+      throw typedLaunchError(error, runtime?.model);
     });
     try {
       await options.onSessionId?.(created.sessionId, created.replacedSessionId);
@@ -88,11 +95,11 @@ export class CoforgeProvider implements CodeAgentProvider {
   async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
     const runtime = options.runtime;
     if (runtime?.providerConfig?.kind !== "coforge")
-      throw new Error("CoForge runtime provider config is required");
+      throw new ModelProviderSettingError("CoForge runtime provider config is required");
     if (!runtime.providerConfig.apiKey)
-      throw new Error("CoForge runtime provider API key is required");
+      throw new ModelProviderSettingError("CoForge runtime provider API key is required");
     if (runtime.providerConfig.providerId !== runtime.modelProvider)
-      throw new Error("Pi runtime provider does not match the selected model");
+      throw new ModelProviderSettingError("Pi runtime provider does not match the selected model");
 
     const environment = agentEnvironment(options.environment, Bun.env, process.platform, {
       envVars: runtime.envVars,
@@ -118,6 +125,8 @@ export class CoforgeProvider implements CodeAgentProvider {
       instructions: options.instructions,
       environment,
       toolProfile: runtime.toolProfile,
+    }).catch((error: unknown) => {
+      throw typedLaunchError(error, runtime.model);
     });
     try {
       await options.onSessionId?.(session.sessionId, session.replacedSessionId);
@@ -130,6 +139,32 @@ export class CoforgeProvider implements CodeAgentProvider {
       options.sessionId !== undefined && !session.replacedSessionId,
     );
   }
+}
+
+/** The SDK's policy codes for a launch the Agent's model settings cannot satisfy. */
+const PROVIDER_SETTING_POLICY_CODES: ReadonlySet<string> = new Set([
+  "PI_LAUNCH_PROVIDER_MISSING",
+  "PI_LAUNCH_PROVIDER_UNCONFIGURED",
+]);
+
+/**
+ * Turns the SDK's classified launch failure (`PiLaunchError`, identified by its `policyCode`)
+ * into the provider-neutral typed launch error for the cases the Agent's settings fix. The SDK
+ * error stays the `cause`, so its trace evidence still reaches the launch logs; any other error
+ * is returned unchanged.
+ */
+function typedLaunchError(error: unknown, configuredModel: string | undefined): unknown {
+  const policyCode =
+    error && typeof error === "object" ? Reflect.get(error, "policyCode") : undefined;
+  if (policyCode === "PI_LAUNCH_MODEL_MISSING") {
+    const trace = Reflect.get(error as object, "trace");
+    const traced = trace && typeof trace === "object" ? Reflect.get(trace, "model") : undefined;
+    const model = typeof traced === "string" && traced ? traced : configuredModel;
+    return new RuntimeModelNotFoundError(model || "the configured model", { cause: error });
+  }
+  if (typeof policyCode === "string" && PROVIDER_SETTING_POLICY_CODES.has(policyCode))
+    return new ModelProviderSettingError(errorMessage(error), { cause: error });
+  return error;
 }
 
 class AgentSessionImpl implements AgentSession {

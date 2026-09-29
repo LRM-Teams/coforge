@@ -2,7 +2,27 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { LaunchdProcessOwner } from "#src/platform/launchd-process";
 import { stopLaunchdJobs } from "#src/platform/launchd-job";
+import { RuntimeExecutableNotFoundError } from "#src/platform/runtime-executable-not-found";
 import { readLines } from "./fixtures/read-lines";
+
+test("an executable missing from the Agent's PATH fails as RuntimeExecutableNotFoundError before any job is created", () => {
+  const owner = new LaunchdProcessOwner({
+    directory: "/nonexistent-coforge-job-directory",
+    prefix: "cn.coforge.agent.test.",
+    runner: [process.execPath, "__managed-agent"],
+  });
+  let thrown: unknown;
+  try {
+    owner.spawn(["coforge-missing-runtime-cli"], "/", { PATH: "/usr/bin:/bin" });
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(RuntimeExecutableNotFoundError);
+  expect(thrown).toMatchObject({
+    code: "runtime_not_found",
+    executable: "coforge-missing-runtime-cli",
+  });
+});
 
 test.skipIf(process.platform !== "darwin")(
   "native stop lets the provider handle SIGTERM before cleanup",

@@ -92,6 +92,45 @@ export class AgentContextReportTimeoutError extends Error {
   }
 }
 
+/*
+ * Typed launch failures. A provider throws one of these when it knows why a launch cannot start;
+ * `code` is the launch failure reason `agent-runtime/launch-failure.ts` reports, so the layers
+ * above never read provider-specific errors or message text. `RuntimeExecutableNotFoundError`
+ * (`platform/runtime-executable-not-found.ts`) follows the same convention.
+ */
+
+/** The runtime's CLI is below the version CoForge supports; the launch is refused before spawn.
+ * The message names the found and required versions and what to upgrade. */
+export class RuntimeVersionUnsupportedError extends Error {
+  readonly code = "runtime_version_too_old";
+  constructor(message: string) {
+    super(message);
+    this.name = "RuntimeVersionUnsupportedError";
+  }
+}
+
+/** The runtime on this Computer does not offer the Agent's configured model. */
+export class RuntimeModelNotFoundError extends Error {
+  readonly code = "model_not_found";
+  constructor(
+    readonly model: string,
+    options?: ErrorOptions,
+  ) {
+    super(`Model ${model} is not available to this runtime`, options);
+    this.name = "RuntimeModelNotFoundError";
+  }
+}
+
+/** The Agent's model provider setting cannot be used: missing, unconfigured, or not matching the
+ * selected model. */
+export class ModelProviderSettingError extends Error {
+  readonly code = "model_provider_not_configured";
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ModelProviderSettingError";
+  }
+}
+
 export class AgentProcessCleanupError extends Error {
   constructor() {
     super("code agent process tree did not exit");

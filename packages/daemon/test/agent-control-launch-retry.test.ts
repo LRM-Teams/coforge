@@ -10,6 +10,7 @@ import type {
   SessionIdentity,
 } from "@lrm/coforge-sdk/internal";
 import { LAUNCH_FAILURE_MAX_ATTEMPTS } from "#src/agent-runtime/launch-failure-backoff";
+import { RuntimeModelNotFoundError } from "#src/code-agent/contract";
 
 /** A scheduler that only records what `AgentControl` asked for, so a test drives every retry
  * itself instead of sleeping through real cooldowns. */
@@ -158,8 +159,10 @@ test("consecutive failures back off 1s, 2s, 4s... 30s and then report launch_fai
   expect(h.record()?.lastResult?.phase).toBe("failed");
 });
 
-test("the terminal launch-failed warning carries the classified launch trace", async () => {
-  const classified = Object.assign(new Error("Pi model not found: gpt-5"), {
+test("the launch-failed warnings carry the typed reason, the cause, and the SDK trace", async () => {
+  // What the Pi provider throws for a missing model: the typed launch error with the SDK's
+  // classified error as its cause.
+  const sdkError = Object.assign(new Error("Pi model not found: gpt-5"), {
     name: "PiLaunchError",
     policyCode: "PI_LAUNCH_MODEL_MISSING",
     trace: {
@@ -170,10 +173,11 @@ test("the terminal launch-failed warning carries the classified launch trace", a
       modelPresent: false,
     },
   });
+  const typed = new RuntimeModelNotFoundError("gpt-5", { cause: sdkError });
 
   const { records } = await captureLogs(async () => {
     const h = harness(async () => {
-      throw classified;
+      throw typed;
     });
     await h.control.start(startIntent);
     for (let attempt = 1; attempt < LAUNCH_FAILURE_MAX_ATTEMPTS; attempt++) {
@@ -188,7 +192,9 @@ test("the terminal launch-failed warning carries the classified launch trace", a
   expect(terminal?.properties).toMatchObject({
     agent_id: "a",
     attempts: LAUNCH_FAILURE_MAX_ATTEMPTS,
-    error_code: "PiLaunchError",
+    error_code: "model_not_found",
+    failure_reason: "model_not_found",
+    error_message: "Model gpt-5 is not available to this runtime",
     launchCategory: "PI_LAUNCH_MODEL_MISSING",
     provider: "ollama-cloud",
     providerPresent: true,
@@ -202,8 +208,26 @@ test("the terminal launch-failed warning carries the classified launch trace", a
     (record) => record.properties.event === "agent_control:launch_retry_scheduled",
   );
   expect(retry?.properties).toMatchObject({
+    failure_reason: "model_not_found",
     launchCategory: "PI_LAUNCH_MODEL_MISSING",
     modelPresent: false,
+  });
+});
+
+test("a launch-failed warning logs the cause with credentials redacted", async () => {
+  const { records } = await captureLogs(async () => {
+    const h = harness(async () => {
+      throw new Error("spawn failed with api_key=sk-private-value");
+    });
+    await h.control.start(startIntent);
+    return h;
+  });
+  const retry = records.find(
+    (record) => record.properties.event === "agent_control:launch_retry_scheduled",
+  );
+  expect(retry?.properties).toMatchObject({
+    failure_reason: "runtime_spawn_failed",
+    error_message: "spawn failed with api_key=[REDACTED]",
   });
 });
 

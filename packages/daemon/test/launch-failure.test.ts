@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { launchCategoryText, launchFailureTrace } from "#src/agent-runtime/launch-failure";
+import { launchFailureTrace } from "#src/agent-runtime/launch-failure";
 
 test("launchFailureTrace extracts classified launch evidence from a PiLaunchError", () => {
   const error = {
@@ -44,20 +44,4 @@ test("launchFailureTrace keeps only exactly-typed members", () => {
       trace: { provider: "x", providerPresent: "yes" },
     }).launchCategory,
   ).toBeUndefined();
-});
-
-test("launchCategoryText maps policy codes to safe human phrases", () => {
-  expect(launchCategoryText("PI_LAUNCH_TIMEOUT")).toBe("model provider refresh timed out");
-  expect(launchCategoryText("PI_LAUNCH_PROVIDER_MISSING")).toBe(
-    "model provider is not configured in the local model catalog",
-  );
-  expect(launchCategoryText("PI_LAUNCH_PROVIDER_UNCONFIGURED")).toBe(
-    "model provider has no configured credentials",
-  );
-  expect(launchCategoryText("PI_LAUNCH_MODEL_MISSING")).toBe(
-    "the selected model is not available in the local model catalog",
-  );
-  expect(launchCategoryText("PI_LAUNCH_SPAWN_FAILED")).toBe("the model runtime failed to start");
-  expect(launchCategoryText(undefined)).toBeUndefined();
-  expect(launchCategoryText("UNKNOWN")).toBeUndefined();
 });

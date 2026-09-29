@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 
 import { ProcessTreeOwner } from "#src/platform/process-tree";
+import { RuntimeExecutableNotFoundError } from "#src/platform/runtime-executable-not-found";
 
 test("spawn errors without an OS process fail synchronously", () => {
   const owner = new ProcessTreeOwner();
@@ -10,6 +11,31 @@ test("spawn errors without an OS process fail synchronously", () => {
       PATH: globalThis.process.env.PATH ?? "",
     }),
   ).toThrow("Executable not found");
+});
+
+test("a runtime executable missing from the Agent's PATH fails as RuntimeExecutableNotFoundError", () => {
+  const executable = `coforge-missing-${crypto.randomUUID()}`;
+  let thrown: unknown;
+  try {
+    new ProcessTreeOwner().spawn([executable], tmpdir(), { PATH: "/usr/bin:/bin" });
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toBeInstanceOf(RuntimeExecutableNotFoundError);
+  expect(thrown).toMatchObject({ code: "runtime_not_found", executable });
+});
+
+test("a missing working directory stays a plain ENOENT, not a missing runtime", () => {
+  let thrown: unknown;
+  try {
+    new ProcessTreeOwner().spawn(["sh", "-c", "true"], "/nonexistent-coforge-cwd", {
+      PATH: "/usr/bin:/bin",
+    });
+  } catch (error) {
+    thrown = error;
+  }
+  expect(thrown).toMatchObject({ code: "ENOENT" });
+  expect(thrown).not.toBeInstanceOf(RuntimeExecutableNotFoundError);
 });
 
 test("Windows launch fails closed when Job Object creation is unavailable", () => {

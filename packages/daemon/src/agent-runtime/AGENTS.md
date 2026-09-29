@@ -50,6 +50,25 @@ Rules for Agent lifecycle, control, Session state, and Activity in
   `session_missing` and `provider_replay_rejected`; `session_in_use` is a retry
   signal, not evidence that the session is gone.
 
+## Launch failures (`launch-failure.ts`)
+
+- A launch that does not start reports `agent:status(inactive)` and one
+  `runtime_error` Activity whose `runtimeError` is class `LauncherError` with
+  a `LAUNCH_FAILURE_REASON` as `errorReason`, and whose `detail` says what
+  happened and the next step (a runnable `coforge-computer` command or the
+  Agent setting to change).
+- Decide the reason only from `hasErrorCode` against a typed launch error:
+  an Error subclass whose `readonly code` is its reason, thrown where the
+  cause is known (`AgentAuthorizationError` here, the spawner's
+  `RuntimeExecutableNotFoundError`, the errors in `code-agent/contract.ts`).
+  Never match message text or read provider-specific errors; anything else is
+  `runtime_spawn_failed`. Add a reason only together with its thrower.
+- Log every failed launch as `agent_runtime:launch_failed` with
+  `launchFailureLogFields` (reason, redacted message, SDK trace); the
+  Activity sends people to that log line.
+- The reason changes no retry: every managed Start keeps the same launch
+  attempts and backoff whatever the reason.
+
 ## Launch identity
 
 - `AgentRestartConfig` remembers, per Agent and only for that Agent's lifetime,

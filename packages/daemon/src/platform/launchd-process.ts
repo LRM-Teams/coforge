@@ -5,6 +5,7 @@ import type { Subprocess } from "bun";
 import { LaunchdJob, processGroupExists } from "./launchd-job";
 import { ProcessChannel } from "./process-channel";
 import type { OwnedProcessTree, ProcessTreeSpawner } from "./process-tree";
+import { RuntimeExecutableNotFoundError } from "./runtime-executable-not-found";
 
 /** Provider-neutral stdio over a private socket to an OS-owned job. */
 export class LaunchdProcessOwner implements ProcessTreeSpawner {
@@ -16,7 +17,7 @@ export class LaunchdProcessOwner implements ProcessTreeSpawner {
     environment: Readonly<Record<string, string>>,
   ): OwnedProcessTree {
     const executable = command[0] && Bun.which(command[0], { cwd, PATH: environment.PATH ?? "" });
-    if (!executable) throw new Error("Executable not found");
+    if (!executable) throw new RuntimeExecutableNotFoundError(command[0] ?? "");
     const root = mkdtempSync("/private/tmp/cf-agent-");
     chmodSync(root, 0o700);
     const socketPath = join(root, "stdio.sock");
