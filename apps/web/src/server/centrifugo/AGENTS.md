@@ -17,3 +17,10 @@ mechanics only; domain rules stay in the owning `src/server/` module.
 - `agent-context-cache.server.ts` stores the last validated report per Agent
   with the usage cache's retention and freshness rules.
   `createAgentContextScanResultMethod` validates report bytes at the boundary.
+- The connect proxy refuses a Daemon for good only with an HTTP 200
+  `disconnect` in Centrifugo's terminal 4500-4999 range, using the SDK's
+  `DAEMON_CONNECT_REJECTION_CODES`: `computer_unlinked` for a valid key whose
+  Computer is no longer linked to its Workspace, `workspace_deleted` for an
+  unknown key whose claimed Workspace id no longer exists. Every other failure
+  stays a non-200 answer, which Centrifugo turns into a temporary error the
+  Daemon retries.

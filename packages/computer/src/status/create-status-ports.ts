@@ -10,6 +10,7 @@ import {
   workspaceStateDirectory,
   WorkspaceHealthJournal,
 } from "@lrm/coforge-daemon";
+import type { FileComputerConfig } from "#src/local-config";
 import { resolveDaemonSocketPath } from "#src/paths";
 import {
   listDarwinLeftoverUpgradeJobs,
@@ -38,6 +39,8 @@ export type CreateStatusPortsInput = {
   stateDirectory: string;
   releaseFeedUrl: string;
   serverUrl: string;
+  /** The local Workspace registrations, read only for each binding's slug. */
+  registrations: Pick<FileComputerConfig, "listRegistrations">;
   environment?: NodeJS.ProcessEnv;
 };
 
@@ -151,6 +154,14 @@ export function createStatusPorts(input: CreateStatusPortsInput): StatusPorts {
       input.platform === "darwin"
         ? { supported: true, list: listDarwinLeftoverUpgradeJobs }
         : { supported: false, list: async () => [] },
+    async readWorkspaceSlugs() {
+      try {
+        const registrations = await input.registrations.listRegistrations();
+        return new Map(registrations.map((registration) => [registration.id, registration.slug]));
+      } catch {
+        return new Map();
+      }
+    },
     async readWorkspaceHealth(workspaceId) {
       try {
         const directory = workspaceStateDirectory(input.stateDirectory, workspaceId);

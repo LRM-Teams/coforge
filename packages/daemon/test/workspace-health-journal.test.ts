@@ -124,3 +124,36 @@ test("workspaceHealthJournalPath is stable for a given Workspace state directory
   const path = workspaceHealthJournalPath("/state/workspaces/abc");
   expect(path).toBe(join("/state/workspaces/abc", "health.json"));
 });
+
+test("markParked parks the Workspace with its stable reason, ahead of any other latch", async () => {
+  const path = join(directory, "health.json");
+  const journal = journalAt(path, () => Date.parse("2026-09-29T08:00:00.000Z"));
+  await journal.markTerminal("stuck");
+  await journal.markParked("workspace_deleted");
+
+  expect(await journalAt(path).state()).toEqual({
+    status: "parked",
+    reason: "workspace_deleted",
+    since: "2026-09-29T08:00:00.000Z",
+  });
+});
+
+test("an operator start's clear keeps a parked Workspace parked", async () => {
+  const path = join(directory, "health.json");
+  const journal = journalAt(path);
+  await journal.markParked("computer_unlinked");
+
+  await journal.clear();
+
+  expect((await journal.state()).status).toBe("parked");
+});
+
+test("clearParked, for a rebind, returns a parked Workspace to ok", async () => {
+  const path = join(directory, "health.json");
+  const journal = journalAt(path);
+  await journal.markParked("computer_unlinked");
+
+  await journal.clearParked();
+
+  expect(await journal.state()).toEqual({ status: "ok" });
+});

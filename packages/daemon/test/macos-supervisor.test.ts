@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
+import { DaemonCommandRejectedError, LocalDaemonLauncher } from "#src/daemon-host/launcher";
 import {
   WorkspaceHealthJournal,
   workspaceHealthJournalPath,
@@ -306,4 +306,115 @@ test.skipIf(process.platform !== "darwin")(
     }
   },
   60_000,
+);
+
+test.skipIf(process.platform !== "darwin")(
+  "a parked Workspace stays down through a crash and a Coordinator restart while the other Workspace runs, until setup configures it again",
+  async () => {
+    const root = await mkdtemp("/private/tmp/cf-mac-parked-");
+    const serverUrl = "http://127.0.0.1:1";
+    const executable = join(root, "computer");
+    const build = Bun.spawn(
+      [
+        process.execPath,
+        join(import.meta.dir, "fixtures/build-macos-computer.ts"),
+        executable,
+        serverUrl,
+      ],
+      { stdout: "inherit", stderr: "inherit" },
+    );
+    expect(await build.exited).toBe(0);
+    const socketPath = join(root, "daemon.sock");
+    const spawn = () =>
+      Bun.spawn([executable, "__daemon", "--socket", socketPath, "--state-directory", root], {
+        stdout: "ignore",
+        stderr: "inherit",
+      });
+    let coordinator = spawn();
+    const client = new LocalDaemonLauncher({
+      executablePath: executable,
+      socketPath,
+      stateDirectory: root,
+      serverUrl,
+    });
+    const configure = (workspaceId: string) =>
+      client.ensureStarted({
+        workspaceId,
+        computerId: "fixture-computer",
+        workspaceRoot: join(root, `data-${workspaceId}`),
+        daemonApiKey: "fixture-only",
+        serverHttpUrl: serverUrl,
+      });
+    const processIds = async () =>
+      Object.fromEntries(
+        (await client.control("snapshot")).map((runtime) => [
+          runtime.workspaceId,
+          runtime.processId,
+        ]),
+      );
+    try {
+      await client.ensureRunning();
+      await configure("gone");
+      await configure("live");
+      const before = await processIds();
+
+      // The cloud refused "gone" for good: park it the way the Workspace process does, then kill
+      // the running child so launchd respawns it. The replacement reads the park, logs it, and
+      // exits 0, which ends launchd's KeepAlive for that job.
+      const journal = new WorkspaceHealthJournal(
+        workspaceHealthJournalPath(workspaceStateDirectory(root, "gone")),
+      );
+      await journal.markParked("workspace_deleted");
+      const logPath = join(workspaceStateDirectory(root, "gone"), "logs", "daemon", "daemon.jsonl");
+      const parkedExits = async () =>
+        (
+          await Bun.file(logPath)
+            .text()
+            .catch(() => "")
+        )
+          .split("\n")
+          .filter((line) => line.includes('"daemon:workspace_parked"')).length;
+      process.kill(before.gone!, "SIGKILL");
+      const deadline = Date.now() + 20_000;
+      while ((await parkedExits()) === 0) {
+        if (Date.now() >= deadline) throw new Error("Replacement Workspace never parked");
+        await Bun.sleep(25);
+      }
+
+      coordinator.kill("SIGKILL");
+      await coordinator.exited;
+      coordinator = spawn();
+      await client.ensureRunning();
+      expect(await processIds()).toMatchObject({ gone: 0, live: before.live });
+
+      // start and restart refuse the parked Workspace with its stable reason on the wire and never
+      // lift the park; the unscoped start still reaches the other Workspace.
+      for (const operation of ["start", "restart"] as const) {
+        const refusal = await client.control(operation, "gone").then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        expect(refusal).toBeInstanceOf(DaemonCommandRejectedError);
+        expect(refusal).toMatchObject({ code: "workspace_deleted" });
+        expect((refusal as Error).message).toContain("Workspace gone was deleted in CoForge");
+      }
+      await expect(client.control("start")).rejects.toMatchObject({ code: "workspace_deleted" });
+      expect(await processIds()).toMatchObject({ gone: 0, live: before.live });
+      expect(await journal.state()).toMatchObject({
+        status: "parked",
+        reason: "workspace_deleted",
+      });
+
+      // Setup attaching the Workspace again is what lifts the park.
+      await configure("gone");
+      expect((await processIds()).gone).toBeGreaterThan(0);
+      expect(await journal.state()).toEqual({ status: "ok" });
+    } finally {
+      await client.control("stop").catch(() => {});
+      coordinator.kill("SIGTERM");
+      await coordinator.exited;
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  90_000,
 );

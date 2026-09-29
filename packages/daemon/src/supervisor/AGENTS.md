@@ -28,6 +28,12 @@ Rules for the machine Coordinator in `src/supervisor/`. They extend
 - Recovery adopts an invocation the OS manager already replaced only through
   the same readiness validation as a fresh start.
 - An explicit disabled state always wins over automatic restart or recovery.
+- A Workspace the cloud refused for good (`workspace_deleted`, `computer_unlinked`)
+  is parked in its health journal. Recovery, `start`, and `restart` never start
+  it and never clear the park; an unscoped command still starts the other
+  bindings and then refuses with the stable reason as `error_code`. Only
+  `configure` (setup attaching it again) lifts the park. Parking never deletes
+  local config or uninstalls the service.
 - systemd Workspace units restart on failure after cgroup cleanup.
 - On macOS, `launchd-workspace-instance.ts` implements the instance seam on top
   of `platform/launchd-job.ts`. Workspace startup reconciles only its own Agent

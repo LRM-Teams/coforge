@@ -7997,6 +7997,65 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("a connection the cloud refuses for good stops the running Agents, then reports why", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let refuse: ((reason: "workspace_deleted") => void) | undefined;
+    const events: string[] = [];
+    const reported = Promise.withResolvers<string>();
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return {
+            ...sessionSpy(),
+            async dispose() {
+              events.push("agent stopped");
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          onConnectionRefused(callback) {
+            refuse = callback;
+            return () => {
+              refuse = undefined;
+            };
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+        }),
+      },
+      undefined,
+      emptyCodeAgentDiscovery,
+      undefined,
+      {
+        connectionRefused(reason) {
+          events.push(`refused: ${reason}`);
+          reported.resolve(reason);
+        },
+      },
+    );
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+
+      refuse?.("workspace_deleted");
+
+      expect(await reported.promise).toBe("workspace_deleted");
+      expect(events).toEqual(["agent stopped", "refused: workspace_deleted"]);
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test("a reconnect pass never revokes the key a running Agent is still using", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

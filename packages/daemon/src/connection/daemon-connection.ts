@@ -27,7 +27,11 @@ import {
   forwardOpenVikingRead,
   type OpenVikingAgentProxyCommand,
 } from "../openviking-read-proxy";
+import { DaemonConnectionRefusedError } from "./daemon-connection-refused-error";
 import {
+  daemonConnectRejectionReason,
+  type DaemonConnectData,
+  type DaemonConnectRejectionReason,
   decodeAgentWorkspaceResetRequest,
   encodeAgentControlResult,
   encodeAgentSessionReport,
@@ -290,6 +294,9 @@ export interface DaemonConnectionClient {
   sendUpgradeResult?(result: ComputerUpgradeResult): Promise<boolean>;
   stop(): Promise<void>;
   onReconnect?(callback: () => void): () => void;
+  /** The cloud refused an already-running connection for good; the connection no longer
+   * reconnects. A refusal while `start` is connecting rejects `start` instead. */
+  onConnectionRefused?(callback: (reason: DaemonConnectRejectionReason) => void): () => void;
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
   onAgentStop?(callback: (intent: AgentStopIntent) => void): () => void;
   onAgentActivityProbe?(callback: (probe: AgentActivityProbe) => void): () => void;
@@ -369,7 +376,7 @@ export interface DaemonConnectionClientFactory {
 
 export interface CentrifugeWorkspaceClient {
   on(event: "connected", callback: () => void): void;
-  on(event: "disconnected", callback: () => void): void;
+  on(event: "disconnected", callback: (context?: { code: number; reason: string }) => void): void;
   on(event: "error", callback: (error: unknown) => void): void;
   on(
     event: "publication",
@@ -448,6 +455,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     (request: AgentContextScanRequest) => Promise<void>
   >();
   readonly #reconnect = new ListenerSlot<() => void>();
+  readonly #connectionRefused = new ListenerSlot<(reason: DaemonConnectRejectionReason) => void>();
   /** Publications received between a ready request and its acknowledgement, in arrival order. */
   #readyPublications: Array<() => void> | undefined;
   #readyRequestFactory: (() => DaemonRuntimeReadyRequest) | undefined;
@@ -513,10 +521,14 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#token = _token;
     this.#serverHttpUrl = config.serverHttpUrl ?? "";
     if (this.#connected) return;
+    const connectData: DaemonConnectData = {
+      daemonApiKey: _token,
+      workspaceId: config.workspaceId,
+    };
     const client = this.clientFactory(
       this.endpoint,
       "",
-      utf8Encoder.encode(JSON.stringify({ daemonApiKey: _token })),
+      utf8Encoder.encode(JSON.stringify(connectData)),
     );
     this.#client = client;
     const daemonChannel = `daemon:${config.workspaceId}:${config.computerId}`;
@@ -528,18 +540,35 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#markInbound();
       this.#handleAgentPublication(data, config);
     });
-    client.on("disconnected", () => {
+    /** Set while `start` is still connecting; a refusal then rejects `start` itself. */
+    let refuseStart: ((error: DaemonConnectionRefusedError) => void) | undefined;
+    client.on("disconnected", (context) => {
       if (client !== this.#client) return;
       this.#connected = false;
       this.#cancelReadyRecovery();
-      logger.warning("Daemon cloud connection disconnected", {
-        event: "daemon_connection:disconnected",
+      const refusal = context ? daemonConnectRejectionReason(context) : undefined;
+      if (!refusal) {
+        logger.warning("Daemon cloud connection disconnected", {
+          event: "daemon_connection:disconnected",
+          ...scope,
+        });
+        return;
+      }
+      // The client does not reconnect after a terminal disconnect code.
+      logger.error("The cloud refused this Workspace connection for good", {
+        event: "daemon_connection:refused",
         ...scope,
+        reason: refusal,
+        outcome: "refused",
       });
+      if (refuseStart) refuseStart(new DaemonConnectionRefusedError(refusal));
+      else this.#connectionRefused.current?.(refusal);
     });
     await new Promise<void>((resolve, reject) => {
+      refuseStart = reject;
       client.on("connected", () => {
         if (client !== this.#client) return;
+        refuseStart = undefined;
         const reconnect = this.#hasConnected;
         this.#connected = true;
         this.#hasConnected = true;
@@ -641,6 +670,10 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   onReconnect(callback: () => void): () => void {
     return this.#reconnect.set(callback);
+  }
+
+  onConnectionRefused(callback: (reason: DaemonConnectRejectionReason) => void): () => void {
+    return this.#connectionRefused.set(callback);
   }
 
   sendAgentActivity(activity: AgentActivity): void {
@@ -1952,6 +1985,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#agentMessage,
       this.#reminderSync,
       this.#reconnect,
+      this.#connectionRefused,
     ])
       slot.clear();
     this.#readyPublications = undefined;

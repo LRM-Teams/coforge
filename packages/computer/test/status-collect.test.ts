@@ -42,6 +42,7 @@ function fakePorts(overrides: Partial<StatusPorts> = {}): StatusPorts {
     readSupervisorLockOwner: async () => 4821,
     listLeftoverUpgradeJobs: { supported: true, list: async () => [] },
     readWorkspaceHealth: async () => ({ status: "ok" }),
+    readWorkspaceSlugs: async () => new Map([["ws-1", "acme"]]),
     ...overrides,
   };
 }
@@ -70,6 +71,7 @@ test("healthy machine reports every section as readable and reachable", async ()
     workspaces: [
       {
         workspaceId: "ws-1",
+        workspaceSlug: "acme",
         serverHttpUrl: "https://coforge.cn",
         enabled: true,
         running: true,
@@ -140,6 +142,7 @@ test("Coordinator missing: not loaded, no PID, RPC unreachable", async () => {
     workspaces: [
       {
         workspaceId: "ws-1",
+        workspaceSlug: "acme",
         serverHttpUrl: "https://coforge.cn",
         enabled: true,
         running: false,
@@ -368,6 +371,33 @@ test("a degraded Workspace's health is surfaced with its reason, crash count, an
           reason: "this Workspace exited unexpectedly 3 times within 60s",
           crashCount: 3,
           since: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    ],
+  });
+});
+
+test("a parked Workspace's health is surfaced with its stable reason and the slug setup needs", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      readWorkspaceHealth: async () => ({
+        status: "parked",
+        reason: "computer_unlinked",
+        since: "2026-09-29T08:00:00.000Z",
+      }),
+    }),
+  );
+
+  expect(report.workspaces).toMatchObject({
+    readable: true,
+    workspaces: [
+      {
+        workspaceId: "ws-1",
+        workspaceSlug: "acme",
+        health: {
+          status: "parked",
+          reason: "computer_unlinked",
+          since: "2026-09-29T08:00:00.000Z",
         },
       },
     ],

@@ -58,6 +58,7 @@ import type {
   DaemonConnectionClientFactory,
 } from "#src/connection/daemon-connection";
 import {
+  type DaemonConnectRejectionReason,
   WORKSPACE_PROTOCOL_MAJOR,
   AGENT_ACTIVITY_DETAIL_KIND,
   truncateCodePoints,
@@ -600,6 +601,9 @@ export class DaemonRuntime {
       refreshUpgradeResults?(): Promise<RecoveredUpgradeResult[]>;
       /** Called once the server has accepted a reported result. */
       acknowledgeUpgradeResult?(requestId: string): Promise<void>;
+      /** The cloud refused this Workspace's running connection for good. Called after every
+       * Agent was stopped; the Workspace process then parks itself. */
+      connectionRefused?(reason: DaemonConnectRejectionReason): void;
     } = {},
     private readonly computerVersion?: string,
   ) {
@@ -1104,6 +1108,19 @@ export class DaemonRuntime {
             ),
           ),
         ),
+      );
+      this.#subscribe(
+        this.#transport.onConnectionRefused?.((reason) => {
+          void this.stop()
+            .catch((error) =>
+              logger.warn("Stopping Agents after the cloud refused the connection failed", {
+                event: "daemon_runtime:refused_stop_failed",
+                reason,
+                error_code: error instanceof Error ? error.name : "UnknownError",
+              }),
+            )
+            .then(() => this.lifecycle.connectionRefused?.(reason));
+        }),
       );
       this.#subscribe(
         this.#transport.onReminderSync?.((sync) => {

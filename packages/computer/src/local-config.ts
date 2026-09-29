@@ -77,14 +77,24 @@ export class FileComputerConfig implements ComputerConfig {
   }
 
   async loadRegistration(selector?: string): Promise<RegisteredWorkspaceConnection | null> {
+    const matches = (await this.listRegistrations()).filter(
+      (registration) => !selector || registration.id === selector || registration.slug === selector,
+    );
+    if (matches.length > 1)
+      throw new Error("multiple Workspace registrations match; specify an exact Workspace id");
+    return matches[0] ?? null;
+  }
+
+  /** Every locally saved Workspace registration. */
+  async listRegistrations(): Promise<RegisteredWorkspaceConnection[]> {
     let directories: string[];
     try {
       directories = await readdir(join(this.directory, "workspaces"));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     }
-    const matches: RegisteredWorkspaceConnection[] = [];
+    const registrations: RegisteredWorkspaceConnection[] = [];
     for (const directory of directories) {
       const path = join(this.directory, "workspaces", directory, "registration.json");
       if (!(await Bun.file(path).exists())) continue;
@@ -95,16 +105,13 @@ export class FileComputerConfig implements ComputerConfig {
         typeof value.computer_id !== "string"
       )
         throw new Error("invalid Workspace registration");
-      if (!selector || value.workspace_id === selector || value.workspace_slug === selector)
-        matches.push({
-          id: value.workspace_id,
-          slug: value.workspace_slug,
-          computerId: value.computer_id,
-        });
+      registrations.push({
+        id: value.workspace_id,
+        slug: value.workspace_slug,
+        computerId: value.computer_id,
+      });
     }
-    if (matches.length > 1)
-      throw new Error("multiple Workspace registrations match; specify an exact Workspace id");
-    return matches[0] ?? null;
+    return registrations;
   }
 
   async discardRegistration(registration: RegisteredWorkspaceConnection): Promise<void> {
