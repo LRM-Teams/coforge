@@ -57,7 +57,7 @@ const FINISHED_STATUS: Readonly<Record<string, { label: string; recentTone?: Ton
 };
 
 /** Working and thinking are the busy tones: their dots pulse. */
-export function isBusyTone(tone: Tone): boolean {
+export function isBusyTone(tone: string): boolean {
   return tone === "working" || tone === "thinking";
 }
 
@@ -341,7 +341,7 @@ export function agentDisplay(display?: AgentDisplaySnapshot, options?: { stopped
     label,
     isOnline: kind !== "offline",
     tone: kind === "online" ? ("idle" as const) : kind,
-    pulse: kind === "working" || kind === "thinking",
+    pulse: isBusyTone(kind),
     ...(options?.stopped === true && kind === "offline"
       ? { statusDetail: STOPPED_STATUS_DETAIL }
       : {}),

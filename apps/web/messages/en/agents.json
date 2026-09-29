@@ -11,7 +11,7 @@
   "agent_env_add": "Add variable",
   "agent_env_save_failed": "Could not save. Try again.",
   "agents_loading": "Loading Agents…",
-  "agent_avatar_recent": "Recent activity",
+  "agent_card_recent_activity": "Recent activity",
   "agent_avatar_working": "Working",
   "agent_card_unavailable": "Profile unavailable",
   "agent_status_unknown": "Status unavailable",

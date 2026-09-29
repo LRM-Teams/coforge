@@ -11,7 +11,7 @@
   "agent_env_add": "添加变量",
   "agent_env_save_failed": "保存失败，请重试。",
   "agents_loading": "正在加载智能体…",
-  "agent_avatar_recent": "最近活动",
+  "agent_card_recent_activity": "最近活动",
   "agent_avatar_working": "正在工作",
   "agent_card_unavailable": "资料不可用",
   "agent_status_unknown": "状态不可用",
