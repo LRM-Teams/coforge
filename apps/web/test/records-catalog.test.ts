@@ -475,15 +475,13 @@ test("createTemplate with scheduleEnabled writes applied and ensures a format", 
   });
 });
 
-test("createTemplate denies a regular Workspace member", async () => {
+test("createTemplate allows a regular Workspace member during MVP rollout", async () => {
   const db = {
     workspaceMembership: {
       findUnique: async () => ({ role: "member" }),
     },
     weeklyReportTemplate: {
-      create: async () => {
-        throw new Error("should not create");
-      },
+      create: async () => ({ id: "member-settings" }),
     },
   } as unknown as PrismaClient;
 
@@ -500,7 +498,7 @@ test("createTemplate denies a regular Workspace member", async () => {
       allMembers: true,
       recipientUserIds: [],
     }),
-  ).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+  ).resolves.toEqual({ id: "member-settings" });
 });
 
 test("createTemplate with scheduleEnabled false stays inactive", async () => {

@@ -110,13 +110,9 @@ async function requireMembership(db: Db, workspaceId: string, userId: string) {
   return row;
 }
 
-/** Only Workspace owners and admins may configure recurring weekly reports. */
+/** Weekly report configuration is intentionally open to Workspace members during MVP rollout. */
 async function requireWeeklyReportLeader(db: Db, workspaceId: string, userId: string) {
-  const membership = await requireMembership(db, workspaceId, userId);
-  if (membership.role !== "owner" && membership.role !== "admin") {
-    throw new AppError("ACCESS_DENIED");
-  }
-  return membership;
+  return requireMembership(db, workspaceId, userId);
 }
 
 type TemplateInput = {
@@ -491,7 +487,7 @@ export class RecordCatalog {
     return {
       actorUserId: input.userId,
       actorRole: membership.role,
-      canManageWeeklyReports: membership.role === "owner" || membership.role === "admin",
+      canManageWeeklyReports: true,
       actorDisplayName: me?.displayName ?? me?.username ?? "",
       actorAvatarUrl: me
         ? workspaceUserAvatarUrl(input.workspaceId, me.id, me.avatarObjectKey)
@@ -2700,6 +2696,61 @@ export class RecordCatalog {
           weeks: Object.fromEntries(byWeek),
         };
       }),
+    };
+  }
+
+  async loadWeeklyReportDashboard(input: { workspaceId: string; userId: string; limit?: number }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const members = await this.db.workspaceMembership.findMany({
+      where: { workspaceId: input.workspaceId },
+      include: { user: { select: { id: true, username: true, displayName: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+    const cycles = await this.db.weeklyReportCycle.findMany({
+      where: { workspaceId: input.workspaceId },
+      orderBy: [{ year: "desc" }, { week: "desc" }],
+      take: Math.min(Math.max(input.limit ?? 6, 2), 12),
+      include: {
+        reports: {
+          where: { kind: "member", status: { in: ["submitted", "shared"] } },
+          select: {
+            id: true,
+            authorId: true,
+            content: true,
+            status: true,
+            submittedAt: true,
+          },
+        },
+      },
+    });
+    const weeks = cycles.map((cycle) => ({
+      year: cycle.year,
+      week: cycle.week,
+      title: cycle.title,
+      submitted: cycle.reports.length,
+      total: members.length,
+      reports: cycle.reports.map((report) => {
+        const author = members.find((member) => member.user.id === report.authorId)?.user;
+        const content = asReportContent(report.content);
+        const summary = Object.values(content.tabs ?? {})
+          .map((tab) => tab.markdown.trim())
+          .find(Boolean);
+        return {
+          id: report.id,
+          authorId: report.authorId,
+          displayName: author?.displayName ?? author?.username ?? "Unknown member",
+          summary: summary ? summary.slice(0, 280) : "",
+          status: report.status,
+          submittedAt: report.submittedAt?.toISOString() ?? null,
+        };
+      }),
+    }));
+    return {
+      weeks,
+      members: members.map((member) => ({
+        userId: member.user.id,
+        displayName: member.user.displayName ?? member.user.username,
+      })),
     };
   }
 
