@@ -1,8 +1,10 @@
 /**
- * How many Message delivery notices a held buffer keeps. Past it a notice is dropped, which is
- * safe: a notice is ACKed only once the runtime handles it, so a dropped one stays pending and the
- * server publishes it again when this daemon's ready is accepted (`readPendingAgentDeliveries`
- * for a running Agent), or its Agent recovers it from the read boundary on its next start.
+ * How many Message delivery notices a held buffer keeps before it keeps only each Agent's latest.
+ * A notice wakes its Agent, and what the Agent then reads comes from the cloud's read boundary,
+ * so each Agent's latest notice is always kept. A dropped notice is also never ACKed, so
+ * it stays pending: the server republishes pending deliveries on the next accepted ready
+ * (`readPendingAgentDeliveries`, which it runs before answering ready, so they arrive while ready
+ * is still held), and an Agent that is not running recovers them from the read boundary.
  */
 export const HELD_NOTICE_CAP = 500;
 
@@ -24,9 +26,7 @@ export class HeldPublications<Item> {
    * replacing the earlier one; it takes the newer arrival's place. A start and a stop are kept
    * apart, so a restart (stop, then start) survives. */
   latestFor(agentId: string, kind: "start" | "stop" | "probe", item: Item): void {
-    const key = `${agentId}:${kind}`;
-    this.#held.delete(key);
-    this.#held.set(key, item);
+    this.#replace(agentId, kind, item);
   }
 
   /** Holds an item nothing later supersedes. */
@@ -34,14 +34,27 @@ export class HeldPublications<Item> {
     this.#held.set(`#${this.#next++}`, item);
   }
 
-  /** Holds a delivery notice, or drops and counts it past the cap. */
-  notice(item: Item): void {
-    if (this.#notices >= this.noticeCap) {
-      this.#dropped += 1;
+  /**
+   * Holds a delivery notice. Past the cap, each Agent keeps only its latest notice: a newer one
+   * replaces the Agent's earlier over-cap notice, which is dropped and counted. So one Agent's
+   * backlog can never crowd out another Agent's only notice.
+   */
+  notice(agentId: string, item: Item): void {
+    if (this.#notices < this.noticeCap) {
+      this.#notices += 1;
+      this.add(item);
       return;
     }
-    this.#notices += 1;
-    this.add(item);
+    if (this.#replace(agentId, "notice", item)) this.#dropped += 1;
+  }
+
+  /** Holds `item` as the Agent's latest of `kind`, in the newer arrival's place; returns whether
+   * it replaced an earlier one. */
+  #replace(agentId: string, kind: string, item: Item): boolean {
+    const key = `${agentId}:${kind}`;
+    const replaced = this.#held.delete(key);
+    this.#held.set(key, item);
+    return replaced;
   }
 
   /** Everything held, in arrival order, and how many notices were dropped; empties the buffer. */

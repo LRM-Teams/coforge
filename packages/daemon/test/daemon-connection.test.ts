@@ -1261,6 +1261,33 @@ test("a connection that stayed up a minute after ready starts its next outage af
   expect(scheduled[2]!.delayMs).toBe(1_000);
 });
 
+test("a blip that reconnects on its own after a stable day, then a quick drop, starts a new outage", async () => {
+  const fake = fakeClient();
+  let connectCalls = 0;
+  fake.client.connect = () => {
+    connectCalls += 1;
+    fake.connect();
+    if (connectCalls === 1) fake.disconnect({ code: 3503, reason: "connection limit" });
+  };
+  const { transport, scheduled, clock } = manualConnection(fake);
+  await transport.start("secret", config);
+  scheduled[0]!.callback();
+  await transport.ready(readyRequest);
+
+  const { records } = await captureLogs(async () => {
+    clock.now += 86_400_000;
+    // The client reconnected by itself, no error on the way; then the new connection drops at once.
+    fake.connect();
+    fake.disconnect({ code: 3503, reason: "connection limit" });
+  });
+
+  expect(scheduled[1]!.delayMs).toBe(1_000);
+  expect(eventRecords(records, "daemon_connection:retry_scheduled")[0]).toMatchObject({
+    level: "warning",
+    properties: { attempt: 1, failing_for_ms: 0 },
+  });
+});
+
 test("a disconnect the daemon asked for itself is not resumed", async () => {
   const fake = fakeClient();
   const { transport, scheduled } = manualConnection(fake);
@@ -1528,7 +1555,7 @@ const stopIntent = (requestId: string, agentId: string) =>
     computerId: config.computerId,
     agentId,
   });
-const deliveryNotice = (sequence: number) =>
+const deliveryNotice = (sequence: number, agentId = "agent-1") =>
   encodeAgentMessageDelivery({
     protocolMajor: 1,
     requestId: `delivery-${sequence}`,
@@ -1537,7 +1564,7 @@ const deliveryNotice = (sequence: number) =>
     sequence,
     workspaceId: config.workspaceId,
     conversationId: "conversation-1",
-    agentId: "agent-1",
+    agentId,
     body: "hello",
     method: "agent:v1:message:deliver",
     target: "@alice",
@@ -1561,21 +1588,23 @@ test("while ready waits, only the latest start and the latest stop per Agent are
   expect(dispatched).toEqual(["stop-1@agent-1", "start-2@agent-1", "start-3@agent-2"]);
 });
 
-test("while ready waits, delivery notices past the cap are dropped and logged, not held", async () => {
+test("while ready waits, notices past the cap are dropped and logged, but every Agent keeps its latest", async () => {
   const { transport, publish, settle } = await heldReadyConnection();
-  const sequences: number[] = [];
-  transport.onAgentMessage((message) => sequences.push(message.sequence));
+  const delivered: string[] = [];
+  transport.onAgentMessage((message) => delivered.push(`${message.agentId}#${message.sequence}`));
 
   const { records } = await captureLogs(async () => {
     const ready = transport.ready(readyRequest);
-    for (let sequence = 1; sequence <= HELD_NOTICE_CAP + 2; sequence += 1)
+    // One Agent's backlog fills the cap; another Agent's only notice arrives after it.
+    for (let sequence = 1; sequence <= HELD_NOTICE_CAP + 3; sequence += 1)
       publish(deliveryNotice(sequence));
+    publish(deliveryNotice(1, "agent-2"));
     settle();
     await ready;
   });
 
-  expect(sequences).toHaveLength(HELD_NOTICE_CAP);
-  expect(sequences.at(-1)).toBe(HELD_NOTICE_CAP);
+  expect(delivered).toHaveLength(HELD_NOTICE_CAP + 2);
+  expect(delivered.slice(-2)).toEqual([`agent-1#${HELD_NOTICE_CAP + 3}`, "agent-2#1"]);
   expect(eventRecords(records, "daemon_ready:notices_dropped")[0]?.properties).toMatchObject({
     dropped: 2,
   });
@@ -1723,6 +1752,26 @@ test("a ready that keeps failing is the connection's reported failure until the 
   scheduled[0]!.callback();
   await ready;
   expect(transport.connectFailure()).toBeUndefined();
+});
+
+test("a connect failure after a failing ready replaces it as the reported failure", async () => {
+  const fake = fakeClient();
+  fake.client.rpc = async (method) => {
+    if (method === DAEMON_RUNTIME_READY_METHOD)
+      throw Object.assign(new Error("daemon ready failed at agent_recovery"), { code: 503 });
+    return new Uint8Array();
+  };
+  const { transport, scheduled } = manualConnection(fake);
+  await transport.start("secret", config);
+  void transport.ready(readyRequest).catch(() => {});
+  await scheduledRetries(scheduled, 1);
+  expect(transport.connectFailure()).toBe("ready failed: agent_recovery");
+
+  // The cloud became unreachable: that is what is wrong now.
+  fake.fail(transportError);
+
+  expect(transport.connectFailure()).toBe("transport error 2: transport closed");
+  await transport.stop();
 });
 
 test("a dropped connection does not restart the ready retry count", async () => {

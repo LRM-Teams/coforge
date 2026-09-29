@@ -29,17 +29,21 @@ Rules for the Workspace cloud connection in `src/connection/`. They extend
 - Failed attempts log `daemon_connection:retry_scheduled` (`retry_by` client
   or daemon) at warning; a run of them escalates to error, like ready retries.
 - An outage ends only once a connection proved stable: its ready accepted and
-  60 s up (`STABLE_CONNECTION_MS`). A connection dropped sooner continues the
-  outage (backoff, attempt count, escalation); a reconnect never restarts the
-  ready retry count either.
+  60 s up (`STABLE_CONNECTION_MS`), checked at the next failure or reconnect.
+  A connection dropped sooner continues the outage (backoff, attempt count,
+  escalation); a reconnect never restarts the ready retry count either.
 - `connectFailure()` is what status and the handshake report while the
-  Workspace is not recovered: a failing ready (`ready failed: <stage>`) first,
-  else the latest failed connect attempt since the connection last came up.
+  Workspace is not recovered: whichever failed last, the ready
+  (`ready failed: <stage>`) or a connect attempt since the connection last
+  came up.
 - Publications that arrive while a ready waits are held in
   `HeldPublications`: only the latest start and the latest stop per Agent
-  (so a restart survives), and at most `HELD_NOTICE_CAP` delivery notices.
-  Dropping a notice is safe because it is not ACKed: the server republishes
-  pending deliveries when ready is accepted.
+  (so a restart survives), and `HELD_NOTICE_CAP` delivery notices, past which
+  each Agent keeps only its latest (a notice wakes its Agent; what it reads
+  comes from the cloud's read boundary). The server republishes pending
+  deliveries while it handles ready, before it answers, so that replay lands
+  in this hold too. A dropped notice is never ACKed and stays pending for the
+  next accepted ready.
 - Every initial ready, reconnect ready, and ready retry obtains a fresh request
   and the current running Agent ID snapshot from the runtime. Never reuse a
   cached one.

@@ -8604,7 +8604,9 @@ describe("DaemonRuntime", () => {
         // the fixed "control_request_mismatch" message once the first has a startResult. Sent
         // once started: while held, a later start of the same Agent supersedes the earlier one.
         listener?.({ ...base, requestId: "start-2" });
-        while (!findFailure(arrived)) await new Promise((resolve) => setTimeout(resolve, 0));
+        const deadline = Date.now() + 5_000;
+        while (!findFailure(arrived) && Date.now() < deadline)
+          await new Promise((resolve) => setTimeout(resolve, 0));
       });
       const failure = findFailure(records);
       expect(failure?.properties).toMatchObject({
