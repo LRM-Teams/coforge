@@ -213,31 +213,33 @@ describe("PrismaDirectConversationRepository", () => {
     const db = {
       threadRead: { findMany: async () => [] },
       conversation: {
-        findUnique: async (input: object) => {
+        findUnique: async () => ({
+          members: [
+            {
+              id: "user-member",
+              userId: "user-1",
+              agentId: null,
+              user: { username: "alice" },
+              agent: null,
+            },
+            {
+              id: "agent-member",
+              userId: null,
+              agentId: "agent-1",
+              user: null,
+              agent: { id: "agent-1", name: "helper", displayName: "Helper" },
+            },
+          ],
+        }),
+      },
+      message: {
+        findMany: async (input: object) => {
           queries.push(input);
-          return {
-            members: [
-              {
-                id: "user-member",
-                userId: "user-1",
-                agentId: null,
-                user: { username: "alice" },
-                agent: null,
-              },
-              {
-                id: "agent-member",
-                userId: null,
-                agentId: "agent-1",
-                user: null,
-                agent: { id: "agent-1", name: "helper", displayName: "Helper" },
-              },
-            ],
-            messages: [
-              message("root-5", 5),
-              message("root-3", 3, [reply("reply-4", 4, "root-3")]),
-              message("root-1", 1, [reply("reply-2", 2, "root-1")]),
-            ],
-          };
+          return [
+            message("root-5", 5),
+            message("root-3", 3, [reply("reply-4", 4, "root-3")]),
+            message("root-1", 1, [reply("reply-2", 2, "root-1")]),
+          ];
         },
       },
     } as unknown as PrismaClient;
@@ -255,13 +257,9 @@ describe("PrismaDirectConversationRepository", () => {
     );
 
     expect(queries[0]).toMatchObject({
-      select: {
-        messages: {
-          where: { threadRootId: null, sequence: { lt: 6 } },
-          orderBy: { sequence: "desc" },
-          take: 3,
-        },
-      },
+      where: { conversationId: "conversation-1", threadRootId: null, sequence: { lt: 6 } },
+      orderBy: { sequence: "desc" },
+      take: 3,
     });
     expect(page.hasOlder).toBe(true);
     // A backward page read with a `beforeSequence` cursor always has newer content above it, which
@@ -296,8 +294,7 @@ describe("PrismaDirectConversationRepository", () => {
       ({
         threadRead: { findMany: async () => [] },
         conversation: {
-          findUnique: async (input: object) => {
-            queries.push(input);
+          findUnique: async () => {
             return {
               members: [
                 {
@@ -327,8 +324,13 @@ describe("PrismaDirectConversationRepository", () => {
                   },
                 },
               ],
-              messages,
             };
+          },
+        },
+        message: {
+          findMany: async (input: object) => {
+            queries.push(input);
+            return messages;
           },
         },
       }) as unknown as PrismaClient;
@@ -343,13 +345,9 @@ describe("PrismaDirectConversationRepository", () => {
       rowsFor([message("root-5", 5, [reply("reply-6", 6, "root-5")]), message("root-7", 7)]),
     ).openForUser("workspace-1", "user-1", "agent-1", { afterSequence: 4, limit: 1 });
     expect(queries[0]).toMatchObject({
-      select: {
-        messages: {
-          where: { threadRootId: null, sequence: { gt: 4 } },
-          orderBy: { sequence: "asc" },
-          take: 2,
-        },
-      },
+      where: { conversationId: "conversation-1", threadRootId: null, sequence: { gt: 4 } },
+      orderBy: { sequence: "asc" },
+      take: 2,
     });
     expect(midWindow.hasOlder).toBe(true);
     expect(midWindow.hasNewer).toBe(true);
@@ -413,9 +411,9 @@ describe("PrismaDirectConversationRepository", () => {
               agent: { id: "agent-1", name: "helper", displayName: "Helper" },
             },
           ],
-          messages: [],
         }),
       },
+      message: { findMany: async () => [] },
     } as unknown as PrismaClient;
     class TestConversationRepository extends PrismaDirectConversationRepository {
       override async getOrCreateUserAgent() {
@@ -1719,9 +1717,9 @@ describe("PrismaDirectConversationRepository", () => {
                 },
               },
             ],
-            messages: [],
           }),
         },
+        message: { findMany: async () => [] },
       } as unknown as PrismaClient;
       class TestConversationRepository extends PrismaDirectConversationRepository {
         override async getOrCreateUserAgent() {
