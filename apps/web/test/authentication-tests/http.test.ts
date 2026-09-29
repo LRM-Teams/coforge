@@ -106,7 +106,8 @@ test("login callback stores a host-only session cookie and returns home", async 
   ).toBe(true);
   expect(
     cookies.some(
-      (cookie) => cookie.includes("coforge_oauth_state=") && cookie.includes("Max-Age=0"),
+      (cookie) =>
+        cookie.startsWith(`coforge_oauth_state_${state}=`) && cookie.includes("Max-Age=0"),
     ),
   ).toBe(true);
   expect(cookies.join("\n")).not.toContain("Domain=");
@@ -222,6 +223,45 @@ test("logout includes the Authing id_token hint from the session cookie", async 
   expect(authingLogout.searchParams.get("id_token_hint")).toBe("authing-id-token");
 });
 
+test("logout with a page to come back to remembers it in a short-lived signed cookie", () => {
+  const response = handleLogout({
+    origin: "http://localhost:3000",
+    config,
+    sessionSecret,
+    cookieHeader: "",
+    returnTo: "/join/abc",
+  });
+  // Authing only redirects to the URI registered for the app, so that stays the homepage.
+  const authingLogout = new URL(response.headers.get("location") ?? "");
+  expect(authingLogout.searchParams.get("post_logout_redirect_uri")).toBe("http://localhost:3000/");
+  const cookies = response.headers.getSetCookie();
+  expect(cookies.some((cookie) => cookie.startsWith("coforge_session=;"))).toBe(true);
+  const remembered = cookies.filter((cookie) => cookie.startsWith("coforge_logout_return="));
+  expect(remembered).toHaveLength(1);
+  expect(remembered[0]).toContain("HttpOnly");
+  expect(remembered[0]).toContain("SameSite=Lax");
+  expect(remembered[0]).toContain("Max-Age=600");
+  expect(remembered[0]).toContain("Path=/;");
+  expect(remembered[0]).not.toContain("Domain=");
+  // Signed, not readable as a page path.
+  expect(remembered[0]).not.toContain("join");
+});
+
+test("logout without a page of this site to come back to remembers nothing", () => {
+  for (const returnTo of [undefined, null, "", "//evil.com", "https://evil.com", "/\\evil"]) {
+    const response = handleLogout({
+      origin: "http://localhost:3000",
+      config,
+      sessionSecret,
+      cookieHeader: "",
+      returnTo,
+    });
+    const cookies = response.headers.getSetCookie();
+    expect(cookies.some((cookie) => cookie.startsWith("coforge_logout_return="))).toBe(false);
+    expect(cookies.some((cookie) => cookie.startsWith("coforge_session=;"))).toBe(true);
+  }
+});
+
 function cookieHeader(response: Response): string {
   return response.headers.getSetCookie().join("\n");
 }
@@ -297,4 +337,98 @@ test("a failed sign-in goes back to /login with the page it started from", async
   expect(location.pathname).toBe("/login");
   expect(location.searchParams.get("error")).toBe("login_failed");
   expect(location.searchParams.get("returnTo")).toBe("/join/abc");
+});
+
+function startSignIn(returnTo: string) {
+  const started = handleLoginStart({ config, sessionSecret, returnTo });
+  const state = new URL(started.headers.get("location") ?? "").searchParams.get("state") ?? "";
+  const cookie = started.headers.getSetCookie()[0]?.split(";", 1)[0] ?? "";
+  return { state, cookie };
+}
+
+function callbackFor(
+  state: string,
+  cookies: string[],
+  enrollUser: () => Promise<void> = async () => {},
+) {
+  return handleLoginCallback({
+    request: new Request(`http://localhost:3000/auth/callback?code=valid-code&state=${state}`, {
+      headers: { cookie: cookies.join("; ") },
+    }),
+    config,
+    sessionSecret,
+    authing: fakeAuthing(),
+    resolveUser: async () => persistedAda,
+    enrollUser,
+  });
+}
+
+test("sign-ins started in several tabs each finish on the page their own tab started from", async () => {
+  const first = startSignIn("/w/acme/channel/1");
+  const second = startSignIn("/join/abc");
+  const third = startSignIn("/oauth/verify?user_code=AB-CD");
+  const browserCookies = [first.cookie, second.cookie, third.cookie];
+
+  // The callbacks arrive in any order, each with every state cookie the browser still holds.
+  const secondDone = await callbackFor(second.state, browserCookies);
+  const firstDone = await callbackFor(first.state, browserCookies);
+  const thirdDone = await callbackFor(third.state, browserCookies);
+
+  expect(secondDone.headers.get("location")).toBe("/en/join/abc");
+  expect(firstDone.headers.get("location")).toBe("/en/w/acme/channel/1");
+  expect(thirdDone.headers.get("location")).toBe("/oauth/verify?user_code=AB-CD");
+});
+
+function clearedStateCookies(response: Response): string[] {
+  return response.headers
+    .getSetCookie()
+    .filter((cookie) => cookie.startsWith("coforge_oauth_state_") && cookie.includes("Max-Age=0"))
+    .map((cookie) => cookie.split("=", 1)[0] ?? "");
+}
+
+test("a sign-in that finishes clears only its own state cookie", async () => {
+  const first = startSignIn("/w/acme");
+  const second = startSignIn("/join/abc");
+  const response = await callbackFor(second.state, [first.cookie, second.cookie]);
+  expect(clearedStateCookies(response)).toEqual([`coforge_oauth_state_${second.state}`]);
+});
+
+test("a sign-in that fails clears only its own state cookie and offers its own page again", async () => {
+  const first = startSignIn("/w/acme");
+  const second = startSignIn("/join/abc");
+  const response = await callbackFor(second.state, [first.cookie, second.cookie], async () => {
+    throw new Error("database is required");
+  });
+  const location = new URL(response.headers.get("location") ?? "");
+  expect(location.searchParams.get("error")).toBe("login_failed");
+  expect(location.searchParams.get("returnTo")).toBe("/join/abc");
+  expect(clearedStateCookies(response)).toEqual([`coforge_oauth_state_${second.state}`]);
+});
+
+test("a callback for a state no tab started fails, whatever other state cookies the browser holds", async () => {
+  const started = startSignIn("/w/acme");
+  const response = await callbackFor("AAAAAAAAAAAAAAAAAAAAAA", [started.cookie]);
+  const location = new URL(response.headers.get("location") ?? "");
+  expect(location.searchParams.get("error")).toBe("login_failed");
+  expect(location.searchParams.get("returnTo")).toBeNull();
+  expect(clearedStateCookies(response)).toEqual([]);
+  expect(
+    response.headers.getSetCookie().some((cookie) => cookie.startsWith("coforge_session=")),
+  ).toBe(false);
+});
+
+test("a state from the callback's query never becomes part of a cookie name", async () => {
+  const started = startSignIn("/w/acme");
+  for (const state of [
+    encodeURIComponent("x; Domain=evil.example"),
+    encodeURIComponent("x=y"),
+    "",
+    "A".repeat(65),
+  ]) {
+    const response = await callbackFor(state, [started.cookie]);
+    expect(new URL(response.headers.get("location") ?? "").searchParams.get("error")).toBe(
+      "login_failed",
+    );
+    expect(response.headers.getSetCookie()).toEqual([]);
+  }
 });

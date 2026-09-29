@@ -42,9 +42,11 @@ export type TokenExchanger = {
 };
 
 const SESSION_COOKIE = "coforge_session";
-const STATE_COOKIE = "coforge_oauth_state";
+const STATE_COOKIE_PREFIX = "coforge_oauth_state_";
+const LOGOUT_RETURN_COOKIE = "coforge_logout_return";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 14;
 const STATE_TTL_SECONDS = 60 * 10;
+const LOGOUT_RETURN_TTL_SECONDS = 60 * 10;
 
 type SignedState = {
   state: string;
@@ -55,6 +57,35 @@ type SignedState = {
 };
 
 type SignedSession = BrowserUser & { exp: number; idToken?: string };
+
+type SignedLogoutReturn = { returnTo: string; exp: number };
+
+/** What a `state` looks like when this module made it (base64url of random bytes): the only
+ * strings that are safe in a cookie name, and the only ones a callback's query can name. */
+const STATE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * Each sign-in keeps its own state cookie, named by its `state`, so several tabs can sign in at
+ * once: with one shared name the last sign-in started would overwrite the rest. `null` when
+ * `state` is not one this module could have issued; the callback's `state` comes from the query
+ * and must not reach a cookie name unchecked.
+ */
+function stateCookieName(state: string): string | null {
+  return STATE_PATTERN.test(state) ? `${STATE_COOKIE_PREFIX}${state}` : null;
+}
+
+/** The signed state of the sign-in `state` names, or null when its cookie is missing, forged, or
+ * signed for another state. Expiry is the caller's to judge. */
+function readPendingState(input: {
+  sessionSecret: string;
+  cookieHeader: string;
+  state: string;
+}): SignedState | null {
+  const name = stateCookieName(input.state);
+  if (!name) return null;
+  const signed = readSigned<SignedState>(readCookie(input.cookieHeader, name), input.sessionSecret);
+  return signed?.state === input.state ? signed : null;
+}
 
 export function startBrowserLogin(input: {
   config: AuthingConfig;
@@ -86,7 +117,7 @@ export function startBrowserLogin(input: {
   return {
     authorizationUrl: url.toString(),
     stateCookie: serializeCookie(
-      STATE_COOKIE,
+      `${STATE_COOKIE_PREFIX}${state}`,
       sign(payload, input.sessionSecret),
       STATE_TTL_SECONDS,
       input.config.redirectUri,
@@ -111,11 +142,8 @@ export async function completeBrowserLogin(input: {
   returnTo?: string;
 }> {
   const now = input.now ?? Date.now;
-  const signedState = readSigned<SignedState>(
-    readCookie(input.cookieHeader, STATE_COOKIE),
-    input.sessionSecret,
-  );
-  if (!signedState || signedState.state !== input.state || signedState.exp * 1000 <= now()) {
+  const signedState = readPendingState(input);
+  if (!signedState || signedState.exp * 1000 <= now()) {
     throw new Error("invalid login state");
   }
 
@@ -159,27 +187,43 @@ export async function completeBrowserLogin(input: {
       SESSION_TTL_SECONDS,
       input.config.redirectUri,
     ),
-    clearStateCookie: clearCookie(STATE_COOKIE, input.config.redirectUri),
+    clearStateCookie: clearCookie(
+      `${STATE_COOKIE_PREFIX}${signedState.state}`,
+      input.config.redirectUri,
+    ),
     ...(returnTo ? { returnTo } : {}),
   };
 }
 
 /**
- * The page a sign-in in progress started from, read from its signed state cookie; `undefined`
- * when the cookie is missing, forged, or names no page of this site. A failed callback uses it to
+ * The page the sign-in `state` names started from, read from its signed state cookie; `undefined`
+ * when that cookie is missing, forged, or names no page of this site. A failed callback uses it to
  * offer the same sign-in again.
  */
 export function pendingLoginReturnTo(input: {
   sessionSecret: string;
   cookieHeader: string;
+  state: string;
 }): string | undefined {
-  return pendingReturnTo(
-    readSigned<SignedState>(readCookie(input.cookieHeader, STATE_COOKIE), input.sessionSecret),
-  );
+  return pendingReturnTo(readPendingState(input));
 }
 
 function pendingReturnTo(state: SignedState | null): string | undefined {
   return safeReturnTo(state?.returnTo);
+}
+
+/**
+ * Expires the state cookie of a sign-in that did not finish, when the browser sent one for
+ * `state`; other sign-ins' cookies stay. `undefined` when there is nothing of this sign-in to clear.
+ */
+export function clearPendingLoginState(input: {
+  config: AuthingConfig;
+  cookieHeader: string;
+  state: string;
+}): string | undefined {
+  const name = stateCookieName(input.state);
+  if (!name || readCookie(input.cookieHeader, name) === null) return undefined;
+  return clearCookie(name, input.config.redirectUri);
 }
 
 // The real callback supplies the persistence resolver. This deterministic fallback
@@ -229,14 +273,28 @@ export function endBrowserLogin(input: {
   postLogoutRedirectUri: string;
   sessionSecret: string;
   cookieHeader: string;
+  /**
+   * The page to sign in to again once Authing has ended its session (switching account). Kept
+   * only when it is a page of this site (`safeReturnTo`).
+   */
+  returnTo?: string | null;
+  now?: () => number;
 }): {
   clearSessionCookie: string;
   authingLogoutUrl: string;
+  /** Carries `returnTo` across Authing's redirect, which can only land on the registered
+   * `postLogoutRedirectUri`; `consumeLogoutReturnTo` reads it there. */
+  returnCookie?: string;
 } {
+  const now = input.now ?? Date.now;
   const session = readSigned<SignedSession>(
     readCookie(input.cookieHeader, SESSION_COOKIE),
     input.sessionSecret,
   );
+  const returnTo = safeReturnTo(input.returnTo);
+  const remembered: SignedLogoutReturn | null = returnTo
+    ? { returnTo, exp: Math.floor(now() / 1000) + LOGOUT_RETURN_TTL_SECONDS }
+    : null;
   return {
     clearSessionCookie: clearCookie(SESSION_COOKIE, input.config.redirectUri),
     authingLogoutUrl: buildAuthingLogoutUrl(
@@ -244,6 +302,40 @@ export function endBrowserLogin(input: {
       input.postLogoutRedirectUri,
       session?.idToken,
     ),
+    ...(remembered
+      ? {
+          returnCookie: serializeCookie(
+            LOGOUT_RETURN_COOKIE,
+            sign(remembered, input.sessionSecret),
+            LOGOUT_RETURN_TTL_SECONDS,
+            input.config.redirectUri,
+          ),
+        }
+      : {}),
+  };
+}
+
+/**
+ * The step where the browser lands back after signing out at Authing. Reads the cookie
+ * `endBrowserLogin` left: `returnTo` is the page to sign in to again, present only while the
+ * signed cookie is valid and unexpired. `clearCookie` expires it, so it is used once; a forged
+ * or expired cookie is cleared too and gives no `returnTo`. `undefined` when no cookie came.
+ */
+export function consumeLogoutReturnTo(input: {
+  sessionSecret: string;
+  cookieHeader: string;
+  /** Where the browser is (its origin): decides whether the clearing cookie is `Secure`. */
+  origin: string;
+  now?: () => number;
+}): { returnTo?: string; clearCookie: string } | undefined {
+  const now = input.now ?? Date.now;
+  const value = readCookie(input.cookieHeader, LOGOUT_RETURN_COOKIE);
+  if (value === null) return undefined;
+  const signed = readSigned<SignedLogoutReturn>(value, input.sessionSecret);
+  const returnTo = signed && signed.exp * 1000 > now() ? safeReturnTo(signed.returnTo) : undefined;
+  return {
+    ...(returnTo ? { returnTo } : {}),
+    clearCookie: clearCookie(LOGOUT_RETURN_COOKIE, input.origin),
   };
 }
 
@@ -319,9 +411,9 @@ function serializeCookie(
   name: string,
   value: string,
   maxAgeSeconds: number,
-  redirectUri: string,
+  siteUrl: string,
 ): string {
-  const secure = redirectUri.startsWith("https:");
+  const secure = siteUrl.startsWith("https:");
   return [
     `${name}=${value}`,
     "Path=/",
@@ -334,8 +426,8 @@ function serializeCookie(
     .join("; ");
 }
 
-function clearCookie(name: string, redirectUri: string): string {
-  return serializeCookie(name, "", 0, redirectUri);
+function clearCookie(name: string, siteUrl: string): string {
+  return serializeCookie(name, "", 0, siteUrl);
 }
 
 function defaultRandomBytes(size: number): Uint8Array {

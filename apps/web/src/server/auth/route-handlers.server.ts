@@ -30,6 +30,7 @@ export function logoutHandler({ request }: { request: Request }): Promise<Respon
       config,
       sessionSecret,
       cookieHeader: request.headers.get("cookie") ?? "",
+      returnTo: new URL(request.url).searchParams.get("returnTo"),
     }),
   );
 }

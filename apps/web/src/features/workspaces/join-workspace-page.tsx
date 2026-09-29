@@ -192,7 +192,11 @@ export function JoinWorkspacePage({
             <Button
               color="link-gray"
               size="sm"
-              onPress={() => window.location.assign("/auth/logout")}
+              onPress={() =>
+                window.location.assign(
+                  `/auth/logout?returnTo=${encodeURIComponent(`/join/${token}`)}`,
+                )
+              }
             >
               {m.workspace_join_switch_account()}
             </Button>
