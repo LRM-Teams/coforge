@@ -53,7 +53,7 @@ describe("savedMessageView", () => {
     });
     expect(view.message.id).toBe("33333333-3333-4333-8333-333333333333");
     expect(view.message.body).toBe("hello **world**");
-    expect(view.message.createdAt).toEqual(new Date("2026-09-23T01:00:00Z"));
+    expect(view.message.createdAt).toBe("2026-09-23T01:00:00.000Z");
     expect(view.message.mentions).toEqual([]);
     expect(view.message.reactions).toBeUndefined();
   });

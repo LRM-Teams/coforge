@@ -238,7 +238,7 @@ export function optimisticSavedEntry(message: StreamMessage, conversationId: str
       senderDeleted: message.senderDeleted ?? false,
       senderAvatarUrl: message.senderAvatarUrl ?? null,
       body: message.body,
-      createdAt: new Date(message.createdAt),
+      createdAt: new Date(message.createdAt).toISOString(),
       mentions: message.mentions ?? [],
       attachments: message.attachments,
       reactions: message.reactions,
