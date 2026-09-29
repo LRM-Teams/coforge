@@ -142,7 +142,12 @@ export class ActivityInbox {
     }
     const member = await this.db.conversationMember.findFirst({
       where: { conversationId: item.conversationId, workspaceId, userId, ...ACTIVE_MEMBER_WHERE },
-      select: { id: true, conversation: { select: { channelName: true } } },
+      select: {
+        id: true,
+        readThroughSequence: true,
+        unreadFromSequence: true,
+        conversation: { select: { channelName: true } },
+      },
     });
     if (!member) throw new AppError("ACCESS_DENIED");
     const rootMessageId = item.kind === "thread" ? item.rootMessageId : null;
@@ -166,8 +171,12 @@ export class ActivityInbox {
           )
         : markConversationDoneSql(member.id, boundary),
     );
-    // A conversation's Done reads it too, so its badge moves (a thread's does not touch it).
-    if (!rootMessageId)
+    // A conversation's Done reads it too, so its badge moves when the read cursor or a mark-unread
+    // marker moves (a thread's Done never touches the badge).
+    const readMoved =
+      member.readThroughSequence < boundary ||
+      (member.unreadFromSequence !== null && member.unreadFromSequence <= boundary);
+    if (!rootMessageId && readMoved)
       await this.announceMarked(workspaceId, userId, [
         { conversationId: item.conversationId, channel: member.conversation.channelName !== null },
       ]);

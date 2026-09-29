@@ -79,7 +79,7 @@ async function setup() {
   };
   const inbox = new ActivityInbox(db, realtime);
   announced.length = 0;
-  return { workspace, bob, ada, team, dm, inbox, announced, post, teardown };
+  return { db, workspace, bob, ada, team, dm, inbox, announced, post, teardown };
 }
 
 test.skipIf(!connectionString)(
@@ -176,6 +176,54 @@ test.skipIf(!connectionString)(
       announced.length = 0;
       await inbox.markAllRead(workspace.id, bob.id, { before: shown.createdAt });
       expect(announced).toEqual([]);
+    } finally {
+      await teardown();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a Done that moves no read cursor says nothing; mark all read that only consumes a marker says so",
+  async () => {
+    const { db, workspace, ada, bob, team, dm, inbox, announced, post, teardown } = await setup();
+    try {
+      const first = await post(team.id, ada.id);
+      const second = await post(team.id, ada.id);
+      await inbox.markDone(workspace.id, bob.id, {
+        kind: "conversation",
+        conversationId: team.id,
+        throughSequence: second.sequence,
+      });
+      announced.length = 0;
+      // Already read past it: the Done moves nothing a badge shows.
+      await inbox.markDone(workspace.id, bob.id, {
+        kind: "conversation",
+        conversationId: team.id,
+        throughSequence: first.sequence,
+      });
+      expect(announced).toEqual([]);
+
+      // Read through the DM, then marked unread: only the marker is left to consume.
+      const inDm = await post(dm, ada.id);
+      await inbox.markDone(workspace.id, bob.id, {
+        kind: "conversation",
+        conversationId: dm,
+        throughSequence: inDm.sequence,
+      });
+      await new DirectConversations(db).setUnread(workspace.id, bob.id, dm, true);
+      announced.length = 0;
+      await inbox.markAllRead(workspace.id, bob.id, { before: new Date(Date.UTC(2027, 0, 1)) });
+      expect(announced).toEqual([
+        {
+          userIds: [bob.id],
+          event: {
+            type: "dm.marked.v1",
+            workspaceId: workspace.id,
+            conversationId: dm,
+            unreadCount: 0,
+          },
+        },
+      ]);
     } finally {
       await teardown();
     }
