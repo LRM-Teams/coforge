@@ -1993,3 +1993,20 @@ test("a GitHub credential failure is classified under its own route family", asy
   expect(body.code).toBe("agent_proxy_failed");
   expect(body.proxy.route_family).toBe("agent-api/github-credential");
 });
+
+test("an unknown agent-api route is rejected instead of falling through", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const url = proxy.url.replace(agentApiRoutes.proxy.messages.path, "/api/agent/v1/causal");
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ op: "search" }),
+  });
+  expect([404, 405]).toContain(response.status);
+});

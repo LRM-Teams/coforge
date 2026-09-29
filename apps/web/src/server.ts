@@ -2,10 +2,13 @@ import handler from "@tanstack/react-start/server-entry";
 
 import { paraglideMiddleware } from "#src/paraglide/server";
 import { assertStartupConfig } from "#src/server/startup-config.server";
+import { ensureWorkspaceMemoryLifecycle } from "#src/server/workspace-memory/lifecycle.server";
 import { startWeeklyReportScheduleTickFromEnv } from "#src/server/records/weekly-report-schedule-tick.server";
 
 // Fail the boot, not the first request, on invalid deployment configuration.
 await assertStartupConfig();
+// Backend-owned memory sweep: independent of incidental Centrifugo traffic.
+ensureWorkspaceMemoryLifecycle();
 // Optional in-process clock for weekly-report auto-send. No-op unless
 // COFORGE_WEEKLY_REPORT_SCHEDULE_TICK_MS is set; external HTTP cron remains valid.
 startWeeklyReportScheduleTickFromEnv();

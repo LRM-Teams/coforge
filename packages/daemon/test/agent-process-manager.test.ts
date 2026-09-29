@@ -184,6 +184,70 @@ describe("AgentProcessManager", () => {
     }
   });
 
+  test("Memory Agent launch does not seed MEMORY.md or install assigned skills", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-memory-agent-no-pi-inject-"));
+    const workspace = join(root, "agents", "memory");
+    const manager = new AgentProcessManager(() => ({
+      provider: "pi",
+      async createAgentSession() {
+        return sessionSpy();
+      },
+    }));
+    try {
+      await manager.start(
+        "memory",
+        { ...config, toolProfile: "openviking-memory" },
+        workspace,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        ["weekly-report"],
+        { name: "memory", displayName: "Memory", description: "Team memory." },
+      );
+      await expect(stat(join(workspace, "MEMORY.md"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(workspace, ".pi", "skills"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await manager.shutdown();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("eval host-Pi isolation skips MEMORY.md for every channel Agent, not only Memory Agent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-eval-no-pi-inject-"));
+    const workspace = join(root, "agents", "task");
+    const manager = new AgentProcessManager(() => ({
+      provider: "pi",
+      async createAgentSession() {
+        return sessionSpy();
+      },
+    }));
+    try {
+      await manager.start(
+        "task",
+        config,
+        workspace,
+        undefined,
+        { COFORGE_EVAL_DISABLE_HOST_PI_INJECTION: "1" },
+        undefined,
+        undefined,
+        undefined,
+        ["weekly-report"],
+        { name: "task", displayName: "Task" },
+      );
+      await expect(stat(join(workspace, "MEMORY.md"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(workspace, ".pi", "skills"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      await manager.shutdown();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("a second start leaves an Agent-modified MEMORY.md alone", async () => {
     const root = await mkdtemp(join(tmpdir(), "coforge-agent-memory-seed-preserve-"));
     const workspace = join(root, "agents", "agent-1");

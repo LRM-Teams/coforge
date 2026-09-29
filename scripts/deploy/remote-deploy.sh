@@ -275,12 +275,12 @@ public_health() {
 }
 
 verify_running_digest() {
-	local container
-	container="$(compose ps -q web)"
-	[ -n "$container" ] || return 1
-	# The container must run the exact requested digest reference, and the
-	# local store must resolve that same immutable identity.
-	[ "$(docker inspect --format '{{.Config.Image}}' "$container")" = "$image" ] &&
+	local web_container
+	web_container="$(compose ps -q web)"
+	[ -n "$web_container" ] || return 1
+	# The container must run its exact requested digest reference, and the
+	# local store must resolve that immutable identity.
+	[ "$(docker inspect --format '{{.Config.Image}}' "$web_container")" = "$image" ] &&
 		docker image inspect "$image" >/dev/null 2>&1
 }
 
@@ -298,7 +298,7 @@ rollback() {
 			restore_release_snapshot
 			printf 'restored the last healthy release configuration\n' >&2
 			write_deploy_env "$target"
-			compose up -d --wait --wait-timeout "$timeout" >/dev/null
+			compose up -d --remove-orphans --wait --wait-timeout "$timeout" >/dev/null
 		else
 			printf 'no last healthy release snapshot; rolling back the image only\n' >&2
 			write_deploy_env "$target"

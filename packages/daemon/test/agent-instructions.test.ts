@@ -3,6 +3,10 @@ import { expect, test } from "bun:test";
 import { buildCoforgeAgentInstructions } from "#src/code-agent/agent-instructions";
 
 const directory = "/coforge/workspaces/workspace-a/agents/agent-a";
+const AGENT_WORKSPACES: [string, string] = [
+  "/coforge/workspaces/workspace-a/agents/agent-a",
+  "/coforge/workspaces/workspace-b/agents/agent-b",
+];
 const instructions = buildCoforgeAgentInstructions({ agentWorkspaceDirectory: directory });
 
 test("ordinary requests do not require task creation or per-turn memory bookkeeping", () => {
@@ -131,4 +135,113 @@ test("provider-specific rules remain available once when supplied", () => {
 
 test("the fixed transport guidance stays within a 3KB budget", () => {
   expect(new TextEncoder().encode(instructions).byteLength).toBeLessThanOrEqual(3072);
+});
+
+test("the openviking-memory profile requires an @memory query and never mentions tenant tokens", () => {
+  const fenced = buildCoforgeAgentInstructions({
+    agentWorkspaceDirectory: AGENT_WORKSPACES[0],
+    toolProfile: "openviking-memory",
+  });
+  expect(fenced).toContain("## Team memory (Memory Agent)");
+  expect(fenced).toContain("explicit @memory question requires a memory query");
+  expect(fenced).not.toContain("Bearer");
+  expect(fenced).not.toContain("CAUSAL_MEMORY_TOKENS");
+  expect(
+    buildCoforgeAgentInstructions({ agentWorkspaceDirectory: AGENT_WORKSPACES[0] }),
+  ).not.toContain("## Team memory (Memory Agent)");
+});
+
+const OPENVIKING_FENCE_TOOLS = ["ov_find", "ov_search_context", "ov_read", "memory_offer"] as const;
+const CAUSAL_ONLY_TOOLS = [
+  "causal_search",
+  "causal_trace",
+  "causal_intervention",
+  "causal_propose_correction",
+] as const;
+const MUTATION_TOOL_NAMES = [
+  "bash",
+  "shell",
+  "write",
+  "edit",
+  "apply_patch",
+  "filesystem",
+  "network",
+  "ov_write",
+  "ov_commit",
+  "session_commit",
+] as const;
+const CREDENTIAL_WORDS = [
+  "Bearer",
+  "credential",
+  "token",
+  "endpoint",
+  "secret",
+  "password",
+  "api key",
+  "API key",
+] as const;
+const ALLOWED_MUTATION_PHRASES = [
+  "you may write",
+  "you can write",
+  "you may commit",
+  "you can commit",
+  "you may mutate",
+  "you can mutate",
+  "you may invalidate",
+  "you can supersede",
+] as const;
+
+function memoryAgentSection(prompt: string): string {
+  const start = prompt.indexOf("## Team memory (Memory Agent)");
+  expect(start).toBeGreaterThan(-1);
+  const after = prompt.slice(start);
+  const next = after.slice(1).search(/\n## /);
+  return next === -1 ? after : after.slice(0, next + 1);
+}
+
+function allowedToolsetListing(section: string): string {
+  const match = section.match(/Your tools are the whole toolset:\n([\s\S]*?)\n\n-/);
+  expect(match?.[1]).toBeDefined();
+  return match![1]!;
+}
+
+function instructionsForFence(toolProfile: "openviking-memory"): string {
+  return buildCoforgeAgentInstructions({
+    agentWorkspaceDirectory: AGENT_WORKSPACES[0],
+    toolProfile,
+  });
+}
+
+test("the openviking-memory fence names only its read tools and memory_offer", () => {
+  const section = memoryAgentSection(instructionsForFence("openviking-memory"));
+  const listing = allowedToolsetListing(section);
+  for (const name of OPENVIKING_FENCE_TOOLS) expect(listing).toContain(name);
+  for (const name of CAUSAL_ONLY_TOOLS) expect(listing).not.toContain(name);
+  expect(section).toContain("explicit @memory question requires a memory query");
+  expect(section).toContain("cannot write files");
+  expect(section).toContain("commit sessions");
+  expect(section).toContain("skills or ACLs");
+  expect(section).toContain("cannot directly modify OpenViking memory");
+});
+
+test("the memory fence lists no mutation tools and allows no mutation verbs", () => {
+  const section = memoryAgentSection(instructionsForFence("openviking-memory"));
+  const listing = allowedToolsetListing(section);
+  for (const name of MUTATION_TOOL_NAMES) expect(listing).not.toContain(name);
+  const allowedContext = listing.toLowerCase();
+  expect(allowedContext).not.toMatch(/\bwrite\b/);
+  expect(allowedContext).not.toMatch(/\bcommit\b/);
+  expect(allowedContext).not.toMatch(/\bmutate\b/);
+  expect(allowedContext).not.toMatch(/\binvalidate\b/);
+  expect(allowedContext).not.toMatch(/\bsupersede\b/);
+  const lowered = section.toLowerCase();
+  for (const phrase of ALLOWED_MUTATION_PHRASES) expect(lowered).not.toContain(phrase);
+});
+
+test("the memory fence renders no credentials, tokens, or hidden endpoints", () => {
+  const section = memoryAgentSection(instructionsForFence("openviking-memory"));
+  for (const word of CREDENTIAL_WORDS) expect(section).not.toContain(word);
+  expect(section).not.toContain("/api/");
+  expect(section).not.toMatch(/https?:\/\//);
+  expect(section).not.toContain("localhost");
 });

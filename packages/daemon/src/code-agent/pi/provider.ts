@@ -58,6 +58,7 @@ export class PiProvider implements CodeAgentProvider {
       instructions: options.instructions,
       environment,
       sessionKind: "pi",
+      toolProfile: runtime?.toolProfile,
     });
     try {
       await options.onSessionId?.(created.sessionId, created.replacedSessionId);
@@ -93,6 +94,16 @@ export class CoforgeProvider implements CodeAgentProvider {
     if (runtime.providerConfig.providerId !== runtime.modelProvider)
       throw new Error("Pi runtime provider does not match the selected model");
 
+    const environment = agentEnvironment(options.environment, Bun.env, process.platform, {
+      envVars: runtime.envVars,
+      gitHooks: options.gitHooks,
+    });
+    // In-process tools read the process env. A child Agent process would inherit
+    // these from `environment`; this provider shares the Daemon process.
+    if (environment.COFORGE_AGENT_PROXY_URL)
+      Bun.env.COFORGE_AGENT_PROXY_URL = environment.COFORGE_AGENT_PROXY_URL;
+    if (environment.COFORGE_AGENT_CONTEXT)
+      Bun.env.COFORGE_AGENT_CONTEXT = environment.COFORGE_AGENT_CONTEXT;
     const session = await createSession({
       cwd: options.agentWorkspaceDirectory,
       agentId: options.agentId,
@@ -105,10 +116,8 @@ export class CoforgeProvider implements CodeAgentProvider {
       reasoning: runtime.reasoning,
       apiKey: runtime.providerConfig.apiKey,
       instructions: options.instructions,
-      environment: agentEnvironment(options.environment, Bun.env, process.platform, {
-        envVars: runtime.envVars,
-        gitHooks: options.gitHooks,
-      }),
+      environment,
+      toolProfile: runtime.toolProfile,
     });
     try {
       await options.onSessionId?.(session.sessionId, session.replacedSessionId);
@@ -214,6 +223,7 @@ class AgentSessionImpl implements AgentSession {
     if (this.#disposed || this.#interrupting || this.#runtime.session.isStreaming) {
       throw new Error("code agent cannot accept a new message");
     }
+    this.#runtime.resetMemoryBudget?.();
     this.#setIdentity("unknown");
     try {
       await this.#trackPrompt(this.#runtime.session.prompt(message));
@@ -232,6 +242,10 @@ class AgentSessionImpl implements AgentSession {
     if (this.#disposed || this.#interrupting) {
       throw new Error("code agent cannot accept a notification");
     }
+    // Every notice is a new triggering message (inbox delivery, held-notice
+    // redelivery, app item); the memory budget is scoped per triggering
+    // message, so it must reset here too — not only on sendMessage.
+    this.#runtime.resetMemoryBudget?.();
     // SDK prompt completion waits for the whole run; preflight is the public
     // acceptance boundary used by Pi's RPC implementation as well.
     await new Promise<void>((resolve, reject) => {

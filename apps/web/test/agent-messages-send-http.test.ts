@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MEMORY_OFFER_REQUIRED_MESSAGE } from "@lrm/coforge-sdk/internal";
 import { handleAgentMessagesPost } from "#src/routes/api/agent/v1/messages";
 import { AppError } from "#src/lib/app-error";
 import type { AgentMessageRecord } from "#src/server/agents/agent-messages.server";
@@ -493,6 +494,28 @@ test("a bypassed hold's sent response carries recentUnread; every other response
       attachments: [],
     },
   ]);
+});
+
+test("a channel send is refused while an explicit @memory question is unanswered", async () => {
+  let sent = false;
+  const result = await handleAgentMessagesPost(
+    request({ target: "#general", content: "from memory" }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      requestRecords: noRequestRecords,
+      repository: {},
+      memoryOfferRequired: async () => true,
+      sender: {
+        executeFromAgent: async () => {
+          sent = true;
+          return { id: "should-not-send" };
+        },
+      },
+    },
+  );
+  expect(result.status).toBe(400);
+  expect(await result.text()).toBe(MEMORY_OFFER_REQUIRED_MESSAGE);
+  expect(sent).toBe(false);
 });
 
 describe("reconcileOnly: whether an idempotency key already committed, without sending", () => {

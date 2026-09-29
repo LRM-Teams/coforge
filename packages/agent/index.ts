@@ -7,6 +7,7 @@ export {
   createSession,
   discoverModels,
   discoverPiModels,
+  evalDisablesHostPiInjection,
   findSessionFile,
   resolveAgentSessionFile,
 } from "#src/runner";

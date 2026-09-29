@@ -1,3 +1,4 @@
+import type { MemoryAgentToolProfile } from "../agent/memory-tool-fences";
 import { RPC_METHODS } from "./rpc-methods";
 /** TypeScript boundary; codec/transport remains an adapter concern. */
 export const COMPUTER_REGISTER_METHOD = RPC_METHODS.computerRegister;
@@ -76,6 +77,8 @@ export const threadParentTarget = (target: string): string | undefined => {
 /** A reaction emoji: trimmed, one to sixteen characters, no whitespace. */
 export const isValidReactionEmoji = (value: string): boolean =>
   value.trim() === value && value.length >= 1 && value.length <= 16 && !/\s/.test(value);
+export const MEMORY_OFFER_REQUIRED_MESSAGE =
+  "An explicit @memory question must be answered with memory_offer";
 export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
   "message anchor must be eight hexadecimal characters or a full UUID",
   "ambiguous message prefix; use the full UUID",
@@ -86,6 +89,7 @@ export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
   "reaction emoji must be one to sixteen characters without whitespace",
   "mute requires a channel target",
   "unfollow requires a channel thread target",
+  MEMORY_OFFER_REQUIRED_MESSAGE,
   "search `before` must be an ISO time, such as 2026-09-01T00:00:00Z",
   "search `after` must be an ISO time, such as 2026-09-01T00:00:00Z",
 ] as const;
@@ -602,6 +606,8 @@ export type AgentStartIntent = {
   /** The server-minted launchId for this control operation's start step; required
    * whenever `controlEpoch` is set (every managed start). */
   launchId?: string;
+  /** Fenced Agent runtime profile. Unknown values are rejected by the codec. */
+  toolProfile?: MemoryAgentToolProfile;
   providerConfig?: AgentRuntimeProviderConfig;
   wakeMessage?: AgentRecoveryMessage;
   resumeMessages?: AgentRecoveryMessage[];

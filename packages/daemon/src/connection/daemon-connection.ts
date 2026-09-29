@@ -23,6 +23,11 @@ import type {
   AgentSendReconciliationResponse,
 } from "@lrm/coforge-sdk/agent";
 import {
+  forwardOpenVikingOffer,
+  forwardOpenVikingRead,
+  type OpenVikingAgentProxyCommand,
+} from "../openviking-read-proxy";
+import {
   decodeAgentWorkspaceResetRequest,
   encodeAgentControlResult,
   encodeAgentSessionReport,
@@ -339,6 +344,7 @@ export interface DaemonConnectionClient {
     request: import("./weekly-report-key-points").WeeklyReportKeyPointsCommand,
     agentApiKey: string,
   ): Promise<import("./weekly-report-key-points").WeeklyReportKeyPointsResult>;
+  agentOpenviking?(request: OpenVikingAgentProxyCommand, agentApiKey: string): Promise<unknown>;
   agentAttachment?(attachmentId: string, agentApiKey: string): Promise<Response>;
   agentAttachmentUpload?(request: Request, agentApiKey: string): Promise<Response>;
   agentAttachmentUploadSessionCreate?(body: unknown, agentApiKey: string): Promise<Response>;
@@ -1229,6 +1235,30 @@ export class DaemonConnection implements DaemonConnectionClient {
   async requestSnapshot(request: ReminderSnapshotRequest): Promise<ReminderSync> {
     const reply = await this.#rpc(REMINDER_SNAPSHOT_METHOD, encodeReminderSnapshotRequest(request));
     return decodeReminderSync(rpcData(reply));
+  }
+
+  async agentOpenviking(
+    request: OpenVikingAgentProxyCommand,
+    agentApiKey: string,
+  ): Promise<unknown> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    const url = this.#serverEndpoint("Agent OpenViking HTTP", agentApiRoutes.cloud.openviking.path);
+    if (request.op === "offer") {
+      return forwardOpenVikingOffer({
+        url,
+        command: request,
+        agentApiKey,
+        daemonApiKey: this.#token,
+        timeoutMs: AGENT_RPC_TIMEOUT_MS,
+      });
+    }
+    return forwardOpenVikingRead({
+      url,
+      command: request,
+      agentApiKey,
+      daemonApiKey: this.#token,
+      timeoutMs: AGENT_RPC_TIMEOUT_MS,
+    });
   }
 
   async agentTask(request: TaskRequest, agentApiKey: string): Promise<TaskResponse> {

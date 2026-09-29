@@ -1,0 +1,101 @@
+# NON-PRODUCTION / LICENSE-REVIEW-REQUIRED
+#
+# Isolated OpenViking prototype override. AGPL-3.0 upstream is not approved
+# for a CoForge shipping artifact. Do not add this file to default Compose,
+# release manifests, staging, or production.
+#
+# Default-off contract:
+#   docker compose -f infra/docker-compose.yml up
+#     does not start OpenViking (this file is not part of that command).
+#   docker compose -f infra/docker-compose.yml \
+#                  -f infra/compose.openviking-prototype.yml up
+#     still does not start OpenViking (service uses profile
+#     `openviking-prototype`).
+#   Explicit opt-in is `-f` this override AND
+#     `--profile openviking-prototype`.
+#
+# Synthetic data only. No public Caddy service or route is declared here.
+# Credentials live in an owner-only Docker secret file, never in this YAML,
+# command arguments, browser/Agent environment, logs, or fixtures.
+#
+# Pinned inventory revision (D3):
+#   OpenViking e44ea6e11add1c7b3d4accdbfaf16e900a6049df
+# Set COFORGE_OPENVIKING_PROTOTYPE_IMAGE to a reviewed local tag or
+# immutable digest built from that revision. Do not use `:latest`.
+
+x-coforge-openviking-prototype:
+  environment: non-production
+  license-review: required
+  data-class: synthetic-only
+  openviking-revision: e44ea6e11add1c7b3d4accdbfaf16e900a6049df
+  prototype-flag: OPENVIKING_PROTOTYPE_ENABLED
+
+services:
+  openviking-prototype:
+    profiles: [openviking-prototype]
+    image: ${COFORGE_OPENVIKING_PROTOTYPE_IMAGE:?COFORGE_OPENVIKING_PROTOTYPE_IMAGE must be a reviewed local image or immutable digest}
+    labels:
+      io.coforge.environment: non-production
+      io.coforge.license-review: required
+      io.coforge.data-class: synthetic-only
+      io.coforge.openviking-revision: e44ea6e11add1c7b3d4accdbfaf16e900a6049df
+      io.coforge.role: openviking-prototype
+    environment:
+      OPENVIKING_CONFIG_FILE: /run/secrets/openviking_prototype_ov_conf
+      OPENVIKING_WITH_BOT: "0"
+      OPENVIKING_SERVER_HOST: 0.0.0.0
+      OPENVIKING_SERVER_PORT: "1933"
+    ports:
+      # Loopback diagnostics / host-run Web / V1.4 only. Not a Caddy route.
+      - "127.0.0.1:${OPENVIKING_PROTOTYPE_PORT:-1933}:1933"
+    secrets:
+      - source: openviking_prototype_ov_conf
+        mode: 0444
+    volumes:
+      - coforge_openviking_prototype_data:/data
+      - ./secrets/openviking_prototype_models:/app/.cache/openviking/models
+    networks:
+      - openviking
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+    healthcheck:
+      test: ["CMD", "openviking-entrypoint", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    restart: unless-stopped
+    command:
+      - --without-bot
+
+networks:
+  openviking:
+    name: coforge_openviking_prototype
+    # Coordinator decision (V1.4): Docker cannot publish ports on an internal
+    # network, so host access for diagnostics/V1.4 needs a non-internal bridge.
+    # Egress containment is instead provided by local-only embedding
+    # (llama-cpp with preloaded model) and no remote LLM provider configured.
+    internal: false
+    labels:
+      io.coforge.environment: non-production
+      io.coforge.license-review: required
+      io.coforge.role: openviking-prototype
+
+volumes:
+  coforge_openviking_prototype_data:
+    name: coforge_openviking_prototype_data
+    labels:
+      io.coforge.environment: non-production
+      io.coforge.license-review: required
+      io.coforge.data-class: synthetic-only
+      io.coforge.role: openviking-prototype
+
+secrets:
+  openviking_prototype_ov_conf:
+    file: ./secrets/openviking_prototype_ov_conf

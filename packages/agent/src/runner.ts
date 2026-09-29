@@ -6,16 +6,309 @@ import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   createBashTool,
+  defineTool,
   getAgentDir,
   ModelRuntime,
   runRpcMode,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import {
+  agentApiRoutes,
+  decodeOpenVikingAgentCommand,
+  decodeOpenVikingAgentResponse,
+  isMemoryAgentToolProfile,
+  MEMORY_OFFER_BUDGET_PER_TRIGGER,
+  MEMORY_READ_BUDGET_PER_TRIGGER,
+  OPENVIKING_AGENT_PROTOCOL,
+  OPENVIKING_CANDIDATE_LIMIT_MAX,
+  OPENVIKING_TOOL_NAMES,
+  toolsForMemoryFence,
+  type MemoryAgentToolProfile,
+  type OpenVikingAgentCommand,
+} from "@lrm/coforge-sdk/agent";
+import { Type } from "typebox";
 import { join, resolve } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { getCoforgeAgentDir, getCoforgeSessionDir, prepareAgentSessionDirectory } from "./paths";
 import { API_KEY_ENV_BY_PROVIDER, configureRuntimeEnvironment } from "./runtime-provider";
 import { classifyPiLaunchFailure, PI_MODEL_UNAVAILABLE } from "./launch-error";
+
+const MEMORY_READ_OPS = new Set(["find", "search_context", "read"]);
+
+export type MemoryAgentProxy = {
+  post(path: string, body: unknown): Promise<unknown>;
+};
+
+/** Per-triggering-message budget for the Memory Agent fence. */
+export class MemoryAgentTurnBudget {
+  #reads = 0;
+  #offers = 0;
+
+  reset(): void {
+    this.#reads = 0;
+    this.#offers = 0;
+  }
+
+  consume(command: OpenVikingAgentCommand): void {
+    if (MEMORY_READ_OPS.has(command.op)) {
+      if (this.#reads >= MEMORY_READ_BUDGET_PER_TRIGGER)
+        throw new Error("memory read budget exhausted for this triggering message");
+      const limit = "limit" in command ? command.limit : undefined;
+      if (limit !== undefined && limit > OPENVIKING_CANDIDATE_LIMIT_MAX)
+        throw new Error("candidate limit exceeded");
+      this.#reads += 1;
+      return;
+    }
+    if (command.op === "offer") {
+      if (this.#offers >= MEMORY_OFFER_BUDGET_PER_TRIGGER)
+        throw new Error("memory offer budget exhausted for this triggering message");
+      this.#offers += 1;
+    }
+  }
+
+  snapshot() {
+    return {
+      reads: this.#reads,
+      offers: this.#offers,
+    };
+  }
+}
+
+type ProxyToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  details: Record<string, never>;
+};
+
+function localProxyUrl(path: string, env?: Readonly<Record<string, string | undefined>>): string {
+  const endpoint = env?.COFORGE_AGENT_PROXY_URL ?? Bun.env.COFORGE_AGENT_PROXY_URL;
+  const token = env?.COFORGE_AGENT_CONTEXT ?? Bun.env.COFORGE_AGENT_CONTEXT;
+  if (!endpoint || !token) throw new Error("CoForge Agent proxy is not configured");
+  return new URL(path, endpoint).toString();
+}
+
+function proxyContextToken(env?: Readonly<Record<string, string | undefined>>): string {
+  const token = env?.COFORGE_AGENT_CONTEXT ?? Bun.env.COFORGE_AGENT_CONTEXT;
+  if (!token) throw new Error("CoForge Agent proxy is not configured");
+  return token;
+}
+
+async function postLocalProxy(
+  path: string,
+  body: unknown,
+  env?: Readonly<Record<string, string | undefined>>,
+): Promise<unknown> {
+  const response = await fetch(localProxyUrl(path, env), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${proxyContextToken(env)}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => undefined);
+  if (!response.ok) throw new Error(proxyFailureText(payload, response.status));
+  return payload;
+}
+
+function proxyFailureText(payload: unknown, status: number): string {
+  if (!payload || typeof payload !== "object" || !("error" in payload))
+    return `CoForge Agent proxy request failed (${status})`;
+  const error = payload.error;
+  if (typeof error === "string" && error.length > 0) return error;
+  if (error && typeof error === "object") {
+    const record = error as { code?: unknown; message?: unknown };
+    const message = typeof record.message === "string" ? record.message : "";
+    const code = typeof record.code === "string" ? record.code : "";
+    if (message && code) return `${message} (${code})`;
+    if (message) return message;
+    if (code) return code;
+  }
+  return `CoForge Agent proxy request failed (${status})`;
+}
+
+function toolResult(value: unknown): ProxyToolResult {
+  return { content: [{ type: "text", text: JSON.stringify(value) }], details: {} };
+}
+
+function defaultMemoryProxy(env?: Readonly<Record<string, string | undefined>>): MemoryAgentProxy {
+  // The session environment, not the process env: Pi sessions run in the
+  // Daemon process, so a second Agent's launch would otherwise overwrite
+  // Bun.env.COFORGE_AGENT_CONTEXT and route this Agent's proxy calls — and
+  // its fence binding — to the other Agent.
+  return { post: (path, body) => postLocalProxy(path, body, env) };
+}
+
+/**
+ * Models pass numeric tool arguments as strings often enough that the
+ * resulting server-side decode failure burned the turn's read budget before
+ * any real call went out. Coerce the numeric fence-tool parameters before the
+ * command is built so a well-formed intent is never lost to formatting.
+ */
+function coerceNumericToolParams<P extends Record<string, unknown>>(params: P): P {
+  const coerced = { ...params };
+  for (const key of ["limit", "tokenBudget"]) {
+    const value = coerced[key];
+    if (typeof value === "string" && value.trim() !== "" && Number.isInteger(Number(value))) {
+      (coerced as Record<string, unknown>)[key] = Number(value);
+    }
+  }
+  // A bare "viking://" root is the model's shorthand for "everywhere"; the
+  // server schema requires a real target, so omit it rather than burn a read.
+  if (typeof coerced.targetUri === "string" && /^viking:\/\/\s*$/.test(coerced.targetUri)) {
+    delete (coerced as Record<string, unknown>).targetUri;
+  }
+  return coerced;
+}
+
+/** The only model-callable tools available under a Memory Agent fence. */
+export function createMemoryFenceTools(
+  profile: MemoryAgentToolProfile,
+  budget: MemoryAgentTurnBudget,
+  proxy: MemoryAgentProxy = defaultMemoryProxy(),
+) {
+  const openvikingTool = <Params extends Record<string, unknown>>(
+    name: string,
+    label: string,
+    description: string,
+    op: OpenVikingAgentCommand["op"],
+    parameters: Parameters<typeof Type.Object>[0],
+  ) =>
+    defineTool({
+      name,
+      label,
+      description,
+      parameters,
+      execute: async (_toolCallId, params) => {
+        const command = decodeOpenVikingAgentCommand({
+          protocol: OPENVIKING_AGENT_PROTOCOL,
+          op,
+          ...coerceNumericToolParams(params as Params),
+        });
+        budget.consume(command);
+        const response = await proxy.post(agentApiRoutes.proxy.openviking.path, command);
+        return toolResult(decodeOpenVikingAgentResponse(command.op, response));
+      },
+    });
+
+  const messageTool = (
+    name: string,
+    label: string,
+    description: string,
+    operation: "check" | "read" | "send",
+    parameters: Parameters<typeof Type.Object>[0],
+  ) =>
+    defineTool({
+      name,
+      label,
+      description,
+      parameters,
+      execute: async (_toolCallId, params) => {
+        const request = {
+          requestId: crypto.randomUUID(),
+          operation,
+          ...(params as { target?: string; content?: string }),
+        };
+        if (
+          operation === "send" &&
+          typeof request.target === "string" &&
+          !request.target.startsWith("#")
+        )
+          throw new Error("send_channel_message only sends to a public channel");
+        return toolResult(await proxy.post(agentApiRoutes.proxy.messages.path, request));
+      },
+    });
+
+  const openvikingByName: Record<string, ReturnType<typeof defineTool>> = {
+    [OPENVIKING_TOOL_NAMES.find]: openvikingTool(
+      OPENVIKING_TOOL_NAMES.find,
+      "OpenViking find",
+      "Find cited OpenViking documents for the current public-channel question.",
+      "find",
+      {
+        operationId: Type.String(),
+        query: Type.String(),
+        limit: Type.Optional(Type.Integer({ minimum: 1 })),
+        targetUri: Type.Optional(Type.String()),
+      },
+    ),
+    [OPENVIKING_TOOL_NAMES.searchContext]: openvikingTool(
+      OPENVIKING_TOOL_NAMES.searchContext,
+      "OpenViking search context",
+      "Expand hierarchical OpenViking context within the remaining shared token budget.",
+      "search_context",
+      {
+        operationId: Type.String(),
+        query: Type.String(),
+        limit: Type.Optional(Type.Integer({ minimum: 1 })),
+        targetUri: Type.Optional(Type.String()),
+        tokenBudget: Type.Optional(Type.Integer({ minimum: 1 })),
+      },
+    ),
+    [OPENVIKING_TOOL_NAMES.read]: openvikingTool(
+      OPENVIKING_TOOL_NAMES.read,
+      "OpenViking read",
+      "Read one cited OpenViking document by URI.",
+      "read",
+      { operationId: Type.String(), uri: Type.String() },
+    ),
+    [OPENVIKING_TOOL_NAMES.offer]: openvikingTool(
+      OPENVIKING_TOOL_NAMES.offer,
+      "Publish Memory Offer",
+      "Publish one visible, cited Memory Offer. This is the only visible answer to an explicit @memory question. citationRefs are citation ids already returned in this workspace. The server binds the channel and recipient.",
+      "offer",
+      {
+        operationId: Type.String(),
+        citationRefs: Type.Array(Type.String(), { minItems: 1 }),
+        body: Type.String(),
+      },
+    ),
+  };
+
+  const fenced = toolsForMemoryFence(profile).map((name) => {
+    const tool = openvikingByName[name];
+    if (!tool) throw new Error(`unsupported Memory Agent tool: ${name}`);
+    return tool;
+  });
+
+  return [
+    ...fenced,
+    messageTool(
+      "message_check",
+      "Check messages",
+      "Check pending CoForge messages without shell or network access.",
+      "check",
+      {},
+    ),
+    messageTool(
+      "message_read",
+      "Read messages",
+      "Read public-channel messages through the CoForge message route.",
+      "read",
+      {
+        target: Type.String(),
+        before: Type.Optional(Type.String()),
+        after: Type.Optional(Type.String()),
+        around: Type.Optional(Type.String()),
+        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+      },
+    ),
+    messageTool(
+      "send_channel_message",
+      "Send channel message",
+      "Send a visible public-channel message through CoForge. This cannot answer an explicit @memory question; use memory_offer.",
+      "send",
+      { target: Type.String(), content: Type.String() },
+    ),
+  ];
+}
+
+/** The only model-callable tools available under the openviking-memory fence. */
+export function createOpenVikingMemoryTools(
+  budget: MemoryAgentTurnBudget,
+  proxy?: MemoryAgentProxy,
+) {
+  return createMemoryFenceTools("openviking-memory", budget, proxy);
+}
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   cwd,
@@ -41,6 +334,29 @@ export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   };
 };
 
+export const EVAL_DISABLE_HOST_PI_INJECTION = "COFORGE_EVAL_DISABLE_HOST_PI_INJECTION";
+
+export function evalDisablesHostPiInjection(
+  env: { [key: string]: string | undefined } = Bun.env,
+): boolean {
+  const value = env[EVAL_DISABLE_HOST_PI_INJECTION];
+  return value === "1" || value === "true";
+}
+
+/** Memory Agent and public-channel eval sessions must not ingest Pi host skills,
+ * context files, or extensions. Team memory and skills come from the Memory Agent. */
+export function resourceLoaderOptionsForSession(input: {
+  instructions: string;
+  memoryFence?: boolean;
+  disableHostPiInjection?: boolean;
+}) {
+  const isolate = Boolean(input.memoryFence || input.disableHostPiInjection);
+  return {
+    systemPromptOverride: () => input.instructions,
+    ...(isolate ? { noSkills: true, noContextFiles: true, noExtensions: true } : {}),
+  };
+}
+
 export async function createSession(options: {
   cwd: string;
   agentId?: string;
@@ -55,6 +371,7 @@ export async function createSession(options: {
   instructions: string;
   environment?: Readonly<Record<string, string>>;
   sessionKind?: "coforge" | "pi";
+  toolProfile?: MemoryAgentToolProfile;
 }) {
   const cwd = options.cwd;
   const environment = options.environment
@@ -109,11 +426,19 @@ export async function createSession(options: {
       );
     }
   }
+  const memoryFence = isMemoryAgentToolProfile(options.toolProfile)
+    ? options.toolProfile
+    : undefined;
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
     modelRuntime,
-    resourceLoaderOptions: { systemPromptOverride: () => options.instructions },
+    resourceLoaderOptions: resourceLoaderOptionsForSession({
+      instructions: options.instructions,
+      memoryFence: Boolean(memoryFence),
+      disableHostPiInjection:
+        evalDisablesHostPiInjection(options.environment) || evalDisablesHostPiInjection(),
+    }),
   });
   if (sessionKind === "coforge") {
     const skillDiagnostics = services.resourceLoader.getSkills().diagnostics;
@@ -134,60 +459,76 @@ export async function createSession(options: {
   const extensionDefinesBash = services.resourceLoader
     .getExtensions()
     .extensions.some((extension) => extension.tools.has("bash"));
+  const memoryBudget = memoryFence ? new MemoryAgentTurnBudget() : undefined;
+  const memoryTools =
+    memoryFence && memoryBudget
+      ? createMemoryFenceTools(memoryFence, memoryBudget, defaultMemoryProxy(environment))
+      : [];
+  const customTools = [
+    ...(options.environment && !extensionDefinesBash && !memoryBudget
+      ? [
+          createBashTool(cwd, {
+            shellPath: services.settingsManager.getShellPath(),
+            commandPrefix: services.settingsManager.getShellCommandPrefix(),
+            spawnHook: ({ env, ...context }) => {
+              const childEnv = { ...env };
+              for (const key of [
+                "COFORGE_AGENT_CONTEXT",
+                "COFORGE_AGENT_PROXY_URL",
+                "COFORGE_DAEMON_SOCKET",
+                "COFORGE_SUPERVISOR_SOCKET",
+                "COFORGE_CURRENT_AGENT_ID",
+                "COFORGE_CURRENT_AGENT_NAME",
+                "COFORGE_CURRENT_WORKSPACE_ID",
+                "COFORGE_CURRENT_WORKSPACE_SLUG",
+                "COFORGE_CURRENT_WORKSPACE_NAME",
+                "COFORGE_CURRENT_COMPUTER_ID",
+                "COFORGE_CURRENT_COMPUTER_NAME",
+                "COFORGE_CURRENT_COMPUTER_HOSTNAME",
+                "COFORGE_CURRENT_COMPUTER_OS",
+                "COFORGE_CURRENT_COMPUTER_VERSION",
+                "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
+              ])
+                delete childEnv[key];
+              Object.assign(childEnv, environment);
+              // Pi resolves current metadata before the hook, including absent values.
+              for (const key of [
+                "PI_SESSION_ID",
+                "PI_SESSION_FILE",
+                "PI_PROVIDER",
+                "PI_MODEL",
+                "PI_REASONING_LEVEL",
+              ]) {
+                if (env[key] === undefined) delete childEnv[key];
+                else childEnv[key] = env[key];
+              }
+              return { ...context, env: childEnv };
+            },
+          }),
+        ]
+      : []),
+    ...memoryTools,
+  ];
   const created = await createAgentSessionFromServices({
     services,
     sessionManager,
     ...(model ? { model } : {}),
     ...(options.reasoning ? { thinkingLevel: options.reasoning as never } : {}),
-    ...(options.environment && !extensionDefinesBash
+    ...(memoryBudget
       ? {
-          customTools: [
-            createBashTool(cwd, {
-              shellPath: services.settingsManager.getShellPath(),
-              commandPrefix: services.settingsManager.getShellCommandPrefix(),
-              spawnHook: ({ env, ...context }) => {
-                const childEnv = { ...env };
-                for (const key of [
-                  "COFORGE_AGENT_CONTEXT",
-                  "COFORGE_AGENT_PROXY_URL",
-                  "COFORGE_DAEMON_SOCKET",
-                  "COFORGE_SUPERVISOR_SOCKET",
-                  "COFORGE_CURRENT_AGENT_ID",
-                  "COFORGE_CURRENT_AGENT_NAME",
-                  "COFORGE_CURRENT_WORKSPACE_ID",
-                  "COFORGE_CURRENT_WORKSPACE_SLUG",
-                  "COFORGE_CURRENT_WORKSPACE_NAME",
-                  "COFORGE_CURRENT_COMPUTER_ID",
-                  "COFORGE_CURRENT_COMPUTER_NAME",
-                  "COFORGE_CURRENT_COMPUTER_HOSTNAME",
-                  "COFORGE_CURRENT_COMPUTER_OS",
-                  "COFORGE_CURRENT_COMPUTER_VERSION",
-                  "COFORGE_CURRENT_AGENT_WORKSPACE_PATH",
-                ])
-                  delete childEnv[key];
-                Object.assign(childEnv, environment);
-                // Pi resolves current metadata before the hook, including absent values.
-                for (const key of [
-                  "PI_SESSION_ID",
-                  "PI_SESSION_FILE",
-                  "PI_PROVIDER",
-                  "PI_MODEL",
-                  "PI_REASONING_LEVEL",
-                ]) {
-                  if (env[key] === undefined) delete childEnv[key];
-                  else childEnv[key] = env[key];
-                }
-                return { ...context, env: childEnv };
-              },
-            }),
-          ],
+          noTools: "all" as const,
+          tools: memoryTools.map((tool) => tool.name),
+          customTools: memoryTools,
         }
-      : {}),
+      : customTools.length > 0
+        ? { customTools }
+        : {}),
   });
   return {
     ...created,
     services,
     replacedSessionId,
+    resetMemoryBudget: memoryBudget ? () => memoryBudget.reset() : undefined,
     get sessionId() {
       return sessionManager.getSessionId();
     },

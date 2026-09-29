@@ -131,6 +131,42 @@
         "vite": "8.2.2",
       },
     },
+    "benchmark/evolbench-collab": {
+      "name": "@coforge/evolbench-collab-eval",
+      "version": "0.0.0",
+      "dependencies": {
+        "@lrm/coforge-sdk": "workspace:*",
+        "@prisma/adapter-pg": "^7.10.0",
+        "@prisma/client": "^7.10.0",
+      },
+    },
+    "benchmark/longmemeval-collab": {
+      "name": "@coforge/longmemeval-collab-eval",
+      "version": "0.0.0",
+      "dependencies": {
+        "@lrm/coforge-sdk": "workspace:*",
+        "@prisma/adapter-pg": "^7.10.0",
+        "@prisma/client": "^7.10.0",
+      },
+    },
+    "benchmark/public-channel-memory": {
+      "name": "@coforge/public-channel-memory-eval",
+      "version": "0.0.0",
+      "dependencies": {
+        "@lrm/coforge-sdk": "workspace:*",
+        "@prisma/adapter-pg": "^7.10.0",
+        "@prisma/client": "^7.10.0",
+      },
+    },
+    "benchmark/skillsbench-collab": {
+      "name": "@coforge/skillsbench-collab-eval",
+      "version": "0.0.0",
+      "dependencies": {
+        "@lrm/coforge-sdk": "workspace:*",
+        "@prisma/adapter-pg": "^7.10.0",
+        "@prisma/client": "^7.10.0",
+      },
+    },
     "packages/agent": {
       "name": "@coforge/agent",
       "version": "0.1.0",
@@ -140,6 +176,7 @@
       "dependencies": {
         "@earendil-works/pi-coding-agent": "0.84.3",
         "@lrm/coforge-sdk": "workspace:*",
+        "typebox": "1.3.7",
       },
       "devDependencies": {
         "@types/bun": "1.4.0",
@@ -356,6 +393,14 @@
     "@coforge/agent": ["@coforge/agent@workspace:packages/agent"],
 
     "@coforge/computer": ["@coforge/computer@workspace:packages/computer"],
+
+    "@coforge/evolbench-collab-eval": ["@coforge/evolbench-collab-eval@workspace:benchmark/evolbench-collab"],
+
+    "@coforge/longmemeval-collab-eval": ["@coforge/longmemeval-collab-eval@workspace:benchmark/longmemeval-collab"],
+
+    "@coforge/public-channel-memory-eval": ["@coforge/public-channel-memory-eval@workspace:benchmark/public-channel-memory"],
+
+    "@coforge/skillsbench-collab-eval": ["@coforge/skillsbench-collab-eval@workspace:benchmark/skillsbench-collab"],
 
     "@coforge/web": ["@coforge/web@workspace:apps/web"],
 

@@ -5,7 +5,14 @@ import type {
   AgentSendDecisionResponse,
   AgentSendResponse,
 } from "@lrm/coforge-sdk/agent";
-import { UUID_LIKE_PATTERN, isValidMentionSelectorArray } from "@lrm/coforge-sdk/internal";
+import {
+  UUID_LIKE_PATTERN,
+  isChannelMessageTarget,
+  isValidMentionSelectorArray,
+  MEMORY_OFFER_REQUIRED_MESSAGE,
+} from "@lrm/coforge-sdk/internal";
+import { createPrismaMemoryAgentDirectory } from "#src/server/workspace-memory/memory-agent-http.server";
+import { explicitMemoryQuestionRequiresOffer } from "#src/server/workspace-memory/explicit-memory-answer";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import {
@@ -199,6 +206,11 @@ export async function handleAgentMessagesPost(
   principal: AgentMessagesPostPrincipal,
   dependencies: Parameters<typeof executeAgentSendMessageWithPolicy>[0] & {
     requestRecords: MessageRequestRecords;
+    memoryOfferRequired?: (input: {
+      workspaceId: string;
+      agentId: string;
+      target: string;
+    }) => Promise<boolean>;
   },
 ): Promise<Response> {
   const body = await request.json().catch(() => undefined);
@@ -227,13 +239,23 @@ export async function handleAgentMessagesPost(
   if (body.mentions !== undefined && !isValidMentionSelectorArray(body.mentions))
     return Response.json({ error: "invalid mentions" }, { status: 400 });
   // Raft's own name for this request's idempotency key (task #58 ④), and our only one: a request
-  // must not be deduplicable under two spellings, so `idempotencyKey` is not read. Raft's
+  // must not be deduplicable under two spellings, so `requestId` is not read. Raft's
   // declared-but-unused `continue` field needs no handling here — this handler only reads what it
   // acts on (the force-send flag is `continueAnyway`, as in Raft).
   const idempotencyKey =
     typeof body.idempotencyKey === "string" && body.idempotencyKey
       ? body.idempotencyKey
       : crypto.randomUUID();
+  // An explicit @memory question must be answered with a Memory Offer, not a plain channel send.
+  const channelTarget = body.target.split(":")[0] ?? body.target;
+  if (dependencies.memoryOfferRequired && isChannelMessageTarget(channelTarget)) {
+    const offerRequired = await dependencies.memoryOfferRequired({
+      workspaceId: principal.workspaceId,
+      agentId: principal.agentId,
+      target: channelTarget,
+    });
+    if (offerRequired) return new Response(MEMORY_OFFER_REQUIRED_MESSAGE, { status: 400 });
+  }
   try {
     const result = await executeAgentSendMessageWithPolicy(dependencies, {
       idempotencyKey,
@@ -291,9 +313,28 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
         const repository = new PrismaDirectConversationRepository(db);
         const centrifugo = createCentrifugoServerApi();
         const requestRecords = getMessageRequestIdempotency();
+        const directory = createPrismaMemoryAgentDirectory(db);
         return handleAgentMessagesPost(request, principal, {
           repository,
           requestRecords,
+          memoryOfferRequired: async ({ workspaceId, agentId, target }) => {
+            try {
+              const conversation = await repository.getAgentChannel(workspaceId, agentId, target);
+              return explicitMemoryQuestionRequiresOffer(
+                db,
+                { workspaceId, agentId, conversationId: conversation.id },
+                (currentWorkspaceId, currentAgentId) =>
+                  directory.isDesignated(currentWorkspaceId, currentAgentId),
+              );
+            } catch (error) {
+              if (
+                isAppError(error) &&
+                (error.code === "ACCESS_DENIED" || error.code === "INVALID_INPUT")
+              )
+                return false;
+              throw error;
+            }
+          },
           sender: new SendDirectMessage(
             repository,
             requestRecords,

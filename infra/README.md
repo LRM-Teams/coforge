@@ -32,29 +32,24 @@ openssl rand -hex 32 > infra/secrets/redis_password
 openssl rand -hex 32 > infra/secrets/centrifugo_http_api_key
 openssl rand -hex 32 > infra/secrets/centrifugo_proxy_secret
 openssl rand -hex 32 > infra/secrets/postgres_password
-docker compose -p coforge \
-  -f infra/docker-compose.centrifugo.yml up -d
+docker compose -p coforge -f infra/docker-compose.yml up -d
 ```
 
 Check the rendered configuration and service health:
 
 ```bash
-docker compose -p coforge \
-  -f infra/docker-compose.centrifugo.yml config --quiet
-docker compose -p coforge \
-  -f infra/docker-compose.centrifugo.yml ps
-curl http://localhost:8000/health
+docker compose -p coforge -f infra/docker-compose.yml config --quiet
+docker compose -p coforge -f infra/docker-compose.yml ps
 ```
 
 PostgreSQL is intentionally not published to the host. Containers on the
 Compose network connect with `postgresql://coforge@postgres:5432/coforge` and
 the password in `infra/secrets/postgres_password`.
 
-Stop the services without deleting the Redis volume:
+Stop the services without deleting the Redis or PostgreSQL volumes:
 
 ```bash
-docker compose -p coforge \
-  -f infra/docker-compose.centrifugo.yml down
+docker compose -p coforge -f infra/docker-compose.yml down
 ```
 
 The committed image versions are intentionally not `latest`. Production must

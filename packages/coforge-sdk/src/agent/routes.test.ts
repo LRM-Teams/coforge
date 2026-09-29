@@ -42,6 +42,12 @@ test("uses versioned Agent API routes for the Proxy and cloud", () => {
   expect(agentApiRoutes.proxy.reminders.path).toBe("/api/agent/v1/reminders");
   expect(agentApiRoutes.proxy.inbox.path).toBe("/api/agent/v1/inbox");
   expect(agentApiRoutes.proxy.messages.path).toBe(agentApiRoutes.cloud.messages.list.path);
+  expect(agentApiRoutes.proxy.openviking).toEqual({
+    method: "POST",
+    path: "/api/agent/v1/openviking",
+  });
+  expect(agentApiRoutes.local.openviking).toEqual(agentApiRoutes.proxy.openviking);
+  expect(agentApiRoutes.cloud.openviking).toEqual(agentApiRoutes.proxy.openviking);
 });
 
 test("builds encoded resource paths from the shared contract", () => {

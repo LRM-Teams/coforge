@@ -423,6 +423,7 @@ function runtimeConfigOf(intent: AgentStartIntent): AgentRuntimeConfig {
     modelProvider: intent.modelProvider,
     reasoning: intent.reasoning,
     providerConfig: intent.providerConfig,
+    toolProfile: intent.toolProfile,
   };
 }
 
@@ -3966,6 +3967,25 @@ export class DaemonRuntime {
     this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.profileUpdate) throw new Error("Agent profile endpoint is not configured");
     return this.#transport.profileUpdate(request, agentApiKey);
+  }
+
+  memoryFence(agentId: string): string | undefined {
+    return (
+      this.#agentProcessManager.runtime(agentId)?.config.toolProfile ??
+      this.#agentProcessManager.restartConfig(agentId)?.config.toolProfile
+    );
+  }
+
+  async agentOpenviking(
+    context: string,
+    command: import("../openviking-read-proxy").OpenVikingAgentProxyCommand,
+    agentApiKey: string,
+  ): Promise<unknown> {
+    this.#assertRunning();
+    this.#agentIdForContext(context);
+    if (!this.#transport.agentOpenviking) throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return this.#transport.agentOpenviking(command, agentApiKey);
   }
 
   async mentionPending(
