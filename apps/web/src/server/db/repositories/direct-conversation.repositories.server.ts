@@ -2124,14 +2124,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return { pendingMentionActions, unresolvedMentionHandles: unresolved };
   }
 
-  /** `agentMentionReport` for a message this Agent already committed, found by its id. */
+  /** `agentMentionReport` for a message this Agent already committed, found by its id. Only the
+   * Agent that sent the message reads its report. */
   async committedAgentMentionReport(
     workspaceId: string,
     agentId: string,
     messageId: string,
   ): Promise<AgentMentionReport> {
     const message = await this.db.message.findFirst({
-      where: { id: messageId, workspaceId },
+      where: { id: messageId, workspaceId, sender: { agentId } },
       select: { id: true, conversationId: true, body: true },
     });
     return message

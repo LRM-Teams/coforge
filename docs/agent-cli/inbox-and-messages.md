@@ -79,8 +79,10 @@ action follows the code:
 - `TARGET_NOT_ACCESSIBLE`: an unknown username and someone outside the
   Workspace get the same answer. Correct the target.
 - `MESSAGE_REQUEST_IN_PROGRESS` (409, retryable): an earlier request with the
-  same key is still being processed, so delivery is UNKNOWN, not refused. Wait,
-  then resend the saved draft with `--send-draft`, which reuses the key; never
+  same key is still being processed, so delivery is UNKNOWN, not refused. The
+  daemon names the draft's key: wait, then run
+  `message send --send-draft --expected-draft-key "<key>" --target "<target>"`,
+  which reuses the key and refuses if another send replaced the draft; never
   rewrite it as a new send.
 - `AGENT_DM_RESTRICTED`: a private Agent's direct message that is read-only
   for it. Reply in a conversation it may post to.

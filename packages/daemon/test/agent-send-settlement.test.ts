@@ -5,6 +5,7 @@ import type {
   AgentMessageTransportResponse,
   AgentSendReconciliationRequest,
 } from "#src/connection/agent-http-clients";
+import { AgentExplainedRefusalError } from "#src/connection/agent-explained-refusal-error";
 import { AgentTransportError } from "#src/connection/agent-transport-error";
 import {
   settleAgentSend,
@@ -259,4 +260,50 @@ test("a failure after the response started, or a refusal, is never reconciled", 
     expect(await failure(settle(settlement))).toBe(refusal);
     expect(settlement.calls.map(({ port }) => port)).toEqual(["send"]);
   }
+});
+
+const stillProcessing = () =>
+  AgentExplainedRefusalError.fromResponse(
+    409,
+    JSON.stringify({
+      error: "message request is already processing; retry later",
+      code: "MESSAGE_REQUEST_IN_PROGRESS",
+      retryable: true,
+    }),
+  )!;
+
+test("a send whose key is still being processed names the draft's key to resend it under", async () => {
+  const settlement = ports({ sends: [async () => Promise.reject(stillProcessing())] });
+
+  const error = await failure(settle(settlement));
+
+  expect(error).toBeInstanceOf(AgentSendVerdictError);
+  const verdict = (error as AgentSendVerdictError).verdict;
+  expect(verdict).toMatchObject({ retryable: true, draftSaved: true });
+  expect(verdict.suggestedNextAction).toContain("may still be delivered");
+  expect(verdict.suggestedNextAction).toContain(
+    'coforge message send --send-draft --expected-draft-key "key-1" --target "@ada"',
+  );
+  expect((error as AgentSendVerdictError).cause).toBeInstanceOf(AgentExplainedRefusalError);
+  expect(settlement.calls.map(({ port }) => port)).toEqual(["send"]);
+});
+
+test("under reviewer isolation the resend command keeps the flag", async () => {
+  const settlement = ports({ sends: [async () => Promise.reject(stillProcessing())] });
+
+  const error = (await failure(settle(settlement, true))) as AgentSendVerdictError;
+
+  expect(error.verdict.suggestedNextAction).toContain(
+    "coforge message send --reviewer-isolation --send-draft --expected-draft-key",
+  );
+});
+
+test("any other refusal is reported as it is", async () => {
+  const refused = AgentExplainedRefusalError.fromResponse(
+    403,
+    JSON.stringify({ error: "left", code: "DM_PEER_NOT_IN_WORKSPACE", retryable: false }),
+  )!;
+  const settlement = ports({ sends: [async () => Promise.reject(refused)] });
+
+  expect(await failure(settle(settlement))).toBe(refused);
 });

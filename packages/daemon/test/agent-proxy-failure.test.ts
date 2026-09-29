@@ -314,3 +314,25 @@ test("reviewer isolation withholds an explained refusal too", () => {
   expect(JSON.stringify(classified.body)).not.toContain("sensitive reason");
   expect(JSON.stringify(classified.body)).not.toContain("DM_PEER_NOT_IN_WORKSPACE");
 });
+
+test("a judged still-processing refusal keeps the server's code and carries the daemon's resend", () => {
+  const classified = classifyAgentProxyFailure(
+    new AgentSendVerdictError(
+      "an earlier request with the send's key is still being processed",
+      explainedRefusal(409, {
+        error: "message request is already processing; retry later",
+        code: "MESSAGE_REQUEST_IN_PROGRESS",
+        retryable: true,
+      }),
+      { retryable: true, draftSaved: true, suggestedNextAction: "resend under key-1" },
+    ),
+    context,
+  );
+  expect(classified.status).toBe(409);
+  expect(classified.body).toMatchObject({
+    code: "MESSAGE_REQUEST_IN_PROGRESS",
+    retryable: true,
+    suggested_next_action: "resend under key-1",
+    proxy: { failure_class: "upstream_refusal", draft_saved: true },
+  });
+});
