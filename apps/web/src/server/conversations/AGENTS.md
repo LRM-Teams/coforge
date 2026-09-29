@@ -120,7 +120,8 @@ These rules apply to `src/server/conversations/`.
 - Leaving and removal are soft: set `ConversationMember.leftAt` through the
   one `softLeaveMember` helper. Never hard-delete a membership row on its own
   (only deleting the whole channel does); `Message.sender` is
-  `onDelete: Restrict`.
+  `onDelete: Restrict`. Leaving the Workspace and deleting an Agent set
+  `leftAt` on every row at once, in their own store's transaction.
 - When an Agent leaves or is removed from a channel, after the write commits,
   publish an inbox purge through `AgentInboxPurgePublisher`
   (`server/agents/agent-inbox-purge.server.ts`) so its daemon drops that

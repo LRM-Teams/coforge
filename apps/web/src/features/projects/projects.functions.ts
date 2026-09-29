@@ -12,6 +12,7 @@ import { createProjectInput, projectIconUploadInput, updateProjectInput } from "
 import { ProjectImages, projectIconUrl } from "#src/server/projects/project-images.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
+import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 
 export const uploadProjectIcon = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
@@ -137,7 +138,8 @@ export const getProject = createServerFn({ method: "GET" })
             id: true,
             channelName: true,
             createdAt: true,
-            _count: { select: { members: true, messages: true } },
+            // Who is in the channel now: not someone who left it, or left the Workspace.
+            _count: { select: { members: { where: ACTIVE_MEMBER_WHERE }, messages: true } },
             messages: {
               take: 1,
               orderBy: [{ createdAt: "desc" }, { id: "desc" }],

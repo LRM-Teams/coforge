@@ -64,8 +64,9 @@ export type WorkspaceMemberDirectoryStore = {
     userId: string,
     role: WorkspaceMemberRole,
   ): Promise<WorkspaceMemberRecord>;
-  /** Removes the person from the Workspace and every conversation in it; reports the channels
-   * they were an active member of, whose member lists now changed. */
+  /** Removes the person from the Workspace and leaves every conversation in it for them (their
+   * rows stay, so what they wrote keeps its sender); reports the channels they were an active
+   * member of, whose member lists now changed. */
   removeMember(workspaceId: string, userId: string): Promise<{ leftChannelIds: string[] }>;
 };
 

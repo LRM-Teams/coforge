@@ -3,6 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 import { WorkspaceMembers } from "#src/server/workspaces/members.server";
+import { PrismaWorkspaceMemberDirectoryStore } from "#src/server/workspaces/member-directory-store.server";
 import type { MessageRequestIdempotency } from "#src/server/conversations/message-request-idempotency.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 
@@ -259,8 +260,8 @@ test("a DM names the member on the other side after they left the Workspace", as
   const lin = await db.user.create({ data: { username: `dc-lin-${suffix}` } });
   await db.workspaceMembership.create({ data: { workspaceId, userId: lin.id } });
   const { conversationId } = await conversations.open(workspaceId, ada.id, { userId: lin.id });
-  // Leaving the Workspace removes their member rows; the conversation stays Ada's to read.
-  await db.conversationMember.deleteMany({ where: { conversationId, userId: lin.id } });
+  // Leaving the Workspace ends their side of it; the conversation stays Ada's to read.
+  await new PrismaWorkspaceMemberDirectoryStore(db).removeMember(workspaceId, lin.id);
   expect(await conversations.page(workspaceId, ada.id, conversationId)).toMatchObject({
     kind: "people",
     peer: { id: lin.id },

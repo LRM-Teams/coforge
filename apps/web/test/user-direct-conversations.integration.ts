@@ -228,7 +228,7 @@ test("a Task written in it is announced to its members, never to the Workspace",
 test("a member who left and came back can use the conversation again", async () => {
   const conversations = new UserDirectConversations(db, passThrough);
   const { conversationId } = await conversations.open(workspace.id, carol.id, ada.id);
-  // Removing a member from the Workspace deletes their conversation member rows.
+  // A member's row can be missing altogether; opening the conversation again restores it.
   await db.conversationMember.deleteMany({ where: { conversationId, userId: carol.id } });
   expect(await conversations.open(workspace.id, carol.id, ada.id)).toEqual({ conversationId });
   const sent = await conversations.send({

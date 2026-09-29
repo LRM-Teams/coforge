@@ -13,7 +13,10 @@ import {
   type WorkspaceMemberRole,
 } from "./member-role.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
-import { ACTIVE_CHANNEL_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
+import {
+  ACTIVE_CHANNEL_MEMBER_WHERE,
+  ACTIVE_MEMBER_WHERE,
+} from "#src/server/conversations/active-member.server";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 function asRole(value: string): WorkspaceMemberRole {
@@ -163,6 +166,17 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
         },
       });
       await enrollGeneralChannel(tx, invitation.workspaceId);
+      // Someone coming back has their direct conversations again, read positions kept; the other
+      // channels they were in stay left until they join them.
+      await tx.conversationMember.updateMany({
+        where: {
+          workspaceId: invitation.workspaceId,
+          userId: input.userId,
+          leftAt: { not: null },
+          conversation: { directKey: { not: null } },
+        },
+        data: { leftAt: null },
+      });
       return {
         workspaceId: invitation.workspaceId,
         userId: input.userId,
@@ -226,8 +240,11 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
         where: { workspaceId, userId, ...ACTIVE_CHANNEL_MEMBER_WHERE },
         select: { conversationId: true },
       });
-      await tx.conversationMember.deleteMany({
-        where: { workspaceId, userId },
+      // Soft-left, never deleted: their Messages and Tasks keep this row as sender, owner and
+      // creator (`Restrict`), so their history stays readable under their name.
+      await tx.conversationMember.updateMany({
+        where: { workspaceId, userId, ...ACTIVE_MEMBER_WHERE },
+        data: { leftAt: new Date() },
       });
       return { leftChannelIds: activeChannels.map((row) => row.conversationId) };
     });

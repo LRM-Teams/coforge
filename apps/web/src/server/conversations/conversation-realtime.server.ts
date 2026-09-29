@@ -14,6 +14,7 @@ import {
   createCentrifugoServerApi,
   type CentrifugoServerApi,
 } from "#src/server/centrifugo/server-api.server";
+import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 
 export type ConversationRealtimeMessage = {
   conversationId: string;
@@ -78,9 +79,13 @@ export async function conversationSignalScopes(
       channelName: true,
       directKey: true,
       // Only a direct message's members name where it goes; a channel's roster (all of
-      // `#general`) is never read.
+      // `#general`) is never read. A person who left the Workspace hears of nothing new; a
+      // deleted Agent's row still says whose conversation it is.
       members: {
-        where: { conversation: { channelName: null } },
+        where: {
+          conversation: { channelName: null },
+          OR: [{ agentId: { not: null } }, ACTIVE_MEMBER_WHERE],
+        },
         select: { userId: true, agentId: true },
       },
     },
