@@ -100,7 +100,8 @@ export function buildCollectSynthesizerWakeText(input: {
   return [
     "采集已全部结束。请根据老板周报模板结构和下列采集包，整理成当前成员周报草稿。",
     "采集包应已按作者过滤；草稿只写该成员本人工作，不要扩写同事贡献。",
-    "用 coforge weekly-report context / read 读取模板与当前报告结构；不要重新采集本机文件。",
+    "用 coforge weekly-report context / list / read 读取模板、当前报告结构，以及同一成员最近两周已提交的周报；不要重新采集本机文件。",
+    "把上周未完成事项、本周完成结果和仍需延续的 Next Steps 明确串起来；没有历史内容时不要编造延续关系。",
     "在回复末尾附上 [weekly-report-suggestion] body-edit（reportId 如下），供用户 Confirm 写入。",
     `reportId=${input.reportId}`,
     `runId=${input.runId}`,

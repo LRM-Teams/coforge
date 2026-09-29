@@ -579,6 +579,17 @@ export const loadWeeklyReportStats = createServerFn({ method: "GET" })
     });
   });
 
+export const loadWeeklyReportDashboard = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ limit: z.number().int().min(2).max(12).optional() }))
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    return recordCatalog(db).loadWeeklyReportDashboard({
+      workspaceId,
+      userId: user.id,
+      limit: data.limit,
+    });
+  });
+
 export const loadRecordComments = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(

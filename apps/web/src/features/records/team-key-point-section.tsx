@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { AlertCircle, Stars01 as Stars, XClose as X } from "@untitledui/icons";
+import {
+  AlertCircle,
+  Download01 as Download,
+  Stars01 as Stars,
+  XClose as X,
+} from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
 import { Heading, Text } from "react-aria-components";
 
@@ -78,6 +83,14 @@ export function TeamKeyPointSection({
           >
             {m.records_key_points_edit_prompt()}
           </Link>
+          <a
+            href={`/api/workspaces/${encodeURIComponent(workspaceSlug)}/weekly-reports/${overviewReportId}/presentation`}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-secondary hover:underline"
+            download
+          >
+            <Download aria-hidden="true" className="size-4" />
+            {m.records_weekly_export_ppt()}
+          </a>
           {canStart ? (
             <Button
               type="button"
