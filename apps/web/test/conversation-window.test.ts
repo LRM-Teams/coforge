@@ -94,7 +94,7 @@ describe("window size", () => {
   });
 });
 
-type TestMessage = { id: string; sequence: number };
+type TestMessage = { id: string; sequence: number; threadRootId?: string };
 
 const bySequence = (base: readonly TestMessage[], incoming: readonly TestMessage[]) => {
   const byId = new Map(base.map((message) => [message.id, message]));
@@ -115,16 +115,19 @@ describe("foldWindowUpdates", () => {
     expect(fold).toEqual({ messages: [message("a", 1), message("b", 2)], pending: [] });
   });
 
-  test("buffers a late reply while the newest page is not the tail", () => {
-    // The reply to a still-retained root: the forward page loader can never fetch it, so it must
-    // not be dropped.
+  test("shows a late reply to a retained root while buffering unrelated updates", () => {
+    // A reply to a still-retained root must be visible in its open thread immediately; the forward
+    // page loader can never fetch it. Unrelated top-level updates still wait for the tail.
     const fold = foldWindowUpdates(
       { hasNewer: true, messages: [message("a", 1)] },
-      [message("reply", 50)],
-      [message("reply", 50)],
+      [],
+      [{ ...message("reply", 50), threadRootId: "a" }, message("new-root", 51)],
       bySequence,
     );
-    expect(fold).toEqual({ messages: undefined, pending: [message("reply", 50)] });
+    expect(fold).toEqual({
+      messages: [message("a", 1), { ...message("reply", 50), threadRootId: "a" }],
+      pending: [message("new-root", 51)],
+    });
   });
 
   test("a page that is gone folds nothing", () => {
