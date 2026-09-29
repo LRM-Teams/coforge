@@ -5,7 +5,11 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useLiveQuery } from "@tanstack/react-db";
 
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
-import { sidebarChannelsQueryKey, sidebarDirectsQueryKey } from "./conversation-query-keys";
+import {
+  channelNamesQueryKey,
+  sidebarChannelsQueryKey,
+  sidebarDirectsQueryKey,
+} from "./conversation-query-keys";
 import {
   createSidebar,
   sidebarChannelsQuery,
@@ -90,6 +94,7 @@ export function useSidebarLists() {
 const listQueryKey: Record<SidebarList, (workspaceId: string) => readonly unknown[]> = {
   channels: sidebarChannelsQueryKey,
   dms: sidebarDirectsQueryKey,
+  channelNames: channelNamesQueryKey,
 };
 
 /**

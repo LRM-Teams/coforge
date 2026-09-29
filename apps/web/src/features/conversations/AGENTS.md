@@ -34,7 +34,10 @@ These rules apply to `src/features/conversations/`.
   (collections and changes, tested without React) and `sidebar-lists.ts`
   (hooks): the chat layout's (`_chat`) loader fetches them into the TanStack Query cache
   (the server render reads it), and after hydration the same Query keys back
-  TanStack DB collections. Read them with `useSidebarLists` and change them
+  TanStack DB collections. Every channel's name (`channelNamesQuery`, for body channel links
+  and the `#` list) lives in the same cache and is re-read only on `channel.created.v1` or
+  `channel.updated.v1`; the create-channel dialog reads projects when it opens. Read the lists
+  with `useSidebarLists` and change them
   only through `useSidebarActions` (optimistic: the row changes at once, a
   saved change is written into the synced list, a failed save rolls it back);
   never `router.invalidate` for a sidebar change. A change made

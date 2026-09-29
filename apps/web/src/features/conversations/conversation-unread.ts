@@ -133,8 +133,9 @@ export function applyMarked(
   return next;
 }
 
-/** A sidebar list the Chat page keeps: the channel rows or the DM rows. */
-export type SidebarList = "channels" | "dms";
+/** A list the Chat page keeps: the sidebar's channel rows or DM rows, or every channel's name
+ * (what a body's channel links and the composer's `#` list read). */
+export type SidebarList = "channels" | "dms" | "channelNames";
 
 /**
  * Which of the sidebar's lists a viewer event makes stale, for the page to re-read those alone. A
@@ -150,14 +151,14 @@ export function sidebarListsChangedBy(event: ViewerEvent): readonly SidebarList[
 
 /**
  * Which lists a Workspace-channel publication makes stale: a channel created or changed anywhere in
- * the Workspace (`channel.created.v1`, `channel.updated.v1`) makes the channel list stale; anything
- * else (a message signal) is undefined.
+ * the Workspace (`channel.created.v1`, `channel.updated.v1`) makes the channel list and the channel
+ * names stale; anything else (a message signal) is undefined.
  */
 export function workspaceSignalLists(data: unknown): readonly SidebarList[] | undefined {
-  if (decodeChannelCreatedEvent(data)) return ["channels"];
+  if (decodeChannelCreatedEvent(data)) return ["channels", "channelNames"];
   try {
     decodeChannelUpdatedEvent(data);
-    return ["channels"];
+    return ["channels", "channelNames"];
   } catch {
     return undefined;
   }
