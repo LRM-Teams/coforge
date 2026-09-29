@@ -6,8 +6,6 @@ import { UpgradeLaunchesPausedError, UpgradeOperationPendingError } from "./upgr
 import { WorkspaceParkedError } from "./workspace-health-journal";
 import { WorkspaceLifecycleSupersededError } from "./lifecycle-superseded-error";
 
-export { WorkspaceLifecycleSupersededError } from "./lifecycle-superseded-error";
-
 export type RestartProgress = {
   requestId: string;
   phase: "stopping" | "starting";
@@ -173,8 +171,8 @@ export class MachineSupervisor {
    * to come (the sequence of that stop). Any save of them meanwhile keeps them stopped. */
   #stopIntents = new Map<string, number>();
   /** Store writes, one at a time: a stop's intent is written outside the lifecycle queue. */
-  #writing = Promise.resolve();
-  #mutation = Promise.resolve();
+  #writing = new SerialQueue();
+  #mutation = new SerialQueue();
   #paused = false;
   #reloadRequired = false;
   constructor(
@@ -269,9 +267,7 @@ export class MachineSupervisor {
       return this.#command(operation, workspaceId, requestId, sequence, progress);
     }).finally(() => {
       settle.all();
-      if (operation === "stop")
-        for (const id of requested)
-          if (this.#stopIntents.get(id) === sequence) this.#stopIntents.delete(id);
+      if (operation === "stop") this.#releaseStopIntents(requested, sequence);
     });
     const { deadline } = options;
     if (deadline === undefined) return work;
@@ -307,10 +303,15 @@ export class MachineSupervisor {
       });
     } catch (error) {
       // The stop fails as a whole (its queued turn sees the same error), so nothing stays forced.
-      for (const id of workspaceIds)
-        if (this.#stopIntents.get(id) === sequence) this.#stopIntents.delete(id);
+      this.#releaseStopIntents(workspaceIds, sequence);
       throw error;
     }
+  }
+
+  /** Ends this stop's hold over its Workspaces, unless a later stop took them over since. */
+  #releaseStopIntents(workspaceIds: readonly string[], sequence: number): void {
+    for (const id of workspaceIds)
+      if (this.#stopIntents.get(id) === sequence) this.#stopIntents.delete(id);
   }
 
   /**
@@ -819,12 +820,7 @@ export class MachineSupervisor {
     this.#reloadRequired = false;
   }
   #exclusive<T>(write: () => Promise<T>): Promise<T> {
-    const result = this.#writing.then(write);
-    this.#writing = result.then(
-      () => {},
-      () => {},
-    );
-    return result;
+    return this.#writing.run(write);
   }
   async #start(binding: ManagedBinding, signal?: AbortSignal): Promise<string> {
     const expected = this.#instances.get(binding.workspaceId);
@@ -847,8 +843,17 @@ export class MachineSupervisor {
       throw new UpgradeLaunchesPausedError("machine lifecycle is paused for upgrade");
   }
   #serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.#mutation.then(operation);
-    this.#mutation = result.then(
+    return this.#mutation.run(operation);
+  }
+}
+
+/** Runs operations one at a time, in the order they were asked for; a failure does not stop the
+ * ones behind it. */
+class SerialQueue {
+  #tail = Promise.resolve();
+  run<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#tail.then(operation);
+    this.#tail = result.then(
       () => {},
       () => {},
     );
@@ -858,8 +863,6 @@ export class MachineSupervisor {
 
 const workspaceIdOf = (binding: ManagedBinding) => binding.workspaceId;
 
-/** A binding's restart receipts with its unfinished restart, if any, recorded as cancelled: a
- * stop or a configure replaced it, and a replay of that request must not restart it again. */
 /** A binding as a stop leaves it: disabled, its unfinished restart recorded cancelled. */
 function stopped(binding: ManagedBinding): ManagedBinding {
   if (!binding.enabled && !binding.restart) return binding;
@@ -871,6 +874,8 @@ function stopped(binding: ManagedBinding): ManagedBinding {
   };
 }
 
+/** A binding's restart receipts with its unfinished restart, if any, recorded as cancelled by
+ * `by`: a stop or a configure replaced it, and a replay of that request must not restart it. */
 function cancelledRestartResults(
   binding: ManagedBinding,
   by: "stop" | "configure",

@@ -32,6 +32,7 @@ import type { DaemonCredentialStore } from "#src/credentials/credential-store";
 import type { DaemonConfigStore } from "#src/persistence/daemon-config";
 import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
 import { WorkspaceLifecycleSupersededError } from "#src/supervisor/lifecycle-superseded-error";
+import type { DaemonStarted } from "#src/daemon-host/launcher";
 
 const logger = getLogger(["coforge", "daemon", "local-rpc"]);
 
@@ -49,7 +50,7 @@ export type DaemonHoldReport = {
 
 type DaemonRuntimePort = Partial<{
   /** May answer before the Workspace's start is done (the Coordinator's deadline). */
-  configure(connection: DaemonConfig): Promise<void | { lifecycleUnderWay?: boolean }>;
+  configure(connection: DaemonConfig): Promise<void | DaemonStarted>;
   start(): Promise<void>;
   stopAll(): Promise<void>;
   restart(): Promise<void>;
@@ -345,7 +346,7 @@ class LocalRpcDispatcher {
     computerId: string;
     workspaceRoot: string;
     daemonApiKey: string;
-  }): Promise<void | { lifecycleUnderWay?: boolean }> {
+  }): Promise<void | DaemonStarted> {
     const { runtime, credentials, configStore } = this.input;
     const { workspaceId, computerId } = request;
     const saved = await credentials.load(workspaceId, computerId);
@@ -365,8 +366,10 @@ class LocalRpcDispatcher {
       return configured;
     } catch (error) {
       if (error instanceof WorkspaceLifecycleSupersededError) throw error;
-      const current = await credentials.load(workspaceId, computerId);
-      if (credentialChanged && current === request.daemonApiKey) {
+      if (
+        credentialChanged &&
+        (await credentials.load(workspaceId, computerId)) === request.daemonApiKey
+      ) {
         if (saved !== null) await credentials.save(workspaceId, computerId, saved);
         else await credentials.delete(workspaceId, computerId);
       }

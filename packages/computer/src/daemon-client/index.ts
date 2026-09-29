@@ -35,14 +35,16 @@ export function createCommand(input: {
   const resolve = async (workspace?: string) =>
     workspace && input.resolveWorkspace ? input.resolveWorkspace(workspace) : undefined;
   const write = input.write ?? (() => {});
-  /** Runs one lifecycle command; a refusal for a parked Workspace becomes its stable CLI error. */
+  /** Runs one lifecycle command; a refusal for a parked Workspace becomes its stable CLI error.
+   * `target` is the Workspace id a `--workspace` selector named, or undefined for the machine. */
   const run = async (
     operation: "start" | "stop" | "restart",
     workspace: string | undefined,
-  ): Promise<ManagedRuntimeIdentity[]> => {
+  ): Promise<{ runtimes: ManagedRuntimeIdentity[]; target: string | undefined }> => {
     const local = await resolve(workspace);
+    const target = local?.id ?? workspace;
     try {
-      return await input.daemon.command(operation, local?.id ?? workspace);
+      return { runtimes: await input.daemon.command(operation, target), target };
     } catch (error) {
       if (
         !(error instanceof DaemonCommandRejectedError) ||
@@ -55,9 +57,6 @@ export function createCommand(input: {
       throw parkedWorkspaceError(error, error.code, refused);
     }
   };
-  /** The Workspace id a `--workspace` selector names, or undefined for the whole machine. */
-  const targetId = async (workspace?: string) =>
-    workspace ? ((await resolve(workspace).catch(() => undefined))?.id ?? workspace) : undefined;
   /** Each runtime's Workspace slug for the terminal, or its id when it has no local registration. */
   const names = (runtimes: readonly ManagedRuntimeIdentity[]) =>
     Promise.all(
@@ -126,8 +125,7 @@ export function createCommand(input: {
       input.logger?.info("Computer start requested", { event: "computer:starting" });
       write("Starting CoForge...");
       await input.daemon.ensureRunning();
-      const target = await targetId(workspace);
-      const runtimes = await run("start", workspace);
+      const { runtimes, target } = await run("start", workspace);
       input.logger?.info("Computer start completed", { event: "computer:started" });
       await report(
         "start",
@@ -140,8 +138,7 @@ export function createCommand(input: {
     async stop(workspace) {
       input.logger?.info("Computer stop requested", { event: "computer:stopping" });
       await input.daemon.ensureRunning();
-      const target = await targetId(workspace);
-      const runtimes = await run("stop", workspace);
+      const { runtimes, target } = await run("stop", workspace);
       input.logger?.info("Computer stop completed", { event: "computer:stopped" });
       // The stop answers by its deadline; a Workspace it has not reached yet still has its process.
       const stopping = runtimes.filter(
@@ -156,8 +153,7 @@ export function createCommand(input: {
       input.logger?.info("Computer restart requested", { event: "computer:restarting" });
       write(workspace ? `Restarting Workspace ${workspace}...` : "Restarting CoForge...");
       await input.daemon.ensureRunning();
-      const target = await targetId(workspace);
-      const runtimes = await run("restart", workspace);
+      const { runtimes, target } = await run("restart", workspace);
       input.logger?.info("Computer restart completed", { event: "computer:restarted" });
       await report(
         "restart",
