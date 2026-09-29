@@ -1,12 +1,27 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { readFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 
 import { JsonlProcess } from "#src/code-agent/jsonl-process";
 import type { OwnedProcessTree } from "#src/platform/process-tree";
 import { ProcessTreeOwner } from "#src/platform/process-tree";
 import { AgentProcessManager } from "#src/agent-runtime/agent-process-manager";
 import type { AgentSession } from "@coforge/agent";
+
+const agentWorkspaces: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    agentWorkspaces.splice(0).map((workspace) => rm(workspace, { recursive: true, force: true })),
+  );
+});
+
+/** An Agent workspace path the manager may create, removed after the test. */
+function agentWorkspace(name: string): string {
+  const workspace = `${tmpdir()}/coforge-${name}-${crypto.randomUUID()}`;
+  agentWorkspaces.push(workspace);
+  return workspace;
+}
 
 test("close waits for bounded split stderr diagnostics after process exit", async () => {
   const stderr = Promise.withResolvers<void>();
@@ -125,7 +140,7 @@ test("startup spawn failure permits the manager to retry", async () => {
     },
   }));
   const runtime = { provider: "pi", model: "default", reasoning: "balanced" } as const;
-  const workspace = `${tmpdir()}/coforge-startup-failure-${crypto.randomUUID()}`;
+  const workspace = agentWorkspace("startup-failure");
 
   await expect(manager.start("agent-1", runtime, workspace)).rejects.toThrow(
     "Executable not found",
@@ -165,7 +180,7 @@ test("startup cleanup probe failure blocks a replacement", async () => {
     },
   }));
   const runtime = { provider: "pi", model: "default", reasoning: "balanced" } as const;
-  const workspace = `${tmpdir()}/coforge-startup-probe-${crypto.randomUUID()}`;
+  const workspace = agentWorkspace("startup-probe");
 
   await expect(manager.start("agent-1", runtime, workspace)).rejects.toThrow(
     "process tree did not exit",
@@ -236,7 +251,7 @@ test.skipIf(process.platform === "win32")(
       },
     }));
     const runtime = { provider: "pi", model: "default", reasoning: "balanced" } as const;
-    const workspace = `${tmpdir()}/coforge-unexpected-exit-${crypto.randomUUID()}`;
+    const workspace = agentWorkspace("unexpected-exit");
 
     await manager.start("agent-1", runtime, workspace);
     await waitUntil(() => pids !== undefined);
@@ -280,7 +295,7 @@ test("failed unexpected-exit tree cleanup does not close or permit replacement",
     },
   }));
   const runtime = { provider: "pi", model: "default", reasoning: "balanced" } as const;
-  const workspace = `${tmpdir()}/coforge-failed-cleanup-${crypto.randomUUID()}`;
+  const workspace = agentWorkspace("failed-cleanup");
 
   await manager.start("agent-1", runtime, workspace);
   await waitUntil(() => failures > 0);

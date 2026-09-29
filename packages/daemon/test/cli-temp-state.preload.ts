@@ -1,11 +1,14 @@
 /**
- * Every Daemon test process keeps its Agents' CLI temporary state in a directory of its own.
+ * Every test process that can run the Daemon keeps its Agents' CLI temporary state in a directory of
+ * its own. `packages/daemon` and `apps/web` (whose tests build a `DaemonRuntime`) both preload this
+ * file from their `bunfig.toml`.
  *
  * The send-draft and consumed-cursor stores default to one directory per OS user under `tmpdir()`,
  * shared by every process of that user: other test processes running at the same time (another
  * worktree's suite, say) and a live Daemon on the same machine. Tests that write or clear that
  * state would then read, overwrite, and delete each other's. The stores' documented overrides point
- * this process at a fresh directory instead, and it is removed after the last test file.
+ * this process at a fresh directory instead, and it is removed once the tests it served have
+ * finished (per file under `bun test --isolate`, as `apps/web` runs).
  */
 import { afterAll } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";

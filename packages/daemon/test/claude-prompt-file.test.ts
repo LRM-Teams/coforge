@@ -1,7 +1,17 @@
-import { expect, test } from "bun:test";
-import { readFile, stat } from "node:fs/promises";
+import { afterEach, expect, test } from "bun:test";
+import { readFile, rm, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createPromptFile } from "#src/code-agent/claude-code/prompt-file";
+
+/** The two tests that inject their own `remove` leave the real directory behind. */
+const directoriesLeftBehind: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    directoriesLeftBehind
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true })),
+  );
+});
 
 test("a session's instructions are written where only this user can read them", async () => {
   const prompt = await createPromptFile("be helpful");
@@ -18,6 +28,7 @@ test("removing the prompt more than once removes it once", async () => {
   const prompt = await createPromptFile("be helpful", async (path) => {
     removed.push(String(path));
   });
+  directoriesLeftBehind.push(dirname(prompt.path));
 
   // A session that exits and is then disposed asks twice, the first time without waiting. Two
   // recursive removes walking one directory at once is what made dispose fail with EPERM.
@@ -30,6 +41,7 @@ test("a removal that fails is reported to every caller rather than to none", asy
   const prompt = await createPromptFile("be helpful", async () => {
     throw new Error("the prompt directory could not be removed");
   });
+  directoriesLeftBehind.push(dirname(prompt.path));
 
   await expect(prompt.remove()).rejects.toThrow("could not be removed");
   await expect(prompt.remove()).rejects.toThrow("could not be removed");

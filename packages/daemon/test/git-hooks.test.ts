@@ -1,5 +1,5 @@
-import { beforeEach, expect, test } from "bun:test";
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,8 +8,23 @@ import {
 } from "#src/code-agent/git-hooks";
 import { resetGitHookShimDirectoryCacheForTests } from "#src/code-agent/git-hook-shims";
 
+const scratchDirectories: string[] = [];
+afterEach(async () => {
+  await Promise.all(
+    scratchDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true })),
+  );
+});
+
+async function scratchDirectory(prefix: string): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), prefix));
+  scratchDirectories.push(directory);
+  return directory;
+}
+
 async function fakeGit(version: string | undefined): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "coforge-fake-git-"));
+  const directory = await scratchDirectory("coforge-fake-git-");
   const path = join(directory, "git");
   const body =
     version === undefined
@@ -48,7 +63,7 @@ test("git >= 2.54 resolves the config-hook plan", async () => {
 });
 
 test("git < 2.54 resolves the hooks-path plan when the shim directory can be prepared", async () => {
-  const daemonHome = await mkdtemp(join(tmpdir(), "coforge-daemon-home-"));
+  const daemonHome = await scratchDirectory("coforge-daemon-home-");
   const previous = process.env.COFORGE_DAEMON_HOME;
   process.env.COFORGE_DAEMON_HOME = daemonHome;
   try {
