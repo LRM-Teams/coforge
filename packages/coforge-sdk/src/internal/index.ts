@@ -162,11 +162,14 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   RUNTIME_STALLED: "runtime_stalled",
   // Computer lifecycle rows. Only the server writes them, into each of a Computer's Agents'
   // Activity: `computer_disconnected` on a shutdown notice, one of the others when a new daemon
-  // instance is ready. Info level: they never change a status.
+  // instance is ready. They never change a status; all are info level except
+  // `computer_operation_failed` (an upgrade that did not complete), which is error level and
+  // carries what still runs and what to do in its detail.
   COMPUTER_DISCONNECTED: "computer_disconnected",
   COMPUTER_STARTED: "computer_started",
   COMPUTER_RESTARTED: "computer_restarted",
   COMPUTER_UPGRADED: "computer_upgraded",
+  COMPUTER_OPERATION_FAILED: "computer_operation_failed",
   OTHER: "other",
 } as const;
 export type AgentActivityDetailKind =

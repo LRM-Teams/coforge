@@ -50,8 +50,9 @@ These rules apply to `src/features/agents/`.
   language and wording, subject to required secret redaction.
 - Display backend status detail. Tool labels come from structured tool names,
   never commands or paths. Working and thinking use the yellow work treatment.
-- Computer lifecycle kinds (`computer_*`) render their own label and the
-  row's detail, never the generic Activity row.
+- Computer lifecycle kinds (`computer_*`) render their own label, never the
+  generic Activity row. Only `computer_operation_failed` shows the row's
+  detail; the others read as the label alone, whatever detail a stored row has.
 - Render unknown detail kinds with a generic activity presentation and the
   original detail instead of dropping the record.
 - Show command and workspace-relative file path messages as copyable

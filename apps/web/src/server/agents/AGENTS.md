@@ -181,10 +181,10 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
 - Publish Activity and `agent:display` through `agentActivityChannelFor` and
   `agentStatusChannelFor`; never choose the shared or per-Agent channel inline.
 - Computer lifecycle rows are the only Activity the server writes itself
-  (`computer-lifecycle-activity.server.ts`). The row for a daemon's return
-  follows what happened, never only what its notice announced: the server's
-  upgrade and restart records, then the version the previous instance ran.
-  One row per daemon instance; a reconnect writes none.
+  (`computer-lifecycle-activity.server.ts`). A daemon's return row follows
+  the server's upgrade and restart records, then the previous version, never
+  only its notice. One per daemon instance, none on reconnect; only a failed
+  upgrade (error-level `computer_operation_failed`) carries a detail.
 - The Activity history cap is the shared `AGENT_ACTIVITY_WINDOW`
   (`features/agents/agent-activity-window.ts`); the browser timeline keeps the
   same number.

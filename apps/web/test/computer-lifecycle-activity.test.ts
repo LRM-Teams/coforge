@@ -88,7 +88,7 @@ test("a shutdown notice writes one disconnected row per Agent on that Computer, 
       agentId: "agent-public",
       detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_DISCONNECTED,
       level: "info",
-      detail: "The Computer is shutting down to upgrade",
+      detail: "",
       observedAtMs: 1_700_000_000_000,
       launchId: "computer-lifecycle:shutdown-1",
       clientSeq: 1,
@@ -110,7 +110,7 @@ test("each row goes live on the channel its Agent's visibility allows, in a shap
     decodeActivityObservation(h.published[0]!.data, { workspaceId: "workspace-1" }),
   ).toMatchObject({
     agentId: "agent-public",
-    entry: { detailKind: "computer_disconnected", detail: "The Computer was stopped" },
+    entry: { detailKind: "computer_disconnected", detail: "" },
   });
   expect(decodeAgentActivity(h.published[1]!.data).activityKind).toBeUndefined();
 });
@@ -125,6 +125,8 @@ test("a first ready of a new daemon instance with no notice before it is a start
     expect.objectContaining({
       agentId: "agent-public",
       detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_STARTED,
+      level: "info",
+      detail: "",
       launchId: "computer-lifecycle:ready-2",
     }),
     expect.objectContaining({ agentId: "agent-private" }),
@@ -164,7 +166,7 @@ test("a restart the server recorded as completed by this instance comes back as 
   expect(h.rows()[0]).toMatchObject({ detailKind: "computer_restarted" });
 });
 
-test("an upgrade the server verified comes back as upgraded, with the version it now runs", async () => {
+test("an upgrade the server verified comes back as upgraded", async () => {
   const h = harness({
     upgradeStatus: async () => ({ status: "completed", workerInstanceId: "worker-2" }),
   });
@@ -179,11 +181,12 @@ test("an upgrade the server verified comes back as upgraded, with the version it
 
   expect(h.rows()[0]).toMatchObject({
     detailKind: "computer_upgraded",
-    detail: "Now running 1.1.0",
+    level: "info",
+    detail: "",
   });
 });
 
-test("an upgrade that failed and rolled back comes back as restarted, saying what runs and what to do", async () => {
+test("an upgrade that failed and rolled back is one failed operation, saying what runs and what to do", async () => {
   const h = harness({ upgradeStatus: async () => ({ status: "failed" }) });
   await running(h);
   await h.lifecycle.shutdown(scope, { requestId: "shutdown-1", reason: "computer_upgrade" });
@@ -191,11 +194,16 @@ test("an upgrade that failed and rolled back comes back as restarted, saying wha
 
   await h.lifecycle.ready(scope, back({ recoveredUpgradeRequestIds: ["upgrade-1"] }));
 
-  expect(h.rows()[0]).toMatchObject({
-    detailKind: "computer_restarted",
-    detail:
-      "The upgrade did not complete; still running 1.0.0. Run `coforge-computer upgrade` to try again.",
-  });
+  expect(h.rows()).toEqual([
+    expect.objectContaining({
+      agentId: "agent-public",
+      detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_OPERATION_FAILED,
+      level: "error",
+      detail:
+        "The upgrade did not complete; still running 1.0.0. Run `coforge-computer upgrade` to try again.",
+    }),
+    expect.objectContaining({ agentId: "agent-private", level: "error" }),
+  ]);
 });
 
 test("without an upgrade record, the version decides: a changed version is an upgrade", async () => {
@@ -218,7 +226,8 @@ test("without an upgrade record, an announced upgrade that kept the old version 
   await h.lifecycle.ready(scope, back({ computerVersion: "1.0.0" }));
 
   expect(h.rows()[0]).toMatchObject({
-    detailKind: "computer_restarted",
+    detailKind: "computer_operation_failed",
+    level: "error",
     detail: expect.stringContaining("The upgrade did not complete"),
   });
 });

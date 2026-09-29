@@ -35,17 +35,12 @@ export type ComputerReturn = {
   recoveredRestartRequestIds: readonly string[];
 };
 
-const DISCONNECTED_DETAIL: Record<DaemonShutdownReason, string> = {
-  computer_upgrade: "The Computer is shutting down to upgrade",
-  computer_restart: "The Computer is restarting",
-  computer_stop: "The Computer was stopped",
-};
-
-type Row = { detailKind: AgentActivityDetailKind; detail: string };
+/** A row says what happened by its kind alone; only a failed operation carries a detail. */
+type Row = { detailKind: AgentActivityDetailKind; detail: string; level: "info" | "error" };
 
 /**
- * Computer lifecycle in Agent Activity: one info row in the Activity of every active Agent on
- * the Computer when a Workspace daemon announces a deliberate shutdown, and one when a new daemon
+ * Computer lifecycle in Agent Activity: one row in the Activity of every active Agent on the
+ * Computer when a Workspace daemon announces a deliberate shutdown, and one when a new daemon
  * instance is ready. What the second row says comes from what happened, not from what was
  * announced: the server's own upgrade and restart records, and the Computer version the previous
  * instance ran. Rows are best-effort observations like any other Activity.
@@ -57,7 +52,8 @@ export class ComputerLifecycleActivity {
     await this.ports.memory.rememberShutdown(scope, notice.reason);
     await this.#write(scope, notice.requestId, {
       detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_DISCONNECTED,
-      detail: DISCONNECTED_DETAIL[notice.reason],
+      detail: "",
+      level: "info",
     });
   }
 
@@ -92,12 +88,14 @@ export class ComputerLifecycleActivity {
     if (upgrade === "completed" || (upgrade === undefined && versionChanged))
       return {
         detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_UPGRADED,
-        detail: version ? `Now running ${version}` : "",
+        detail: "",
+        level: "info",
       };
     if (upgrade === "failed" || announced === "computer_upgrade")
       return {
-        detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_RESTARTED,
+        detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_OPERATION_FAILED,
         detail: `The upgrade did not complete${version ? `; still running ${version}` : ""}. Run \`coforge-computer upgrade\` to try again.`,
+        level: "error",
       };
     if (
       announced === "computer_restart" ||
@@ -108,8 +106,12 @@ export class ComputerLifecycleActivity {
         this.ports.restartStatus,
       )) === "completed"
     )
-      return { detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_RESTARTED, detail: "" };
-    return { detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_STARTED, detail: "" };
+      return {
+        detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_RESTARTED,
+        detail: "",
+        level: "info",
+      };
+    return { detailKind: AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_STARTED, detail: "", level: "info" };
   }
 
   /** "completed" when one of the operations was completed by this very instance, "failed" when
@@ -142,7 +144,6 @@ export class ComputerLifecycleActivity {
       workspaceId: scope.workspaceId,
       agentId: agent.id,
       ...row,
-      level: "info" as const,
       observedAtMs,
       // A launch of its own: the row must never be ordered into, or end, an Agent's run.
       launchId: `computer-lifecycle:${requestId}`,
