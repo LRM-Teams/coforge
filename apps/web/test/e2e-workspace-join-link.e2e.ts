@@ -11,7 +11,9 @@ import { workspaceJoinLinks } from "#src/server/workspaces/join-links-store.serv
 /**
  * Joining a Workspace from its invite link. The link's page names the Workspace and who is in it;
  * a signed-in visitor who is not a member presses "Join <name>", lands in the Workspace, and is a
- * member of it and of its #general.
+ * member of it and of its #general. A join that fails says why and what to do: a lost connection
+ * offers "Try again" (the same button joins once the connection is back), an ended session offers
+ * "Sign in again", and a link that does not work says so.
  *
  * Opt-in like the other browser E2Es: real local Web (`COFORGE_DEV_SKIP_AUTH=1`) + `agent-browser`
  * against the dev database. It seeds one Workspace (with its own owner) the dev user is not in,
@@ -102,6 +104,8 @@ test("a signed-in visitor joins a Workspace from its invite link", async () => {
     // The link's page names the Workspace and who is in it, and offers to join.
     await browser("open", `${origin}/en/join/${link.token}`);
     const joinButton = `[...document.querySelectorAll("main button")].find((button) => button.textContent.trim() === ${JSON.stringify(`Join ${name}`)})`;
+    const retryButton = `[...document.querySelectorAll("main button")].find((button) => button.textContent.trim() === "Try again")`;
+    const buttonLabels = `[...document.querySelectorAll("main button")].map((button) => button.textContent.trim())`;
     await waitFor(`Object.keys(${joinButton} ?? {}).some((key) => key.startsWith("__reactProps"))`);
     expect(await evaluate<string>(`document.querySelector("main h1")?.textContent`)).toBe(
       `Join ${name}`,
@@ -111,8 +115,40 @@ test("a signed-in visitor joins a Workspace from its invite link", async () => {
     );
     await browser("screenshot", join(artifacts, "join-page.png"));
 
-    // Joining lands in the Workspace, as a member of it and of its #general.
+    // A session that ended after the page loaded comes back from the server as a redirect to
+    // sign-in (the dev server has no real session to end). The page says so and offers to sign
+    // in again instead of joining.
+    const signInRedirect = `/login?returnTo=%2Fjoin%2F${link.token}`;
+    await browser(
+      "eval",
+      `window.__fetch = window.fetch; window.fetch = (input, init) => String(input?.url ?? input).includes("/_serverFn/") && init?.method === "POST" ? Promise.resolve(new Response(JSON.stringify({ href: "${signInRedirect}", statusCode: 307, isSerializedRedirect: true }), { status: 200, headers: { "content-type": "application/json;charset=utf-8", location: "${signInRedirect}" } })) : window.__fetch(input, init)`,
+    );
     await browser("eval", `${joinButton}.click()`);
+    await waitFor(
+      `document.querySelector("main [role=alert]")?.textContent === "Your session has expired. Sign in again to join."`,
+    );
+    expect(await evaluate<string[]>(buttonLabels)).toEqual([
+      "Sign in again",
+      "Use another account",
+    ]);
+    await browser("screenshot", join(artifacts, "join-session-ended.png"));
+
+    // A lost connection says so, and the same button tries again once the connection is back.
+    await browser("open", `${origin}/en/join/${link.token}`);
+    await waitFor(`Object.keys(${joinButton} ?? {}).some((key) => key.startsWith("__reactProps"))`);
+    await browser(
+      "eval",
+      `window.__fetch = window.fetch; window.fetch = (input, init) => String(input?.url ?? input).includes("/_serverFn/") && init?.method === "POST" ? Promise.reject(new TypeError("Failed to fetch")) : window.__fetch(input, init)`,
+    );
+    await browser("eval", `${joinButton}.click()`);
+    await waitFor(
+      `document.querySelector("main [role=alert]")?.textContent === "Couldn’t join. Check your connection and try again."`,
+    );
+    expect(await evaluate<string[]>(buttonLabels)).toEqual(["Try again", "Use another account"]);
+    await browser("screenshot", join(artifacts, "join-connection-lost.png"));
+
+    // Joining lands in the Workspace, as a member of it and of its #general.
+    await browser("eval", `window.fetch = window.__fetch; ${retryButton}.click()`);
     await waitFor(`location.pathname.startsWith("/en/w/${slug}")`);
     const membership = await db.workspaceMembership.findUniqueOrThrow({
       where: { workspaceId_userId: { workspaceId, userId: DEV_BROWSER_USER.id } },
@@ -127,6 +163,16 @@ test("a signed-in visitor joins a Workspace from its invite link", async () => {
       }),
     ).toBe(1);
     await browser("screenshot", join(artifacts, "joined.png"));
+
+    // A link that does not work says so and offers the way out.
+    await browser("open", `${origin}/en/join/not-an-invite-link`);
+    await waitFor(
+      `document.querySelector("main h1")?.textContent === "This invite link can’t be used"`,
+    );
+    expect(await evaluate<string>(`document.querySelector("main [role=alert]")?.textContent`)).toBe(
+      "This invite link is invalid or has expired. Ask the person who invited you for a new link.",
+    );
+    await browser("screenshot", join(artifacts, "join-link-invalid.png"));
   } finally {
     await browser("close").catch(() => undefined);
     if (workspaceId) await db.workspace.deleteMany({ where: { id: workspaceId } }).catch(() => {});

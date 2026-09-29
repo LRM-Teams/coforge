@@ -8,8 +8,8 @@ import { HintText } from "#src/components/base/input/hint-text";
 import { FeaturedIcon } from "#src/components/foundations/featured-icon/featured-icon";
 import { AuthSplitLayout } from "#src/features/auth/auth-split-layout";
 import { useSubmitGuard } from "#src/hooks/use-submit-guard";
-import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
+import { joinFailure, type JoinFailure } from "./join-failure";
 import { inspectWorkspaceJoinLink, joinWorkspaceByLink } from "./join-links.functions";
 import { workspaceInitial } from "./workspace-icon";
 
@@ -70,7 +70,9 @@ export function JoinWorkspacePage({
 }) {
   const router = useRouter();
   const [invalid, setInvalid] = useState(preview === null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [problem, setProblem] = useState<Exclude<JoinFailure, { kind: "link-invalid" }> | null>(
+    null,
+  );
   const [pending, guard] = useSubmitGuard();
 
   if (invalid || !preview) {
@@ -79,16 +81,15 @@ export function JoinWorkspacePage({
         <div className="flex w-full flex-col gap-8">
           <div className="flex flex-col items-center gap-6 text-center">
             <FeaturedIcon icon={AlertCircle} color="error" theme="light" size="lg" />
-            <h1 className="text-display-xs font-semibold text-primary md:text-display-sm">
-              {m.workspace_join_invalid_title()}
-            </h1>
+            <div className="flex flex-col gap-2 md:gap-3">
+              <h1 className="text-display-xs font-semibold text-primary md:text-display-sm">
+                {m.workspace_join_invalid_title()}
+              </h1>
+              <HintText isInvalid role="alert" className="text-md text-balance">
+                {m.workspace_join_invalid_description()}
+              </HintText>
+            </div>
           </div>
-          <p
-            role="alert"
-            className="rounded-lg bg-error-primary px-4 py-3 text-sm text-error-primary ring-1 ring-error_subtle"
-          >
-            {m.workspace_join_invalid_description()}
-          </p>
           <Button
             size="lg"
             color="secondary"
@@ -107,6 +108,8 @@ export function JoinWorkspacePage({
   const counts = memberCounts(preview);
   const openWorkspace = (slug: string) =>
     router.navigate({ to: "/w/$workspaceSlug", params: { workspaceSlug: slug } });
+  const signIn = () =>
+    void router.navigate({ to: "/login", search: { returnTo: `/join/${token}` } });
 
   function join() {
     void guard(async () => {
@@ -115,9 +118,10 @@ export function JoinWorkspacePage({
         const joined = await joinWorkspaceByLink({ data: { token } });
         await openWorkspace(joined.slug);
       } catch (error) {
+        const failure = joinFailure(error);
         // Revoked, expired or used up since the page loaded.
-        if (isAppError(error) && error.code === "NOT_FOUND") setInvalid(true);
-        else setProblem(m.workspace_join_failed());
+        if (failure.kind === "link-invalid") setInvalid(true);
+        else setProblem(failure);
       }
     });
   }
@@ -147,15 +151,9 @@ export function JoinWorkspacePage({
         </div>
 
         <div className="flex flex-col gap-4">
-          {viewerEmail === null ? (
-            <Button
-              size="lg"
-              className="w-full"
-              onPress={() =>
-                void router.navigate({ to: "/login", search: { returnTo: `/join/${token}` } })
-              }
-            >
-              {m.workspace_join_sign_in()}
+          {viewerEmail === null || problem?.kind === "signed-out" ? (
+            <Button size="lg" className="w-full" onPress={signIn}>
+              {problem ? m.login_retry() : m.workspace_join_sign_in()}
             </Button>
           ) : preview.viewerIsMember ? (
             <Button size="lg" className="w-full" onPress={() => void openWorkspace(workspace.slug)}>
@@ -163,13 +161,22 @@ export function JoinWorkspacePage({
             </Button>
           ) : (
             <Button size="lg" className="w-full" isLoading={pending} onPress={join}>
-              {m.workspace_join_submit({ name: workspace.name })}
+              {problem ? m.controls_retry() : m.workspace_join_submit({ name: workspace.name })}
             </Button>
           )}
           {problem ? (
-            <HintText isInvalid role="alert" className="text-center">
-              {problem}
-            </HintText>
+            <div className="flex flex-col items-center gap-1 text-center">
+              <HintText isInvalid role="alert">
+                {problem.kind === "signed-out"
+                  ? m.workspace_join_signed_out()
+                  : m.workspace_join_failed()}
+              </HintText>
+              {problem.kind === "unavailable" && problem.errorId ? (
+                <p className="text-xs text-tertiary">
+                  {m.error_reference({ errorId: problem.errorId })}
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </div>
 
