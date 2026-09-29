@@ -1,9 +1,11 @@
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 import type { ReactNode } from "react";
 
+import { ProjectImage } from "#src/features/projects/project-image";
 import { cn } from "#src/lib/utils";
-import { Box } from "@untitledui/icons";
+import { Folder } from "@untitledui/icons";
 
+import type { FilterableTask } from "./task-filters";
 import { TaskOwnerAvatar } from "./task-owner";
 import { TaskStatusIcon } from "./task-status-icon";
 import type { TaskControls } from "./task-workflow";
@@ -45,11 +47,22 @@ function Pill({ children, className }: { children: ReactNode; className?: string
   );
 }
 
-function ProjectPill({ name, className }: { name: string; className?: string }) {
+type TaskCardProject = Pick<NonNullable<FilterableTask["project"]>, "name" | "iconUrl">;
+
+/**
+ * A Project pill leads with the Project's own icon, as Linear's project label does, and with the
+ * Projects nav icon when none was uploaded: a first letter this small reads as an owner avatar.
+ */
+function ProjectPill({ project, className }: { project: TaskCardProject; className?: string }) {
   return (
     <Pill className={className}>
-      <Box aria-hidden="true" className="size-3 shrink-0 text-fg-brand-secondary" />
-      <span className="truncate">{name}</span>
+      <ProjectImage
+        name={project.name}
+        url={project.iconUrl ?? null}
+        fallback={<Folder className="size-3 text-fg-quaternary" />}
+        className="size-3.5 rounded-xs bg-transparent"
+      />
+      <span className="truncate">{project.name}</span>
     </Pill>
   );
 }
@@ -73,9 +86,9 @@ export function TaskCard({
   renderTitle: (title: ReactNode) => ReactNode;
   /** The conversation the task belongs to, on surfaces that mix conversations. */
   source?: string;
-  /** The Project the task's conversation belongs to, on surfaces that mix Projects; empty when it
+  /** The Project the task's conversation belongs to, on surfaces that mix Projects; null when it
    * has none. */
-  project?: string;
+  project?: TaskCardProject | null;
   controls: TaskControls;
   menu?: ReactNode;
   list: boolean;
@@ -106,7 +119,7 @@ export function TaskCard({
         )}
         {project && (
           <ProjectPill
-            name={project}
+            project={project}
             className={cn("hidden sm:inline-flex", HIDDEN_ON_BOARD.project)}
           />
         )}
@@ -159,7 +172,11 @@ export function TaskCard({
             project && tools && PROJECT_HIDDEN_KEEPS_TOOLS,
           )}
         >
-          {project ? <ProjectPill name={project} className={HIDDEN_ON_BOARD.project} /> : <span />}
+          {project ? (
+            <ProjectPill project={project} className={HIDDEN_ON_BOARD.project} />
+          ) : (
+            <span />
+          )}
         </div>
       )}
       {tools && (
