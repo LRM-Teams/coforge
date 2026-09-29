@@ -790,6 +790,7 @@ test("a private Agent's reply in a direct message it may only read names AGENT_D
 
 test("a replay of a key that already committed is answered from its record, whatever changed since", async () => {
   const scopes: MessageRequestScope[] = [];
+  const reportedFor: unknown[] = [];
   const result = await handleAgentMessagesPost(
     request({ target: "@bob", content: "hello", idempotencyKey: "idem-committed" }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
@@ -811,10 +812,31 @@ test("a replay of a key that already committed is answered from its record, what
           };
         },
       },
-      // Bob has left since: resolving the target now refuses, and no new send may run.
+      // Bob has left since: resolving the target now refuses, and no new send may run. What the
+      // committed message did not reach is read again from the message itself.
       repository: {
         agentTargetFreshness: async () => {
           throw new AppError("DM_PEER_NOT_IN_WORKSPACE");
+        },
+        committedAgentMentionReport: async (...input: unknown[]) => {
+          reportedFor.push(input);
+          return {
+            pendingMentionActions: [
+              {
+                resolutionId: "22222222-2222-4222-8222-222222222222",
+                messageId: "message-committed",
+                targetType: "user" as const,
+                targetId: "33333333-3333-4333-8333-333333333333",
+                targetHandle: "carol",
+                targetLabel: "Carol",
+                targetAvatarUrl: null,
+                channelName: "triage",
+                availableActions: [],
+                expiresAt: new Date("2026-10-01T00:00:00Z"),
+              },
+            ],
+            unresolvedMentionHandles: ["ghost"],
+          };
         },
       },
       sender: {
@@ -832,7 +854,17 @@ test("a replay of a key that already committed is answered from its record, what
     decision: "forward",
     reason: "already_committed",
     messageId: "message-committed",
+    pendingMentionActions: [
+      {
+        resolutionId: "22222222-2222-4222-8222-222222222222",
+        messageId: "message-committed",
+        targetHandle: "carol",
+        reason: "not_member",
+      },
+    ],
+    unresolvedMentionHandles: ["ghost"],
   });
+  expect(reportedFor).toEqual([["workspace-1", "agent-1", "message-committed"]]);
   expect(scopes).toEqual([
     {
       workspaceId: "workspace-1",
