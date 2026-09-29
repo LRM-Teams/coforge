@@ -16,6 +16,10 @@ Rules for the Workspace cloud connection in `src/connection/`. They extend
   connection only classifies it; stopping Agents and parking belong to
   `daemon-runtime/` and `supervisor/workspace-parking.ts`. Any other disconnect
   keeps the client's own reconnect backoff.
+- The first connect retries like any reconnect: `start` waits through failed
+  attempts (a temporary connect error or a transport that closed before it
+  opened) and settles only on connecting, a refusal, a disconnect the client
+  gives up on, `stop`, or its `signal` aborting. Never add a second retry loop.
 - Every initial ready, reconnect ready, and ready retry obtains a fresh request
   and the current running Agent ID snapshot from the runtime. Never reuse a
   cached one.

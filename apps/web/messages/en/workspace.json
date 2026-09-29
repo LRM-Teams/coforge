@@ -116,7 +116,6 @@
   "workspace_members_title": "Members",
   "workspace_members_you": "you",
   "workspace_members_remove": "Remove",
-  "workspace_members_leave": "Leave workspace",
   "workspace_members_action_failed": "That membership action could not be completed.",
   "workspace_member_actions": "Member actions",
   "workspace_member_make_admin": "Make admin",

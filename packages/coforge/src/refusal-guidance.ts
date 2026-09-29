@@ -1,3 +1,8 @@
+import { NO_MESSAGE_SENT_NEXT_ACTION, unknownDeliveryNextAction } from "./cli-error";
+
+/** A refusal the server explained: its HTTP status and, when it named them, code and retryability. */
+export type ExplainedRefusal = { status: number; code?: string; retryable?: boolean };
+
 /** What did not happen, for the operations whose refusals say so. */
 const NOTHING_DONE: Readonly<Record<string, string | undefined>> = {
   send: "No message was sent",
@@ -6,15 +11,16 @@ const NOTHING_DONE: Readonly<Record<string, string | undefined>> = {
 };
 
 /**
- * The next step for a refusal the server explained with `code` (or with no code at all). A refusal
- * usually means nothing happened, but not always: `MESSAGE_REQUEST_IN_PROGRESS` refuses only this
- * request while an earlier one with the same key may still commit, so delivery stays unknown.
+ * The next step for a refusal the server explained. For a send it errs toward "delivery unknown":
+ * "No message was sent" is said only for a code known to refuse before anything is committed, or
+ * for a 400/403 without a code (the send route's validation, and `AgentSendRejectedError`, whose
+ * transaction rolls back). `MESSAGE_REQUEST_IN_PROGRESS` refuses only this request while an
+ * earlier one with the same key may still commit.
  */
 export function refusalNextAction(
   operation: string,
-  code: string | undefined,
+  { status, code, retryable }: ExplainedRefusal,
   target: string,
-  retryable: boolean | undefined,
 ): string | undefined {
   const nothingDone = NOTHING_DONE[operation];
   const person = target.split(":")[0] ?? target;
@@ -40,7 +46,17 @@ export function refusalNextAction(
         "`coforge user info <name>`) and a #channel one this Agent belongs to. Correct the " +
         "target, then run the command again."
       );
+    case "AGENT_DM_RESTRICTED":
+      return (
+        `${nothingDone ?? "Nothing was done"}: this direct message belongs to a private Agent ` +
+        "and is read-only for it, so running the command again is refused the same way. Reply " +
+        "in a conversation this Agent may post to."
+      );
   }
+  if (operation === "send")
+    return code === undefined && (status === 400 || status === 403)
+      ? NO_MESSAGE_SENT_NEXT_ACTION
+      : unknownDeliveryNextAction(target);
   if (nothingDone === undefined || retryable === true) return undefined;
   return `${nothingDone}; fix the problem above, then run the command again.`;
 }

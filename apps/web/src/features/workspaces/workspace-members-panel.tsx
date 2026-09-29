@@ -1,14 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import {
-  DotsVertical,
-  LogOut01,
-  Mail01,
-  Shield01,
-  UserMinus01,
-  UsersPlus,
-} from "@untitledui/icons";
+import { DotsVertical, Mail01, Shield01, UserMinus01, UsersPlus } from "@untitledui/icons";
 
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Badge } from "#src/components/base/badges/badges";
@@ -25,7 +18,6 @@ import {
   acceptWorkspaceInvitation,
   declineWorkspaceInvitation,
   inviteWorkspaceMember,
-  leaveWorkspace,
   removeWorkspaceMember,
   revokeWorkspaceInvitation,
   updateWorkspaceMemberRole,
@@ -76,7 +68,6 @@ export function WorkspaceMembersPanel(props: {
   const revoke = useServerFn(revokeWorkspaceInvitation);
   const updateRole = useServerFn(updateWorkspaceMemberRole);
   const remove = useServerFn(removeWorkspaceMember);
-  const leave = useServerFn(leaveWorkspace);
   const router = useRouter();
   const toast = useAppToast();
 
@@ -145,8 +136,7 @@ export function WorkspaceMembersPanel(props: {
               const sameAsHandle = displayName === member.username;
               const canEditRole = canManage && member.role !== "owner";
               const canRemove = canManage && member.role !== "owner" && !isSelf;
-              const canLeave = isSelf && member.role !== "owner";
-              const hasActions = canEditRole || canRemove || canLeave;
+              const hasActions = canEditRole || canRemove;
 
               return (
                 <li key={member.userId} className="flex h-12 items-center justify-between gap-3">
@@ -198,8 +188,6 @@ export function WorkspaceMembersPanel(props: {
                                 );
                               } else if (key === "remove") {
                                 void run(() => remove({ data: { userId: member.userId } }));
-                              } else if (key === "leave") {
-                                void run(() => leave());
                               }
                             }}
                           >
@@ -219,13 +207,6 @@ export function WorkspaceMembersPanel(props: {
                                 id="remove"
                                 icon={UserMinus01}
                                 label={m.workspace_members_remove()}
-                              />
-                            )}
-                            {canLeave && (
-                              <Dropdown.Item
-                                id="leave"
-                                icon={LogOut01}
-                                label={m.workspace_members_leave()}
                               />
                             )}
                           </Dropdown.Menu>

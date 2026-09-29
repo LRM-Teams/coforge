@@ -23,6 +23,8 @@ let proxy: ReturnType<typeof Bun.serve>;
 /** What the connect proxy answers next: accept, refuse for good, or fail the way a bad key does. */
 let answer: "accept" | "workspace_deleted" | "unauthorized" = "accept";
 let connectAttempts = 0;
+/** How many of the next connects fail the ordinary way before `answer` applies again. */
+let ordinaryFailures = 0;
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "coforge-connection-refusal-"));
@@ -31,6 +33,10 @@ beforeAll(async () => {
     port: 0,
     fetch() {
       connectAttempts++;
+      if (ordinaryFailures > 0) {
+        ordinaryFailures--;
+        return Response.json({ error: { code: 401, message: "unauthorized" } }, { status: 401 });
+      }
       if (answer === "workspace_deleted")
         return Response.json({
           disconnect: { code: DAEMON_CONNECT_REJECTION_CODES.workspace_deleted, reason: answer },
@@ -145,13 +151,37 @@ test("a refusal when a running connection reconnects reaches the refusal listene
   await connection.stop();
 }, 30_000);
 
-test("an ordinary authentication failure stays a temporary error, not a refusal", async () => {
-  answer = "unauthorized";
+test("an ordinary failure on the first connect is retried until the cloud accepts", async () => {
+  answer = "accept";
+  ordinaryFailures = 2;
+  connectAttempts = 0;
   const connection = new DaemonConnection(endpoint());
 
-  const failure = await connection.start("dk_bad", config).catch((error: unknown) => error);
+  await connection.start("dk_known", config);
 
-  expect(failure).not.toBeInstanceOf(DaemonConnectionRefusedError);
-  expect(failure).toMatchObject({ error: { code: 100, temporary: true } });
+  expect(connectAttempts).toBe(3);
   await connection.stop();
+}, 30_000);
+
+test("stopping during first-connect retries ends start without a refusal and stops retrying", async () => {
+  answer = "unauthorized";
+  connectAttempts = 0;
+  let client: { state: string } | undefined;
+  const failures = Promise.withResolvers<void>();
+  const connection = new DaemonConnection(endpoint(), (url, token, data) => {
+    const created = defaultCentrifugeWorkspaceClientFactory(url, token, data);
+    client = created as unknown as { state: string };
+    created.on("error", () => failures.resolve());
+    return created;
+  });
+  const start = connection.start("dk_bad", config).catch((error: unknown) => error);
+  await failures.promise;
+  expect(client?.state).toBe("connecting");
+
+  await connection.stop();
+
+  const failure = await start;
+  expect(failure).toBeInstanceOf(Error);
+  expect(failure).not.toBeInstanceOf(DaemonConnectionRefusedError);
+  expect(client?.state).toBe("disconnected");
 }, 30_000);

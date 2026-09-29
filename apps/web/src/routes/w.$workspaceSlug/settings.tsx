@@ -55,6 +55,7 @@ import {
 import { ArchivedChannelsGroup } from "#src/features/conversations/archived-channels-group";
 import { useRefreshSidebarChannels } from "#src/features/conversations/sidebar-lists";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
+import { WorkspaceDangerZone } from "#src/features/workspaces/workspace-danger-zone";
 import {
   renameWorkspace,
   uploadWorkspaceIcon,
@@ -389,6 +390,9 @@ function SettingsPage() {
       onWorkspaceIconUpload={changeWorkspaceIcon}
       archivedChannelsGroup={
         <ArchivedChannelsGroup channels={archivedChannels} timeZone={savedTimeZone} />
+      }
+      dangerZone={
+        <WorkspaceDangerZone workspaceName={currentWorkspace.name} actorRole={members.actorRole} />
       }
     />
   );

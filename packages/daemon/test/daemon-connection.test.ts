@@ -1072,13 +1072,53 @@ test("waits for connected and does not send a business payload", async () => {
   expect(connected).toBe(true);
 });
 
-test("rejects connection failures", async () => {
+test("an ordinary failure on the first connect keeps start waiting while the client retries", async () => {
   const fake = fakeClient();
   fake.client.connect = () => undefined;
+  let disconnectCalls = 0;
+  fake.client.disconnect = () => void disconnectCalls++;
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
-  const start = transport.start("secret", config);
-  fake.fail(new Error("connection failed"));
-  await expect(start).rejects.toThrow("connection failed");
+  let settled = false;
+  const start = transport.start("secret", config).finally(() => (settled = true));
+
+  // centrifuge-js reports a temporary connect error or a transport that closed before opening as
+  // `error` and stays in `connecting`, retrying with its own backoff.
+  fake.fail({ type: "connect", error: { code: 100, message: "internal server error" } });
+  fake.fail({ type: "transport", error: { code: 2, message: "transport closed" } });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  expect(disconnectCalls).toBe(0);
+
+  fake.connect();
+  await start;
+});
+
+test("a first connect the client gives up on for a reason other than a refusal fails start", async () => {
+  const fake = fakeClient();
+  fake.client.connect = () => fake.disconnect({ code: 3501, reason: "bad request" });
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+
+  const failure = await transport.start("secret", config).catch((error: unknown) => error);
+
+  expect(failure).toBeInstanceOf(Error);
+  expect(failure).not.toBeInstanceOf(DaemonConnectionRefusedError);
+  expect(failure).toMatchObject({ code: 3501 });
+});
+
+test("stop ends a start still waiting for its first connection", async () => {
+  const fake = fakeClient();
+  fake.client.connect = () => undefined;
+  let disconnectCalls = 0;
+  fake.client.disconnect = () => void disconnectCalls++;
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const start = transport.start("secret", config).catch((error: unknown) => error);
+  fake.fail({ type: "connect", error: { code: 100, message: "internal server error" } });
+
+  await transport.stop();
+
+  expect(await start).toBeInstanceOf(Error);
+  expect(await start).not.toBeInstanceOf(DaemonConnectionRefusedError);
+  expect(disconnectCalls).toBeGreaterThan(0);
 });
 
 test("stop is idempotent and a stopped transport can restart", async () => {

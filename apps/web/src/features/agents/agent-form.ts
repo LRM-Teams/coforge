@@ -1,4 +1,11 @@
-import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import {
+  AGENT_ENVIRONMENT_MAX_NAME_LENGTH,
+  AGENT_ENVIRONMENT_MAX_VARIABLES,
+  agentEnvironmentNameViolation,
+  type AgentEnvironmentViolation,
+  parseRuntimeProvider,
+  RUNTIME_PROVIDER,
+} from "@lrm/coforge-sdk/internal";
 
 import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
@@ -33,6 +40,15 @@ export function updateAgentInputFromForm(
   };
 }
 
+/** The copy for each rule an Agent environment can break; a `Record` so a new rule cannot ship without it. */
+const AGENT_ENVIRONMENT_ERROR_MESSAGES: Record<AgentEnvironmentViolation, () => string> = {
+  "too-many": () => m.agent_env_too_many({ max: AGENT_ENVIRONMENT_MAX_VARIABLES }),
+  "invalid-name": () => m.agent_env_invalid_name({ max: AGENT_ENVIRONMENT_MAX_NAME_LENGTH }),
+  "reserved-name": m.agent_env_reserved_name,
+  "invalid-value": m.agent_env_invalid_value,
+  "too-large": m.agent_env_too_large,
+};
+
 /**
  * The copy for each `errorId` an Agent create or update can fail with, shared by the create
  * dialog, the full-page edit dialog and the Profile panel's in-place runtime editor so the
@@ -43,6 +59,9 @@ const AGENT_FORM_ERROR_MESSAGES = new Map<string, () => string>([
   ["agent-runtime-unavailable", m.agent_form_runtime_unavailable],
   ["agent-computer-required", m.agent_form_computer_required],
   ["agent-name-taken", m.agent_form_name_taken],
+  ...Object.entries(AGENT_ENVIRONMENT_ERROR_MESSAGES).map(
+    ([violation, message]) => [`agent-environment-${violation}`, message] as const,
+  ),
 ]);
 
 function agentFormErrorMessage(cause: unknown, fallback: () => string): string {
@@ -61,11 +80,20 @@ export function agentCreateErrorMessage(cause: unknown): string {
 }
 
 /**
+ * The inline error for one env row's name, from the same SDK rule the server applies. A blank name
+ * is not an error: that row is dropped on save.
+ */
+export function agentEnvironmentNameError(key: string): string | undefined {
+  const name = key.trim();
+  const violation = name ? agentEnvironmentNameViolation(name) : undefined;
+  return violation && AGENT_ENVIRONMENT_ERROR_MESSAGES[violation]();
+}
+
+/**
  * The Runtime config dialog's Advanced env rows are plain `[name="envKey"]`/`[name="envValue"]`
  * inputs (`agent-runtime-config-dialog.tsx`), read back here as parallel `FormData.getAll()`
- * arrays. Empty keys are dropped; the last duplicate key wins. No name-format validation here — the
- * server (`agent-environment.server.ts`'s `validateAgentEnvironment`) is the single source of
- * truth for what a valid variable name is.
+ * arrays. Empty keys are dropped; the last duplicate key wins. The dialog flags bad names per row
+ * (`agentEnvironmentNameError`); the server's `validateAgentEnvironment` enforces the whole rule.
  */
 export function parseAgentEnvironmentFromForm(form: FormData): Record<string, string> {
   const keys = form.getAll("envKey").map(String);

@@ -128,7 +128,15 @@ function proxyHttpFailure(
   // A server refusal names its own next step (`refusal-guidance.ts`).
   const refusalNext =
     proxy?.failure_class === "upstream_refusal"
-      ? refusalNextAction(operation, body.json?.code, target ?? "", body.json?.retryable)
+      ? refusalNextAction(
+          operation,
+          {
+            status: proxy.upstream_status ?? status,
+            code: body.json?.code,
+            retryable: body.json?.retryable,
+          },
+          target ?? "",
+        )
       : undefined;
   // A local precondition usually means nothing was saved, but a guard that saves a draft before
   // refusing (e.g. --target-confirmed) says so explicitly via `draft_saved`; honour it when present.
@@ -786,7 +794,11 @@ export function connectLocal(
       code: refusal.code ?? "UPLOAD_FAILED",
       message: refusal.error,
       retryable: refusal.retryable === true,
-      suggestedNextAction: refusalNextAction("upload", refusal.code, target, refusal.retryable),
+      suggestedNextAction: refusalNextAction(
+        "upload",
+        { status: response.status, code: refusal.code, retryable: refusal.retryable },
+        target,
+      ),
     });
   }
 

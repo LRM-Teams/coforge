@@ -314,9 +314,11 @@ export async function handleAgentMessagesPost(
     // code with an explanation, the same rule this route already follows for the other named
     // failures above, rather than a bare 500.
     if (isAppError(error) && error.code === "AGENT_DM_RESTRICTED")
-      return Response.json(
-        { error: "this direct message is private and read-only for this Agent" },
-        { status: 403 },
+      return errorResponse(
+        error.code,
+        "this direct message is private and read-only for this Agent",
+        403,
+        false,
       );
     const refused = postingTargetRefusalResponse(error, body.target);
     if (refused) return refused;

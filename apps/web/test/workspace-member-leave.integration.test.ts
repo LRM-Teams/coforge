@@ -15,6 +15,11 @@ import type {
 import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 import { PrismaWorkspaceMemberDirectoryStore } from "#src/server/workspaces/member-directory-store.server";
 import { WorkspaceMemberDirectory } from "#src/server/workspaces/member-directory.server";
+import {
+  PrismaWorkspaceCatalogStore,
+  WorkspaceCatalog,
+} from "#src/server/workspaces/catalog.server";
+import { WorkspaceDeparture } from "#src/server/workspaces/departure.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { RedisClient } from "bun";
@@ -86,6 +91,108 @@ async function teardown(db: PrismaClient, workspaceId: string, userIds: string[]
   await db.user.deleteMany({ where: { id: { in: userIds } } }).catch(() => {});
   await db.$disconnect();
 }
+
+/** The Workspace `/` returns to, kept in memory the way the browser keeps its cookie. */
+function rememberedWorkspace(slug?: string) {
+  const remembered = { slug };
+  return {
+    remembered,
+    port: {
+      read: () => remembered.slug,
+      remember: (next: string) => {
+        remembered.slug = next;
+      },
+      forget: () => {
+        remembered.slug = undefined;
+      },
+    },
+  };
+}
+
+test.skipIf(!connectionString)(
+  "leaving goes to the Workspace last opened while still a member, else the first one left, and `/` remembers it",
+  async () => {
+    const { db, directory, invite, workspace, owner, bob } = await setup();
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const [first, second] = [
+      await db.workspace.create({
+        data: {
+          slug: `ml-first-${suffix}`,
+          name: "First",
+          members: { create: { userId: bob.id, role: "member" } },
+        },
+      }),
+      await db.workspace.create({
+        data: {
+          slug: `ml-second-${suffix}`,
+          name: "Second",
+          members: { create: { userId: bob.id, role: "admin" } },
+        },
+      }),
+    ];
+    try {
+      const departure = (slug?: string) => {
+        const preference = rememberedWorkspace(slug);
+        return {
+          ...preference,
+          departure: new WorkspaceDeparture(
+            directory,
+            new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db)),
+            preference.port,
+          ),
+        };
+      };
+
+      // `/` remembered the Workspace being left: the first one still theirs takes over.
+      const leavingOpened = departure(workspace.slug);
+      expect(
+        await leavingOpened.departure.leave({ workspaceId: workspace.id, userId: bob.id }),
+      ).toEqual({ nextWorkspaceSlug: first.slug });
+      expect(leavingOpened.remembered.slug).toBe(first.slug);
+
+      // Left from another tab while `/` remembered a Workspace they are still in: that one stays.
+      await invite();
+      const leavingElsewhere = departure(second.slug);
+      expect(
+        await leavingElsewhere.departure.leave({ workspaceId: workspace.id, userId: bob.id }),
+      ).toEqual({ nextWorkspaceSlug: second.slug });
+      expect(leavingElsewhere.remembered.slug).toBe(second.slug);
+    } finally {
+      await db.workspace.deleteMany({ where: { id: { in: [first.id, second.id] } } });
+      await teardown(db, workspace.id, [owner.id, bob.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "leaving the last Workspace goes nowhere and `/` forgets it; the owner cannot leave",
+  async () => {
+    const { db, directory, workspace, owner, bob } = await setup();
+    try {
+      const catalog = new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db));
+      const bobs = rememberedWorkspace(workspace.slug);
+      expect(
+        await new WorkspaceDeparture(directory, catalog, bobs.port).leave({
+          workspaceId: workspace.id,
+          userId: bob.id,
+        }),
+      ).toEqual({ nextWorkspaceSlug: null });
+      expect(bobs.remembered.slug).toBeUndefined();
+
+      const owners = rememberedWorkspace(workspace.slug);
+      await expect(
+        new WorkspaceDeparture(directory, catalog, owners.port).leave({
+          workspaceId: workspace.id,
+          userId: owner.id,
+        }),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(owners.remembered.slug).toBe(workspace.slug);
+      expect((await catalog.listForUser(owner.id)).map((row) => row.id)).toEqual([workspace.id]);
+    } finally {
+      await teardown(db, workspace.id, [owner.id, bob.id]);
+    }
+  },
+);
 
 test.skipIf(!connectionString)(
   "a member who wrote in a channel can leave, and what they wrote stays readable under their name",

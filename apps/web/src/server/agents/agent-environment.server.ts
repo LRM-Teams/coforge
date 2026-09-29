@@ -1,15 +1,11 @@
 import {
-  AGENT_ENVIRONMENT_MAX_NAME_LENGTH,
-  AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH,
-  AGENT_ENVIRONMENT_MAX_VALUE_LENGTH,
-  AGENT_ENVIRONMENT_MAX_VARIABLES,
-  AGENT_ENVIRONMENT_NAME_PATTERN,
-  isReservedAgentEnvironmentName,
+  agentEnvironmentViolation,
   type AgentStartIntent,
   type AgentStopIntent,
   utf8Encoder,
   utf8Decoder,
 } from "@lrm/coforge-sdk/internal";
+import { AppError } from "#src/lib/app-error";
 import type { AgentRecord } from "#src/server/db/repositories/agent.repositories.server";
 import type { AgentRuntimeConfig, EncryptedAgentEnvironment } from "./agent-runtime-config.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
@@ -161,28 +157,11 @@ export async function decryptAgentEnvironment(
 export function validateAgentEnvironment(input: unknown): Record<string, string> {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("Agent environment must be a variable map");
-  const entries = Object.entries(input);
-  if (entries.length > AGENT_ENVIRONMENT_MAX_VARIABLES)
-    throw new Error("Agent environment has too many variables");
+  const violation = agentEnvironmentViolation(input as Record<string, unknown>);
+  // The errorId names the broken rule for the editor to show, never a submitted name or value.
+  if (violation) throw new AppError("INVALID_INPUT", { errorId: `agent-environment-${violation}` });
   const envVars: Record<string, string> = Object.create(null);
-  for (const [name, value] of entries) {
-    if (
-      !AGENT_ENVIRONMENT_NAME_PATTERN.test(name) ||
-      name.length > AGENT_ENVIRONMENT_MAX_NAME_LENGTH
-    )
-      throw new Error("Agent environment contains an invalid variable name");
-    if (isReservedAgentEnvironmentName(name))
-      throw new Error("Agent environment contains a reserved variable name");
-    if (
-      typeof value !== "string" ||
-      value.includes("\0") ||
-      value.length > AGENT_ENVIRONMENT_MAX_VALUE_LENGTH
-    )
-      throw new Error("Agent environment contains an invalid variable value");
-    envVars[name] = value;
-  }
-  if (JSON.stringify(envVars).length > AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH)
-    throw new Error("Agent environment is too large");
+  for (const [name, value] of Object.entries(input)) envVars[name] = value as string;
   return envVars;
 }
 

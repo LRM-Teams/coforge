@@ -4,6 +4,7 @@ import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { PrismaWorkspaceAccess } from "#src/server/db/repositories/setup.repositories.server";
 import { workspaceSlugFromPath } from "#src/features/workspaces/workspace-url";
+import type { RememberedWorkspace } from "./departure.server";
 import { requireExistingWorkspaceId } from "./enrollment.server";
 
 const WORKSPACE_COOKIE = "coforge_workspace";
@@ -19,27 +20,47 @@ export function readPreferredWorkspaceSlug(cookieHeader: string): string | undef
   return undefined;
 }
 
-export function serializeWorkspaceCookie(slug: string, secure: boolean): string {
+function serializeCookie(value: string, maxAge: number, secure: boolean): string {
   return [
-    `${WORKSPACE_COOKIE}=${slug}`,
+    `${WORKSPACE_COOKIE}=${value}`,
     "Path=/",
     "HttpOnly",
     "SameSite=Lax",
-    "Max-Age=31536000",
+    `Max-Age=${maxAge}`,
     secure ? "Secure" : "",
   ]
     .filter(Boolean)
     .join("; ");
 }
 
+export function serializeWorkspaceCookie(slug: string, secure: boolean): string {
+  return serializeCookie(slug, 31536000, secure);
+}
+
+/** Expires the cookie, so `/` no longer names a Workspace. */
+export function serializeForgottenWorkspaceCookie(secure: boolean): string {
+  return serializeCookie("", 0, secure);
+}
+
 export function preferredWorkspaceSlugFromRequest(): string | undefined {
   return readPreferredWorkspaceSlug(getRequest().headers.get("cookie") ?? "");
 }
 
-export function writePreferredWorkspaceSlug(slug: string): void {
-  const secure = new URL(getRequest().url).protocol === "https:";
-  setResponseHeader("Set-Cookie", serializeWorkspaceCookie(slug, secure));
+function isSecureRequest(): boolean {
+  return new URL(getRequest().url).protocol === "https:";
 }
+
+export function writePreferredWorkspaceSlug(slug: string): void {
+  setResponseHeader("Set-Cookie", serializeWorkspaceCookie(slug, isSecureRequest()));
+}
+
+/** The Workspace `/` returns to, kept in this request's cookie. */
+export const rememberedWorkspaceCookie: RememberedWorkspace = {
+  read: preferredWorkspaceSlugFromRequest,
+  remember: writePreferredWorkspaceSlug,
+  forget: () =>
+    setResponseHeader("Set-Cookie", serializeForgottenWorkspaceCookie(isSecureRequest())),
+};
 
 const workspaceIdByRequest = new WeakMap<Request, Map<string, Promise<string>>>();
 

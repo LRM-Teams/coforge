@@ -21,3 +21,8 @@ export function canManageWorkspaceSettings(role: string | undefined): boolean {
 export function canManageMembers(role: string | undefined): boolean {
   return isWorkspaceAdminRole(role);
 }
+
+/** Whether a Workspace member may leave it: anyone but its owner. */
+export function canLeaveWorkspace(role: string | undefined): boolean {
+  return role !== undefined && role !== "owner";
+}

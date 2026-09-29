@@ -126,12 +126,7 @@ import {
   type TaskResponse,
   type WeeklyReportRequest,
   type WeeklyReportResponse,
-  AGENT_ENVIRONMENT_MAX_NAME_LENGTH,
-  AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH,
-  AGENT_ENVIRONMENT_MAX_VALUE_LENGTH,
-  AGENT_ENVIRONMENT_MAX_VARIABLES,
-  AGENT_ENVIRONMENT_NAME_PATTERN,
-  isReservedAgentEnvironmentName,
+  agentEnvironmentViolation,
   utf8Encoder,
 } from "@lrm/coforge-sdk/internal";
 import { isAgentApiKey } from "#src/credentials/agent-api-key";
@@ -231,6 +226,8 @@ export interface DaemonConnectionConfig {
   /** Requests replacement of only this Workspace runtime. The supervisor supplies recovery evidence. */
   requestRestart?(requestId: string): Promise<void>;
   requestUpgrade?(requestId: string, expectedVersion?: string): Promise<void>;
+  /** Aborting it gives up a `start` still waiting for its first connection; no effect after. */
+  signal?: AbortSignal;
 }
 
 /** Provider-neutral client contract for the daemon's Workspace connection. */
@@ -456,6 +453,8 @@ export class DaemonConnection implements DaemonConnectionClient {
   >();
   readonly #reconnect = new ListenerSlot<() => void>();
   readonly #connectionRefused = new ListenerSlot<(reason: DaemonConnectRejectionReason) => void>();
+  /** Set only while `start` waits for the first connection; rejecting it ends that `start`. */
+  #failPendingStart: ((error: Error) => void) | undefined;
   /** Publications received between a ready request and its acknowledgement, in arrival order. */
   #readyPublications: Array<() => void> | undefined;
   #readyRequestFactory: (() => DaemonRuntimeReadyRequest) | undefined;
@@ -537,8 +536,8 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#markInbound();
       this.#handleAgentPublication(data, config);
     });
-    /** Set while `start` is still connecting; a refusal then rejects `start` itself. */
-    let refuseStart: ((error: DaemonConnectionRefusedError) => void) | undefined;
+    // centrifuge-js emits `disconnected` only once it has stopped reconnecting; while it retries
+    // it reports `connecting` instead.
     client.on("disconnected", (context) => {
       if (client !== this.#client) return;
       this.#connected = false;
@@ -548,7 +547,13 @@ export class DaemonConnection implements DaemonConnectionClient {
         logger.warning("Daemon cloud connection disconnected", {
           event: "daemon_connection:disconnected",
           ...scope,
+          ...(context ? { disconnect_code: context.code } : {}),
         });
+        this.#failPendingStart?.(
+          Object.assign(new Error(`daemon connection closed: ${context?.reason ?? "unknown"}`), {
+            code: context?.code,
+          }),
+        );
         return;
       }
       // The client does not reconnect after a terminal disconnect code.
@@ -558,14 +563,14 @@ export class DaemonConnection implements DaemonConnectionClient {
         reason: refusal,
         outcome: "refused",
       });
-      if (refuseStart) refuseStart(new DaemonConnectionRefusedError(refusal));
+      if (this.#failPendingStart) this.#failPendingStart(new DaemonConnectionRefusedError(refusal));
       else this.#connectionRefused.current?.(refusal);
     });
     await new Promise<void>((resolve, reject) => {
-      refuseStart = reject;
+      this.#failPendingStart = reject;
       client.on("connected", () => {
         if (client !== this.#client) return;
-        refuseStart = undefined;
+        this.#failPendingStart = undefined;
         const reconnect = this.#hasConnected;
         this.#connected = true;
         this.#hasConnected = true;
@@ -589,20 +594,29 @@ export class DaemonConnection implements DaemonConnectionClient {
         }
         resolve();
       });
-      client.on("error", (error) => {
-        logger.error("Daemon cloud connection failed", {
+      const { signal } = config;
+      if (signal?.aborted) return reject(signal.reason);
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      // An attempt the client retries with its own backoff, first connect included: a temporary
+      // connect error (the connect proxy failing, or answering non-200) or a transport that
+      // closed before it opened. Only `disconnected` ends a pending start.
+      client.on("error", (context) => {
+        if (client !== this.#client) return;
+        const { type, error } = (context ?? {}) as { type?: unknown; error?: unknown };
+        logger.warning("Daemon cloud connection attempt failed; retrying", {
           event: "daemon_connection:failed",
           ...scope,
-          error_code: diagnosticErrorCode(error),
-          outcome: "failed",
+          error_type: typeof type === "string" ? type : undefined,
+          error_code: diagnosticErrorCode(error ?? context),
+          outcome: "retrying",
         });
-        reject(error);
       });
       client.connect();
     }).catch((error) => {
+      this.#failPendingStart = undefined;
       this.#cancelReadyRecovery();
-      client.disconnect();
       this.#client = undefined;
+      client.disconnect();
       throw error;
     });
   }
@@ -1960,6 +1974,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async stop(): Promise<void> {
     const client = this.#client;
+    this.#failPendingStart?.(new Error("daemon connection stopped before it connected"));
     this.#cancelReadyRecovery();
     if (this.#statusRefreshTimer) clearInterval(this.#statusRefreshTimer);
     this.#statusRefreshTimer = undefined;
@@ -2021,27 +2036,15 @@ function parseAgentApiKey(value: unknown): string {
 
 function parseAgentEnvironment(value: unknown): Record<string, string> {
   if (value === undefined) return {};
-  const invalid = () => new Error("invalid Agent environment response");
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
-  const entries = Object.entries(value);
   if (
-    entries.length > AGENT_ENVIRONMENT_MAX_VARIABLES ||
-    JSON.stringify(value).length > AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    agentEnvironmentViolation(value as Record<string, unknown>)
   )
-    throw invalid();
+    throw new Error("invalid Agent environment response");
   const envVars: Record<string, string> = Object.create(null);
-  for (const [name, entry] of entries) {
-    if (
-      !AGENT_ENVIRONMENT_NAME_PATTERN.test(name) ||
-      name.length > AGENT_ENVIRONMENT_MAX_NAME_LENGTH ||
-      isReservedAgentEnvironmentName(name) ||
-      typeof entry !== "string" ||
-      entry.includes("\0") ||
-      entry.length > AGENT_ENVIRONMENT_MAX_VALUE_LENGTH
-    )
-      throw invalid();
-    envVars[name] = entry;
-  }
+  for (const [name, entry] of Object.entries(value)) envVars[name] = entry as string;
   return envVars;
 }
 

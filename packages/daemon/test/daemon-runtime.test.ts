@@ -5340,6 +5340,7 @@ describe("DaemonRuntime", () => {
         {
           computerId: "computer-a",
           workspaceId: "workspace-a",
+          signal: expect.any(AbortSignal),
         },
       ],
       "stop",
@@ -8654,6 +8655,58 @@ function connectedClient(): CentrifugeWorkspaceClient {
     async rpc() {},
   };
 }
+
+function retryingRuntime(token: string) {
+  const attempted = Promise.withResolvers<void>();
+  let connectErrors: ((error: unknown) => void) | undefined;
+  const retryingClient: CentrifugeWorkspaceClient = {
+    on(event, callback) {
+      if (event === "error") connectErrors = callback as (error: unknown) => void;
+    },
+    connect() {
+      connectErrors?.({ type: "transport", error: { code: 2, message: "transport closed" } });
+      attempted.resolve();
+    },
+    disconnect() {},
+    async rpc() {},
+  };
+  const credentials = new InMemoryDaemonCredentialStore();
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+    credentials,
+    { create: () => new DaemonConnection("wss://cloud.example", () => retryingClient) },
+    undefined,
+    emptyCodeAgentDiscovery,
+    workspaceRoot,
+  );
+  return {
+    runtime,
+    attempted: attempted.promise,
+    saveCredential: () => credentials.save(connection.workspaceId, connection.computerId, token),
+  };
+}
+
+test("stopping a runtime whose first cloud connect is still retrying ends its start", async () => {
+  const { runtime, attempted, saveCredential } = retryingRuntime("token-retrying");
+  await saveCredential();
+  const start = runtime.start(connection).catch((error: unknown) => error);
+  await attempted;
+
+  await runtime.stop();
+
+  expect(await start).toBeInstanceOf(Error);
+});
+
+test("a stop that arrives before the first cloud connect begins still ends it", async () => {
+  const { runtime, saveCredential } = retryingRuntime("token-stopped-early");
+  await saveCredential();
+  const start = runtime.start(connection).catch((error: unknown) => error);
+
+  await runtime.stop();
+
+  expect(await start).toBeInstanceOf(Error);
+});
 
 test("a send the daemon holds locally is never issued, and what it showed is then reviewed", async () => {
   const calls: AgentMessageRequest[] = [];

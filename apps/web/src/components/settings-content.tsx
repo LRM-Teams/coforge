@@ -148,6 +148,8 @@ interface SettingsContentProps {
   onWorkspaceIconUpload: (file: File) => Promise<void>;
   /** The Archived channels group Settings → Workspace profile shows under the profile. */
   archivedChannelsGroup?: React.ReactNode;
+  /** The Danger zone Settings → Workspace profile ends with. */
+  dangerZone?: React.ReactNode;
 }
 
 export function SettingsPending() {
@@ -336,6 +338,7 @@ export function SettingsContent(props: SettingsContentProps) {
                 onRename={props.onWorkspaceRename}
                 onIconUpload={props.onWorkspaceIconUpload}
                 archivedChannelsGroup={props.archivedChannelsGroup}
+                dangerZone={props.dangerZone}
               />
             ) : section === "members" ? (
               <WorkspaceMembersPanel
@@ -1072,7 +1075,7 @@ export function SettingsGroup({
   );
 }
 
-function SettingsCard({ children }: { children: React.ReactNode }) {
+export function SettingsCard({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-6 rounded-xl border border-secondary bg-primary p-5 shadow-xs sm:p-6">
       {children}
@@ -1234,6 +1237,7 @@ function WorkspaceProfileSettings({
   onRename,
   onIconUpload,
   archivedChannelsGroup,
+  dangerZone,
 }: {
   workspace: SettingsContentProps["workspace"];
   canEdit: boolean;
@@ -1241,6 +1245,8 @@ function WorkspaceProfileSettings({
   onIconUpload: (file: File) => Promise<void>;
   /** The Archived channels group under the profile, when the viewer has one. */
   archivedChannelsGroup: React.ReactNode;
+  /** The Danger zone last on the page, when the viewer has one. */
+  dangerZone: React.ReactNode;
 }) {
   const [name, setName] = useState(workspace.name);
   const [saving, guardSave] = useSubmitGuard();
@@ -1380,6 +1386,7 @@ function WorkspaceProfileSettings({
         </SettingsCard>
       </SettingsGroup>
       {archivedChannelsGroup}
+      {dangerZone}
     </SettingsPage>
   );
 }

@@ -1,5 +1,6 @@
 import { AppError } from "#src/lib/app-error";
 import {
+  canLeaveWorkspace,
   canManageMembers,
   canManageWorkspaceSettings,
   isWorkspaceAdminRole,
@@ -110,5 +111,5 @@ export function assertCanRemoveMember(
 }
 
 export function assertCanLeaveWorkspace(actorRole: WorkspaceMemberRole): void {
-  if (actorRole === "owner") throw new AppError("CONFLICT");
+  if (!canLeaveWorkspace(actorRole)) throw new AppError("CONFLICT");
 }
