@@ -23,7 +23,7 @@ to add tests or run stress checks.
 
 - [ ] 启动 Web 应用并准备可用的开发 seed 数据。
 - [ ] 在桌面与移动 viewport 分别验证上述页面；至少覆盖 light 与 dark 主题。
-- [ ] 运行 `bun run ui:sweep`，检查各页面无明显溢出、遮挡、空白或响应式布局问题。
+- [ ] 运行 `bun run --cwd apps/web ui:sweep`，检查各页面无明显溢出、遮挡、空白或响应式布局问题。
 - [ ] 手工验证菜单、Dialog、Tooltip、键盘导航、Escape 关闭、触摸操作与滚动位置。
 - [ ] 手工验证频道/私聊消息发送、线程切换、历史加载、Realtime 状态与错误恢复。
 - [ ] 手工验证 Agent/Computer 控制、运行时配置、Usage、安装命令与重启反馈。

@@ -3,7 +3,8 @@
 // repo's dev seed (`bun run seed:dev`) populates, runs automatic layout
 // checks, and writes screenshots plus a findings report.
 //
-// Run with `bun run ui:sweep` (or `bun scripts/ui-sweep.mjs`).
+// Run from the repository root with `bun run --cwd apps/web ui:sweep`; the script is this
+// package's, so a bare `bun run ui:sweep` from the root finds no such script.
 //
 // Browser automation: this drives a locally launched Chromium instance over
 // the raw Chrome DevTools Protocol (`--remote-debugging-port`), not the
