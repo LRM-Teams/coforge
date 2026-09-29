@@ -66,7 +66,7 @@ export type ManagedBinding = DaemonConfig & {
   lastFailure?: LifecycleFailure;
 };
 
-export const LIFECYCLE_FAILURE_OPERATIONS = ["start", "restart", "stop"] as const;
+export const LIFECYCLE_FAILURE_OPERATIONS = ["start", "restart", "stop", "configure"] as const;
 export type LifecycleFailure = {
   operation: (typeof LIFECYCLE_FAILURE_OPERATIONS)[number];
   message: string;
@@ -214,7 +214,7 @@ export class MachineSupervisor {
 
   /** Attaches (or re-attaches) a Workspace and starts it. It takes over a start or restart of the
    * same Workspace still under way or queued; a restart it replaces is recorded cancelled. */
-  configure(config: DaemonConfig) {
+  configure(config: DaemonConfig, options: CommandOptions = {}): Promise<{ pending: boolean }> {
     this.#supersede([config.workspaceId], "configure");
     const settle = this.#markUnderWay([config.workspaceId]);
     const work = this.#serialize(async () => {
@@ -230,8 +230,19 @@ export class MachineSupervisor {
       await this.processes.clearParked?.(binding);
       await this.#saveBinding(binding);
       await this.#track(binding.workspaceId, (signal) => this.#start(binding, signal));
-    });
-    return work.finally(settle.all);
+      await this.#clearFailure(binding.workspaceId);
+      return { pending: false };
+    }).finally(settle.all);
+    // With a deadline it answers like a command: the configuration is taken, its start finishes
+    // behind the answer, and a later failure is recorded for `status`.
+    const { deadline } = options;
+    if (deadline === undefined) return work;
+    return this.#answerBy(
+      deadline,
+      work,
+      () => ({ pending: true }),
+      (error) => this.#failedAfterAnswer("configure", [config.workspaceId], error),
+    );
   }
 
   /**
@@ -309,7 +320,7 @@ export class MachineSupervisor {
    * and the operator asked for the takeover.
    */
   #failedAfterAnswer(
-    operation: "start" | "restart" | "stop",
+    operation: LifecycleFailure["operation"],
     workspaceIds: readonly string[],
     error: unknown,
   ): void {

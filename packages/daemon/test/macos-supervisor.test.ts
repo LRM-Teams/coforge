@@ -580,7 +580,11 @@ test.skipIf(process.platform !== "darwin")(
         daemonApiKey: "fixture-only",
         serverHttpUrl: serverUrl,
       });
-      const before = await until((runtime) => runtime.processId > 0, "Workspace a never started");
+      // Setup answers by the same budget, so wait for its start to finish too.
+      const before = await until(
+        (runtime) => runtime.processId > 0 && !runtime.lifecycleUnderWay,
+        "Workspace a never started",
+      );
 
       // The restart answers at once with the Workspace still under way ...
       const answered = await client.control("restart", "a", "restart-1");

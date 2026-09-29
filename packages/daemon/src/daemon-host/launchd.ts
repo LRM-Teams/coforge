@@ -4,7 +4,12 @@ import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
 import { nativeCommandDiagnostic, type NativeCommandResult } from "#src/platform/native-command";
 import { escapeXmlText } from "#src/platform/xml-escape";
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, DaemonWorkspaceConfig, LocalDaemonConnection } from "./launcher";
+import type {
+  DaemonLauncher,
+  DaemonStarted,
+  DaemonWorkspaceConfig,
+  LocalDaemonConnection,
+} from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<NativeCommandResult>;
 
@@ -91,9 +96,9 @@ export class LaunchdDaemonHost implements DaemonLauncher {
     return this.#local.preflight();
   }
 
-  async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
+  async ensureStarted(config: DaemonWorkspaceConfig): Promise<DaemonStarted> {
     await this.ensureRunning();
-    await this.#local.ensureStarted(config);
+    return this.#local.ensureStarted(config);
   }
 
   async ensureRunning(): Promise<void> {

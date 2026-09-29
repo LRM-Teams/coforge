@@ -705,3 +705,29 @@ test("a configure a stop superseded keeps the key it saved", async () => {
   // stopped, and the next start must use the key it was attached with.
   expect(credentials.token).toBe("new-token");
 });
+
+test("a configure the Coordinator answered while its start is under way reports that, keeping the new key", async () => {
+  const credentials = new FakeCredentialStore();
+  credentials.token = "old-token";
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
+  const server = await startDaemonLocalRpcServer({
+    socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
+    validateCredential: () => true,
+    runtime: { configure: async () => ({ lifecycleUnderWay: true }) },
+    credentials,
+  });
+  servers.push(server);
+  const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
+    executablePath: "/unused",
+    socketPath,
+    spawn: () => {},
+    timeoutMilliseconds: 0,
+  });
+
+  expect(await launcher.ensureStarted({ ...config, daemonApiKey: "new-token" })).toEqual({
+    lifecycleUnderWay: true,
+  });
+  expect(credentials.token).toBe("new-token");
+});

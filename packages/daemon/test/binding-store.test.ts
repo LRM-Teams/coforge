@@ -228,7 +228,7 @@ test("binding registry keeps a Workspace's last lifecycle failure and refuses a 
     await new FileBindingStore(root).save([binding]);
     expect(await new FileBindingStore(root).load()).toEqual([binding]);
     for (const lastFailure of [
-      { operation: "configure", message: "x", at: 5 },
+      { operation: "upgrade", message: "x", at: 5 },
       { operation: "start", message: "", at: 5 },
       { operation: "start", message: "x", at: -1 },
     ])

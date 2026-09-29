@@ -325,9 +325,43 @@ test("renderStatusHuman shows a start or restart under way and the last failed c
   });
   const text = lines.join("\n");
 
-  expect(text).toContain("under way: a start or restart is still running");
+  expect(text).toContain("under way: a start, restart, or setup is still running");
   expect(text).toContain(
     "last start failed: Workspace ws-1 failed process readiness  at=2026-01-01T00:00:00.000Z",
   );
+  expect(text).toContain("retry: coforge-computer start --workspace ws-1");
+});
+
+test("a configure that failed after it answered is retried with start, since the Workspace is attached", () => {
+  const lines = renderStatusHuman({
+    ...REPORT,
+    workspaces: {
+      readable: true,
+      workspaces: [
+        {
+          workspaceId: "ws-1",
+          workspaceSlug: "acme",
+          serverHttpUrl: "https://coforge.cn",
+          enabled: true,
+          running: false,
+          pid: null,
+          pidSource: null,
+          pending: [],
+          unsettledUpgrades: [],
+          health: { status: "ok" },
+          cloudConnection: null,
+          underWay: true,
+          lastFailure: {
+            operation: "configure",
+            message: "Workspace ws-1 failed process readiness",
+            at: "2026-01-01T00:00:00.000Z",
+          },
+        },
+      ],
+    },
+  });
+  const text = lines.join("\n");
+
+  expect(text).toContain("last setup failed: Workspace ws-1 failed process readiness");
   expect(text).toContain("retry: coforge-computer start --workspace ws-1");
 });

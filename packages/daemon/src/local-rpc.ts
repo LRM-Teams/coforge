@@ -48,7 +48,8 @@ export type DaemonHoldReport = {
 };
 
 type DaemonRuntimePort = Partial<{
-  configure(connection: DaemonConfig): Promise<void>;
+  /** May answer before the Workspace's start is done (the Coordinator's deadline). */
+  configure(connection: DaemonConfig): Promise<void | { lifecycleUnderWay?: boolean }>;
   start(): Promise<void>;
   stopAll(): Promise<void>;
   restart(): Promise<void>;
@@ -324,11 +325,12 @@ class LocalRpcDispatcher {
         Boolean,
       ) &&
       (await this.input.validateCredential(request.daemonApiKey));
-    if (valid) await this.#adoptConfiguration(request);
+    const adopted = valid ? await this.#adoptConfiguration(request) : undefined;
     return encodeDaemonRuntimeConfigureResponse({
       protocolMajor: 1,
       requestId: request.requestId,
       accepted: valid,
+      ...(adopted?.lifecycleUnderWay ? { lifecycleUnderWay: true } : {}),
     });
   }
 
@@ -343,7 +345,7 @@ class LocalRpcDispatcher {
     computerId: string;
     workspaceRoot: string;
     daemonApiKey: string;
-  }): Promise<void> {
+  }): Promise<void | { lifecycleUnderWay?: boolean }> {
     const { runtime, credentials, configStore } = this.input;
     const { workspaceId, computerId } = request;
     const saved = await credentials.load(workspaceId, computerId);
@@ -358,8 +360,9 @@ class LocalRpcDispatcher {
     };
     try {
       if (!runtime.configure) throw new Error("daemon configuration is unavailable");
-      await runtime.configure(connection);
+      const configured = await runtime.configure(connection);
       await configStore?.save(connection);
+      return configured;
     } catch (error) {
       if (error instanceof WorkspaceLifecycleSupersededError) throw error;
       const current = await credentials.load(workspaceId, computerId);

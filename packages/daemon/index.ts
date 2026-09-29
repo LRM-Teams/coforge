@@ -103,6 +103,7 @@ export { readOperatingSystem } from "#src/platform/operating-system";
 export type { ProcessLock } from "#src/platform/process-lock";
 export type {
   DaemonLauncher,
+  DaemonStarted,
   DaemonCommandRunner,
   DaemonWorkspaceConfig,
 } from "#src/daemon-host/launcher";

@@ -707,7 +707,14 @@ async function runWithSupervisorLock(
           delete: (w, c) => scopedCredentials(w).delete(w, c),
         },
         runtime: {
-          configure: (config) => supervisor.configure(config),
+          // Answers by the operator deadline too, so setup never times out while the Workspace
+          // finishes starting behind the answer.
+          configure: async (config) => {
+            const { pending } = await supervisor.configure(config, {
+              deadline: Date.now() + OPERATOR_COMMAND_BUDGET_MS,
+            });
+            return pending ? { lifecycleUnderWay: true } : {};
+          },
           hold: (reason) => fanOutRunnerHold("hold", reason),
           release: () => fanOutRunnerHold("release", "upgrade"),
           async command(method, request) {

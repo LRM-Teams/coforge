@@ -4,10 +4,12 @@ import {
   decodeDaemonHandshakeRequest,
   decodeDaemonHandshakeResponse,
   decodeDaemonRuntimeConfigureRequest,
+  decodeDaemonRuntimeConfigureResponse,
   encodeDaemonCommandResponse,
   encodeDaemonHandshakeRequest,
   encodeDaemonHandshakeResponse,
   encodeDaemonRuntimeConfigureRequest,
+  encodeDaemonRuntimeConfigureResponse,
   frameLocalRpc,
   readLocalRpcFrame,
   readLocalRpcFrames,
@@ -122,4 +124,16 @@ describe("local daemon RPC", () => {
       remainder: partial,
     });
   });
+});
+
+test("a configure answered while its start is still under way round trips that", () => {
+  const response = {
+    protocolMajor: 1,
+    requestId: "request-1",
+    accepted: true,
+    lifecycleUnderWay: true,
+  };
+  expect(
+    decodeDaemonRuntimeConfigureResponse(encodeDaemonRuntimeConfigureResponse(response)),
+  ).toEqual(response);
 });

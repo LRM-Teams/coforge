@@ -1,5 +1,5 @@
 import { LocalDaemonLauncher, type LocalDaemonLauncherOptions } from "./launcher";
-import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
+import type { DaemonLauncher, DaemonStarted, DaemonWorkspaceConfig } from "./launcher";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
@@ -133,15 +133,12 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     return this.#local.preflight();
   }
 
-  async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
+  async ensureStarted(config: DaemonWorkspaceConfig): Promise<DaemonStarted> {
     // Prefer the user logon task when registration is allowed. When Create/Run is refused,
     // fall back to an already-running foreground supervisor — never detach an unmanaged process.
-    if (await this.#installAndRun()) {
-      await this.#local.ensureStarted(config);
-      return;
-    }
+    if (await this.#installAndRun()) return this.#local.ensureStarted(config);
     try {
-      await this.#local.ensureStarted(config);
+      return await this.#local.ensureStarted(config);
     } catch (error) {
       throw new Error(
         "The Windows user task could not start CoForge Daemon. Run `coforge-computer foreground` under an external supervisor; CoForge will not detach a fallback process.",

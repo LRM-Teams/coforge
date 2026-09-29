@@ -21,6 +21,9 @@ message DaemonRuntimeConfigureResponse {
   uint32 protocol_major = 1;
   string request_id = 2;
   bool accepted = 3;
+  // The configuration was taken, but the Workspace's start was still under way when the
+  // Coordinator answered; it finishes behind the answer.
+  optional bool lifecycle_under_way = 4;
 }
 
 message DaemonRuntimeReadyRequest {

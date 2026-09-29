@@ -1295,3 +1295,36 @@ test("a pause takes effect at once instead of waiting behind a start under way; 
   expect(await startB).toBeInstanceOf(UpgradeLaunchesPausedError);
   expect(fixture.starts).toEqual(["a"]);
 });
+
+test("configure answers by its deadline while its start is still under way, and the start finishes", async () => {
+  const fixture = gatedFixture([]);
+  await fixture.supervisor.recover();
+
+  expect(
+    await fixture.supervisor.configure(
+      { workspaceId: "a", computerId: "c", workspaceRoot: "/a" },
+      { deadline: Date.now() + 20 },
+    ),
+  ).toEqual({ pending: true });
+  expect(fixture.saved()[0]).toMatchObject({ workspaceId: "a", enabled: true });
+  fixture.open();
+  expect((await fixture.supervisor.snapshot())[0]?.instanceId).toBe("new-1");
+});
+
+test("a configure that fails after it answered is recorded on its binding", async () => {
+  const fixture = gatedFixture([]);
+  await fixture.supervisor.recover();
+  await fixture.supervisor.configure(
+    { workspaceId: "a", computerId: "c", workspaceRoot: "/a" },
+    { deadline: Date.now() + 10 },
+  );
+
+  fixture.fail(new Error("Workspace a failed process readiness"));
+  const deadline = Date.now() + 1_000;
+  while (!fixture.saved()[0]?.lastFailure && Date.now() < deadline) await Bun.sleep(1);
+
+  expect(fixture.saved()[0]?.lastFailure).toMatchObject({
+    operation: "configure",
+    message: "Workspace a failed process readiness",
+  });
+});
