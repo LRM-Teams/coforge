@@ -102,18 +102,27 @@ export type ChannelRow = Awaited<ReturnType<ReturnType<typeof fetchChannels>>>["
  */
 function fetchDirects(api: SidebarApi, { tolerant }: { tolerant: boolean }) {
   return async () => {
+    let partial = false;
+    const fallBack =
+      <T>(fallback: T) =>
+      () => {
+        partial = true;
+        return fallback;
+      };
     const [preferences, badges] = await Promise.all([
       tolerant
-        ? api.loadDirectPreferences().catch(() => ({ conversations: [], pinned: [], hidden: [] }))
+        ? api.loadDirectPreferences().catch(fallBack({ conversations: [], pinned: [], hidden: [] }))
         : api.loadDirectPreferences(),
       tolerant
-        ? api.loadDirectBadges().catch(() => ({ viewerId: "", unread: {} }))
+        ? api.loadDirectBadges().catch(fallBack({ viewerId: "", unread: {} }))
         : api.loadDirectBadges(),
     ]);
     return {
       fetchedAt: Date.now(),
       viewerId: badges.viewerId || undefined,
       rows: directRowsOf(preferences, badges.unread),
+      /** A read fell back: the list is read again on the next navigation. */
+      partial,
     };
   };
 }
@@ -138,6 +147,42 @@ export const sidebarDirectsQuery = (
     queryFn: fetchDirects(api, { tolerant }),
     ...LIST_OPTIONS,
   });
+
+/**
+ * How fresh a Chat list the layout's loader reads must be: a hover preload reuses whatever is
+ * cached; any other load reads only a list not cached or marked stale, since the page keeps the
+ * lists live through realtime and re-reads them when a subscribe may have missed something
+ * (`listsMissedBySubscribe`).
+ */
+export function chatListStaleTime(cause: "preload" | "enter" | "stay") {
+  return cause === "preload" ? ("static" as const) : Infinity;
+}
+
+/**
+ * The chat layout's read of the sidebar's two lists into the Query cache, which the server render
+ * reads and the client hydrates (see `chatListStaleTime`). A first load has no DM rows to keep, so
+ * each of its reads falls back on its own; a later one that fails keeps the rows the sidebar has.
+ */
+export async function loadSidebarLists(
+  queryClient: QueryClient,
+  workspaceId: string,
+  cause: "preload" | "enter" | "stay",
+  api: SidebarApi = serverSidebarApi,
+) {
+  const staleTime = chatListStaleTime(cause);
+  const firstLoad = queryClient.getQueryData(sidebarDirectsQueryKey(workspaceId)) === undefined;
+  const directs = queryClient.query({
+    ...sidebarDirectsQuery(workspaceId, { tolerant: firstLoad, api }),
+    staleTime,
+  });
+  await Promise.all([
+    queryClient.query({ ...sidebarChannelsQuery(workspaceId, api), staleTime }),
+    firstLoad ? directs : directs.catch(() => undefined),
+  ]);
+  const directsKey = sidebarDirectsQueryKey(workspaceId);
+  if (queryClient.getQueryData<{ partial: boolean }>(directsKey)?.partial)
+    await queryClient.invalidateQueries({ queryKey: directsKey, refetchType: "none" });
+}
 
 /**
  * Whether every channel's name (`channelNamesQuery`) is behind the channel list just read: a listed

@@ -5,8 +5,9 @@ import { ConversationNavigation } from "#src/features/conversations/conversation
 import { PageLoadError } from "#src/features/errors/page-load-error";
 import {
   channelNamesBehind,
+  chatListStaleTime,
+  loadSidebarLists,
   sidebarChannelsQuery,
-  sidebarDirectsQuery,
 } from "#src/features/conversations/sidebar-collections";
 import {
   channelNamesQuery,
@@ -17,37 +18,25 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
   loader: async ({ context: { queryClient }, parentMatchPromise, cause }) => {
     // The sidebar's channel and DM lists go into the Query cache, which the server render reads and
     // the client hydrates; after hydration they back the sidebar's collections
-    // (`sidebar-collections.ts`). A navigation or an invalidation (joining, leaving, closing a
-    // chat) reads them afresh; a hover preload reuses what is cached.
+    // (`sidebar-collections.ts`). Realtime keeps them live, so a navigation inside Chat reads only
+    // a list not cached or marked stale (`chatListStaleTime`).
     const workspaceId = parentMatchPromise.then(
       (parent) => parent.loaderData?.currentWorkspace?.id ?? "",
     );
-    const sidebarLists = workspaceId.then(async (workspaceId) => {
-      const staleTime = cause === "preload" ? ("static" as const) : 0;
-      // A first load has no DM rows to keep, so each of its reads falls back on its own; a later
-      // one that fails keeps the rows the sidebar has.
-      const firstLoad =
-        queryClient.getQueryData(sidebarDirectsQuery(workspaceId).queryKey) === undefined;
-      const directs = queryClient.query({
-        ...sidebarDirectsQuery(workspaceId, { tolerant: firstLoad }),
-        staleTime,
-      });
-      await Promise.all([
-        queryClient.query({ ...sidebarChannelsQuery(workspaceId), staleTime }),
-        firstLoad ? directs : directs.catch(() => undefined),
-      ]);
-    });
-    // Saved (#127) goes into the Query cache the Saved collection follows, read afresh like the
-    // sidebar's lists. A failed read keeps the list the cache has, or starts from an empty one: the
-    // chat page stays up and saving still works.
+    const sidebarLists = workspaceId.then((workspaceId) =>
+      loadSidebarLists(queryClient, workspaceId, cause),
+    );
+    // Saved (#127) goes into the Query cache the Saved collection follows, read like the sidebar's
+    // lists. A failed read keeps the list the cache has, or starts from an empty one: the chat page
+    // stays up and saving still works.
     const saved = workspaceId.then((workspaceId) => {
       const query = savedMessagesQuery(workspaceId);
-      return queryClient
-        .query({ ...query, staleTime: cause === "preload" ? ("static" as const) : 0 })
-        .catch(() => {
-          if (queryClient.getQueryData(query.queryKey) === undefined)
-            queryClient.setQueryData(query.queryKey, []);
-        });
+      return queryClient.query({ ...query, staleTime: chatListStaleTime(cause) }).catch(() => {
+        if (queryClient.getQueryData(query.queryKey) !== undefined) return;
+        // Stale at once, so the next navigation reads it rather than keep the stand-in.
+        queryClient.setQueryData(query.queryKey, []);
+        return queryClient.invalidateQueries({ queryKey: query.queryKey, refetchType: "none" });
+      });
     });
     // Every channel by id, closed ones included: the authority a body's channel links check. The
     // Query cache keeps it across navigations; `channel.created.v1` and `channel.updated.v1`

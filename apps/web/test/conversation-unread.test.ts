@@ -6,6 +6,7 @@ import {
   sidebarListsChangedBy,
   sidebarRefreshQueue,
   channelSignalOf,
+  listsMissedBySubscribe,
   clearUnread,
   closedConversationLists,
   seedUnreadCounts,
@@ -511,5 +512,29 @@ describe("channelSignalOf", () => {
       }),
     ).toBeUndefined();
     expect(channelSignalOf({ type: "channel.created.v1", workspaceId: "w" })).toBeUndefined();
+  });
+});
+
+describe("listsMissedBySubscribe", () => {
+  test("a subscribe that replayed everything missed nothing", () => {
+    expect(listsMissedBySubscribe("workspace", { wasRecovering: true, recovered: true })).toEqual(
+      [],
+    );
+    expect(listsMissedBySubscribe("user", { wasRecovering: true, recovered: true })).toEqual([]);
+  });
+
+  test("a first subscribe, or one that lost publications, re-reads what that channel keeps live", () => {
+    // The Workspace channel carries channel messages and channel events.
+    for (const recovery of [
+      { wasRecovering: false, recovered: false },
+      { wasRecovering: true, recovered: false },
+    ])
+      expect(listsMissedBySubscribe("workspace", recovery)).toEqual(["channels", "channelNames"]);
+    // The viewer's own channel carries DM messages and their ViewerEvents (channels, DMs, saves).
+    expect(listsMissedBySubscribe("user", { wasRecovering: true, recovered: false })).toEqual([
+      "channels",
+      "dms",
+      "saved",
+    ]);
   });
 });

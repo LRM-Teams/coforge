@@ -34,7 +34,12 @@ These rules apply to `src/features/conversations/`.
   (collections and changes, tested without React) and `sidebar-lists.ts`
   (hooks): the chat layout's (`_chat`) loader fetches them into the TanStack Query cache
   (the server render reads it), and after hydration the same Query keys back
-  TanStack DB collections. Every channel's name (`channelNamesQuery`, for body channel links
+  TanStack DB collections. Realtime keeps every Chat list live, so the loader, which runs on
+  each navigation inside Chat, reads only a list that is not cached or marked stale
+  (`loadSidebarLists`, `chatListStaleTime`); once a signal channel is subscribed, the page
+  re-reads the lists it may have missed (`listsMissedBySubscribe`: a first subscribe, or a
+  resubscribe that lost publications). A write that changes a list on this page re-reads it
+  itself instead of counting on a navigation. Every channel's name (`channelNamesQuery`, for body channel links
   and the `#` list) lives in the same cache; the create-channel dialog reads projects when it
   opens. A channel created, changed or gone anywhere in the Workspace (`channel.created.v1`,
   `channel.updated.v1`, Slack's `channel_created` and `channel_rename`) carries the channel's
@@ -103,8 +108,8 @@ These rules apply to `src/features/conversations/`.
   the list is a TanStack DB collection (`saved-messages-collection.ts`) on the
   app's one `DbClient` (`DbProvider` in `router.tsx`, read with `useDbClient`),
   shared by every host; it starts from that cache and follows it. TanStack DB's
-  GC empties it (and its Query) once no page shows it; a host's loader reads
-  the list again on every visit, and the store stands back on that until the
+  GC empties it (and removes its Query) once no page shows it; a host's loader reads
+  the list when the cache lacks it, and the store stands back on that until the
   collection has synced. Never materialize a
   collection during a server render. The sidebar's unread badges stay Chat's own. Read it through
   `useSavedEntries`/`useIsMessageSaved` and write through the context's

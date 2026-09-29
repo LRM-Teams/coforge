@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
 import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
+import { subscriptionGap, type SubscribedRecovery } from "#src/features/realtime/subscription-gap";
 import {
   getUserConversationSubscriptionToken,
   getWorkspaceConversationSubscriptionToken,
@@ -184,6 +185,21 @@ export function channelSignalOf(data: unknown): ChannelSignal | undefined {
 }
 
 /**
+ * The lists a Chat page must re-read once one of its two signal channels is subscribed, as
+ * `subscriptionGap` reads the event: nothing when the subscribe replayed every missed publication;
+ * otherwise (a first subscribe, which follows the page's own read, or a resubscribe that lost
+ * publications) every list that channel keeps live. The Workspace channel carries channel messages
+ * and channel events; the viewer's own channel carries DM messages and their `ViewerEvent`s.
+ */
+export function listsMissedBySubscribe(
+  channel: "workspace" | "user",
+  recovery: SubscribedRecovery,
+): readonly ChatList[] {
+  if (subscriptionGap(recovery) === "none") return [];
+  return channel === "workspace" ? ["channels", "channelNames"] : ["channels", "dms", "saved"];
+}
+
+/**
  * Coalesces sidebar re-reads: lists named before a re-read starts go into it, and lists named
  * while one is running go into a single re-read after it, so a burst of events costs at most one
  * read in flight and one queued. Each call settles once a re-read covering its lists has.
@@ -308,7 +324,8 @@ export function useChannelUnread({
   /** A channel was created, renamed, described, archived, unarchived or is gone
    * (`channel.created.v1`, `channel.updated.v1`). */
   onChannelSignal: (signal: ChannelSignal) => void;
-  /** These lists are stale: the viewer's own place in a chat changed elsewhere (`ViewerEvent`). */
+  /** These lists are stale: the viewer's own place in a chat changed elsewhere (`ViewerEvent`),
+   * or a subscribe may have missed what kept them live (`listsMissedBySubscribe`). */
   onSidebarListsChanged: (lists: readonly ChatList[]) => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
@@ -363,6 +380,10 @@ export function useChannelUnread({
     channel: workspaceId ? workspaceConversationChannel(workspaceId) : undefined,
     getToken: workspaceId ? getWorkspaceToken : undefined,
     onPublication,
+    onSubscribed: (recovery) => {
+      const lists = listsMissedBySubscribe("workspace", recovery);
+      if (lists.length > 0) refs.current.onSidebarListsChanged(lists);
+    },
   });
   // The viewer's own channel also carries their `ViewerEvent`s; the Workspace channel never does.
   const onUserPublication = useCallback(
@@ -384,6 +405,10 @@ export function useChannelUnread({
     channel: userId ? userConversationChannel(userId) : undefined,
     getToken: userId ? getUserToken : undefined,
     onPublication: onUserPublication,
+    onSubscribed: (recovery) => {
+      const lists = listsMissedBySubscribe("user", recovery);
+      if (lists.length > 0) refs.current.onSidebarListsChanged(lists);
+    },
   });
 
   const clear = useCallback(

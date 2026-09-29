@@ -102,7 +102,12 @@ export function useChannelConversation(channelId: string) {
         ),
       onJoin: async () => {
         await join({ data: { channelId } });
-        await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
+        // The layout's loader reuses the cached lists, so the channel list is re-read here.
+        await Promise.all([
+          page.invalidate(),
+          refreshSidebarChannels(),
+          router.invalidate({ sync: true }),
+        ]);
       },
       onChanged: refreshChannelAndSidebar,
       onReadThread: (threadRootId: string, throughSequence: number) =>
