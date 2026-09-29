@@ -222,8 +222,11 @@ export function ChannelConversation({
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
-  // Who else the viewer may mention on purpose; kept current by the same invalidation (the key
-  // shares the directory's prefix). Loaded only for a member of an open channel, who has a composer.
+  // Who else the viewer may mention on purpose. Read once the page mounts, and refetched with the
+  // directory (the key shares its prefix) on `member.changed.v1`, on a resubscribe that lost
+  // publications, and on focus — not on the first subscribe, which follows its first read by
+  // about one round trip (see `useConversationQuery`). Loaded only for a member of an open
+  // channel, who has a composer.
   const mentionOutsiders = useQuery({
     queryKey: ["conversation", "mentionables", conversation.conversationId, "outsiders"],
     queryFn: (): Promise<Mentionable[]> =>
