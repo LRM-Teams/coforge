@@ -1,3 +1,4 @@
+import { compareChannelNames } from "#src/features/conversations/channel-signals";
 import { lockConversation } from "./conversation-lock.server";
 import { lockMemberPins, setConversationPin } from "./conversation-pins.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
@@ -64,6 +65,7 @@ import {
   announceChannelTasksDeleted,
   announceChannelCreated,
   announceChannelUpdated,
+  channelInfoOf,
   announceJoinedOrLeft,
   announceViewerEvent,
   type ConversationRealtime,
@@ -739,12 +741,7 @@ export class PublicChannels {
       where: { workspaceId, channelName: { not: null }, ...VISIBLE_CONVERSATION_WHERE },
       select: { id: true, channelName: true, description: true, archivedAt: true },
     });
-    return channels.map((channel) => ({
-      id: channel.id,
-      name: channel.channelName!,
-      description: channel.description.trim(),
-      archived: channel.archivedAt !== null,
-    }));
+    return channels.map((channel) => ({ id: channel.id, ...channelInfoOf(channel) }));
   }
 
   async list(workspaceId: string, userId: string) {
@@ -837,9 +834,10 @@ export class PublicChannels {
         (channel) => !channel.hidden || channel.pinned,
       )
       .sort(
-        // #general first, then by name. Pinned rows are ordered by `pinSortOrder` in the
-        // sidebar's Pinned section, which merges them with pinned DMs.
-        (a, b) => Number(b.name === "general") - Number(a.name === "general"),
+        // #general first, then by name, as the sidebar keeps a channel event's row
+        // (`compareChannelNames`). Pinned rows are ordered by `pinSortOrder` in the sidebar's
+        // Pinned section, which merges them with pinned DMs.
+        (a, b) => compareChannelNames(a.name, b.name),
       );
   }
 
@@ -861,7 +859,12 @@ export class PublicChannels {
       });
       if (!project) throw new AppError("INVALID_INPUT");
     }
-    let created: { id: string };
+    let created: {
+      id: string;
+      channelName: string | null;
+      description: string;
+      archivedAt: Date | null;
+    };
     try {
       created = await this.db.conversation.create({
         data: {
@@ -872,20 +875,24 @@ export class PublicChannels {
           // The creator becomes the channel's first admin.
           members: { create: { userId, channelRole: "admin" } },
         },
-        select: { id: true },
+        select: { id: true, channelName: true, description: true, archivedAt: true },
       });
     } catch (error) {
       if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw error;
     }
     await Promise.all([
-      announceChannelCreated(this.realtime, { workspaceId, conversationId: created.id }),
+      announceChannelCreated(this.realtime, {
+        workspaceId,
+        conversationId: created.id,
+        channel: channelInfoOf(created),
+      }),
       announceViewerEvent(this.realtime, {
         userIds: [userId],
         event: { type: "channel.joined.v1", workspaceId, conversationId: created.id },
       }),
     ]);
-    return created;
+    return { id: created.id };
   }
 
   /**
@@ -981,9 +988,13 @@ export class PublicChannels {
           ...(rename ? { channelName: patch.name } : {}),
           ...(redescribe ? { description: patch.description } : {}),
         },
-        select: { id: true, channelName: true, description: true },
+        select: { id: true, channelName: true, description: true, archivedAt: true },
       });
-      await announceChannelUpdated(this.realtime, { workspaceId, conversationId: channel.id });
+      await announceChannelUpdated(this.realtime, {
+        workspaceId,
+        conversationId: channel.id,
+        channel: channelInfoOf(updated),
+      });
       return { id: updated.id, name: updated.channelName!, description: updated.description };
     } catch (error) {
       if (isUniqueViolation(error)) throw new AppError("CONFLICT");
@@ -1010,11 +1021,17 @@ export class PublicChannels {
   async setGeneralHidden(workspaceId: string, userId: string, hidden: boolean) {
     const general = await this.generalForSettings(workspaceId, userId);
     if ((general.hiddenFromWorkspaceAt !== null) === hidden) return { id: general.id, hidden };
-    await this.db.conversation.update({
+    const restored = await this.db.conversation.update({
       where: { id: general.id },
       data: { hiddenFromWorkspaceAt: hidden ? new Date() : null },
+      select: { channelName: true, description: true, archivedAt: true },
     });
-    await announceChannelUpdated(this.realtime, { workspaceId, conversationId: general.id });
+    await announceChannelUpdated(
+      this.realtime,
+      hidden
+        ? { workspaceId, conversationId: general.id, gone: true }
+        : { workspaceId, conversationId: general.id, channel: channelInfoOf(restored) },
+    );
     return { id: general.id, hidden };
   }
 
@@ -1089,7 +1106,11 @@ export class PublicChannels {
       this.db.conversation.delete({ where: { id: channel.id } }),
     ]);
     await Promise.all([
-      announceChannelUpdated(this.realtime, { workspaceId, conversationId: channel.id }),
+      announceChannelUpdated(this.realtime, {
+        workspaceId,
+        conversationId: channel.id,
+        gone: true,
+      }),
       announceChannelTasksDeleted(this.realtime, {
         workspaceId,
         conversationId: channel.id,
@@ -1118,11 +1139,16 @@ export class PublicChannels {
       throw new AppError("ACCESS_DENIED");
     // Already in the asked-for state: nothing to write or announce.
     if ((channel.archivedAt !== null) === archived) return { id: channel.id, archived };
-    await this.db.conversation.update({
+    const changed = await this.db.conversation.update({
       where: { id: channel.id },
       data: { archivedAt: archived ? new Date() : null },
+      select: { channelName: true, description: true, archivedAt: true },
     });
-    await announceChannelUpdated(this.realtime, { workspaceId, conversationId: channel.id });
+    await announceChannelUpdated(this.realtime, {
+      workspaceId,
+      conversationId: channel.id,
+      channel: channelInfoOf(changed),
+    });
     return { id: channel.id, archived };
   }
 

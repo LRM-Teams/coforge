@@ -129,7 +129,8 @@ export const savedMessagesQuery = (workspaceId: string) =>
 
 /** Every channel of the Workspace by id, closed ones included — what a body's channel links and
  * the composer's `#` list read, in Chat and on any page that shows a conversation (the Tasks page's
- * popup). Chat keeps it live: `channel.created.v1` and `channel.updated.v1` re-read it. */
+ * popup). Chat keeps it live: `channel.created.v1` and `channel.updated.v1` are written into it
+ * (`useApplyChannelSignal`). */
 export const channelNamesQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: channelNamesQueryKey(workspaceId),

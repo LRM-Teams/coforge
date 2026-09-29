@@ -50,9 +50,11 @@ async function sidebarWith(overrides: Partial<SidebarApi> = {}, { synced = true 
       hidden: [] as string[],
     },
     failReads: false,
+    channelReads: 0,
   };
   const api: SidebarApi = {
     listChannels: async () => {
+      server.channelReads += 1;
       if (server.failReads) throw new Error("offline");
       return server.channels;
     },
@@ -227,4 +229,129 @@ test("the channel names are behind the sidebar when a listed channel is missing 
   expect(channelNamesBehind(names, [{ id: "c2", name: "design-team" }])).toBe(true);
   // The names list closed and archived channels too: fewer rows is not behind.
   expect(channelNamesBehind(names, [])).toBe(false);
+});
+
+/** The channel rows' ids in the order the sidebar shows them. */
+const listed = (sidebar: { channels: { toArray: { id: string; position: number }[] } }) =>
+  [...sidebar.channels.toArray].sort((a, b) => a.position - b.position).map((row) => row.id);
+
+async function signalSidebar() {
+  const setup = await sidebarWith();
+  const before = setup.server.channelReads;
+  return { ...setup, reads: () => setup.server.channelReads - before };
+}
+
+const signalIds = { workspaceId: "w" };
+
+test("a channel created elsewhere is listed in name order, not joined, without a read", async () => {
+  const { sidebar, reads } = await signalSidebar();
+  const applied = sidebar.applyChannelSignal(
+    {
+      type: "channel.created.v1",
+      ...signalIds,
+      conversationId: "lab",
+      channel: { name: "lab", description: "", archived: false },
+    },
+    { known: false },
+  );
+  expect(applied).toBe(true);
+  expect(listed(sidebar)).toEqual(["general", "lab", "random"]);
+  expect(sidebar.channels.get("lab")).toMatchObject({
+    name: "lab",
+    joined: false,
+    archived: false,
+    muted: false,
+    unreadCount: 0,
+    hidden: false,
+    pinned: false,
+    pinSortOrder: null,
+  });
+  expect(reads()).toBe(0);
+});
+
+test("a channel created by the viewer on another page keeps the row the list already has", async () => {
+  const { sidebar } = await signalSidebar();
+  sidebar.applyChannelSignal(
+    {
+      type: "channel.created.v1",
+      ...signalIds,
+      conversationId: "random",
+      channel: { name: "random", description: "", archived: false },
+    },
+    { known: false },
+  );
+  expect(sidebar.channels.get("random")).toMatchObject({ joined: true, unreadCount: 2 });
+});
+
+test("a rename or archive elsewhere changes the row and its place, without a read", async () => {
+  const { sidebar, reads } = await signalSidebar();
+  const applied = sidebar.applyChannelSignal(
+    {
+      type: "channel.updated.v1",
+      ...signalIds,
+      conversationId: "random",
+      channel: { name: "a-team", description: "", archived: true },
+    },
+    { known: true },
+  );
+  expect(applied).toBe(true);
+  expect(listed(sidebar)).toEqual(["general", "random"]);
+  expect(sidebar.channels.get("random")).toMatchObject({
+    name: "a-team",
+    archived: true,
+    joined: true,
+    unreadCount: 2,
+  });
+  expect(reads()).toBe(0);
+});
+
+test("a deleted or hidden channel leaves the list without a read", async () => {
+  const { sidebar, reads } = await signalSidebar();
+  const applied = sidebar.applyChannelSignal(
+    { type: "channel.updated.v1", ...signalIds, conversationId: "random", gone: true },
+    { known: true },
+  );
+  expect(applied).toBe(true);
+  expect(listed(sidebar)).toEqual(["general"]);
+  expect(reads()).toBe(0);
+});
+
+test("a change to a channel the list leaves out on purpose changes nothing", async () => {
+  // A closed channel is known (every channel's name has it) but not listed.
+  const { sidebar } = await signalSidebar();
+  const applied = sidebar.applyChannelSignal(
+    {
+      type: "channel.updated.v1",
+      ...signalIds,
+      conversationId: "closed",
+      channel: { name: "closed", description: "", archived: false },
+    },
+    { known: true },
+  );
+  expect(applied).toBe(true);
+  expect(listed(sidebar)).toEqual(["general", "random"]);
+});
+
+test("a change the list cannot place asks for a read", async () => {
+  const { sidebar } = await signalSidebar();
+  // #general restored: the viewer's place in it is not in the event.
+  expect(
+    sidebar.applyChannelSignal(
+      {
+        type: "channel.updated.v1",
+        ...signalIds,
+        conversationId: "back",
+        channel: { name: "back", description: "", archived: false },
+      },
+      { known: false },
+    ),
+  ).toBe(false);
+  // An event from an older server names ids only.
+  expect(
+    sidebar.applyChannelSignal(
+      { type: "channel.updated.v1", ...signalIds, conversationId: "random" },
+      { known: true },
+    ),
+  ).toBe(false);
+  expect(listed(sidebar)).toEqual(["general", "random"]);
 });

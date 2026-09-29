@@ -15,6 +15,7 @@ import {
 import { PublicChannels } from "./public-channels.server";
 import {
   announceChannelCreated,
+  channelInfoOf,
   announceMemberChanged,
   announceJoinedOrLeft,
   type ConversationRealtime,
@@ -216,7 +217,12 @@ export class AgentChannelManagement {
     await this.assertCallerNotPrivate(workspaceId, agentId, "create");
     const name = this.normalizeChannelName(rawName);
     if (name === "general") throw new AgentChannelManagementError(409, "general is reserved");
-    let channel: { id: string; channelName: string | null; description: string };
+    let channel: {
+      id: string;
+      channelName: string | null;
+      description: string;
+      archivedAt: Date | null;
+    };
     try {
       channel = await this.db.conversation.create({
         data: {
@@ -232,7 +238,11 @@ export class AgentChannelManagement {
         throw new AgentChannelManagementError(409, "channel name is already in use");
       throw error;
     }
-    await announceChannelCreated(this.realtime, { workspaceId, conversationId: channel.id });
+    await announceChannelCreated(this.realtime, {
+      workspaceId,
+      conversationId: channel.id,
+      channel: channelInfoOf(channel),
+    });
     return {
       target: `#${channel.channelName}`,
       channel: {

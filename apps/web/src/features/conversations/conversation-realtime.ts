@@ -7,8 +7,8 @@ export const conversationRealtimeChannel = (conversationId: string) => `chat:${c
  * versioned `message.available.v1` payloads as `chat:<conversationId>`, but
  * one subscription per open Workspace keeps the sidebar unread counts live
  * without holding a per-conversation subscription for every channel in the
- * list. It also carries `channel.created.v1` and `channel.updated.v1`, so the sidebar re-reads a
- * created, renamed, deleted or archived channel, and `task.changed.v1` (`features/tasks/task-realtime.ts`), so an open
+ * list. It also carries `channel.created.v1` and `channel.updated.v1`, so the sidebar lists a
+ * created, renamed, deleted or archived channel from the event, and `task.changed.v1` (`features/tasks/task-realtime.ts`), so an open
  * Tasks page updates the rows a Task write changed, and `workspace.deleted.v1`
  * (`features/workspaces/workspace-realtime.ts`), so every open page leaves a deleted Workspace. Authorization mirrors the status/activity workspace channels: the
  * subscription token is issued only to Workspace members.
@@ -174,35 +174,41 @@ export function decodeActivityChangedEvent(value: unknown): ActivityChangedEvent
   return { type, workspaceId };
 }
 
+const channelInfo = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  archived: z.boolean(),
+});
+
 /**
- * A channel's own facts changed: its name, description, or archived state. Published on the
- * Workspace channel, so every member's sidebar re-reads its channel list, and on the channel's own
- * conversation channel, so a page showing it refetches its header and composer state. Like the
- * other signals it carries no payload beyond the ids; the client reloads what it shows.
+ * A channel's name, description and archived state, as every member may see them. A channel
+ * event carries it, as Slack's `channel_created` and `channel_rename` carry the channel, so a
+ * sidebar updates its row from the event instead of re-reading its list.
  */
-export type ChannelUpdatedEvent = {
-  type: "channel.updated.v1";
-  conversationId: string;
-  workspaceId: string;
-};
+export type ChannelInfo = z.infer<typeof channelInfo>;
+
+const channelUpdatedEvent = z.object({
+  type: z.literal("channel.updated.v1"),
+  workspaceId: z.string().min(1),
+  conversationId: z.string().min(1),
+  /** The channel's info after the change. */
+  channel: channelInfo.optional(),
+  /** The channel was deleted, or hidden from the whole Workspace (`#general`). */
+  gone: z.literal(true).optional(),
+});
+
+/**
+ * A channel's own facts changed: its name, description or archived state, or it is gone. Published
+ * on the Workspace channel, so every member's sidebar applies it, and on the channel's own
+ * conversation channel, so a page showing it refetches its header and composer state. An event
+ * with neither `channel` nor `gone` (from an older server) has the sidebar re-read its lists.
+ */
+export type ChannelUpdatedEvent = z.infer<typeof channelUpdatedEvent>;
 
 export function decodeChannelUpdatedEvent(value: unknown): ChannelUpdatedEvent {
-  if (value instanceof Uint8Array)
-    return decodeChannelUpdatedEvent(JSON.parse(utf8Decoder.decode(value)) as unknown);
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("invalid conversation event");
-  const type = Reflect.get(value, "type");
-  const conversationId = Reflect.get(value, "conversationId");
-  const workspaceId = Reflect.get(value, "workspaceId");
-  if (
-    type !== "channel.updated.v1" ||
-    typeof conversationId !== "string" ||
-    !conversationId ||
-    typeof workspaceId !== "string" ||
-    !workspaceId
-  )
-    throw new Error("invalid conversation event");
-  return { type, conversationId, workspaceId };
+  const event = decodeJsonPublication(channelUpdatedEvent, value);
+  if (!event) throw new Error("invalid conversation event");
+  return event;
 }
 
 /**
@@ -280,12 +286,14 @@ const channelCreatedEvent = z.object({
   type: z.literal("channel.created.v1"),
   workspaceId: z.string().min(1),
   conversationId: z.string().min(1),
+  /** Absent only from an older server, which has the sidebar re-read its lists. */
+  channel: channelInfo.optional(),
 });
 
 /**
  * A channel was created in the Workspace, by a person, an Agent or an action card (Slack's
- * `channel_created`). Published on the Workspace channel, so every member's sidebar re-reads its
- * channel list; like `channel.updated.v1` it names ids only.
+ * `channel_created`). Published on the Workspace channel with the channel's info, so every
+ * member's sidebar lists it from the event alone.
  */
 export type ChannelCreatedEvent = z.infer<typeof channelCreatedEvent>;
 

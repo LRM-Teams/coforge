@@ -60,6 +60,7 @@ test("a created channel is announced to the whole Workspace", async () => {
   await new CentrifugoConversationRealtime(centrifugo).channelCreated({
     workspaceId: "workspace-1",
     conversationId: "conversation-1",
+    channel: { name: "lab", description: "", archived: false },
   });
   expect(published).toEqual([
     {
@@ -68,6 +69,7 @@ test("a created channel is announced to the whole Workspace", async () => {
         type: "channel.created.v1",
         workspaceId: "workspace-1",
         conversationId: "conversation-1",
+        channel: { name: "lab", description: "", archived: false },
       },
     },
   ]);

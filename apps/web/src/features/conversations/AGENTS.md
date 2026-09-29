@@ -35,8 +35,12 @@ These rules apply to `src/features/conversations/`.
   (hooks): the chat layout's (`_chat`) loader fetches them into the TanStack Query cache
   (the server render reads it), and after hydration the same Query keys back
   TanStack DB collections. Every channel's name (`channelNamesQuery`, for body channel links
-  and the `#` list) lives in the same cache and is re-read only on `channel.created.v1` or
-  `channel.updated.v1`; the create-channel dialog reads projects when it opens. Read the lists
+  and the `#` list) lives in the same cache; the create-channel dialog reads projects when it
+  opens. A channel created, changed or gone anywhere in the Workspace (`channel.created.v1`,
+  `channel.updated.v1`, Slack's `channel_created` and `channel_rename`) carries the channel's
+  info or `gone`, and `useApplyChannelSignal` writes it into the names and the channel list
+  (`channel-signals.ts`, `applyChannelSignal`) without a read; only what an event cannot place
+  is re-read. The server and the list share one order (`compareChannelNames`). Read the lists
   with `useSidebarLists` and change them
   only through `useSidebarActions` (optimistic: the row changes at once, a
   saved change is written into the synced list, a failed save rolls it back);
@@ -44,9 +48,8 @@ These rules apply to `src/features/conversations/`.
   closed or unlisted chat in re-reads only its own list
   (`closedConversationLists`), plus the Agent roster when the Agent is new to
   it (`unknownAgentOf`). A change made
-  outside the sidebar (a channel's creation, rename or archive, here or signalled by
-  `channel.created.v1` or `channel.updated.v1`, or the viewer leaving, muting or pinning it from the
-  settings panel) re-reads only the
+  outside the sidebar on this page (a channel's creation, rename or archive, or the viewer
+  leaving, muting or pinning it from the settings panel) re-reads only the
   channel list through `useRefreshSidebarChannels`. The viewer's own changes made on another
   page, tab or device arrive as a `ViewerEvent` on their `chat:user:` channel (Slack's
   `channel_marked`, `channel_joined`, `im_marked`, `im_created`, `pref_change`, `star_added`, `star_removed`): a read sets the badge from the event's

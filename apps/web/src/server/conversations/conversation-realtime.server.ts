@@ -9,6 +9,7 @@ import {
   type MessageAvailableEvent,
   type MemberChangedEvent,
   type ViewerEvent,
+  type ChannelInfo,
 } from "#src/features/conversations/conversation-realtime";
 import type { TaskChangedEvent } from "#src/features/tasks/task-realtime";
 import { isPeopleDirectKey, peopleDirectKeyPair } from "#src/features/conversations/direct-key";
@@ -124,16 +125,44 @@ export type TaskChangedSignal = Omit<TaskChangedEvent, "type"> &
     publicationId: string;
   };
 
+/** A channel's change as announced: its info after the change, or that it was deleted or hidden
+ * from the whole Workspace. */
+export type ChannelUpdatedSignal = { workspaceId: string; conversationId: string } & (
+  | { channel: ChannelInfo; gone?: undefined }
+  | { gone: true; channel?: undefined }
+);
+
+export type ChannelCreatedSignal = {
+  workspaceId: string;
+  conversationId: string;
+  channel: ChannelInfo;
+};
+
+/** A channel row's info as every member sees it: `PublicChannels.names` and the channel events
+ * both build it here, so an event never disagrees with a read. */
+export function channelInfoOf(channel: {
+  channelName: string | null;
+  description: string;
+  archivedAt: Date | null;
+}): ChannelInfo {
+  return {
+    name: channel.channelName!,
+    description: channel.description.trim(),
+    archived: channel.archivedAt !== null,
+  };
+}
+
 export type ConversationRealtime = {
   messageAvailable(input: ConversationRealtimeMessage & { publicationId?: string }): Promise<void>;
   /** A push telling each named channel's open pages that its member list is stale. */
   memberChanged(input: { workspaceId: string; conversationIds: readonly string[] }): Promise<void>;
   /** A push telling the Workspace's sidebars and the channel's open pages that its name,
-   * description or archived state changed. Optional: a port without it announces nothing. */
-  channelUpdated?(input: { workspaceId: string; conversationId: string }): Promise<void>;
-  /** A push telling the Workspace's sidebars that a channel was created. Optional: a port without
-   * it announces nothing. */
-  channelCreated?(input: { workspaceId: string; conversationId: string }): Promise<void>;
+   * description or archived state changed, or that it is gone. Optional: a port without it
+   * announces nothing. */
+  channelUpdated?(input: ChannelUpdatedSignal): Promise<void>;
+  /** A push telling the Workspace's sidebars that a channel was created, with its info. Optional:
+   * a port without it announces nothing. */
+  channelCreated?(input: ChannelCreatedSignal): Promise<void>;
   /** A push telling open Tasks pages the new copies of the Tasks a write changed. Optional: a
    * port without it announces nothing. */
   taskChanged?(input: TaskChangedSignal): Promise<void>;
@@ -166,7 +195,7 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
     );
   }
 
-  async channelUpdated(input: { workspaceId: string; conversationId: string }) {
+  async channelUpdated(input: ChannelUpdatedSignal) {
     const event: ChannelUpdatedEvent = { type: "channel.updated.v1", ...input };
     const idempotencyKey = crypto.randomUUID();
     await Promise.all([
@@ -183,7 +212,7 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
     ]);
   }
 
-  async channelCreated(input: { workspaceId: string; conversationId: string }) {
+  async channelCreated(input: ChannelCreatedSignal) {
     const event: ChannelCreatedEvent = { type: "channel.created.v1", ...input };
     await this.centrifugo.publishJson(
       workspaceConversationChannel(input.workspaceId),
@@ -360,12 +389,13 @@ export async function announceJoinedOrLeft(
  * Tells every open sidebar of the Workspace, and the channel's open pages, that the channel was
  * renamed, described, archived, unarchived or deleted, once the write has committed — the way Slack sends
  * `channel_rename`/`channel_archive` to every connection of a workspace and Discord sends
- * `CHANNEL_UPDATE`. Best effort like `announceMemberChanged`: a page that misses it catches up on
- * its next load or focus.
+ * `CHANNEL_UPDATE`, with the channel's info after the change (or `gone`), so a sidebar updates its
+ * row without a read. Best effort like `announceMemberChanged`: a page that misses it catches up
+ * on its next load or focus.
  */
 export async function announceChannelUpdated(
   realtime: Pick<ConversationRealtime, "channelUpdated"> | undefined,
-  input: { workspaceId: string; conversationId: string },
+  input: ChannelUpdatedSignal,
 ): Promise<void> {
   await announceBestEffort(realtime, (port) => port.channelUpdated?.(input), {
     name: "channel_updated",
@@ -380,7 +410,7 @@ export async function announceChannelUpdated(
  */
 export async function announceChannelCreated(
   realtime: Pick<ConversationRealtime, "channelCreated"> | undefined,
-  input: { workspaceId: string; conversationId: string },
+  input: ChannelCreatedSignal,
 ): Promise<void> {
   await announceBestEffort(realtime, (port) => port.channelCreated?.(input), {
     name: "channel_created",

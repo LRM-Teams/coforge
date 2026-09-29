@@ -57,12 +57,16 @@ test.skipIf(!connectionString)(
       name: "Hide general",
       userId: owner.id,
     });
-    const updated: string[] = [];
+    const updated: { conversationId: string; gone?: true; name?: string }[] = [];
     const realtime: ConversationRealtime = {
       async messageAvailable() {},
       async memberChanged() {},
       async channelUpdated(input) {
-        updated.push(input.conversationId);
+        updated.push({
+          conversationId: input.conversationId,
+          gone: input.gone,
+          name: input.channel?.name,
+        });
       },
     };
     try {
@@ -166,7 +170,8 @@ test.skipIf(!connectionString)(
       expect(await channels.generalHidden(workspace.id, owner.id)).toBe(false);
       await channels.setGeneralHidden(workspace.id, owner.id, true);
       expect(await channels.generalHidden(workspace.id, owner.id)).toBe(true);
-      expect(updated).toEqual([general.id]);
+      // Hidden, it is gone from every sidebar; restored, it carries its info again.
+      expect(updated).toEqual([{ conversationId: general.id, gone: true, name: undefined }]);
 
       // Gone from every surface, for the owner who hid it too.
       for (const viewer of [owner.id, bob.id]) {
@@ -233,7 +238,10 @@ test.skipIf(!connectionString)(
 
       await channels.setGeneralHidden(workspace.id, owner.id, false);
       expect(await channels.generalHidden(workspace.id, owner.id)).toBe(false);
-      expect(updated).toEqual([general.id, general.id]);
+      expect(updated).toEqual([
+        { conversationId: general.id, gone: true, name: undefined },
+        { conversationId: general.id, gone: undefined, name: "general" },
+      ]);
       expect(
         (await channels.list(workspace.id, late.id)).find((row) => row.id === general.id),
       ).toMatchObject({ joined: true });

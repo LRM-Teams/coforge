@@ -20,6 +20,7 @@ import {
 import { directListsOf, type DirectRow } from "./sidebar-rows";
 import { savedMessagesQueryKey } from "./saved-messages-collection";
 import { sidebarRefreshQueue, type ChatList } from "./conversation-unread";
+import { channelNamesAfter, type ChannelName, type ChannelSignal } from "./channel-signals";
 
 // React access to the Chat sidebar's lists (`sidebar-collections.ts`).
 
@@ -101,10 +102,10 @@ const listQueryKey: Record<ChatList, (workspaceId: string) => readonly unknown[]
 
 /**
  * Re-reads the named lists, and only them, after something outside the sidebar changed them: a
- * channel's creation, rename, description or archive (here, or `channel.created.v1` /
- * `channel.updated.v1`), a message that brings a closed or unlisted chat in, the Activity page
- * moving badges, or the viewer's own place in a chat or their Saved list changed on another page,
- * tab or device (a `ViewerEvent`). A burst is read once (`sidebarRefreshQueue`). The collections follow the
+ * channel's creation, rename, description or archive here (another page's arrives as a channel
+ * signal, `useApplyChannelSignal`), a message that brings a closed or unlisted chat in, the
+ * Activity page moving badges, or the viewer's own place in a chat or their Saved list changed on
+ * another page, tab or device (a `ViewerEvent`). A burst is read once (`sidebarRefreshQueue`). The collections follow the
  * refetched Query data.
  */
 export function useRefreshSidebar() {
@@ -120,6 +121,33 @@ export function useRefreshSidebar() {
         ).then(() => undefined),
       ),
     [queryClient, workspaceId],
+  );
+}
+
+/**
+ * Applies a channel created, changed or gone anywhere in the Workspace to every channel's name and
+ * to the channel list from the event alone, as Slack's clients apply `channel_created`; only what
+ * the event cannot place is re-read (an older server's ids-only event, `#general` coming back, or
+ * a page not yet hydrated).
+ */
+export function useApplyChannelSignal() {
+  const queryClient = useQueryClient();
+  const workspaceId = useCurrentWorkspaceId() ?? "";
+  const sidebar = useSidebar();
+  const refresh = useRefreshSidebar();
+  return useMemo(
+    () => (signal: ChannelSignal) => {
+      const namesKey = channelNamesQueryKey(workspaceId);
+      const names = queryClient.getQueryData<ChannelName[]>(namesKey);
+      const known = Boolean(names?.some((channel) => channel.id === signal.conversationId));
+      const nextNames = names && channelNamesAfter(names, signal);
+      if (nextNames) queryClient.setQueryData(namesKey, nextNames);
+      const stale: ChatList[] = [];
+      if (names && !nextNames) stale.push("channelNames");
+      if (!sidebar?.applyChannelSignal(signal, { known })) stale.push("channels");
+      if (stale.length > 0) void refresh(stale);
+    },
+    [queryClient, workspaceId, sidebar, refresh],
   );
 }
 

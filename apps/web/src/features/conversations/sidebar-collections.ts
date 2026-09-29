@@ -31,6 +31,7 @@ import {
   type PinRef,
 } from "./pinned-conversations";
 import { directRowsOf, type DirectRow } from "./sidebar-rows";
+import { compareChannelNames, type ChannelSignal } from "./channel-signals";
 
 // The Chat sidebar's channel and DM lists as TanStack DB collections, and the changes made to them
 // from the sidebar. How they fit with the Query cache and SSR: `features/conversations/AGENTS.md`.
@@ -146,6 +147,22 @@ export function channelNamesBehind(
 ): boolean {
   const byId = new Map(names.map((channel) => [channel.id, channel.name]));
   return channels.some((channel) => byId.get(channel.id) !== channel.name);
+}
+
+/** A channel row as the server read it, without TanStack DB's virtual `$` fields. */
+function plainChannelRow(row: ChannelRow): ChannelRow {
+  return {
+    id: row.id,
+    name: row.name,
+    joined: row.joined,
+    archived: row.archived,
+    muted: row.muted,
+    unreadCount: row.unreadCount,
+    hidden: row.hidden,
+    pinned: row.pinned,
+    pinSortOrder: row.pinSortOrder,
+    position: row.position,
+  };
 }
 
 /** The fields of a row that a sidebar change touches, named alike on channel and DM rows. */
@@ -320,7 +337,57 @@ export function createSidebar(
     arrange: (arrangement: Arrangement) =>
       saved(arrange(arrangement), () => saveArrangement(arrangement), [channelsKey, directsKey]),
   };
-  return { channels, directs, actions };
+  /**
+   * Applies a channel created, changed or gone anywhere in the Workspace to the synced list, with
+   * no read: a new channel is listed as one the viewer has not joined (their own join arrives as
+   * a `ViewerEvent`), a changed one keeps the viewer's place in it, and every row keeps the
+   * server's order. False when the list cannot place it and must be read again: the event names
+   * only ids, or it is a channel the list has never heard of coming back (`#general` restored,
+   * whose place for the viewer the event does not carry). `known`: every channel's name has it,
+   * so a channel the list leaves out on purpose (closed) stays out.
+   */
+  const applyChannelSignal = (signal: ChannelSignal, { known }: { known: boolean }): boolean => {
+    const id = signal.conversationId;
+    const listed = channels.get(id);
+    const rows = channels.toArray.filter((row) => row.id !== id).map(plainChannelRow);
+    if (signal.type === "channel.updated.v1" && signal.gone) {
+      if (!listed) return true;
+    } else if (!signal.channel) {
+      return false;
+    } else if (listed) {
+      rows.push({
+        ...plainChannelRow(listed),
+        name: signal.channel.name,
+        archived: signal.channel.archived,
+      });
+    } else if (signal.type === "channel.created.v1") {
+      rows.push({
+        id,
+        name: signal.channel.name,
+        joined: false,
+        archived: signal.channel.archived,
+        muted: false,
+        unreadCount: 0,
+        hidden: false,
+        pinned: false,
+        pinSortOrder: null,
+        position: rows.length,
+      });
+    } else {
+      return known;
+    }
+    rows.sort((left, right) => compareChannelNames(left.name, right.name));
+    channels.utils.writeBatch(() => {
+      if (listed && !rows.some((row) => row.id === id)) channels.utils.writeDelete(id);
+      rows.forEach((row, position) => {
+        if (!channels.has(row.id)) channels.utils.writeInsert({ ...row, position });
+        else channels.utils.writeUpdate({ ...row, position });
+      });
+    });
+    return true;
+  };
+
+  return { channels, directs, actions, applyChannelSignal };
 }
 
 export type Sidebar = ReturnType<typeof createSidebar>;

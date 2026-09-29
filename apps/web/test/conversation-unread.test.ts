@@ -5,7 +5,7 @@ import {
   applyUnreadEvent,
   sidebarListsChangedBy,
   sidebarRefreshQueue,
-  workspaceSignalLists,
+  channelSignalOf,
   clearUnread,
   closedConversationLists,
   seedUnreadCounts,
@@ -13,7 +13,6 @@ import {
   replaceUnreadCounts,
   latestTopLevelSequence,
   persistReadCursor,
-  type ChatList,
 } from "#src/features/conversations/conversation-unread";
 import {
   decodeMessageAvailableEvent,
@@ -491,30 +490,26 @@ describe("sidebarRefreshQueue", () => {
   });
 });
 
-describe("workspaceSignalLists", () => {
+describe("channelSignalOf", () => {
   const ids = { workspaceId: "workspace-a", conversationId: "channel-z" };
 
-  test("a channel created or changed anywhere in the Workspace makes the channel list and names stale", () => {
-    // The channel list, and every channel's name that a body's channel links and the `#` list read.
-    const stale: ChatList[] = ["channels", "channelNames"];
-    expect(workspaceSignalLists({ type: "channel.created.v1", ...ids })).toEqual(stale);
-    expect(workspaceSignalLists({ type: "channel.updated.v1", ...ids })).toEqual(stale);
-    expect(
-      workspaceSignalLists(
-        new TextEncoder().encode(JSON.stringify({ type: "channel.created.v1", ...ids })),
-      ),
-    ).toEqual(stale);
+  test("a channel created or changed anywhere in the Workspace is a channel signal", () => {
+    const created = { type: "channel.created.v1" as const, ...ids };
+    const updated = { type: "channel.updated.v1" as const, ...ids, gone: true as const };
+    expect(channelSignalOf(created)).toEqual(created);
+    expect(channelSignalOf(updated)).toEqual(updated);
+    expect(channelSignalOf(new TextEncoder().encode(JSON.stringify(created)))).toEqual(created);
   });
 
-  test("anything else on the Workspace channel is not a list change", () => {
+  test("anything else on the Workspace channel is not a channel signal", () => {
     expect(
-      workspaceSignalLists({
+      channelSignalOf({
         type: "message.available.v1",
         conversationId: "channel-z",
         messageId: "m",
         sequence: 1,
       }),
     ).toBeUndefined();
-    expect(workspaceSignalLists({ type: "channel.created.v1", workspaceId: "w" })).toBeUndefined();
+    expect(channelSignalOf({ type: "channel.created.v1", workspaceId: "w" })).toBeUndefined();
   });
 });
