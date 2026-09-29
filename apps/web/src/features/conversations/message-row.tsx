@@ -506,13 +506,20 @@ export function UnreadDivider() {
   );
 }
 
-/** The date rule drawn above the first message of a day. */
+/** The date rule drawn above the first message of a day. Its text, like the message clocks, is
+ * formatted by `Intl` on the server and again in the browser, whose ICU data may differ in a detail
+ * (a narrow no-break space before AM/PM): React's documented escape hatch for such unavoidable text
+ * differences is `suppressHydrationWarning`, which keeps the server's markup instead of discarding
+ * the subtree. https://react.dev/reference/react-dom/client/hydrateRoot#suppressing-unavoidable-hydration-mismatch-errors */
 export function DayDivider({ value, locale }: { value: Date | string; locale?: string }) {
   const timeZone = useTimeZone();
   return (
     <div className="flex items-center gap-3 px-4 py-2 md:px-6">
       <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
-      <span className="shrink-0 bg-primary px-2 text-xs text-tertiary tabular-nums">
+      <span
+        className="shrink-0 bg-primary px-2 text-xs text-tertiary tabular-nums"
+        suppressHydrationWarning
+      >
         {dayLabel(value, locale, timeZone)}
       </span>
       <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
@@ -844,6 +851,7 @@ export const MessageRow = memo(function MessageRow({
           </Tooltip>
           <time
             dateTime={new Date(message.createdAt).toISOString()}
+            suppressHydrationWarning
             className="shrink-0 tabular-nums opacity-0 group-hover/message:opacity-100"
           >
             {clockLabel(message.createdAt, dateLocale, timeFormat, timeZone)}
@@ -874,6 +882,7 @@ export const MessageRow = memo(function MessageRow({
           {grouped ? (
             <time
               dateTime={new Date(message.createdAt).toISOString()}
+              suppressHydrationWarning
               className="mt-0.5 text-xs text-quaternary tabular-nums opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"
             >
               {clockLabel(message.createdAt, dateLocale, timeFormat, timeZone)}
@@ -914,6 +923,7 @@ export const MessageRow = memo(function MessageRow({
               {deleted && <DeletedAgentBadge />}
               <time
                 dateTime={new Date(message.createdAt).toISOString()}
+                suppressHydrationWarning
                 className="shrink-0 text-xs text-tertiary tabular-nums"
               >
                 {clockLabel(message.createdAt, dateLocale, timeFormat, timeZone)}
@@ -1143,6 +1153,7 @@ export const MessageRow = memo(function MessageRow({
                       </span>
                       <time
                         dateTime={new Date(message.createdAt).toISOString()}
+                        suppressHydrationWarning
                         className="shrink-0 text-xs text-tertiary tabular-nums"
                       >
                         {clockLabel(message.createdAt, dateLocale, timeFormat, timeZone)}
