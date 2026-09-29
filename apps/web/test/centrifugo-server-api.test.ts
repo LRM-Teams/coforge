@@ -228,7 +228,7 @@ test("abandons a Centrifugo call that never answers at its deadline, aborting th
   expect(signal?.aborted).toBe(true);
 });
 
-test("disconnects one user's connections with the given code through the Centrifugo v6 HTTP API", async () => {
+test("disconnects one client of a user with the given code through the Centrifugo v6 HTTP API", async () => {
   let request: Request | undefined;
   globalThis.fetch = Object.assign(
     (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
@@ -241,10 +241,52 @@ test("disconnects one user's connections with the given code through the Centrif
   await createCentrifugoServerApi({
     COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
     COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
-  }).disconnect("user-1", { code: 4000, reason: "workspace deleted" });
+  }).disconnect({
+    user: "user-1",
+    client: "client-7",
+    disconnect: { code: 4001, reason: "reconnect" },
+  });
 
   expect(await request?.json()).toEqual({
     method: "disconnect",
-    params: { user: "user-1", disconnect: { code: 4000, reason: "workspace deleted" } },
+    params: { user: "user-1", client: "client-7", disconnect: { code: 4001, reason: "reconnect" } },
   });
+});
+
+test("reads a channel's presence as the clients subscribed to it", async () => {
+  let request: Request | undefined;
+  globalThis.fetch = Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      request = new Request(input, init);
+      return Promise.resolve(
+        Response.json({
+          result: {
+            presence: {
+              "client-7": { client: "client-7", user: "user-1", conn_info: { x: 1 } },
+              "client-8": { client: "client-8", user: "user-2" },
+            },
+          },
+        }),
+      );
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  const api = createCentrifugoServerApi({
+    COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+    COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+  });
+
+  expect(await api.presence("daemon:ws-1:computer-1")).toEqual([
+    { client: "client-7", user: "user-1" },
+    { client: "client-8", user: "user-2" },
+  ]);
+  expect(await request?.json()).toEqual({
+    method: "presence",
+    params: { channel: "daemon:ws-1:computer-1" },
+  });
+
+  globalThis.fetch = Object.assign(() => Promise.resolve(Response.json({ result: {} })), {
+    preconnect: originalFetch.preconnect,
+  });
+  expect(await api.presence("daemon:ws-1:computer-2")).toEqual([]);
 });

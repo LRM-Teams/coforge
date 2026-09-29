@@ -130,9 +130,9 @@ responsibility.
 - `server/conversations/` — public channels, channel authority, stopping and resuming a channel's Agents, direct messages, history, message search, action cards, reactions, tracked @mention delivery outcomes (`mention-deliveries`), and conversation realtime.
 - `server/db/` — the Prisma client, repositories (a DM's list preferences apart from its messages; the Agent attention rule in `agent-attention`), and the shared unique-violation check.
 - `server/errors/` — public error mapping and request error handling.
-- `server/files/` — file storage, delivery, and uploaded-image validation.
-- `server/http/`, `server/install/`, `server/observability/` — public origin,
-  install scripts, tracing, and Server-Timing.
+- `server/files/` — file storage (per object, and bulk removal by keys or prefix), delivery, and uploaded-image validation.
+- `server/http/`, `server/install/`, `server/observability/` — public origin and
+  request timeouts, install scripts, tracing, and Server-Timing.
 - `server/inbox/` — the Activity inbox read model and its Done and read-all writes.
 - `server/integrations/` — GitHub connection, configuration, and webhooks.
 - `server/notifications/` — Web Push and in-page notification delivery.
@@ -143,8 +143,8 @@ responsibility.
 - `server/tasks/` — the message-backed TaskBoard, the Tasks page's overview reads, its Task view, history records, and notice wording.
 - `server/workspaces/` — Workspace catalog (name and icon), selection,
   enrollment, member roles, member directory, join links, admitting a member (one step for
-  invitations and join links), deleting a Workspace, and going out of a Workspace (leaving
-  or deleting it) to the next one.
+  invitations and join links), deleting a Workspace and removing its stored files, and going
+  out of a Workspace (leaving or deleting it) to the next one.
 - `prisma/` (app root) — schema and migrations; `messages/` — UI translations.
 
 ## A changed file ends without a blank line

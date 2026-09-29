@@ -1,5 +1,6 @@
 import {
   AGENT_START_METHOD,
+  DAEMON_RECONNECT_DISCONNECT,
   encodeAgentContextScanRequest,
   encodeDaemonRuntimeUsageScanRequest,
   type RuntimeProvider,
@@ -18,10 +19,17 @@ export type CentrifugoServerApi = {
 
 /** Centrifugo's server API for the connections themselves, not what is published on them. */
 export type CentrifugoConnections = {
-  /** Disconnects every connection of one user with the given code
+  /** The clients subscribed to a channel whose namespace keeps presence
+   * (https://centrifugal.dev/docs/server/server_api#presence). */
+  presence(channel: string): Promise<{ client: string; user: string }[]>;
+  /** Disconnects one client of a user with the given code
    * (https://centrifugal.dev/docs/server/server_api#disconnect). Whether the client reconnects is
    * the code's range: centrifuge-js stops only on 3500-3999 and 4500-4999. */
-  disconnect(user: string, disconnect: { code: number; reason: string }): Promise<void>;
+  disconnect(input: {
+    user: string;
+    client: string;
+    disconnect: { code: number; reason: string };
+  }): Promise<void>;
 };
 
 /** How long one Centrifugo server-API call may take, connect included, before it is aborted. */
@@ -54,7 +62,10 @@ export function createCentrifugoServerApi(
     if (!response.ok) throw new Error(`Centrifugo ${method} failed (${response.status})`);
     const result = (await response.json()) as {
       error?: { code?: unknown };
-      result?: { responses?: Array<{ error?: { code?: unknown } }> };
+      result?: {
+        responses?: Array<{ error?: { code?: unknown } }>;
+        presence?: Record<string, { client?: unknown; user?: unknown }>;
+      };
     };
     if (result.error)
       throw new Error(
@@ -65,6 +76,7 @@ export function createCentrifugoServerApi(
       throw new Error(
         `Centrifugo ${method} failed (${typeof failed.error?.code === "number" ? failed.error.code : "command error"})`,
       );
+    return result.result;
   }
   return {
     async publish(channel, data) {
@@ -92,8 +104,14 @@ export function createCentrifugoServerApi(
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       });
     },
-    async disconnect(user, disconnect) {
-      await call("disconnect", { user, disconnect });
+    async presence(channel) {
+      const clients = Object.values((await call("presence", { channel }))?.presence ?? {});
+      return clients.flatMap(({ client, user }) =>
+        typeof client === "string" && typeof user === "string" ? [{ client, user }] : [],
+      );
+    },
+    async disconnect({ user, client, disconnect }) {
+      await call("disconnect", { user, client, disconnect });
     },
   };
 }
@@ -101,6 +119,26 @@ export function createCentrifugoServerApi(
 /** A private control channel for one authenticated Workspace–Computer connection. */
 export const daemonControlChannel = (workspaceId: string, computerId: string) =>
   `daemon:${workspaceId}:${computerId}`;
+
+/**
+ * Makes a Computer's daemon connection for one Workspace reconnect now, so it meets whatever its
+ * connect check now answers. The connection is found by the presence of its own control channel
+ * (the `daemon` namespace keeps presence for this) and only that client is disconnected, with
+ * `DAEMON_RECONNECT_DISCONNECT`; the same person's pages and other daemons stay connected. A
+ * Computer not connected has nothing to disconnect.
+ */
+export async function reconnectDaemon(
+  api: CentrifugoConnections,
+  workspaceId: string,
+  computerId: string,
+): Promise<void> {
+  const clients = await api.presence(daemonControlChannel(workspaceId, computerId));
+  await Promise.all(
+    clients.map(({ user, client }) =>
+      api.disconnect({ user, client, disconnect: DAEMON_RECONNECT_DISCONNECT }),
+    ),
+  );
+}
 export { AGENT_START_METHOD };
 export function createUsageScan(
   api: Pick<CentrifugoServerApi, "publish">,

@@ -22,6 +22,14 @@ export const DAEMON_CONNECT_REJECTION_CODES = {
   computer_unlinked: 4502,
 } as const satisfies Record<DaemonConnectRejectionReason, number>;
 
+/**
+ * The Centrifugo custom disconnect the server sends a Daemon's live connection when it should
+ * connect again right away, so that the connect proxy answers it afresh: a Workspace just deleted
+ * then refuses it with `workspace_deleted`. It is in 4000-4499, which Centrifugo's client SDKs
+ * reconnect after.
+ */
+export const DAEMON_RECONNECT_DISCONNECT = { code: 4001, reason: "reconnect" } as const;
+
 export function isDaemonConnectRejectionReason(
   value: unknown,
 ): value is DaemonConnectRejectionReason {

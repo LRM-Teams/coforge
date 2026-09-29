@@ -15,7 +15,8 @@ constrained now.
 - Query inbox membership through the active-participant partial index.
 - Keep canonical messages long enough to satisfy read-boundary recovery and
   audit requirements. If hard deletion is required, delete reaction,
-  attachment, and message data as one explicit retention workflow.
+  attachment, and message data as one explicit retention workflow. Deleting a
+  whole Workspace is one: see [Workspace deletion](../workspace-deletion.md).
 - Treat `body_json` as versioned application data. Do not use it as a substitute
   for columns needed by relational filters or integrity rules.
 

@@ -5,8 +5,8 @@ import { isAppError } from "#src/lib/app-error";
 import { prepareDaemonApiKey } from "#src/server/auth/daemon-api-key.server";
 import { DaemonCredentialRevocations } from "#src/server/db/repositories/daemon-credential-revocation.repositories.server";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
+import { lockConversation } from "#src/server/conversations/conversation-lock.server";
 import type { ConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
-import type { FileStorage } from "#src/server/files/file-storage.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
 import {
   PrismaWorkspaceCatalogStore,
@@ -16,6 +16,7 @@ import { WorkspaceDeparture } from "#src/server/workspaces/departure.server";
 import {
   WorkspaceDeletion,
   type WorkspaceDeletionSignals,
+  type WorkspaceFileRemoval,
 } from "#src/server/workspaces/deletion.server";
 
 /**
@@ -29,10 +30,14 @@ import {
 const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
 
 async function errorOf(promise: Promise<unknown>) {
+  return (await errorIdOf(promise))?.code;
+}
+
+async function errorIdOf(promise: Promise<unknown>) {
   try {
     await promise;
   } catch (error) {
-    if (isAppError(error)) return error.code;
+    if (isAppError(error)) return { code: error.code, errorId: error.errorId };
     throw error;
   }
   return undefined;
@@ -43,34 +48,42 @@ const silentRealtime: ConversationRealtime = {
   async memberChanged() {},
 };
 
-/** Storage that records what it was asked to remove. */
-function recordingStorage() {
-  const removed: string[] = [];
-  const storage = async () =>
-    ({
-      async remove(objectKey: string) {
-        removed.push(objectKey);
-      },
-    }) as unknown as FileStorage;
-  return { removed, storage };
+/** File removal that records what it was asked, and finishes only when released: the delete
+ * must answer without waiting for it. */
+function recordingFileRemoval() {
+  const calls: { workspaceId: string; files: string[]; images: string[] }[] = [];
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  const removal: WorkspaceFileRemoval = {
+    remove(workspaceId, keys) {
+      calls.push({ workspaceId, files: [...keys.files].sort(), images: [...keys.images].sort() });
+      return released;
+    },
+  };
+  return { calls, removal, release };
 }
 
 /** Signals that record who heard of the delete. */
 function recordingSignals() {
   const deleted: string[] = [];
-  const reconnected: string[][] = [];
-  const order: string[] = [];
+  const reconnected: { workspaceId: string; computerIds: string[] }[] = [];
   const signals: WorkspaceDeletionSignals = {
     async workspaceDeleted(workspaceId) {
-      order.push("workspaceDeleted");
       deleted.push(workspaceId);
     },
-    async reconnectDaemons(userIds) {
-      order.push("reconnectDaemons");
-      reconnected.push([...userIds].sort());
+    async reconnectDaemons(workspaceId, computerIds) {
+      reconnected.push({ workspaceId, computerIds: [...computerIds] });
     },
   };
-  return { deleted, reconnected, order, signals };
+  return { deleted, reconnected, signals };
+}
+
+/** A deletion whose effects go nowhere, for tests about the rows. */
+function quietDeletion(db: PrismaClient) {
+  return new WorkspaceDeletion(db, {
+    files: recordingFileRemoval().removal,
+    signals: recordingSignals().signals,
+  });
 }
 
 /** A Workspace in use: an owner, an admin and a member who wrote in a channel, an Agent on a
@@ -304,6 +317,9 @@ async function setup() {
     admin,
     member,
     liveKeyHash: liveKey.record.apiKeyHash,
+    computerId: computer.id,
+    team,
+    memberRowId: memberRow.id,
     privateKeys: [attachmentKey, uploadKey],
     imageKeys: [workspaceIconKey, projectIconKey, agentAvatarKey],
     cleanup,
@@ -315,13 +331,12 @@ test.skipIf(!connectionString)(
   async () => {
     const fixture = await setup();
     const { db, workspace, owner } = fixture;
-    const files = recordingStorage();
-    const images = recordingStorage();
+    const files = recordingFileRemoval();
     const heard = recordingSignals();
     try {
+      // Resolves while the file removal is still running: it happens after the answer.
       await new WorkspaceDeletion(db, {
-        files: files.storage,
-        images: images.storage,
+        files: files.removal,
         signals: heard.signals,
       }).delete({ workspaceId: workspace.id, userId: owner.id, confirmSlug: workspace.slug });
 
@@ -344,13 +359,19 @@ test.skipIf(!connectionString)(
       expect(await new DaemonCredentialRevocations(db).reasonFor(fixture.liveKeyHash)).toBe(
         "workspace_deleted",
       );
-      expect(files.removed.sort()).toEqual([...fixture.privateKeys].sort());
-      expect(images.removed.sort()).toEqual([...fixture.imageKeys].sort());
+      expect(files.calls).toEqual([
+        {
+          workspaceId: workspace.id,
+          files: [...fixture.privateKeys].sort(),
+          images: [...fixture.imageKeys].sort(),
+        },
+      ]);
       expect(heard.deleted).toEqual([workspace.id]);
-      expect(heard.reconnected).toEqual([[owner.id]]);
-      // Pages hear before anyone is disconnected: a reconnected page could no longer subscribe.
-      expect(heard.order).toEqual(["workspaceDeleted", "reconnectDaemons"]);
+      expect(heard.reconnected).toEqual([
+        { workspaceId: workspace.id, computerIds: [fixture.computerId] },
+      ]);
     } finally {
+      files.release();
       await fixture.cleanup();
     }
   },
@@ -361,17 +382,16 @@ test.skipIf(!connectionString)(
   async () => {
     const fixture = await setup();
     const { db, workspace, owner, admin, member } = fixture;
-    const files = recordingStorage();
+    const files = recordingFileRemoval();
     const heard = recordingSignals();
-    const deletion = new WorkspaceDeletion(db, {
-      files: files.storage,
-      images: files.storage,
-      signals: heard.signals,
+    const deletion = new WorkspaceDeletion(db, { files: files.removal, signals: heard.signals });
+    const stranger = await db.user.create({
+      data: { username: `wd-stranger-${crypto.randomUUID().slice(0, 8)}` },
     });
     const messages = () => db.message.count({ where: { workspaceId: workspace.id } });
     const messagesBefore = await messages();
     try {
-      for (const userId of [admin.id, member.id])
+      for (const userId of [admin.id, member.id, stranger.id])
         expect(
           await errorOf(
             deletion.delete({ workspaceId: workspace.id, userId, confirmSlug: workspace.slug }),
@@ -389,24 +409,50 @@ test.skipIf(!connectionString)(
           ),
         ).toBe("INVALID_INPUT");
 
-      // Workspace memory still holding cleanup of its own keeps the Workspace until that is done.
-      await db.workspaceMemoryCleanupWork.create({
-        data: {
-          workspaceId: workspace.id,
-          operationId: "del-1",
-          target: "openviking_account",
-          state: "pending",
-        },
-      });
+      // A Workspace that is gone already (deleted from another tab) is not found.
       expect(
         await errorOf(
+          deletion.delete({
+            workspaceId: crypto.randomUUID(),
+            userId: owner.id,
+            confirmSlug: workspace.slug,
+          }),
+        ),
+      ).toBe("NOT_FOUND");
+
+      const ownerDeletes = () =>
+        errorIdOf(
           deletion.delete({
             workspaceId: workspace.id,
             userId: owner.id,
             confirmSlug: workspace.slug,
           }),
-        ),
-      ).toBe("CONFLICT");
+        );
+      // Workspace memory still cleaning up after itself keeps the Workspace until that is done.
+      await db.workspaceMemoryCleanupWork.create({
+        data: {
+          workspaceId: workspace.id,
+          operationId: "del-1",
+          target: "openviking_account",
+          state: "retryable_failure",
+        },
+      });
+      expect(await ownerDeletes()).toEqual({
+        code: "CONFLICT",
+        errorId: "workspace-memory-cleanup-pending",
+      });
+      await db.workspaceMemoryCleanupWork.deleteMany({ where: { workspaceId: workspace.id } });
+      // Memory still bound to OpenViking keeps it until an operator removes the binding.
+      await db.openVikingBinding.create({
+        data: {
+          workspaceId: workspace.id,
+          accountId: `acct-${workspace.id}`,
+          serviceIdentityId: "svc",
+          credentialRef: "secret:ov",
+          generation: 1,
+        },
+      });
+      expect(await ownerDeletes()).toEqual({ code: "CONFLICT", errorId: "workspace-memory-bound" });
 
       expect(await db.workspace.findUnique({ where: { id: workspace.id } })).not.toBeNull();
       expect(await messages()).toBe(messagesBefore);
@@ -414,24 +460,22 @@ test.skipIf(!connectionString)(
       expect(
         await new DaemonCredentialRevocations(db).reasonFor(fixture.liveKeyHash),
       ).toBeUndefined();
-      expect(files.removed).toEqual([]);
+      expect(files.calls).toEqual([]);
       expect(heard.deleted).toEqual([]);
       expect(heard.reconnected).toEqual([]);
     } finally {
-      await db.workspaceMemoryCleanupWork.deleteMany({ where: { workspaceId: workspace.id } });
+      await db.openVikingBinding.deleteMany({ where: { workspaceId: workspace.id } });
+      await db.user.delete({ where: { id: stranger.id } });
       await fixture.cleanup();
     }
   },
 );
 
 test.skipIf(!connectionString)(
-  "the delete stands when file storage and the realtime signals fail after it",
+  "the delete stands when file removal and the realtime signals fail after it",
   async () => {
     const fixture = await setup();
     const { db, workspace, owner } = fixture;
-    const unreachable = async (): Promise<FileStorage> => {
-      throw new Error("storage unreachable");
-    };
     const failing: WorkspaceDeletionSignals = {
       async workspaceDeleted() {
         throw new Error("Centrifugo down");
@@ -442,13 +486,7 @@ test.skipIf(!connectionString)(
     };
     try {
       await new WorkspaceDeletion(db, {
-        files: unreachable,
-        images: async () =>
-          ({
-            async remove() {
-              throw new Error("bucket refused");
-            },
-          }) as unknown as FileStorage,
+        files: { remove: () => Promise.reject(new Error("bucket refused")) },
         signals: failing,
       }).delete({ workspaceId: workspace.id, userId: owner.id, confirmSlug: workspace.slug });
 
@@ -487,17 +525,14 @@ test.skipIf(!connectionString)(
         },
       },
     );
-    const deletion = new WorkspaceDeletion(db, {
-      files: recordingStorage().storage,
-      images: recordingStorage().storage,
-      signals: recordingSignals().signals,
-    });
-    // Deleting the way the Delete Workspace server function does: delete, then go where
-    // `departure` says.
-    const deleteAndGo = async (target: { id: string; slug: string }) => {
-      await deletion.delete({ workspaceId: target.id, userId: owner.id, confirmSlug: target.slug });
-      return departure.next(owner.id);
-    };
+    const deletion = quietDeletion(db);
+    // The Delete Workspace server function's own call.
+    const deleteAndGo = (target: { id: string; slug: string }) =>
+      departure.delete(deletion, {
+        workspaceId: target.id,
+        userId: owner.id,
+        confirmSlug: target.slug,
+      });
     try {
       expect(await deleteAndGo(workspace)).toEqual({ nextWorkspaceSlug: other.slug });
       expect(remembered.slug).toBe(other.slug);
@@ -521,19 +556,19 @@ test.skipIf(!connectionString)(
   async () => {
     const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: connectionString! }) });
     try {
-      // `Restrict` (r) and `NO ACTION` (a) keys from a Workspace-scoped table to the Workspace or
-      // to another Workspace-scoped table: each would fail the Workspace's cascade unless handled.
+      // `Restrict` (r) and `NO ACTION` (a) keys naming any table the Workspace's cascade reaches,
+      // whether or not the naming table has a Workspace column: each would fail the cascade
+      // unless handled.
       const rows = await db.$queryRaw<{ name: string }[]>`
+        WITH RECURSIVE cascaded(rel) AS (
+          SELECT 'workspaces'::regclass::oid
+          UNION
+          SELECT c.conrelid FROM pg_constraint c JOIN cascaded ON c.confrelid = cascaded.rel
+          WHERE c.contype = 'f' AND c.confdeltype = 'c'
+        )
         SELECT c.conname AS name FROM pg_constraint c
         WHERE c.contype = 'f' AND c.confdeltype IN ('r', 'a')
-          AND (c.confrelid = 'workspaces'::regclass OR EXISTS (
-            SELECT 1 FROM information_schema.columns col WHERE col.table_schema = 'public'
-              AND col.table_name = c.confrelid::regclass::text
-              AND col.column_name IN ('workspaceId', 'workspace_id')))
-          AND EXISTS (
-            SELECT 1 FROM information_schema.columns col WHERE col.table_schema = 'public'
-              AND col.table_name = c.conrelid::regclass::text
-              AND col.column_name IN ('workspaceId', 'workspace_id'))
+          AND c.confrelid IN (SELECT rel FROM cascaded)
         ORDER BY 1`;
       // A new one here needs its rows deleted before the Workspace in `WorkspaceDeletion`
       // (and a row in the first test's fixture), then its name added below.
@@ -548,11 +583,137 @@ test.skipIf(!connectionString)(
         "messages_senderMemberId_conversationId_workspaceId_fkey",
         "tasks_creatorMemberId_conversationId_workspaceId_fkey",
         "tasks_ownerMemberId_conversationId_workspaceId_fkey",
-        // Refused with CONFLICT: only Workspace memory's own cleanup removes these.
+        // Settled rows are deleted first; any other refuses the delete with CONFLICT.
         "workspace_memory_cleanup_work_workspace_id_fkey",
       ]);
     } finally {
       await db.$disconnect();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a Task written in a channel while the Workspace is deleted lands first, and the delete still completes",
+  async () => {
+    const fixture = await setup();
+    const { db, workspace, owner, team, memberRowId } = fixture;
+    // The writer has its own connection, as a concurrent request would.
+    const writerDb = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: connectionString! }),
+    });
+    const deleter = quietDeletion(db);
+    try {
+      let deleting: Promise<void> | undefined;
+      // The Task write the way TaskBoard does it: the conversation's lock first, then the rows.
+      await writerDb.$transaction(async (tx) => {
+        await lockConversation(tx, team.id);
+        const message = await tx.message.create({
+          data: {
+            workspaceId: workspace.id,
+            conversationId: team.id,
+            senderMemberId: memberRowId,
+            sequence: 100,
+            body: "a task written during the delete",
+          },
+        });
+        deleting = deleter.delete({
+          workspaceId: workspace.id,
+          userId: owner.id,
+          confirmSlug: workspace.slug,
+        });
+        await waitForLockWait(db);
+        // The Task's key on the Workspace row: a delete holding that row would deadlock here.
+        await tx.task.create({
+          data: {
+            messageId: message.id,
+            conversationId: team.id,
+            workspaceId: workspace.id,
+            number: 100,
+            title: "raced",
+            creatorMemberId: memberRowId,
+          },
+        });
+      });
+      await deleting;
+      expect(await db.workspace.findUnique({ where: { id: workspace.id } })).toBeNull();
+      expect(await db.task.count({ where: { workspaceId: workspace.id } })).toBe(0);
+    } finally {
+      await writerDb.$disconnect();
+      await fixture.cleanup();
+    }
+  },
+);
+
+/** Resolves once some other session is waiting on a row lock: the delete has reached a lock the
+ * writer holds. Fails after five seconds. */
+async function waitForLockWait(db: PrismaClient) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const [row] = await db.$queryRaw<{ waiting: bigint }[]>`
+      SELECT count(*) AS waiting FROM pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+    if (row && row.waiting > 0n) return;
+    await Bun.sleep(20);
+  }
+  throw new Error("the delete never waited on the writer's lock");
+}
+
+test.skipIf(!connectionString)(
+  "cleanup Workspace memory finished for good does not keep the Workspace",
+  async () => {
+    const fixture = await setup();
+    const { db, workspace, owner } = fixture;
+    try {
+      await db.workspaceMemoryCleanupWork.create({
+        data: {
+          workspaceId: workspace.id,
+          operationId: "del-1",
+          target: "openviking_binding",
+          state: "settled",
+        },
+      });
+      await quietDeletion(db).delete({
+        workspaceId: workspace.id,
+        userId: owner.id,
+        confirmSlug: workspace.slug,
+      });
+      expect(await db.workspace.findUnique({ where: { id: workspace.id } })).toBeNull();
+      expect(
+        await db.workspaceMemoryCleanupWork.count({ where: { workspaceId: workspace.id } }),
+      ).toBe(0);
+    } finally {
+      await fixture.cleanup();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a write that holds the Workspace row before its conversation deadlocks with the delete, which tries again and completes",
+  async () => {
+    const fixture = await setup();
+    const { db, workspace, owner, team } = fixture;
+    const writerDb = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: connectionString! }),
+    });
+    try {
+      let deleting: Promise<void> | undefined;
+      // The opposite order: a row naming the Workspace first (its key's share lock on the
+      // Workspace row), then the conversation. PostgreSQL aborts the delete, which waited first.
+      await writerDb.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "workspaces" WHERE "id" = ${workspace.id}::uuid FOR KEY SHARE`;
+        deleting = quietDeletion(db).delete({
+          workspaceId: workspace.id,
+          userId: owner.id,
+          confirmSlug: workspace.slug,
+        });
+        await waitForLockWait(db);
+        await lockConversation(tx, team.id);
+      });
+      await deleting;
+      expect(await db.workspace.findUnique({ where: { id: workspace.id } })).toBeNull();
+    } finally {
+      await writerDb.$disconnect();
+      await fixture.cleanup();
     }
   },
 );
