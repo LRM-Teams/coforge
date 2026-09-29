@@ -127,17 +127,17 @@ describe("conversation realtime", () => {
     ).toThrow();
   });
 
-  test("carries the sender's request id so the sender's browser can match its pending message", () => {
+  test("carries the sender's idempotency key so the sender's browser can match its pending message", () => {
     const event = {
       type: "message.available.v1" as const,
       conversationId: "conversation-a",
       messageId: "message-a",
       sequence: 12,
-      requestId: "5f0c1d2e-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+      idempotencyKey: "5f0c1d2e-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
     };
     expect(decodeMessageAvailableEvent(event)).toEqual(event);
-    expect(() => decodeMessageAvailableEvent({ ...event, requestId: "" })).toThrow();
-    expect(() => decodeMessageAvailableEvent({ ...event, requestId: 7 })).toThrow();
+    expect(() => decodeMessageAvailableEvent({ ...event, idempotencyKey: "" })).toThrow();
+    expect(() => decodeMessageAvailableEvent({ ...event, idempotencyKey: 7 })).toThrow();
   });
 
   test("decodes only the versioned notification-available contract, carrying no message text", () => {

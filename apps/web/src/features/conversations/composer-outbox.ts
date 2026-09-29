@@ -7,7 +7,7 @@
  * server accepts it: it runs each chat's sends one at a time in submit order (the server numbers
  * messages in arrival order, so back-to-back messages must not swap places), keeps a failed one
  * as unsent with the reason, and keeps both on this device so neither leaving the chat nor
- * reloading the page loses a message. A retry reuses the request id, which the server treats as
+ * reloading the page loses a message. A retry reuses the idempotency key, which the server treats as
  * the same send, so a message the server did accept is never posted twice.
  */
 import { isAppError } from "#src/lib/app-error";
@@ -20,7 +20,7 @@ export type OutgoingMessage = {
   /** The chat (and thread) it was sent from; see `composerDraftKey`. */
   draftKey: string;
   body: string;
-  requestId: string;
+  idempotencyKey: string;
   asTask: boolean;
   attachments: OutgoingAttachment[];
 };
@@ -45,7 +45,7 @@ export type UnsentReason =
 
 /**
  * - `sending`: on its way, shown greyed in the conversation;
- * - `delivered`: the server has it as `messageId` (its realtime signal carried this request id),
+ * - `delivered`: the server has it as `messageId` (its realtime signal carried this idempotency key),
  *   and the entry only waits for that message to appear in the loaded conversation;
  * - `unsent`: the send failed, for `reason`.
  */
@@ -119,15 +119,15 @@ export type ComposerOutbox = {
     transport: (message: OutgoingMessage) => Promise<T>,
     deliveredMessageId?: (result: T) => string | undefined,
   ): Promise<T | undefined>;
-  /** Sends an unsent message again under its original request id. */
+  /** Sends an unsent message again under its original idempotency key. */
   retry<T>(
     localId: string,
     transport: (message: OutgoingMessage) => Promise<T>,
     deliveredMessageId?: (result: T) => string | undefined,
   ): Promise<T | undefined>;
-  /** The server stored the send with this request id as `messageId`: whatever this attempt's own
-   * response says, the message exists. A request id this page never sent is ignored. */
-  acknowledge(requestId: string, messageId: string): void;
+  /** The server stored the send with this idempotency key as `messageId`: whatever this attempt's own
+   * response says, the message exists. An idempotency key this page never sent is ignored. */
+  acknowledge(idempotencyKey: string, messageId: string): void;
   /** Forgets a message: delivered and now shown for real, deleted by the reader, or taken back to
    * edit. */
   discard(localId: string): void;
@@ -153,7 +153,7 @@ function parseStored(raw: string | null): StoredEntry | undefined {
       typeof entry?.localId !== "string" ||
       typeof entry.draftKey !== "string" ||
       typeof entry.body !== "string" ||
-      typeof entry.requestId !== "string" ||
+      typeof entry.idempotencyKey !== "string" ||
       !Array.isArray(entry.attachments)
     )
       return undefined;
@@ -180,7 +180,11 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
     }
     for (const key of keys) {
       const found = parseStored(storage?.getItem(key) ?? null);
-      if (!found) continue;
+      // One this page cannot read (an earlier shape) can never be sent or shown again.
+      if (!found) {
+        storage?.removeItem(key);
+        continue;
+      }
       const { entry } = found;
       // Delivered: the conversation's history already has it.
       if (entry.state === "delivered") {
@@ -236,7 +240,7 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
       localId: entry.localId,
       draftKey: entry.draftKey,
       body: entry.body,
-      requestId: entry.requestId,
+      idempotencyKey: entry.idempotencyKey,
       asTask: entry.asTask,
       attachments: entry.attachments,
     };
@@ -297,9 +301,10 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
       if (!value || value.entry.state !== "unsent") return Promise.resolve(undefined);
       return dispatch(value, transport, deliveredMessageId);
     },
-    acknowledge(requestId, messageId) {
+    acknowledge(idempotencyKey, messageId) {
       for (const value of stored.values()) {
-        if (value.entry.requestId !== requestId || value.entry.state === "delivered") continue;
+        if (value.entry.idempotencyKey !== idempotencyKey || value.entry.state === "delivered")
+          continue;
         const { localId, draftKey, body, asTask, attachments } = value.entry;
         save({
           ...value,
@@ -307,7 +312,7 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
             localId,
             draftKey,
             body,
-            requestId,
+            idempotencyKey,
             asTask,
             attachments,
             state: "delivered",

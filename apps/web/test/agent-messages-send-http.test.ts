@@ -673,7 +673,7 @@ describe("reconcileOnly: whether an idempotency key already committed, without s
         workspaceId: "workspace-1",
         senderKind: "agent",
         senderId: "agent-1",
-        requestId: "idem-lost",
+        idempotencyKey: "idem-lost",
       },
     ]);
     expect(sent).toEqual([]);
@@ -870,7 +870,7 @@ test("a replay of a key that already committed is answered from its record, what
       workspaceId: "workspace-1",
       senderKind: "agent",
       senderId: "agent-1",
-      requestId: "idem-committed",
+      idempotencyKey: "idem-committed",
     },
   ]);
 });

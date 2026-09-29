@@ -19,14 +19,14 @@ export function CreateTaskDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (titles: string[], requestId: string) => Promise<void>;
+  onCreate: (titles: string[], idempotencyKey: string) => Promise<void>;
 }) {
   const [rows, setRows] = useState(newRows);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
-  // A retry of the same titles reuses its request id, so a create that did land is not repeated.
-  const submission = useRef<{ key: string; requestId: string } | undefined>(undefined);
+  // A retry of the same titles reuses its idempotency key, so a create that did land is not repeated.
+  const submission = useRef<{ key: string; idempotencyKey: string } | undefined>(undefined);
   const count = rows.length;
 
   function setRow(id: string, title: string) {
@@ -46,13 +46,13 @@ export function CreateTaskDialog({
     const request =
       submission.current?.key === key
         ? submission.current
-        : { key, requestId: crypto.randomUUID() };
+        : { key, idempotencyKey: crypto.randomUUID() };
     submission.current = request;
     busy.current = true;
     setSaving(true);
     setError("");
     try {
-      await onCreate(titles, request.requestId);
+      await onCreate(titles, request.idempotencyKey);
       submission.current = undefined;
       setRows(newRows());
       onOpenChange(false);

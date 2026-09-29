@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("subscribeToConversationRealtime", () => {
-  test("hands the sender's request id to the page along with the message it became", () => {
+  test("hands the sender's idempotency key to the page along with the message it became", () => {
     const { client, publish } = fakeClient();
     const sent: [string, string][] = [];
     let reconciled = 0;
@@ -56,7 +56,7 @@ describe("subscribeToConversationRealtime", () => {
       reconcile: () => {
         reconciled += 1;
       },
-      onSentMessage: (requestId, messageId) => sent.push([requestId, messageId]),
+      onSentMessage: (idempotencyKey, messageId) => sent.push([idempotencyKey, messageId]),
     });
 
     publish({
@@ -64,7 +64,7 @@ describe("subscribeToConversationRealtime", () => {
       conversationId: "conversation-a",
       messageId: "message-a",
       sequence: 3,
-      requestId: "request-a",
+      idempotencyKey: "request-a",
     });
     publish({
       type: "message.available.v1",

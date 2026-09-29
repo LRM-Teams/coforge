@@ -433,7 +433,7 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
   .validator(
     channelInput.extend({
-      requestId: z.uuid(),
+      idempotencyKey: z.uuid(),
       body: z.string().trim().min(1).max(8_000),
       attachmentIds: attachmentIdsSchema,
       threadRootId: z.uuid().optional(),

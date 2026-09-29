@@ -41,7 +41,7 @@ export class SendDirectMessage {
   ) {}
 
   async execute(input: {
-    requestId: string;
+    idempotencyKey: string;
     workspaceId: string;
     conversationId: string;
     senderMemberId: string;
@@ -50,13 +50,13 @@ export class SendDirectMessage {
     attachmentIds?: string[];
     threadRootId?: string;
   }) {
-    if (!input.requestId || !input.body) throw new Error("invalid direct message");
+    if (!input.idempotencyKey || !input.body) throw new Error("invalid direct message");
     const message = await this.idempotency.execute(
       {
         workspaceId: input.workspaceId,
         senderKind: "user",
         senderId: input.senderUserId,
-        requestId: input.requestId,
+        idempotencyKey: input.idempotencyKey,
       },
       () =>
         this.conversations.sendMessage(
@@ -71,9 +71,9 @@ export class SendDirectMessage {
     // The sender's own message never bumps their own badge (the server's count excludes
     // self-authored messages), so a human-authored DM fans out to the conversation channel
     // only: the human is the only badge owner for this DM.
-    await this.publishBrowserEvent(message, input.conversationId, {}, input.requestId);
+    await this.publishBrowserEvent(message, input.conversationId, {}, input.idempotencyKey);
     if (!message.agentId) throw new Error("message is not an Agent direct message");
-    await this.publishUserMessageToAgent(input.requestId, input.conversationId, {
+    await this.publishUserMessageToAgent(input.idempotencyKey, input.conversationId, {
       ...message,
       agentId: message.agentId,
     });
@@ -81,7 +81,7 @@ export class SendDirectMessage {
   }
 
   async executeFromAgent(input: {
-    requestId: string;
+    idempotencyKey: string;
     workspaceId: string;
     agentId: string;
     target: string;
@@ -90,7 +90,7 @@ export class SendDirectMessage {
     mentions?: readonly { type: "user" | "agent"; id: string; name: string }[];
   }) {
     if (
-      !input.requestId ||
+      !input.idempotencyKey ||
       !input.body ||
       (!input.target.startsWith("@") && !isChannelMessageTarget(input.target))
     )
@@ -116,7 +116,7 @@ export class SendDirectMessage {
         workspaceId: input.workspaceId,
         senderKind: "agent",
         senderId: input.agentId,
-        requestId: input.requestId,
+        idempotencyKey: input.idempotencyKey,
       },
       async () => {
         const persisted = await this.conversations.sendAgentMessage?.(
@@ -141,7 +141,7 @@ export class SendDirectMessage {
         : { userId: dmUserId!, agentId: input.agentId },
     );
     await this.notifications?.notifyMessage(message.id);
-    await this.publishAgentMentionDeliveries(input.requestId, conversation.id, message);
+    await this.publishAgentMentionDeliveries(input.idempotencyKey, conversation.id, message);
     // What the message did not reach, read from the stored message so a replay reports the same.
     const report = (await this.conversations.agentMentionReport?.(
       input.workspaceId,
@@ -157,7 +157,7 @@ export class SendDirectMessage {
    * publish failure must not reject a send the database already accepted.
    */
   private async publishAgentMentionDeliveries(
-    requestId: string,
+    idempotencyKey: string,
     conversationId: string,
     message: {
       id: string;
@@ -174,7 +174,7 @@ export class SendDirectMessage {
       message.workspaceId,
       message.deliveries.map((delivery) => ({
         computerId: delivery.computerId,
-        requestId,
+        requestId: idempotencyKey,
         conversationId,
         agentId: delivery.agentId,
         messageId: message.id,
@@ -196,7 +196,7 @@ export class SendDirectMessage {
     conversationId: string,
     scope: { workspaceId?: string; userId?: string; agentId?: string },
     /** A person's send only: lets the sender's page match its pending copy. */
-    requestId?: string,
+    idempotencyKey?: string,
   ) {
     if (!this.realtime) return;
     try {
@@ -208,7 +208,7 @@ export class SendDirectMessage {
         ...(scope.userId ? { userId: scope.userId } : {}),
         ...(scope.agentId ? { agentId: scope.agentId } : {}),
         ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),
-        ...(requestId ? { requestId } : {}),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
       });
     } catch {
       // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.
@@ -216,7 +216,7 @@ export class SendDirectMessage {
   }
 
   private async publishUserMessageToAgent(
-    requestId: string,
+    idempotencyKey: string,
     conversationId: string,
     message: Awaited<ReturnType<DirectConversationRepository["sendMessage"]>>,
   ) {
@@ -240,7 +240,7 @@ export class SendDirectMessage {
       [
         {
           computerId: message.computerId,
-          requestId,
+          requestId: idempotencyKey,
           messageId: message.id,
           deliveryId: message.deliveryId,
           sequence: message.sequence,

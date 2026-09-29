@@ -205,7 +205,7 @@ test.skipIf(!connectionString)(
     const { db, directory, channels, workspace, owner, bob, team } = await setup();
     try {
       await channels.send({
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         workspaceId: workspace.id,
         userId: bob.id,
         channelId: team.id,
@@ -271,7 +271,7 @@ test.skipIf(!connectionString)(
       ).toBe(false);
       await channels.join(workspace.id, bob.id, team.id);
       await channels.send({
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         workspaceId: workspace.id,
         userId: bob.id,
         channelId: team.id,
@@ -318,7 +318,7 @@ test.skipIf(!connectionString)(
       const withOwner = await direct.open(workspace.id, bob.id, { userId: owner.id });
       const withHelper = await direct.open(workspace.id, bob.id, { agentId: helper.id });
       await people.send({
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         workspaceId: workspace.id,
         conversationId: withOwner.conversationId,
         senderUserId: bob.id,
@@ -332,7 +332,7 @@ test.skipIf(!connectionString)(
       expect(page).toMatchObject({ kind: "people", peer: { id: bob.id } });
       expect(page.messages.map((message) => message.body)).toEqual(["see you"]);
       await people.send({
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         workspaceId: workspace.id,
         conversationId: withOwner.conversationId,
         senderUserId: owner.id,
@@ -477,7 +477,7 @@ test.skipIf(!connectionString || !redisUrl)(
             workspaceId: workspace.id,
             senderKind: "agent",
             senderId: helper.id,
-            requestId: idempotencyKey,
+            idempotencyKey: idempotencyKey,
           }),
         ).toBeUndefined();
       }

@@ -51,7 +51,7 @@ export const directConversationUpdatesInputSchema = directConversationInputSchem
   conversationUpdatesCursorSchema.shape,
 );
 export const sendConversationMessageInputSchema = directConversationInputSchema.extend({
-  requestId: uuid,
+  idempotencyKey: uuid,
   body: z.string().trim().min(1).max(8_000),
   attachmentIds: attachmentIdsSchema,
   threadRootId: uuid.optional(),

@@ -161,7 +161,7 @@ test.skipIf(!connectionString)(
           workspaceId: workspace.id,
           userId: owner.id,
           channelId,
-          requestId: crypto.randomUUID(),
+          idempotencyKey: crypto.randomUUID(),
           body: `@${helper.name} please look`,
         });
       await mention(team.id);

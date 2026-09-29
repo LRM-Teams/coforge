@@ -56,7 +56,7 @@ const scope = {
   workspaceId: "workspace-a",
   senderKind: "user" as const,
   senderId: "sender-a",
-  requestId: "request-a",
+  idempotencyKey: "request-a",
 };
 const message = {
   id: "message-a",
@@ -217,7 +217,7 @@ describe("RedisMessageRequestIdempotency", () => {
       { ...scope, workspaceId: "workspace-b" },
       { ...scope, senderKind: "agent" as const },
       { ...scope, senderId: "sender-b" },
-      { ...scope, requestId: "request-b" },
+      { ...scope, idempotencyKey: "request-b" },
     ];
 
     for (const candidate of scopes) await idempotency.execute(candidate, async () => message);

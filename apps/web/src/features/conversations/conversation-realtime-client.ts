@@ -56,7 +56,7 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
     /** A message the viewer sent from the browser now exists: its signal names the send's request
      * id, so the page can swap its greyed pending copy for the real message (see
      * `composer-outbox.ts`). */
-    onSentMessage?: (requestId: string, messageId: string) => void;
+    onSentMessage?: (idempotencyKey: string, messageId: string) => void;
   },
 ) {
   const channel = conversationRealtimeChannel(input.conversationId);
@@ -80,7 +80,7 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
     try {
       const event = decodeMessageAvailableEvent(data);
       if (event.conversationId !== input.conversationId) return;
-      if (event.requestId) input.onSentMessage?.(event.requestId, event.messageId);
+      if (event.idempotencyKey) input.onSentMessage?.(event.idempotencyKey, event.messageId);
       requestReconciliation();
       return;
     } catch {}
@@ -135,8 +135,8 @@ export function useConversationRealtime(
       reconcile: () => void reconcileRef.current().catch(() => {}),
       onMemberChanged: (stale) => memberChangedRef.current?.(stale),
       onChannelUpdated: () => channelUpdatedRef.current?.(),
-      onSentMessage: (requestId, messageId) =>
-        deviceComposerOutbox().acknowledge(requestId, messageId),
+      onSentMessage: (idempotencyKey, messageId) =>
+        deviceComposerOutbox().acknowledge(idempotencyKey, messageId),
     });
   }, [client, conversationId, getToken]);
 }

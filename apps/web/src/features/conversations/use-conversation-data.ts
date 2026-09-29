@@ -73,12 +73,12 @@ export function useChannelConversation(channelId: string) {
       },
       onSend: async (
         body: string,
-        requestId: string,
+        idempotencyKey: string,
         attachmentIds?: string[],
         threadRootId?: string,
       ) => {
         const message = await send({
-          data: { channelId, requestId, body, attachmentIds, threadRootId },
+          data: { channelId, idempotencyKey, body, attachmentIds, threadRootId },
         });
         page.mergeUpdates([message]);
         if (threadRootId) page.setThreadFollowed(threadRootId, true);
@@ -152,12 +152,12 @@ export function useDirectConversation(conversationId: string) {
       },
       onSend: async (
         body: string,
-        requestId: string,
+        idempotencyKey: string,
         attachmentIds?: string[],
         threadRootId?: string,
       ) => {
         const message = await send({
-          data: { conversationId, requestId, body, attachmentIds, threadRootId },
+          data: { conversationId, idempotencyKey, body, attachmentIds, threadRootId },
         });
         page.mergeUpdates([message]);
         void page.reconciliation.reconcile().catch(() => {});

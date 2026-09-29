@@ -151,7 +151,7 @@ export class RedisMessageRequestIdempotency
 
   private key(scope: MessageRequestScope) {
     const segment = (value: string) => encodeURIComponent(value);
-    return `coforge:message-request:v1:${segment(scope.workspaceId)}:${scope.senderKind}:${segment(scope.senderId)}:${segment(scope.requestId)}`;
+    return `coforge:message-request:v1:${segment(scope.workspaceId)}:${scope.senderKind}:${segment(scope.senderId)}:${segment(scope.idempotencyKey)}`;
   }
 }
 

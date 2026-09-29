@@ -66,13 +66,13 @@ Daemon 通过自身唯一的云端 WebSocket 接收消息，并在本地按 `age
 
 ### MVP 请求幂等
 
-浏览器首次发送时生成 UUID `request_id`；失败后正文未编辑的重试复用它，成功后的下一条消息或编辑后的失败草稿生成新的 `request_id`。Agent 经 HTTPS 发送时，这个身份叫 `idempotencyKey`，随本地草稿保存：同一次逻辑发送（包括 `--send-draft` 重发）始终用同一个 `idempotencyKey`。Backend 不代替调用方生成该身份，也不把正文、username 或 Agent 名称当作身份。
+浏览器首次发送时生成 UUID `idempotencyKey`；失败后正文未编辑的重试复用它，成功后的下一条消息或编辑后的失败草稿生成新的 `idempotencyKey`。Agent 经 HTTPS 发送时用同一个名字，`idempotencyKey` 随本地草稿保存：同一次逻辑发送（包括 `--send-draft` 重发）始终用同一个 `idempotencyKey`。Backend 不代替调用方生成该身份，也不把正文、username 或 Agent 名称当作身份。
 
 Agent 发送结果不明（连接在收到响应前失败，或服务端返回 5xx）时，Daemon 不盲目重试，而是用同一个 `idempotencyKey` 发一次 `reconcileOnly` 请求：它只读 Redis 幂等记录，不做新鲜度检查，也不发送。`committed` 带回 `messageId`，视为发送成功（没有送达回执）；`not_found` 说明该身份下没有提交，Daemon 以同一身份重放原请求一次；仍在 processing 返回 409，与并发重复请求相同，Daemon 按"无法确认"处理。
 
-Web/backend 使用现有 Redis，以 `(workspace_id, sender_kind, sender_stable_id, request_id)` 为 scope。User 与 Agent sender kind 明确分离。首次请求通过 Redis `SET NX EX` 原子取得短 processing claim；并发重复请求得到明确的可重试 processing 错误。claim owner 才能通过 Lua 原子完成或释放 claim，持久化失败会释放当前 owner 的 claim。PostgreSQL Message 持久化成功后，可序列化结果（包括可恢复为 `Date` 的创建时间）在 Redis 保留 24 小时。
+Web/backend 使用现有 Redis，以 `(workspace_id, sender_kind, sender_stable_id, idempotency_key)` 为 scope。User 与 Agent sender kind 明确分离。首次请求通过 Redis `SET NX EX` 原子取得短 processing claim；并发重复请求得到明确的可重试 processing 错误。claim owner 才能通过 Lua 原子完成或释放 claim，持久化失败会释放当前 owner 的 claim。PostgreSQL Message 持久化成功后，可序列化结果（包括可恢复为 `Date` 的创建时间）在 Redis 保留 24 小时。
 
-PostgreSQL Message 始终是 canonical 数据，Redis 只做 24 小时短期防重复，不承担历史、replay 或永久唯一约束。User→Agent publication 位于幂等持久化之外：publication 失败后以相同 `request_id` 重试会读回同一 Message 并重新发布同一 delivery，而不会再次持久化。
+PostgreSQL Message 始终是 canonical 数据，Redis 只做 24 小时短期防重复，不承担历史、replay 或永久唯一约束。User→Agent publication 位于幂等持久化之外：publication 失败后以相同 `idempotencyKey` 重试会读回同一 Message 并重新发布同一 delivery，而不会再次持久化。
 
 这个 MVP 存在已接受的 Redis/PostgreSQL 双写崩溃窗口：PostgreSQL commit 成功而 Redis 结果尚未写入时，claim 过期后的相同请求可能再次创建 Message。当前实现不声称消除该窗口；关闭窗口需要未来的 PostgreSQL schema/事务性唯一约束决策。
 

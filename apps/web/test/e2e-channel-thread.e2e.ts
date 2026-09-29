@@ -408,7 +408,7 @@ function send(
     workspaceId,
     userId,
     channelId,
-    requestId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
     body,
     threadRootId,
   });

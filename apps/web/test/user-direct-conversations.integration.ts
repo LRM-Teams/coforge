@@ -99,7 +99,7 @@ test("a member's message is stored with its attachments and reaches no Agent", a
     },
   });
   const first = await conversations.send({
-    requestId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
     workspaceId: workspace.id,
     conversationId,
     senderUserId: ada.id,
@@ -107,7 +107,7 @@ test("a member's message is stored with its attachments and reaches no Agent", a
     attachmentIds: [attachment.id],
   });
   const reply = await conversations.send({
-    requestId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
     workspaceId: workspace.id,
     conversationId,
     senderUserId: grace.id,
@@ -136,7 +136,7 @@ test("only the conversation's own members can send in it", async () => {
   const { conversationId } = await conversations.open(workspace.id, ada.id, ada.id);
   await expect(
     conversations.send({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       conversationId,
       senderUserId: grace.id,
@@ -150,7 +150,7 @@ test("a send is announced to the other member once, and a retried request stores
   const persisted = new Map<string, Awaited<ReturnType<MessageRequestIdempotency["execute"]>>>();
   const idempotency: MessageRequestIdempotency = {
     execute: async (scope, persist) => {
-      const key = `${scope.senderKind}:${scope.senderId}:${scope.requestId}`;
+      const key = `${scope.senderKind}:${scope.senderId}:${scope.idempotencyKey}`;
       if (!persisted.has(key)) persisted.set(key, await persist());
       return persisted.get(key)!;
     },
@@ -161,7 +161,7 @@ test("a send is announced to the other member once, and a retried request stores
   const { conversationId } = await conversations.open(workspace.id, grace.id, ada.id);
   const send = () =>
     conversations.send({
-      requestId: "request-1",
+      idempotencyKey: "request-1",
       workspaceId: workspace.id,
       conversationId,
       senderUserId: grace.id,
@@ -175,7 +175,7 @@ test("a send is announced to the other member once, and a retried request stores
     conversationId,
     messageId: first.id,
     sequence: first.sequence,
-    requestId: "request-1",
+    idempotencyKey: "request-1",
   });
   // Only the other member's list hears of it: a sender's own message never bumps their badge.
   expect(announced[0]?.directUserIds).toEqual([ada.id]);
@@ -232,7 +232,7 @@ test("a member whose row is missing gets it back by opening the conversation", a
   await db.conversationMember.deleteMany({ where: { conversationId, userId: carol.id } });
   expect(await conversations.open(workspace.id, carol.id, ada.id)).toEqual({ conversationId });
   const sent = await conversations.send({
-    requestId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
     workspaceId: workspace.id,
     conversationId,
     senderUserId: carol.id,

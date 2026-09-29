@@ -2040,12 +2040,12 @@ export class PublicChannels {
     workspaceId: string;
     userId: string;
     channelId: string;
-    requestId: string;
+    idempotencyKey: string;
     body: string;
     attachmentIds?: string[];
     threadRootId?: string;
   }) {
-    const { workspaceId, userId, channelId, requestId, attachmentIds, threadRootId } = input;
+    const { workspaceId, userId, channelId, idempotencyKey, attachmentIds, threadRootId } = input;
     const channel = await this.channel(workspaceId, userId, channelId);
     if (channel.archivedAt) throw new AppError("CONFLICT");
     const member = await this.db.conversationMember.findFirst({
@@ -2056,7 +2056,7 @@ export class PublicChannels {
     if (!body || body.length > 8_000) throw new AppError("INVALID_INPUT");
     let created = false;
     const saved = await (this.idempotency ?? getMessageRequestIdempotency()).execute(
-      { workspaceId, senderKind: "user", senderId: userId, requestId },
+      { workspaceId, senderKind: "user", senderId: userId, idempotencyKey },
       () =>
         this.db.$transaction(async (tx) => {
           await lockConversation(tx, channelId);
@@ -2246,7 +2246,7 @@ export class PublicChannels {
           sequence: message.sequence,
           workspaceId,
           threadRootId: message.threadRootId ?? undefined,
-          requestId,
+          idempotencyKey,
           // Only a person sends here; an Agent's channel message goes through `SendDirectMessage`.
           senderUserId: userId,
         });
@@ -2267,7 +2267,7 @@ export class PublicChannels {
       workspaceId,
       message.deliveries.map((delivery) => ({
         computerId: delivery.agent.computerId,
-        requestId,
+        requestId: idempotencyKey,
         conversationId: channelId,
         agentId: delivery.agentId,
         messageId: message.id,

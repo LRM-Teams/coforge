@@ -64,7 +64,7 @@ test("events drain returns unread rows in canonical order, advances read boundar
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "channel message",
     });
     const channelTarget = "#general";
@@ -137,7 +137,7 @@ test("events drain returns unread rows in canonical order, advances read boundar
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "channel message 2",
     });
     const dmTarget2 = dmTarget;
@@ -236,7 +236,7 @@ test("events drain and recovery keep the unread rule across channels, direct mes
         workspaceId: workspace.id,
         userId: user.id,
         channelId: general.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body,
         ...(threadRootId ? { threadRootId } : {}),
       });
@@ -519,7 +519,7 @@ test("an Agent's channel send freshness reads count only its delivered messages 
         workspaceId: workspace.id,
         userId: user.id,
         channelId: general.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body,
         ...(threadRootId ? { threadRootId } : {}),
       });

@@ -61,7 +61,7 @@ test("a channel message reaches the browser in one shape from open, updates and 
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: channel.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `hello @${bob.username}`,
     });
     const agentMessage = await db.message.create({

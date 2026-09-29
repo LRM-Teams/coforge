@@ -91,7 +91,7 @@ export type ConversationProps = {
   mentionCompletion?: boolean;
   onSend: (
     body: string,
-    requestId: string,
+    idempotencyKey: string,
     attachmentIds?: string[],
     threadRootId?: string,
   ) => Promise<OwnMessageIndexEntry | void>;
@@ -113,7 +113,7 @@ export type ConversationProps = {
    * `newest-unread` open mode, where the cursor advances only through this callback.
    */
   onReadLatest?: (throughSequence: number) => void;
-  onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
+  onCreateTask?: (title: string, idempotencyKey: string, attachmentId?: string) => Promise<void>;
   /** Toggles the viewer's own emoji reaction on a message; the route refreshes it. */
   onToggleReaction?: (messageId: string, emoji: string, active: boolean) => Promise<void>;
   onShowTasks?: () => void;

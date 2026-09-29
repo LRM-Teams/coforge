@@ -43,11 +43,11 @@ export type MessageAvailableEvent = {
   peerUserId?: string;
   /**
    * Set only for a message a person sent from the browser: the send's idempotency key
-   * (`requestId`). The sender's own page shows the message greyed the moment it is submitted and
+   * (`idempotencyKey`). The sender's own page shows the message greyed the moment it is submitted and
    * uses this to replace that pending copy with the real message, even when this signal outruns
    * the send's own response. Meaningless to anyone else, who ignores it.
    */
-  requestId?: string;
+  idempotencyKey?: string;
   /**
    * The person who wrote the message, as Slack's `message` event names its `user`; absent for an
    * Agent's or a system message, and from an older server. A person's own pages never count their
@@ -69,7 +69,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
   const threadRootId = Reflect.get(value, "threadRootId");
   const agentId = Reflect.get(value, "agentId");
   const peerUserId = Reflect.get(value, "peerUserId");
-  const requestId = Reflect.get(value, "requestId");
+  const idempotencyKey = Reflect.get(value, "idempotencyKey");
   const senderUserId = Reflect.get(value, "senderUserId");
   if (
     type !== "message.available.v1" ||
@@ -83,7 +83,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     (threadRootId !== undefined && (typeof threadRootId !== "string" || !threadRootId)) ||
     (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
     (peerUserId !== undefined && (typeof peerUserId !== "string" || !peerUserId)) ||
-    (requestId !== undefined && (typeof requestId !== "string" || !requestId)) ||
+    (idempotencyKey !== undefined && (typeof idempotencyKey !== "string" || !idempotencyKey)) ||
     (senderUserId !== undefined && (typeof senderUserId !== "string" || !senderUserId))
   )
     throw new Error("invalid conversation event");
@@ -96,7 +96,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     ...(threadRootId ? { threadRootId } : {}),
     ...(agentId ? { agentId } : {}),
     ...(peerUserId ? { peerUserId } : {}),
-    ...(requestId ? { requestId } : {}),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
     ...(senderUserId ? { senderUserId } : {}),
   };
 }

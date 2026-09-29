@@ -710,7 +710,7 @@ async function postTeamKeyPointConfirmSuggestion(
     new CentrifugoConversationRealtime(centrifugo),
   );
   await sender.executeFromAgent({
-    requestId: crypto.randomUUID(),
+    idempotencyKey: crypto.randomUUID(),
     workspaceId: input.workspaceId,
     agentId: input.agentId,
     target: `@${leader.username}`,

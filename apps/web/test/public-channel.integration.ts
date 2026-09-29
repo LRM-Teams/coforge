@@ -94,7 +94,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       sequence: number;
       workspaceId?: string;
       threadRootId?: string;
-      requestId?: string;
+      idempotencyKey?: string;
       senderUserId?: string;
     }> = [];
     const channels = new PublicChannels(
@@ -150,17 +150,17 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       "CONFLICT",
     );
     await expect(channels.create(workspace.id, alice.id, "bad:name")).rejects.toThrow();
-    const send = (userId: string, body: string, requestId = crypto.randomUUID()) =>
+    const send = (userId: string, body: string, idempotencyKey = crypto.randomUUID()) =>
       channels.send({
         workspaceId: workspace.id,
         userId,
         channelId: engineering.id,
         body,
-        requestId,
+        idempotencyKey,
       });
     await expect(send(bob.id, "not joined")).rejects.toThrow("ACCESS_DENIED");
     await expect(send(outsider.id, "not in workspace")).rejects.toThrow("ACCESS_DENIED");
-    const requestId = crypto.randomUUID();
+    const idempotencyKey = crypto.randomUUID();
     const attachment = await db.attachment.create({
       data: {
         workspaceId: workspace.id,
@@ -182,7 +182,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: engineering.id,
-      requestId,
+      idempotencyKey,
       body: "Hello Bob",
       attachmentIds: [attachment.id],
     });
@@ -193,11 +193,11 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       sequence: saved.sequence,
       workspaceId: workspace.id,
       threadRootId: undefined,
-      requestId,
+      idempotencyKey,
       // Alice's own message: her other pages do not count it unread.
       senderUserId: alice.id,
     });
-    expect((await send(alice.id, "Hello Bob", requestId)).id).toBe(saved.id);
+    expect((await send(alice.id, "Hello Bob", idempotencyKey)).id).toBe(saved.id);
     const unjoined = await channels.open(workspace.id, bob.id, engineering.id);
     expect(unjoined.messages.map((m) => m.body)).toEqual(["Hello Bob"]);
     expect(
@@ -463,7 +463,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "Ordinary conversation, no Agent requested.",
     });
     const repo = new PrismaDirectConversationRepository(db);
@@ -484,14 +484,14 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "@helper please review this. @helper",
     });
     await channels.send({
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "Email x@helper.test and @helper-other are not a mention.",
     });
     const pending = await repo.readPendingAgentDeliveries(workspace.id, agent.id);
@@ -518,7 +518,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "New ordinary conversation after unmute.",
     });
     expect(published.map((m) => m.messageId)).toEqual([mentioned.id, ordinary.id]);
@@ -624,7 +624,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "An Agent joins #general muted, so ordinary chatter there does not reach it",
     });
     expect(published.slice(start).map((m) => m.agentId)).toEqual([]);
@@ -634,7 +634,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "An unmuted channel update",
     });
     expect(published.slice(unmutedStart).map((m) => m.agentId)).toEqual([second.id]);
@@ -660,7 +660,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "Both Agents were eligible before this publish outage.",
     };
     rejectNextPublish = true;
@@ -754,7 +754,7 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "@helper please triage this.",
     });
     expect(humanMention.body).toBe(`<@agent:${helper.id}> please triage this.`);
@@ -778,7 +778,7 @@ test("a channel @mention persists as a token and wakes only the mentioned Agent,
     ).toBe("@helper please triage this.");
 
     const handoff = await agentSender.executeFromAgent({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       agentId: helper.id,
       target: "#general",
@@ -891,7 +891,7 @@ test("an Agent's channel message reaches other Agents without an @mention: unmut
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "Who takes the release notes?",
     });
     const thread = root.id.slice(0, 8);
@@ -970,7 +970,7 @@ test("a channel send reads only the members its @handles name, however large the
         workspaceId: workspace.id,
         userId: sender.id,
         channelId: general.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body,
       });
 
@@ -1177,7 +1177,7 @@ test("a channel send reports the @handles that name nobody the sender can see, a
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: triage.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `@ua${suffix} @helper @ub${suffix} @ghost @secret \`@quoted\` @ghost in #triage-${suffix} <@human:00000000-0000-4000-8000-000000000000>`,
     };
 
@@ -1252,7 +1252,7 @@ test("a channel @mention of someone outside the channel becomes the sender's pen
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: triage.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `@pc${suffix} @pb${suffix} @helper @mine \`@pb${suffix}\` @ghost @pb${suffix}`,
     };
 
@@ -1337,7 +1337,7 @@ test("an Agent's channel @mention of someone outside the channel becomes that Ag
       publish: async () => {},
     });
     const send = {
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       agentId: scout.id,
       target: `#agentsend-${suffix}`,
@@ -1407,7 +1407,7 @@ test("an Agent's channel @mention of someone outside the channel becomes that Ag
     ).toEqual([["add"], ["notify", "add"]]);
 
     const direct = await sender.executeFromAgent({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       agentId: scout.id,
       target: `@ga${suffix}`,
@@ -1466,7 +1466,7 @@ test("the sender notifies a mentioned outsider once: an Agent gets the message a
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: triage.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `@nb${suffix} and @helper, have a look`,
     };
     const sent = await channels.send(send);
@@ -1605,7 +1605,7 @@ test("the sender adds a mentioned outsider to the channel once; another member's
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: triage.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `@xb${suffix} and @helper, please look`,
     });
     const [forBob, forHelper] = sent.pendingMentionActions.map((action) => action.resolutionId);
@@ -1654,7 +1654,7 @@ test("the sender adds a mentioned outsider to the channel once; another member's
         workspaceId: workspace.id,
         userId: alice.id,
         channelId: triage.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body: `@xe${suffix} and @xf${suffix}`,
       });
       const [forDave, forFrank] = mixed.pendingMentionActions.map((action) => action.resolutionId);
@@ -1667,7 +1667,7 @@ test("the sender adds a mentioned outsider to the channel once; another member's
             workspaceId: workspace.id,
             userId: alice.id,
             channelId: triage.id,
-            requestId: crypto.randomUUID(),
+            idempotencyKey: crypto.randomUUID(),
             body: `@xe${suffix} again`,
           })
         ).pendingMentionActions,
@@ -1702,7 +1702,7 @@ test("the sender adds a mentioned outsider to the channel once; another member's
       workspaceId: workspace.id,
       userId: carol.id,
       channelId: triage.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `@xa${suffix} is here already; @helper too`,
     });
     expect(later.pendingMentionActions).toEqual([]);
@@ -1715,7 +1715,7 @@ test("the sender adds a mentioned outsider to the channel once; another member's
         workspaceId: workspace.id,
         userId: alice.id,
         channelId: triage.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body: `@xd${suffix} ping`,
       });
       const forOutsider = old.pendingMentionActions[0]!.resolutionId;
@@ -1724,7 +1724,7 @@ test("the sender adds a mentioned outsider to the channel once; another member's
         workspaceId: workspace.id,
         userId: alice.id,
         channelId: triage.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body: `@xd${suffix} once more`,
       });
       await db.conversationMember.create({
@@ -1754,7 +1754,7 @@ test("the sender adds a mentioned outsider to the channel once; another member's
         workspaceId: workspace.id,
         userId: alice.id,
         channelId: triage.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body: `@xd${suffix} last call`,
       });
       await db.conversation.update({ where: { id: triage.id }, data: { archivedAt: new Date() } });
@@ -1840,7 +1840,7 @@ test("a #channel reference is stored as a channel token on every send path, and 
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: typed,
     });
     expect(human.body).toBe(
@@ -1877,7 +1877,7 @@ test("a #channel reference is stored as a channel token on every send path, and 
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "> **Ada** 10:00:\n> @helper see #product\n\nagreed",
     });
     expect(quote.body).toBe(
@@ -1897,7 +1897,7 @@ test("a #channel reference is stored as a channel token on every send path, and 
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: `see <@channel:${forgedChannel}:evil> and <@task:9>`,
     });
     expect(forged.body).toBe(`see <@channel:${forgedChannel}:evil> and <@task:9>`);
@@ -1905,7 +1905,7 @@ test("a #channel reference is stored as a channel token on every send path, and 
 
     // An Agent channel message.
     const fromAgent = await sender.executeFromAgent({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       agentId: helper.id,
       target: "#general",
@@ -1948,7 +1948,7 @@ test("a #channel reference is stored as a channel token on every send path, and 
       workspaceId: workspace.id,
       userId: user.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: bareTyped,
     });
     expect(bare.body).toBe(
@@ -1959,7 +1959,7 @@ test("a #channel reference is stored as a channel token on every send path, and 
     );
     // The same from an Agent, and in a task's own channel only: the DM below has no such task.
     const bareFromAgent = await sender.executeFromAgent({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       agentId: helper.id,
       target: "#general",
@@ -1970,7 +1970,7 @@ test("a #channel reference is stored as a channel token on every send path, and 
     // A human DM to the Agent: stored as a token, published to the daemon as text.
     const opened = await repo.openForUser(workspace.id, user.id, helper.id);
     const dm = await sender.execute({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       conversationId: opened.conversationId,
       senderMemberId: opened.senderMemberId,
@@ -1982,7 +1982,7 @@ test("a #channel reference is stored as a channel token on every send path, and 
 
     // An Agent DM reply.
     const reply = await sender.executeFromAgent({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       agentId: helper.id,
       target: `@${user.username}`,
@@ -2177,7 +2177,7 @@ test("a #name:shortid naming a channel thread is stored as a thread token, and e
         workspaceId: workspace.id,
         userId: user.id,
         channelId,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body,
         threadRootId,
       });
@@ -2254,7 +2254,7 @@ test("a #name:shortid naming a channel thread is stored as a thread token, and e
 
     // An Agent writes one the same way, and can reply to the thread by the target it read.
     const fromAgent = await sender.executeFromAgent({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       agentId: helper.id,
       target: "#general",
@@ -2265,7 +2265,7 @@ test("a #name:shortid naming a channel thread is stored as a thread token, and e
       data: { workspaceId: workspace.id, conversationId: product.id, agentId: helper.id },
     });
     const threadReply = await sender.executeFromAgent({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       agentId: helper.id,
       target,
@@ -2278,7 +2278,7 @@ test("a #name:shortid naming a channel thread is stored as a thread token, and e
     // A DM resolves a channel thread too.
     const opened = await repo.openForUser(workspace.id, user.id, helper.id);
     const dm = await sender.execute({
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: workspace.id,
       conversationId: opened.conversationId,
       senderMemberId: opened.senderMemberId,
@@ -2357,14 +2357,14 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: foreignWorkspace.id,
       userId: alice.id,
       channelId: foreignGeneral.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "foreign root",
     });
     const root = await channels.send({
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "channel root",
     });
     await channels.setAgentMuted(workspace.id, agent.id, "#threads", true);
@@ -2372,7 +2372,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "quiet thread reply",
       threadRootId: root.id,
     });
@@ -2380,7 +2380,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "@thread-helper please inspect this thread",
       threadRootId: root.id,
     });
@@ -2394,7 +2394,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "ordinary reply reaches a follower through channel mute",
       threadRootId: root.id,
     });
@@ -2404,7 +2404,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "ordinary reply after unfollow",
       threadRootId: root.id,
     });
@@ -2413,7 +2413,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "@thread-helper please return",
       threadRootId: root.id,
     });
@@ -2421,7 +2421,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "ordinary reply after mention restored follow",
       threadRootId: root.id,
     });
@@ -2434,7 +2434,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
         workspaceId: workspace.id,
         userId: bob.id,
         channelId: general.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body: "not joined",
         threadRootId: root.id,
       }),
@@ -2444,7 +2444,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
         workspaceId: workspace.id,
         userId: alice.id,
         channelId: general.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body: "cross Workspace root",
         threadRootId: foreignRoot.id,
       }),
@@ -2454,7 +2454,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
         workspaceId: workspace.id,
         userId: alice.id,
         channelId: general.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body: "nested thread",
         threadRootId: quietReply.id,
       }),
@@ -2474,7 +2474,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "thread attachment",
       attachmentIds: [attachment.id],
       threadRootId: root.id,
@@ -2577,7 +2577,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: bob.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "Bob participates and follows",
       threadRootId: root.id,
     });
@@ -2586,7 +2586,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "ordinary human follower notification",
       threadRootId: root.id,
     });
@@ -2603,7 +2603,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "quiet after human unfollow",
       threadRootId: root.id,
     });
@@ -2617,7 +2617,7 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "agent-only root",
     });
     await repo.sendAgentMessage(
@@ -2907,7 +2907,7 @@ test("channel members add humans and Agents; a Workspace member outside the chan
       workspaceId: workspace.id,
       userId: owner.id,
       channelId: channel.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "Welcome to the roster channel",
     });
     expect(published).toContainEqual(
@@ -3510,7 +3510,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
       workspaceId: workspace.id,
       userId: plain.id,
       channelId: ops.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "before removal",
     });
 
@@ -3544,7 +3544,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
         workspaceId: workspace.id,
         userId: plain.id,
         channelId: ops.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body: "should be denied",
       }),
     ).rejects.toThrow("ACCESS_DENIED");
@@ -3570,7 +3570,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
       workspaceId: workspace.id,
       userId: plain.id,
       channelId: ops.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "after rejoining",
     });
     expect(resentMessage.senderMemberId).toBe(memberRowBefore.id);
@@ -3589,7 +3589,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
       workspaceId: workspace.id,
       userId: owner.id,
       channelId: ops.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "agent should not see this",
     });
     expect(published.some((delivery) => delivery.agentId === agent.id)).toBe(false);
@@ -3609,7 +3609,7 @@ test("channel leave and member removal: owner/admin removes a human and an Agent
       workspaceId: workspace.id,
       userId: owner.id,
       channelId: ops.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "agent is back",
     });
     expect(published.some((delivery) => delivery.agentId === agent.id)).toBe(true);
@@ -3791,7 +3791,7 @@ test("channel unread: list counts other-authored top-level messages past the cur
         userId,
         channelId: engineering.id,
         body,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         ...(threadRootId ? { threadRootId } : {}),
       });
 
@@ -3893,7 +3893,7 @@ test("channel unread: marking unread counts from the newest message someone else
         userId,
         channelId: channel.id,
         body,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
       });
     const unreadFor = async (userId: string) =>
       (await channels.list(workspace.id, userId)).find((c) => c.id === channel.id)?.unreadCount;
@@ -3935,7 +3935,7 @@ test("channel unread: marking unread counts from the newest message someone else
       userId: bob.id,
       channelId: solo.id,
       body: "only bob",
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
     });
     expect(await channels.setUserUnread(workspace.id, bob.id, solo.id, true)).toEqual({
       unread: false,
@@ -3975,7 +3975,7 @@ test("a thread's root author starts following that thread, so later replies reac
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: channel.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "root by alice",
     });
     const followed = async (userId: string) => {
@@ -3994,7 +3994,7 @@ test("a thread's root author starts following that thread, so later replies reac
       workspaceId: workspace.id,
       userId: bob.id,
       channelId: channel.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "reply by bob",
       threadRootId: root.id,
     });
@@ -4012,7 +4012,7 @@ test("a thread's root author starts following that thread, so later replies reac
       workspaceId: workspace.id,
       userId: bob.id,
       channelId: channel.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "second reply by bob",
       threadRootId: root.id,
     });
@@ -4064,7 +4064,7 @@ test("an Agent's thread reply enrolls exactly the members its stored mention row
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "root by alice",
     });
     const reply = await repo.sendAgentMessage(
@@ -4164,14 +4164,14 @@ test("a channel member can list and unfollow Agents following a thread; a privat
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "please both take this",
     });
     await channels.send({
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: general.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "@helper @scout please follow",
       threadRootId: root.id,
     });
@@ -4269,7 +4269,7 @@ test("a channel member without a browser push subscription is still a notificati
       workspaceId: workspace.id,
       userId: alice.id,
       channelId: room.id,
-      requestId: crypto.randomUUID(),
+      idempotencyKey: crypto.randomUUID(),
       body: "hello without a subscription",
     });
     const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
@@ -4325,7 +4325,7 @@ test("a mention pierces a muted member's push only through the message's stored 
         workspaceId: workspace.id,
         userId: alice.id,
         channelId: room.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body,
       });
     const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
@@ -4377,7 +4377,7 @@ test("a closed channel stays closed until someone else posts a top-level message
         userId,
         channelId: ops.id,
         body,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         ...(threadRootId ? { threadRootId } : {}),
       });
     const listed = async () =>
@@ -4746,7 +4746,7 @@ test("@-completion scores count only the viewer's own mentions in the channel, t
         workspaceId: workspace.id,
         userId,
         channelId: general.id,
-        requestId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
         body,
         threadRootId,
       });
