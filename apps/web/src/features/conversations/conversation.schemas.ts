@@ -38,9 +38,18 @@ export const ownMessageIndexInputSchema = conversationHistoryInputSchema.extend(
 export const conversationAroundInputSchema = conversationHistoryInputSchema.extend({
   messageId: uuid,
 });
-export const directConversationUpdatesInputSchema = directConversationInputSchema.extend({
-  afterSequence: z.number().int().nonnegative(),
+/** One thread's replies, by the conversation and the thread's root message. */
+export const conversationThreadInputSchema = conversationHistoryInputSchema.extend({
+  threadRootId: uuid,
 });
+/** Where a read of what arrived starts (`ConversationUpdatesCursor`). */
+export const conversationUpdatesCursorSchema = z.object({
+  afterSequence: z.number().int().nonnegative(),
+  afterReplySequence: z.number().int().nonnegative().optional(),
+});
+export const directConversationUpdatesInputSchema = directConversationInputSchema.extend(
+  conversationUpdatesCursorSchema.shape,
+);
 export const sendConversationMessageInputSchema = directConversationInputSchema.extend({
   requestId: uuid,
   body: z.string().trim().min(1).max(8_000),

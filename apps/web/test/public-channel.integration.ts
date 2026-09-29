@@ -2527,8 +2527,19 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
       ),
     ).toBe(false);
     const opened = await channels.open(workspace.id, bob.id, general.id);
-    expect(opened.messages.map((message) => message.id)).toEqual([
+    // The window holds the root and its thread's summary; the replies come with the thread read.
+    expect(opened.messages.map((message) => message.id)).toEqual([root.id]);
+    expect(opened.threads[root.id]).toMatchObject({
+      replyCount: 8,
+      lastReplySequence: agentReply.sequence,
+    });
+    const thread = await new ConversationHistory(db).loadThread(
+      workspace.id,
+      bob.id,
+      general.id,
       root.id,
+    );
+    expect(thread.replies.map((message) => message.id)).toEqual([
       quietReply.id,
       mentionedReply.id,
       followedReply.id,

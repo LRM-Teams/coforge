@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { RedisClient } from "bun";
 import { PrismaClient } from "#src/generated/prisma/client";
+import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
 import { RedisMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
 
@@ -208,13 +209,27 @@ test("a channel message reaches the browser in one shape from open, updates and 
       },
     ];
 
+    // The window holds the top-level messages; a thread's reply arrives with its thread read and
+    // in the updates, in the same shape.
+    const topLevel = expected.filter((message) => message.threadRootId === undefined);
     const opened = await channels.open(workspace.id, bob.id, channel.id);
-    expect(opened.messages).toStrictEqual(expected);
+    expect(opened.messages).toStrictEqual(topLevel);
     // Field order is part of what the browser receives.
     expect(opened.messages.map((message) => Object.keys(message))).toEqual(
-      expected.map((message) => Object.keys(message)),
+      topLevel.map((message) => Object.keys(message)),
     );
     expect(await channels.updates(workspace.id, bob.id, channel.id, 0)).toStrictEqual(expected);
+    const thread = await new ConversationHistory(db).loadThread(
+      workspace.id,
+      bob.id,
+      channel.id,
+      sent.id,
+    );
+    const expectedReplies = expected.filter((message) => message.threadRootId === sent.id);
+    expect(thread.replies).toStrictEqual(expectedReplies);
+    expect(thread.replies.map((message) => Object.keys(message))).toEqual(
+      expectedReplies.map((message) => Object.keys(message)),
+    );
 
     // `send` returns the stored row, not the browser view: its sender is the wider Agent-delivery
     // projection, and the rest are the same columns the view is built from.

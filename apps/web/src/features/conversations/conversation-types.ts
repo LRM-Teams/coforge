@@ -5,6 +5,7 @@ import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile
 import type { OpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import type { ThreadFollow } from "./thread-pane-header";
 import type { Mentionable } from "./mention-text";
+import type { ThreadSummary } from "./thread-summary-model";
 import type { ChipMention } from "./message-markdown";
 import type { OwnMessageIndexEntry } from "./own-messages-menu";
 import type { ChannelSuggestion } from "./reference-completion";
@@ -19,6 +20,9 @@ export type DirectConversationView = {
    * divider. Absent for a non-member, a fully-read fresh seed, or an unvisited thread. */
   readThroughSequence?: number;
   threadReadThrough?: Record<string, number>;
+  /** Each thread of the loaded window as a summary, by its root's id: the messages are top-level
+   * only, and a thread's replies are read when its pane opens (`thread-pane.tsx`). */
+  threads?: Readonly<Record<string, ThreadSummary>>;
   hasOlder?: boolean;
   hasNewer?: boolean;
   agent: {

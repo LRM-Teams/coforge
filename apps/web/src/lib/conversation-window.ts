@@ -21,11 +21,11 @@
 
 /**
  * Pages the query keeps at once. The server's page size is `CONVERSATION_WINDOW_PAGE_SIZE`, so the
- * loaded window holds at most 100 top-level rows (plus their thread replies) — about eight screenfuls
- * on the staging channel, where a real message row is roughly 130 DOM nodes. That is enough to scroll
- * a conversation for a while without re-fetching, and small enough that the DOM node count stays flat
- * however far back the reader goes. Changing either constant moves the window size; keep the
- * derivation honest if you do.
+ * loaded window holds at most 100 top-level rows (a thread rides along as its summary, never its
+ * replies) — about eight screenfuls on the staging channel, where a real message row is roughly
+ * 130 DOM nodes. That is enough to scroll a conversation for a while without re-fetching, and small
+ * enough that the DOM node count stays flat however far back the reader goes. Changing either
+ * constant moves the window size; keep the derivation honest if you do.
  */
 export const CONVERSATION_WINDOW_MAX_PAGES = 5;
 
@@ -35,26 +35,6 @@ export const CONVERSATION_WINDOW_PAGE_SIZE = 20;
 /** A page's fetch direction: `before` reads history upwards, `after` reads towards the live end.
  * `undefined` is the initial (uncursored) fetch, which lands on the newest page. */
 export type ConversationWindowCursor = { before?: number; after?: number } | undefined;
-
-type Sequenced = { sequence: number; threadRootId?: string };
-
-/**
- * The newest **top-level** sequence in a page: the cursor a forward fetch continues from.
- *
- * The server pages by roots (`threadRootId: null`) while a page also carries each root's replies,
- * so the page's last message can be a reply. A reply's sequence is newer than its root's and can be
- * newer than the next root this page did not fetch — a cursor taken from it (the last message,
- * whatever it is) would ask for `sequence > replySequence` and **skip every root in between**,
- * leaving a hole in the stream (old and new messages adjacent, the middle gone). Scan back to the
- * newest root instead. Pages are delivered oldest-first, so the newest root is the last root.
- */
-export function newestRootSequence(messages: readonly Sequenced[]): number | undefined {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]!;
-    if (!message.threadRootId) return message.sequence;
-  }
-  return undefined;
-}
 
 /** The backward page to fetch when paging up into history, or `undefined` at the start of it. */
 export function previousPageCursor(
@@ -102,39 +82,23 @@ type MergeMessages<M> = (base: readonly M[], incoming: readonly M[]) => M[];
 export type WindowUpdateFold<M> = { messages: M[] | undefined; pending: M[] };
 
 /**
- * Fold a realtime update into a bounded window's newest page. When that page is not the live tail
- * (`hasNewer`), the update is buffered instead: dropping it would lose a reply to a root that is
- * still retained, because the forward page loader only fetches roots after its cursor and would
- * never fetch that reply. `merge` is the caller's page merge (de-duplicating by id, ordered by
- * sequence), passed in so this stays a pure decision with no dependency of its own.
+ * Fold a realtime update of top-level messages into a bounded window's newest page. When that page
+ * is not the live tail (`hasNewer`), the update is buffered instead: the forward page loader
+ * fetches what comes after its cursor, and a message folded into a page that is not the end would
+ * leave a hole once it does. (A thread's replies are not folded here: they go to their root's
+ * summary and open thread, `foldThreadReplies`.) `merge` is the caller's page merge
+ * (de-duplicating by id, ordered by sequence), passed in so this stays a pure decision with no
+ * dependency of its own.
  */
-export function foldWindowUpdates<
-  M extends { id: string; sequence: number; threadRootId?: string | null },
->(
+export function foldWindowUpdates<M extends { id: string; sequence: number }>(
   latestPage: { hasNewer?: boolean; messages: M[] } | undefined,
   pending: readonly M[],
   updates: readonly M[],
   merge: MergeMessages<M>,
 ): WindowUpdateFold<M> | undefined {
   if (!latestPage) return undefined;
-  if (latestPage.hasNewer) {
-    // A reply to a root still in the retained window must be visible in an open thread even while
-    // the main stream is pinned to history. Top-level updates (and replies to roots outside the
-    // window) still wait for the tail, because fetching forward is what restores those rows.
-    const roots = new Set(
-      latestPage.messages.filter((message) => !message.threadRootId).map((message) => message.id),
-    );
-    const visibleReplies: M[] = [];
-    const waiting: M[] = [];
-    for (const message of [...pending, ...updates]) {
-      if (message.threadRootId && roots.has(message.threadRootId)) visibleReplies.push(message);
-      else waiting.push(message);
-    }
-    return {
-      messages: visibleReplies.length ? merge(latestPage.messages, visibleReplies) : undefined,
-      pending: merge([], waiting),
-    };
-  }
+  if (latestPage.hasNewer)
+    return { messages: undefined, pending: merge([], [...pending, ...updates]) };
   return { messages: merge(latestPage.messages, [...pending, ...updates]), pending: [] };
 }
 

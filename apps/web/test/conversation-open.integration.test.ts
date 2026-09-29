@@ -193,7 +193,12 @@ test.skipIf(!connectionString)(
         hasOlder: false,
         hasNewer: false,
       });
-      expect(ownerPage.messages.map((message) => message.sequence)).toEqual([1, 2, 3, 4, 5]);
+      // The window holds the top-level messages, the thread's reply only as its summary, which the
+      // owner has read.
+      expect(ownerPage.messages.map((message) => message.sequence)).toEqual([1, 2, 3, 5]);
+      expect(ownerPage.threads).toMatchObject({
+        [threadRoot.id]: { replyCount: 1, lastReplySequence: reply.sequence, unread: 0 },
+      });
       // The leaver left, so the directory holds the three active members only.
       expect(ownerPage.mentionables.map((entry) => entry.handle)).toEqual(
         [agent.name, member!.username, owner!.username].sort((a, b) => a.localeCompare(b)),
@@ -214,6 +219,8 @@ test.skipIf(!connectionString)(
         followedThreadRootIds: [],
       });
       expect(Object.values(scores(memberPage))).toEqual([0, 0, 0]);
+      // The member never read the thread, so the Agent's reply is unread for them.
+      expect(memberPage.threads[threadRoot.id]!.unread).toBe(1);
 
       // Someone who left reads the channel like someone who never joined, but their own earlier
       // mentions still rank the directory.
@@ -239,7 +246,8 @@ test.skipIf(!connectionString)(
         canDelete: false,
         canCreateAgents: false,
       });
-      expect(bystanderPage.messages).toHaveLength(5);
+      expect(bystanderPage.messages).toHaveLength(4);
+      expect(bystanderPage.threads[threadRoot.id]!.unread).toBe(0);
 
       await expect(channels.open(workspace.id, stranger!.id, channel.id)).rejects.toMatchObject({
         code: "ACCESS_DENIED",
@@ -343,7 +351,10 @@ test.skipIf(!connectionString)(
         hasOlder: false,
         hasNewer: false,
       });
-      expect(page.messages.map((message) => message.sequence)).toEqual([1, 2, 3]);
+      expect(page.messages.map((message) => message.sequence)).toEqual([1, 3]);
+      expect(page.threads).toMatchObject({
+        [root.id]: { replyCount: 1, lastReplySequence: reply.sequence, unread: 0 },
+      });
       expect(page.mentionables.map((entry) => [entry.kind, entry.id])).toEqual(
         [
           ["agent", agent.id, agent.name],
@@ -357,7 +368,8 @@ test.skipIf(!connectionString)(
         beforeSequence: 3,
         limit: 1,
       });
-      expect(older.messages.map((message) => message.sequence)).toEqual([1, 2]);
+      expect(older.messages.map((message) => message.sequence)).toEqual([1]);
+      expect(older.threads[root.id]!.replyCount).toBe(1);
       expect(older.hasOlder).toBe(false);
     } finally {
       await db.workspace.delete({ where: { id: workspace.id } });

@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { ChevronRight, MessageSquare01 as MessageSquare } from "@untitledui/icons";
 
 import { Avatar } from "#src/components/base/avatar/avatar";
@@ -10,7 +9,7 @@ import { m } from "#src/paraglide/messages";
 import { DELETED_AGENT_AVATAR_CLASS } from "#src/features/agents/deleted-agent";
 import { replyCountLabel, withUnreadCount } from "./conversation-labels";
 import { UnreadDot } from "./conversation-directory";
-import { useThreadBodyFormat, useThreadReplies, useThreadUnread } from "./thread-store";
+import { useThreadBodyFormat, useThreadSummary, useThreadUnread } from "./thread-store";
 
 /**
  * The parts of a root's row that show its thread. Each reads its own root's slice of the
@@ -65,17 +64,17 @@ export function ThreadSheetEntry({ rootId, onOpen }: ThreadPartProps) {
 }
 
 /**
- * The preview card under a root: the reply count, the unread count and the newest few replies.
- * System notices are stream bookkeeping, not a person replying: they belong to the full thread
- * pane, never to the preview, and a thread with only notices shows no preview at all.
+ * The preview card under a root: the reply count, the unread count and the newest few replies,
+ * which the thread's summary carries. System notices are stream bookkeeping, not a person
+ * replying: they belong to the full thread pane, never to the preview, and a thread with only
+ * notices shows no preview at all.
  */
 export function ThreadPreview({ rootId, onOpen }: ThreadPartProps) {
-  const replies = useThreadReplies(rootId);
+  const summary = useThreadSummary(rootId);
   const unread = useThreadUnread(rootId);
   const formatBody = useThreadBodyFormat();
-  const shown = useMemo(() => replies.filter((reply) => reply.senderKind !== "system"), [replies]);
-  if (!shown.length) return null;
-  const label = replyCountLabel(shown.length);
+  if (!summary?.replyCount) return null;
+  const label = replyCountLabel(summary.replyCount);
   return (
     <Button
       color="tertiary"
@@ -90,7 +89,7 @@ export function ThreadPreview({ rootId, onOpen }: ThreadPartProps) {
       </span>
       <span className="mt-1 flex flex-col gap-1.5">
         {/* The newest few only; the side pane holds the full thread. */}
-        {shown.slice(-3).map((reply) => (
+        {summary.latestReplies.map((reply) => (
           <span key={reply.id} className="flex min-w-0 items-center gap-2">
             <Avatar
               size="xs"

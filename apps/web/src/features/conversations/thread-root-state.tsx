@@ -6,16 +6,64 @@ import { m } from "#src/paraglide/messages";
 import { ThreadPaneHeader } from "./thread-pane-header";
 
 /**
- * Where a thread that was opened by link stands while its first message is not loaded: the thread
- * slot shows it in place of the thread (docs/design/toast-vs-inline.md — what the viewer must see
- * stays in the affected area). `loading` while its window is read; `missing` when the channel has
- * no such first message (deleted, or a link to a message that never started a thread); `failed`
- * when the read itself failed.
+ * Where a thread stands while what its pane shows is not loaded: the thread slot shows it in place
+ * of the thread (docs/design/toast-vs-inline.md — what the viewer must see stays in the affected
+ * area). `loading` while it is read; `missing` when the channel has no such first message (deleted,
+ * or a link to a message that never started a thread); `failed` when the read itself failed. It is
+ * the state of a thread opened by link whose first message is not loaded, and of a thread whose
+ * replies are being read (`ThreadPane`).
  */
 export type ThreadRootLoad =
   | { status: "loading" }
   | { status: "missing" }
   | { status: "failed"; errorId?: string };
+
+/** The thread's state on its own, for a pane that draws its own header (or none, in a popup). */
+export function ThreadLoadStatus({
+  load,
+  onClose,
+  onRetry,
+}: {
+  load: ThreadRootLoad;
+  /** Leaves the thread; a thread that is gone offers it as the way out. */
+  onClose?: () => void;
+  onRetry: () => void;
+}) {
+  return load.status === "loading" ? (
+    <div role="status" className="flex items-center justify-center px-4 py-8 text-tertiary">
+      <ProgressBar
+        isIndeterminate
+        aria-label={m.conversation_loading()}
+        className="inline-flex size-4 shrink-0"
+      >
+        <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
+      </ProgressBar>
+    </div>
+  ) : (
+    <div className="grid justify-items-center gap-4 px-4 py-8 text-center md:px-6">
+      <AlertCircle aria-hidden="true" className="size-5 text-error-primary" />
+      <p role="alert" className="text-sm">
+        {load.status === "missing"
+          ? m.conversation_thread_unavailable()
+          : m.conversation_thread_load_error()}
+      </p>
+      {load.status === "failed" && load.errorId && (
+        <p className="text-xs text-tertiary">{m.error_reference({ errorId: load.errorId })}</p>
+      )}
+      {load.status === "failed" ? (
+        <Button color="secondary" onPress={onRetry}>
+          {m.controls_retry()}
+        </Button>
+      ) : (
+        onClose && (
+          <Button color="secondary" onPress={onClose}>
+            {m.conversation_thread_close()}
+          </Button>
+        )
+      )}
+    </div>
+  );
+}
 
 export function ThreadRootState({
   load,
@@ -25,44 +73,13 @@ export function ThreadRootState({
 }: {
   load: ThreadRootLoad;
   context?: string;
-  onClose: () => void;
+  onClose?: () => void;
   onRetry: () => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <ThreadPaneHeader context={context} onClose={onClose} />
-      {load.status === "loading" ? (
-        <div role="status" className="flex items-center justify-center px-4 py-8 text-tertiary">
-          <ProgressBar
-            isIndeterminate
-            aria-label={m.conversation_loading()}
-            className="inline-flex size-4 shrink-0"
-          >
-            <Loading02 aria-hidden className="size-full motion-safe:animate-spin" />
-          </ProgressBar>
-        </div>
-      ) : (
-        <div className="grid justify-items-center gap-4 px-4 py-8 text-center md:px-6">
-          <AlertCircle aria-hidden="true" className="size-5 text-error-primary" />
-          <p role="alert" className="text-sm">
-            {load.status === "missing"
-              ? m.conversation_thread_unavailable()
-              : m.conversation_thread_load_error()}
-          </p>
-          {load.status === "failed" && load.errorId && (
-            <p className="text-xs text-tertiary">{m.error_reference({ errorId: load.errorId })}</p>
-          )}
-          {load.status === "failed" ? (
-            <Button color="secondary" onPress={onRetry}>
-              {m.controls_retry()}
-            </Button>
-          ) : (
-            <Button color="secondary" onPress={onClose}>
-              {m.conversation_thread_close()}
-            </Button>
-          )}
-        </div>
-      )}
+      <ThreadLoadStatus load={load} onClose={onClose} onRetry={onRetry} />
     </div>
   );
 }

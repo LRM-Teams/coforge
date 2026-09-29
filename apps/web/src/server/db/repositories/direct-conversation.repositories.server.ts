@@ -58,10 +58,10 @@ import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import {
   browserMessageFields,
-  browserRootMessageFields,
-  mapBrowserMessage,
-  type BrowserMessageRow,
+  mapDirectBrowserMessage,
+  messagesArrivedWhere,
 } from "#src/server/conversations/conversation-history.server";
+import { readWindowThreads } from "#src/server/conversations/thread-summaries.server";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { channelTarget } from "#src/server/conversations/agent-delivery.server";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
@@ -257,14 +257,6 @@ function toAgentMessage(
     attachments: row.attachments,
     ...(task ? { task } : {}),
   };
-}
-
-/** A direct-conversation message for the browser: the shared message-stream projection
- * (`mapBrowserMessage`) without `senderMemberId`, which this stream does not send; the pane then
- * tells the viewer's own messages by `senderKind`. */
-function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
-  const { senderMemberId: _senderMemberId, ...view } = mapBrowserMessage(message, workspaceId);
-  return view;
 }
 
 /**
@@ -1041,8 +1033,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   /**
    * Who is in one of the viewer's direct conversations, from the viewer's seat: every member's
-   * public profile, the viewer's own row and thread read boundaries, and the Agent or member on
-   * the other side.
+   * public profile, the viewer's own row, and the Agent or member on the other side.
    */
   private async viewerSide(conversationId: string, userId: string) {
     const row = await this.db.conversation.findUnique({
@@ -1090,16 +1081,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const sender = row?.members.find((member) => member.userId === userId);
     if (!row || !sender) throw new Error("conversation scope is not authorized");
     const agent = row.members.find((member) => member.agent)?.agent;
-    const [peer, threadReads] = await Promise.all([
-      agent ? undefined : this.peerOf(row, userId),
-      // Read by the viewer's own member row, not nested under every member: the Agent records a
-      // boundary for every thread it drains, which this open never returns.
-      this.db.threadRead.findMany({
-        where: { memberId: sender.id },
-        select: { rootMessageId: true, readThroughSequence: true },
-      }),
-    ]);
-    return { members: row.members, sender, agent, peer, threadReads };
+    const peer = agent ? undefined : await this.peerOf(row, userId);
+    return { members: row.members, sender, agent, peer };
   }
 
   /**
@@ -1120,7 +1103,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const forward = page.afterSequence !== undefined;
     // The window does not wait for the conversation's members: both are read by the conversation
     // id alone, and whether the viewer may read it is the caller's to have decided already.
-    const [{ members, sender, agent, peer, threadReads }, windowRows] = await Promise.all([
+    const [{ members, sender, agent, peer }, windowRows] = await Promise.all([
       this.viewerSide(conversationId, userId),
       this.db.message.findMany({
         where: {
@@ -1136,7 +1119,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         // itself is re-sorted by sequence below, so only the overflow row's presence matters.
         orderBy: { sequence: forward ? ("asc" as const) : ("desc" as const) },
         take: limit + 1,
-        select: browserRootMessageFields,
+        select: browserMessageFields,
       }),
     ]);
     const overflow = windowRows.length > limit;
@@ -1148,18 +1131,24 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     // ordered list keeps the reader's side of the window and drops the row that only proved there
     // was more.
     const pageRows = windowRows.slice(0, limit);
-    const messages = (forward ? pageRows : pageRows.reverse())
-      .flatMap((message) => [message, ...message.replies])
-      .sort((left, right) => left.sequence - right.sequence);
+    const messages = forward ? pageRows : pageRows.reverse();
+    // Each thread of the page as a summary, read through the viewer's own member row (the Agent
+    // records a boundary for every thread it drains, which this open never returns) and for these
+    // roots only.
+    const { threads, threadReadThrough } = await readWindowThreads(this.db, {
+      workspaceId,
+      conversationId,
+      rootIds: messages.map((message) => message.id),
+      viewerMemberId: sender.id,
+    });
     return {
       conversationId,
       senderMemberId: sender.id,
       // The viewer's conversation-level read boundary: first unread = first top-level
       // message past this. Thread replies are positioned by their thread instead.
       readThroughSequence: sender.readThroughSequence,
-      threadReadThrough: Object.fromEntries(
-        threadReads.map((r) => [r.rootMessageId, r.readThroughSequence]),
-      ),
+      threads,
+      threadReadThrough,
       ...(agent
         ? {
             kind: "agent" as const,
@@ -1233,22 +1222,25 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         .sort((left, right) => left.handle.localeCompare(right.handle)),
       hasOlder,
       hasNewer,
-      messages: messages.map((message) => toBrowserMessage(message, workspaceId)),
+      messages: messages.map((message) => mapDirectBrowserMessage(message, workspaceId)),
     };
   }
 
-  /** What arrived in a direct conversation after `afterSequence`, threads included. */
-  async updatesSince(workspaceId: string, conversationId: string, afterSequence: number) {
+  /** What arrived in a direct conversation after `afterSequence`, threads included (see
+   * `messagesArrivedWhere` for `afterReplySequence`). */
+  async updatesSince(
+    workspaceId: string,
+    conversationId: string,
+    afterSequence: number,
+    afterReplySequence?: number,
+  ) {
     const messages = await this.db.message.findMany({
-      where: {
-        conversationId,
-        sequence: { gt: afterSequence },
-      },
+      where: messagesArrivedWhere(conversationId, afterSequence, afterReplySequence),
       orderBy: { sequence: "asc" },
       take: 100,
       select: browserMessageFields,
     });
-    return messages.map((message) => toBrowserMessage(message, workspaceId));
+    return messages.map((message) => mapDirectBrowserMessage(message, workspaceId));
   }
 
   /** Advances the person's DM read cursor (`markHumanRead`): the unread count it left, or

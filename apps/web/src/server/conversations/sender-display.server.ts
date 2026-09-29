@@ -1,5 +1,7 @@
 import { isValidMessageSender, type MessageSenderKind } from "@lrm/coforge-sdk/internal";
 import type { Prisma } from "#src/generated/prisma/client";
+import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
+import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 
 /**
  * One rule for the name the browser shows as a message's sender, shared by the three browser
@@ -27,6 +29,29 @@ export function browserSenderName(sender: BrowserSender): string {
   if (sender.user) return sender.user.displayName?.trim() || sender.user.username;
   if (sender.agent) return sender.agent.displayName?.trim() || sender.agent.name;
   return "System";
+}
+
+type BrowserAvatarSender =
+  | {
+      userId?: string | null;
+      agentId?: string | null;
+      user?: { avatarObjectKey?: string | null } | null;
+      agent?: { avatarObjectKey?: string | null } | null;
+    }
+  | null
+  | undefined;
+
+/** The sender's avatar as the browser loads it: a person's or an Agent's image, `null` for a
+ * server-authored message. The one rule every browser message projection shares. */
+export function browserSenderAvatarUrl(
+  sender: BrowserAvatarSender,
+  workspaceId: string,
+): string | null {
+  if (sender?.userId)
+    return workspaceUserAvatarUrl(workspaceId, sender.userId, sender.user?.avatarObjectKey ?? null);
+  if (sender?.agentId)
+    return agentAvatarUrl(workspaceId, sender.agentId, sender.agent?.avatarObjectKey ?? null);
+  return null;
 }
 
 /**

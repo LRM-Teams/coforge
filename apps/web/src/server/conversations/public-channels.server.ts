@@ -35,9 +35,10 @@ import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import { agentMessageSender } from "./sender-display.server";
 import {
   browserMessageFields,
-  browserRootMessageFields,
   mapBrowserMessage,
+  messagesArrivedWhere,
 } from "./conversation-history.server";
+import { followedThreadRootIds, readWindowThreads } from "./thread-summaries.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { getMessageRequestIdempotency } from "./redis-message-request-idempotency.server";
 import { AgentDeliveryPublisher } from "./agent-delivery.server";
@@ -1759,7 +1760,7 @@ export class PublicChannels {
         // re-sorted by sequence below, so only the overflow row's presence matters.
         orderBy: { sequence: forward ? ("asc" as const) : ("desc" as const) },
         take: limit + 1,
-        select: browserRootMessageFields,
+        select: browserMessageFields,
       }),
       // The composer's @-completion source: every other active member's public profile.
       this.db.conversationMember.findMany({
@@ -1803,9 +1804,19 @@ export class PublicChannels {
     // ordered list keeps the reader's side of the window and drops the row that only proved there
     // was more.
     const fetched = messages.slice(0, limit);
-    const pageMessages = (forward ? fetched : fetched.reverse())
-      .flatMap((message) => [message, ...message.replies])
-      .sort((left, right) => left.sequence - right.sequence);
+    const pageMessages = forward ? fetched : fetched.reverse();
+    // Each thread of the page as a summary, and the viewer's cursors and follows for these roots
+    // only: a long-lived channel's whole history of them never rides along with a page.
+    const rootIds = pageMessages.map((message) => message.id);
+    const [{ threads, threadReadThrough }, followedRootIds] = await Promise.all([
+      readWindowThreads(this.db, {
+        workspaceId,
+        conversationId: channelId,
+        rootIds,
+        viewerMemberId: member?.id,
+      }),
+      followedThreadRootIds(this.db, { viewerMemberId: member?.id, rootIds }),
+    ]);
     return {
       conversationId: channel.id,
       name: channel.channelName!,
@@ -1830,10 +1841,9 @@ export class PublicChannels {
       // the client positions the initial view at the first unread message and draws the
       // divider there. Undefined for a non-member (nothing is "unread for them").
       readThroughSequence: member?.readThroughSequence,
-      threadReadThrough: Object.fromEntries(
-        (member?.threadReads ?? []).map((read) => [read.rootMessageId, read.readThroughSequence]),
-      ),
-      followedThreadRootIds: (member?.threadFollows ?? []).map((follow) => follow.rootMessageId),
+      threads,
+      threadReadThrough,
+      followedThreadRootIds: followedRootIds,
       // Every active member, the viewer included: this list is what *resolves* a stored mention
       // token, and a mention of the viewer is the most common one to render — leaving their row
       // out leaked the raw `<@human:uuid>` token in their own view. The composer's rule that you
@@ -2009,13 +2019,16 @@ export class PublicChannels {
     ];
   }
 
-  async updates(workspaceId: string, userId: string, channelId: string, afterSequence: number) {
+  async updates(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    afterSequence: number,
+    afterReplySequence?: number,
+  ) {
     await this.channel(workspaceId, userId, channelId);
     const messages = await this.db.message.findMany({
-      where: {
-        conversationId: channelId,
-        sequence: { gt: afterSequence },
-      },
+      where: messagesArrivedWhere(channelId, afterSequence, afterReplySequence),
       orderBy: { sequence: "asc" },
       take: 100,
       select: browserMessageFields,
