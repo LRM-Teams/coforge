@@ -116,7 +116,6 @@
   "workspace_members_title": "成员",
   "workspace_members_you": "你",
   "workspace_members_remove": "移除",
-  "workspace_members_leave": "离开工作区",
   "workspace_members_action_failed": "无法完成该成员操作。",
   "workspace_member_actions": "成员操作",
   "workspace_member_make_admin": "设为管理员",

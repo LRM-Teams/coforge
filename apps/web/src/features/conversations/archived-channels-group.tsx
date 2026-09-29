@@ -56,16 +56,21 @@ export function ArchivedChannelsGroup({
     setUnarchivingId(channel.id);
     setError(null);
     try {
-      await setArchived({ data: { channelId: channel.id, archived: false } });
-      // Back in every sidebar: this one here, the others through the write's realtime signal.
+      try {
+        await setArchived({ data: { channelId: channel.id, archived: false } });
+      } catch (cause) {
+        const code = isAppError(cause) ? cause.code : undefined;
+        // A deleted channel needs no sentence.
+        if (code !== "NOT_FOUND")
+          setError(saveErrorFrom(unarchiveError(cause, channel.name), cause));
+        // Deleted meanwhile, or the viewer is no longer an owner or admin: reload so rows that
+        // can no longer be unarchived here go. Any other failure changed nothing.
+        if (code !== "NOT_FOUND" && code !== "ACCESS_DENIED") return;
+      }
+      // Past the write's catch, so a failed reload never reads as a failed unarchive. Every
+      // sidebar follows: this one here, the others through the write's realtime signal.
       void refreshSidebarChannels();
       await router.invalidate({ sync: true });
-    } catch (cause) {
-      const code = isAppError(cause) ? cause.code : undefined;
-      // Deleted meanwhile, or the viewer is no longer an owner or admin: reload so rows that can
-      // no longer be unarchived here go. A deleted channel needs no sentence.
-      if (code === "NOT_FOUND" || code === "ACCESS_DENIED") await router.invalidate({ sync: true });
-      if (code !== "NOT_FOUND") setError(saveErrorFrom(unarchiveError(cause, channel.name), cause));
     } finally {
       setUnarchivingId(null);
     }
