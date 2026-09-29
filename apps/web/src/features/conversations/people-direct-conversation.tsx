@@ -45,9 +45,7 @@ export function PeopleDirectConversationHeader({
           <h1 className="min-w-0 flex-1 truncate text-base font-semibold">
             {peer.displayName}
             {self && (
-              <span className="ml-1 font-normal text-tertiary">
-                {m.conversation_dm_self_suffix()}
-              </span>
+              <span className="font-normal text-tertiary">{m.conversation_dm_self_suffix()}</span>
             )}
             {online !== undefined && (
               <span className="sr-only">, {online ? m.member_online() : m.member_offline()}</span>

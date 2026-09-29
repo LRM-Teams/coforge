@@ -329,7 +329,7 @@ export function ConversationDirectory({
         target={{ dmId: conversationId }}
         current={conversationId === selectedDmId}
         unreadCount={unreadCounts[conversationId]}
-        label={self ? `${name} ${m.conversation_dm_self_suffix()}` : name}
+        label={self ? m.conversation_dm_self_name({ name }) : name}
         icon={
           agent ? (
             <AgentDisplayAvatar
@@ -344,7 +344,7 @@ export function ConversationDirectory({
         }
       >
         {name}
-        {self && <span className="ml-1 text-quaternary">{m.conversation_dm_self_suffix()}</span>}
+        {self && <span className="text-quaternary">{m.conversation_dm_self_suffix()}</span>}
       </ConversationRow>
     </ConversationRowMenu>
   );

@@ -536,7 +536,7 @@ const ActivityInboxCard = memo(function ActivityInboxCard({
     place.kind === "channel"
       ? `#${place.channelName}`
       : place.peer.kind === "people" && place.peer.userId === viewerId
-        ? `@${place.peer.displayName} ${m.conversation_dm_self_suffix()}`
+        ? `@${m.conversation_dm_self_name({ name: place.peer.displayName })}`
         : `@${place.peer.displayName}`;
   const sender =
     item.latest.senderKind === "system" ? m.activity_inbox_system_sender() : item.latest.senderName;
