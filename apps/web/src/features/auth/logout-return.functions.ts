@@ -3,7 +3,11 @@ import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { declareNoStore } from "#src/features/no-store-response.server";
 
 import { consumeLogoutReturnTo } from "#src/server/auth/browser-login.server";
-import { AuthConfigError, readSessionSecret } from "#src/server/auth/config.server";
+import {
+  AuthConfigError,
+  readAuthingConfig,
+  readSessionSecret,
+} from "#src/server/auth/config.server";
 import { publicOrigin } from "#src/server/http/public-origin.server";
 
 /**
@@ -15,8 +19,10 @@ export const takeLogoutReturn = createServerFn({ method: "POST" }).handler(async
   declareNoStore();
   const request = getRequest();
   let sessionSecret: string;
+  let config: Awaited<ReturnType<typeof readAuthingConfig>>;
   try {
     sessionSecret = await readSessionSecret(process.env);
+    config = await readAuthingConfig(process.env, publicOrigin(request));
   } catch (error) {
     if (error instanceof AuthConfigError) return null;
     throw error;
@@ -24,7 +30,7 @@ export const takeLogoutReturn = createServerFn({ method: "POST" }).handler(async
   const landed = consumeLogoutReturnTo({
     sessionSecret,
     cookieHeader: request.headers.get("cookie") ?? "",
-    origin: publicOrigin(request),
+    config,
   });
   if (!landed) return null;
   setResponseHeader("set-cookie", landed.clearCookie);

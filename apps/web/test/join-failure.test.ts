@@ -17,8 +17,11 @@ describe("what a failed join means for the person on the invite page", () => {
 
   test("a server failure can be retried and carries its error reference", () => {
     expect(joinFailure(new AppError("INTERNAL_ERROR", { errorId: "e-1" }))).toEqual({
-      kind: "unavailable",
+      kind: "server-error",
       errorId: "e-1",
+    });
+    expect(joinFailure(new AppError("TEMPORARILY_UNAVAILABLE"))).toEqual({
+      kind: "server-error",
     });
   });
 
@@ -28,7 +31,6 @@ describe("what a failed join means for the person on the invite page", () => {
 
   test("anything else can be retried too", () => {
     expect(joinFailure(new Error("RPC method failed"))).toEqual({ kind: "unavailable" });
-    expect(joinFailure(new AppError("TEMPORARILY_UNAVAILABLE"))).toEqual({ kind: "unavailable" });
     expect(joinFailure("nope")).toEqual({ kind: "unavailable" });
   });
 });

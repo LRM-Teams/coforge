@@ -169,9 +169,11 @@ export function JoinWorkspacePage({
               <HintText isInvalid role="alert">
                 {problem.kind === "signed-out"
                   ? m.workspace_join_signed_out()
-                  : m.workspace_join_failed()}
+                  : problem.kind === "server-error"
+                    ? m.workspace_join_server_failed()
+                    : m.workspace_join_failed()}
               </HintText>
-              {problem.kind === "unavailable" && problem.errorId ? (
+              {problem.kind === "server-error" && problem.errorId ? (
                 <p className="text-xs text-tertiary">
                   {m.error_reference({ errorId: problem.errorId })}
                 </p>

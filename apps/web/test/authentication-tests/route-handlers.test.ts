@@ -79,6 +79,39 @@ test("logout returns through Authing to the public HTTPS homepage behind the pro
   }
 });
 
+test("behind the proxy, sign-in and sign-out cookies are Secure without a configured redirect URI", async () => {
+  const previous = {
+    AUTHING_APP_ID: process.env.AUTHING_APP_ID,
+    AUTHING_APP_SECRET: process.env.AUTHING_APP_SECRET,
+    AUTHING_ISSUER: process.env.AUTHING_ISSUER,
+    AUTHING_REDIRECT_URI: process.env.AUTHING_REDIRECT_URI,
+    COFORGE_SESSION_SECRET: process.env.COFORGE_SESSION_SECRET,
+  };
+  process.env.AUTHING_APP_ID = "6a8fde6fa804dd3bea560bac";
+  process.env.AUTHING_APP_SECRET = "test-app-secret";
+  process.env.AUTHING_ISSUER = "https://coforge.authing.cn/oidc";
+  delete process.env.AUTHING_REDIRECT_URI;
+  process.env.COFORGE_SESSION_SECRET = "test-session-secret-at-least-32-characters";
+  const proxied = (path: string) =>
+    new Request(`http://staging.coforge.cn${path}`, {
+      headers: { "x-forwarded-proto": "https", "x-forwarded-host": "staging.coforge.cn" },
+    });
+
+  try {
+    const login = await loginStartHandler({ request: proxied("/auth/login?returnTo=/join/abc") });
+    const authorization = new URL(login.headers.get("location") ?? "");
+    expect(authorization.searchParams.get("redirect_uri")).toBe(
+      "https://staging.coforge.cn/auth/callback",
+    );
+    const logout = await logoutHandler({ request: proxied("/auth/logout?returnTo=/join/abc") });
+    const cookies = [...login.headers.getSetCookie(), ...logout.headers.getSetCookie()];
+    expect(cookies).toHaveLength(3);
+    for (const cookie of cookies) expect(cookie).toContain("; Secure");
+  } finally {
+    restoreEnv(previous);
+  }
+});
+
 function restoreEnv(values: Record<string, string | undefined>) {
   for (const [key, value] of Object.entries(values)) {
     if (value === undefined) delete process.env[key];
