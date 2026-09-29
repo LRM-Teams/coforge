@@ -19,7 +19,7 @@ import { formatDateForDisplay } from "#src/lib/dates";
 import { useTimeFormat } from "#src/lib/time-format-context";
 
 import { AttachmentPreview } from "./attachment-preview";
-import { useAttachmentPreviewKind } from "./use-attachment-preview-kind";
+import { attachmentPreviewKind } from "./attachment-preview-kind";
 import { loadConversationFiles, type ConversationFile } from "./conversation-files.functions";
 import { attachmentUrl, fileIconType } from "./message-row";
 
@@ -52,7 +52,7 @@ export function FileRow({
   const isImage = file.inlineImage;
   // The same preview rule a message attachment follows; `previewUrl` (signed) is what a PDF
   // needs, and images prefer it so the bytes skip the backend while the URL is fresh.
-  const previewKind = useAttachmentPreviewKind(file.fileName, file.contentType, file.previewUrl);
+  const previewKind = attachmentPreviewKind(file.fileName, file.contentType, file.previewUrl);
   const [previewFailed, setPreviewFailed] = useState(false);
   const [imgBroken, setImgBroken] = useState(false);
   const previewSrc = !previewFailed && file.previewUrl ? file.previewUrl : href;

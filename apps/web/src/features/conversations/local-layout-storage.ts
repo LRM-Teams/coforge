@@ -2,10 +2,9 @@ import type { LayoutStorage } from "react-resizable-panels";
 
 /**
  * `useDefaultLayout` defaults `storage` to `localStorage`, which throws during SSR. Pass this
- * instead for a panel group that mounts its panels only after hydration (the Members page and the
- * project tree), so its layout stays browser-persisted without crashing Nitro's
- * `renderToReadableStream`. A group the server renders (the conversation's) takes its layout from
- * a cookie instead: `panel-layout-cookie.ts`.
+ * instead for a panel group that mounts its panels only in the browser (the conversation's, the
+ * Members page and the project tree), so its layout stays browser-persisted without crashing
+ * Nitro's `renderToReadableStream`.
  */
 export const localLayoutStorage: LayoutStorage = {
   getItem(key) {

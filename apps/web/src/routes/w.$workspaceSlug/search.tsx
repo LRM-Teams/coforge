@@ -29,8 +29,10 @@ export const Route = createFileRoute("/w/$workspaceSlug/search")({
     const target = searchPreviewTarget(deps.open);
     if (!target) return;
     // The previewed conversation opens as Chat opens it: its window and Tasks counts are read
-    // first on arrival. Switching the preview while on search only starts the reads, so the
-    // preview shows its loading state at once. A failed read is left to the preview, which says so.
+    // first on arrival, in the browser (`loadConversationPage` reads nothing on the server, so a
+    // first load's document holds no message: the preview reads it once it renders). Switching the
+    // preview while on search only starts the reads, so the preview shows its loading state at
+    // once. A failed read is left to the preview, which says so.
     const page = loadConversationPage(queryClient, target, deps, {
       cause,
       workspaceId: () =>

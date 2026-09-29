@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { createIsomorphicFn } from "@tanstack/react-start";
 
 import type { FinishedWindow } from "#src/features/tasks/finished-tasks";
 import { finishedSummaryQuery } from "#src/features/tasks/use-finished-tasks";
@@ -31,9 +32,18 @@ export function conversationPageLoaderDeps(search: {
 
 /**
  * Reads what a conversation page shows first, as every host (Chat's routes, the search preview)
- * opens it: the window around the anchor, then the Tasks tab's finished-work counts.
+ * opens it: the window around the anchor, then the Tasks tab's finished-work counts. It reads in the
+ * browser only: a conversation's messages are never read while the server renders a page, so none
+ * of them is in the document the server sends. The page itself is rendered in the browser too (Chat's
+ * routes are `ssr: false`; the search preview is under `ClientOnly`) and reads the same Query
+ * on its own when a host's loader has not.
+ * https://tanstack.com/start/latest/docs/framework/react/guide/execution-model
  */
-export async function loadConversationPage(
+export const loadConversationPage = createIsomorphicFn()
+  .server(async (..._read: Parameters<typeof readConversationPage>): Promise<void> => {})
+  .client(readConversationPage);
+
+async function readConversationPage(
   queryClient: QueryClient,
   target: ConversationPageTarget,
   deps: ReturnType<typeof conversationPageLoaderDeps>,

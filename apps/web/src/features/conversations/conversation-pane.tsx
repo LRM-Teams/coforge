@@ -24,7 +24,6 @@ import { conversationOpenPosition, unreadBoundary } from "./conversation-open-po
 import { latestTopLevelSequence } from "./conversation-unread";
 import { streamState, type StreamRead } from "./stream-state";
 import { MessageComposer } from "./message-composer";
-import { PinToLatestOnFirstPaint } from "./pin-to-latest";
 import { ThreadPaneHeader, type ThreadFollow } from "./thread-pane-header";
 import { makeReferenceBodyFormatter } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
@@ -143,11 +142,10 @@ export function ConversationPane({
         : undefined,
     [mentionCompletion, conversation.mentionables, conversation.viewerHandle],
   );
-  // Days and times follow the viewer's locale and time zone. The server render and the hydrating
-  // one agree on both (`TimeZoneProvider`), so the rows render once, the same on both; where the
-  // zone is not known yet (a browser's first visit) they show the UTC date and no time.
+  // Days and times follow the viewer's locale and time zone (their saved one, else the browser's).
+  // The pane is only ever rendered in the browser, so the locale is known at once.
   const timeZone = useTimeZone();
-  const dateLocale = timeZone ? getLocale() : undefined;
+  const dateLocale = getLocale();
   const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
   // Reply-to-selection: the row hands over a finished quote, the composer puts it in the draft.
@@ -250,10 +248,6 @@ export function ConversationPane({
   // by the first render's state initializer: a ref written during render could be left set by
   // a render React then discards, showing a divider for a conversation never opened.
   const [openBoundary] = useState(firstUnread);
-  // The open position is the latest messages (see the mount effect below); the server render
-  // pins them at first paint, before the effect can.
-  const opensAtLatest =
-    !root && !openAtTop && !jumpMessage && !conversationOpenPosition(openMode, firstUnread);
   const lastSequence = conversation.messages.at(-1)?.sequence;
   const firstSequence = conversation.messages[0]?.sequence;
   // Handles that recently sent a message here, most-recent first: the mention completion popup
@@ -1166,7 +1160,6 @@ export function ConversationPane({
           />
         )}
       </div>
-      {opensAtLatest && <PinToLatestOnFirstPaint />}
     </div>
   );
 }

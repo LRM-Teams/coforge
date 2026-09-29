@@ -32,8 +32,8 @@ These rules apply to `src/features/conversations/`.
   activity strip looks a DM up by its Agent.
 - The sidebar's channel and DM lists live in `sidebar-collections.ts` (collections and changes,
   tested without React) and `sidebar-lists.ts` (hooks). The chat layout's (`_chat`) loader fetches
-  them into the TanStack Query cache (the server render reads it); after hydration the same keys
-  back TanStack DB collections. Every channel's name (`channelNamesQuery`, for body channel links
+  them, in the browser, into the TanStack Query cache; the same keys back TanStack DB
+  collections. Every channel's name (`channelNamesQuery`, for body channel links
   and the `#` list) lives in the same cache; the create-channel dialog reads projects on open.
 - Realtime keeps every Chat list live, so the loader (run on each navigation inside Chat) reads
   only a list not cached or marked stale (`loadSidebarLists`); a subscribe that may have missed
@@ -78,36 +78,20 @@ These rules apply to `src/features/conversations/`.
   sharing then keeps each unchanged message's object across a re-read (focus,
   remount, invalidation, reconcile). A `Date` or class instance makes every
   message new on every re-read, and every row renders and parses again.
-- The chat pages render their messages on the server, so rows are in the
-  first paint and hydration renders each of them once. Do not put a
-  conversation behind `ClientOnly` again; what needs the browser is narrow:
-  `ConversationTaskDemand`, the Tasks tab, and the Task popup shown alone on
-  the Tasks page. Whatever a row reads must give the server render, the
-  hydrating render and the first browser render the same answer, or the row
-  renders again after hydration (a state, context or store that changes at
-  hydration re-renders every row; a different element structure remounts the
-  pane). So:
-  - Times use the viewer's zone from `useTimeZone()` (the saved preference,
-    else the browser's, which the browser writes in the `coforge-time-zone`
-    cookie), the URL's locale and the 12/24-hour preference; never the host's
-    zone, `useHydrated()` or `Date.now()`. The zone is unknown on a browser's
-    first visit only, and the rows then show the UTC date until it reports.
-  - Viewport and pointer come from `useBreakpoint`/`useCoarsePointer`; the
-    server render assumes a phone or a desktop from the request
-    (`requestIsFromPhone`), so a structure that differs between them must be
-    chosen by these hooks, never by a `matchMedia` read into state.
-  - The panel layout is a cookie (`panel-layout-cookie.ts`), not
-    `localStorage`, so the server renders the saved sizes: the `_chat` loader
-    reads it (`loadPanelLayouts`), `useDefaultLayout` reads it through
-    `usePanelLayoutStorage`. This is `react-resizable-panels`' documented
-    server-rendering setup; do not fall back to `localStorage`.
-  - A part that reads a client-only source (Tasks, the Saved collection, an
-    `<img>` that settled before hydration, a PDF's page origin) renders what
-    the server rendered first and its own answer after: `useHydrated()`,
-    `switchableSavedMessagesStore`, the ref check in `AttachmentCard`,
-    `useAttachmentPreviewKind`. Only that part renders again.
-  - `PinToLatestOnFirstPaint` scrolls the history to its end as the page
-    parses, so the first paint shows the newest messages.
+- Chat is rendered in the browser only, as Slack's page is: the `_chat` route is `ssr: false`
+  (every route under it inherits that), so the server sends the app's chrome and `MessagesPending`
+  (a loading screen: the list column, the conversation and its composer as skeletons), and the
+  sidebar's lists, the open conversation and Saved are read by loaders that run in the browser.
+  No loader under `_chat` reads them on the server, and a host the server does render that shows a
+  conversation (the search preview, the Tasks page's Task popup) mounts it under `ClientOnly` and
+  reads it with `loadConversationPage`, which does nothing on the server. So a row needs no
+  cookie, assumed value or `suppressHydrationWarning` to match server markup, and a conversation
+  may read browser-only sources at render (TanStack DB collections, `localStorage`, the viewport).
+  - A message time is formatted in the zone `useTimeZone()` gives (the viewer's saved zone, else
+    the browser's): pass it to `dayLabel` and `clockLabel`, never omit it.
+  - The rail and the loading screen are server-rendered, and a structure that differs between a
+    phone and a desktop is chosen by `useBreakpoint`/`useCoarsePointer`, which start from what
+    the request says (`requestIsFromPhone`), never by a `matchMedia` read into state.
 - TanStack DB collections are client-only: create them through the
   per-`QueryClient` factory after hydration, never at module scope or while
   rendering on the server.
@@ -135,7 +119,7 @@ These rules apply to `src/features/conversations/`.
 - `conversation-host.tsx` is what a conversation reads from the page hosting
   it (Chat, the search preview): the viewer's open mode, the Workspace's
   channels and the Saved list. A host's loader reads `savedMessagesQuery` into
-  the Query cache, which the server and hydrating render read. After hydration
+  the Query cache, which the store starts from. Once hydrated
   the list is a TanStack DB collection (`saved-messages-collection.ts`) on the
   app's one `DbClient` (`DbProvider` in `router.tsx`, read with `useDbClient`),
   shared by every host; it starts from that cache and follows it. TanStack DB's

@@ -159,8 +159,8 @@ export function chatListStaleTime(cause: "preload" | "enter" | "stay") {
 }
 
 /**
- * The chat layout's read of the sidebar's two lists into the Query cache, which the server render
- * reads and the client hydrates (see `chatListStaleTime`). A first load has no DM rows to keep, so
+ * The chat layout's read of the sidebar's two lists into the Query cache, which the sidebar reads
+ * until its collections are ready (see `chatListStaleTime`). A first load has no DM rows to keep, so
  * each of its reads falls back on its own; a later one that fails keeps the rows the sidebar has.
  */
 export async function loadSidebarLists(
