@@ -47,3 +47,11 @@ Append 幂等：batch 之前 `GET /sessions/{id}`，用已有消息的 `source_m
 
 - B5 trajectory 线：daemon 收割 agent session transcript（含 tool calls）写入 OV trajectory，以及联邦场景下外部独立安装的 agent。现在没有写线。
 - `add_resource` 与 `forget` 仍是后补，写线和读线都不提供。
+
+## 已退休的决策记录
+
+仓库不再保留 ADR、单体架构文档与实现切片（`AGENTS.md` 的文档规则），这条记忆线原先的 ADR 已随目录一起退休。它们的去向：
+
+- OpenViking-only、Causal Memory 移除、完整访问走策略网关（0061、0062）：规则本身就是代码与 `apps/web/AGENTS.md` 的模块分工，这里不再复述。
+- 轨迹索引、跨 lane 桥分型、ForkRevision 生命周期、消费记账（0072–0075）：尚未实现的设计记录，正文留在 git 历史（`git log -- docs/adr/`）。其中轨迹索引对应上面 B5 这条 open question。
+- Causal Memory 的三份（0058–0060）已被 0062 取代，不再有效。
