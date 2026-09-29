@@ -428,8 +428,9 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       try {
         await daemon.start();
       } catch (error) {
-        // A refusal for good is parking the Workspace instead (`WorkspaceParking`).
-        if (parking.cloudConnection.state === "not_connected")
+        // A refusal for good is parking the Workspace instead (`WorkspaceParking`). A shutdown
+        // ends a start still waiting for the cloud on purpose.
+        if (parking.cloudConnection.state === "not_connected" && !shuttingDown)
           logger.error("Daemon failed to recover configured Workspace", {
             event: "daemon:workspace_recovery_failed",
             error_code: diagnosticErrorCode(error),
