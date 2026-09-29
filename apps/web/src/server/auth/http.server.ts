@@ -1,4 +1,5 @@
 import {
+  clearPendingLoginState,
   completeBrowserLogin,
   createAuthingExchanger,
   endBrowserLogin,
@@ -72,12 +73,18 @@ export async function handleLoginCallback(input: {
     toPublicServerError(error);
     const failed = new URL("/login", origin);
     failed.searchParams.set("error", "login_failed");
+    const cookieHeader = input.request.headers.get("cookie") ?? "";
     const returnTo = pendingLoginReturnTo({
       sessionSecret: input.sessionSecret,
-      cookieHeader: input.request.headers.get("cookie") ?? "",
+      cookieHeader,
+      state,
     });
     if (returnTo) failed.searchParams.set("returnTo", returnTo);
-    return redirect(failed.toString(), { "cache-control": "no-store" });
+    const clearStateCookie = clearPendingLoginState({ config: input.config, cookieHeader, state });
+    return redirect(failed.toString(), {
+      ...(clearStateCookie ? { "set-cookie": clearStateCookie } : {}),
+      "cache-control": "no-store",
+    });
   }
 }
 
@@ -86,15 +93,19 @@ export function handleLogout(input: {
   config: AuthingConfig;
   sessionSecret: string;
   cookieHeader: string;
+  /** The page to sign in to again afterwards, when someone is switching account. */
+  returnTo?: string | null;
 }): Response {
   const ended = endBrowserLogin({
     config: input.config,
+    // Authing only redirects to the URI registered for the app: the homepage.
     postLogoutRedirectUri: `${input.origin}/`,
     sessionSecret: input.sessionSecret,
     cookieHeader: input.cookieHeader,
+    returnTo: input.returnTo,
   });
   return redirect(ended.authingLogoutUrl, {
-    "set-cookie": ended.clearSessionCookie,
+    "set-cookie": [ended.clearSessionCookie, ...(ended.returnCookie ? [ended.returnCookie] : [])],
     "cache-control": "no-store",
   });
 }

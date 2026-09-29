@@ -4,8 +4,9 @@ import { isNotFound, isRedirect } from "@tanstack/react-router";
 
 import { AppError } from "#src/lib/app-error";
 
-// Where a visitor lands is decided by two server reads: whether they are signed in, and the page
-// `/` opens for them (`null` when they are in no Workspace). Both are stood in for here.
+// Where a visitor lands is decided by three server reads: whether they are signed in, the page
+// `/` opens for them (`null` when they are in no Workspace), and — after signing out to switch
+// account — the page a returning browser should sign in to again. All three are stood in for.
 let signedIn = false;
 let startPage: string | null = null;
 
@@ -15,6 +16,11 @@ mock.module("#src/features/auth/current-user.functions", () => ({
 }));
 mock.module("#src/features/workspaces/last-location.functions", () => ({
   getStartPage: async () => startPage,
+}));
+mock.module("#src/features/auth/logout-return.functions", () => ({
+  // The switch-account resume read: the tests only judge the signed-in and plain signed-out
+  // landings, so the cookie is always absent.
+  takeLogoutReturn: async () => null,
 }));
 const workspaceFunctions = await import("#src/features/workspaces/workspaces.functions");
 mock.module("#src/features/workspaces/workspaces.functions", () => ({
