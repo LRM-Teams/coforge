@@ -9,6 +9,11 @@ import {
 import { UUID_LIKE_PATTERN, isChannelMessageTarget } from "@lrm/coforge-sdk/internal";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
+import {
+  agentVisibilityViewerForActor,
+  canSeeAgent,
+  type AgentVisibilityViewer,
+} from "#src/server/agents/agent-visibility.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { ActionCardError } from "./action-card-error.server";
@@ -154,7 +159,7 @@ export class ActionCards {
   ): Promise<ActionCardPrepareResult> {
     const action = parseActionCardAction(input.action);
     const target = await this.resolveTarget(principal.workspaceId, principal.agentId, input.target);
-    const payload = await this.resolvePayload(principal.workspaceId, action);
+    const payload = await this.resolvePayload(principal.workspaceId, principal.agentId, action);
     const body = action.draftHint
       ? `${summaryFor(action)}\n${action.draftHint}`
       : summaryFor(action);
@@ -619,6 +624,7 @@ export class ActionCards {
 
   private async resolvePayload(
     workspaceId: string,
+    agentId: string,
     action: ActionCardAction,
   ): Promise<ResolvedActionCardPayload> {
     if (action.type === "channel:create") {
@@ -626,7 +632,7 @@ export class ActionCards {
         throw new ActionCardError(409, "CHANNEL_EXISTS", `channel #${action.name} already exists`);
       const [initialHumanIds, initialAgentIds] = await Promise.all([
         this.resolveHumans(workspaceId, action.initialHumans, "action.initialHumans"),
-        this.resolveAgents(workspaceId, action.initialAgents, "action.initialAgents"),
+        this.resolveAgents(workspaceId, agentId, action.initialAgents, "action.initialAgents"),
       ]);
       return {
         type: "channel:create",
@@ -664,7 +670,7 @@ export class ActionCards {
     const channelId = await this.resolveChannel(workspaceId, action.channel, "action.channel");
     const [humanIds, agentIds] = await Promise.all([
       this.resolveHumans(workspaceId, action.humans, "action.humans"),
-      this.resolveAgents(workspaceId, action.agents, "action.agents"),
+      this.resolveAgents(workspaceId, agentId, action.agents, "action.agents"),
     ]);
     return {
       type: "channel:add_member",
@@ -689,10 +695,20 @@ export class ActionCards {
     );
   }
 
-  private async resolveAgents(workspaceId: string, values: string[] | undefined, field: string) {
+  /** `agentId` is the Agent preparing the card: whether it can see a private Agent decides how
+   * that Agent is refused. */
+  private async resolveAgents(
+    workspaceId: string,
+    agentId: string,
+    values: string[] | undefined,
+    field: string,
+  ) {
     if (!values?.length) return undefined;
+    const viewer = await agentVisibilityViewerForActor(this.db, workspaceId, { agentId });
     return Promise.all(
-      values.map((value, index) => this.resolveAgent(workspaceId, value, `${field}[${index}]`)),
+      values.map((value, index) =>
+        this.resolveAgent(workspaceId, viewer, value, `${field}[${index}]`),
+      ),
     );
   }
 
@@ -712,22 +728,39 @@ export class ActionCards {
     return user.id;
   }
 
-  private async resolveAgent(workspaceId: string, value: string, field: string): Promise<string> {
+  private async resolveAgent(
+    workspaceId: string,
+    viewer: AgentVisibilityViewer,
+    value: string,
+    field: string,
+  ): Promise<string> {
     const bare = bareHandle(value);
     const agent = UUID_PATTERN.test(bare)
       ? await this.db.agent.findFirst({
           where: { id: bare, workspaceId, ...ACTIVE_AGENT_WHERE },
-          select: { id: true, visibility: true },
+          select: { id: true, ownerId: true, visibility: true },
         })
       : await this.db.agent.findFirst({
           where: { name: bare, workspaceId, ...ACTIVE_AGENT_WHERE },
-          select: { id: true, visibility: true },
+          select: { id: true, ownerId: true, visibility: true },
         });
-    // Every Agent an action card names becomes a channel member, and a private Agent never is one.
-    // It is refused exactly as a handle that does not exist, so an Agent cannot probe which
-    // private Agents exist, and its display name stays out of a card rendered to the channel.
-    if (!agent || agent.visibility !== AGENT_VISIBILITY.PUBLIC)
+    if (!agent)
       throw new ActionCardError(422, "INVALID_HANDLE", `unknown agent handle: ${value}`, { field });
+    // Every Agent an action card names becomes a channel member, and a private Agent never is one.
+    // As in channel management (and `user info`/`profile show`), a private Agent the caller cannot
+    // see is "not visible", and one it can see is refused with the reason; either way its display
+    // name stays out of a card rendered to the channel.
+    if (!canSeeAgent(viewer, agent))
+      throw new ActionCardError(404, "AGENT_NOT_VISIBLE", `${value} is not visible to you.`, {
+        field,
+      });
+    if (agent.visibility !== AGENT_VISIBILITY.PUBLIC)
+      throw new ActionCardError(
+        422,
+        "INVALID_HANDLE",
+        `${value} is private and cannot be a channel member`,
+        { field },
+      );
     return agent.id;
   }
 

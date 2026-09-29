@@ -260,9 +260,26 @@ export async function executeAgentSendMessageWithPolicy(
   dependencies: {
     repository: Pick<AgentMessageRepository, "agentTargetFreshness">;
     sender: Parameters<typeof executeAgentSendMessage>[0];
+    /** The send's request records: a key that already committed is answered from its record. */
+    requestRecords?: MessageRequestRecords;
   },
   input: AgentSendMessageInput,
 ): Promise<AgentSendMessageResult> {
+  // A replay of a key that already committed is answered from its record before the target is
+  // resolved or its freshness read: whatever changed since (the person left, newer messages
+  // arrived) must not report a committed send as refused or held. Like a `reconcileOnly`
+  // `committed`, it carries only the message id and publishes nothing again; a key still being
+  // processed is the in-flight duplicate.
+  if (dependencies.requestRecords) {
+    const reconciliation = await reconcileAgentSendMessage(dependencies.requestRecords, input);
+    if (reconciliation.state === "committed")
+      return {
+        state: "sent",
+        decision: "forward",
+        reason: "already_committed",
+        messageId: reconciliation.messageId,
+      };
+  }
   const mode = input.freshnessContextMode ?? "inline";
   const freshness = await dependencies.repository.agentTargetFreshness?.(
     input.workspaceId,

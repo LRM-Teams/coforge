@@ -27,7 +27,10 @@ past; every other successful send reports none.
 
 One logical send keeps one `idempotencyKey`. The draft stores the key of the
 send it came from, and `--send-draft` resends under that key, so the server can
-never commit the same message twice. Only the send whose key the draft holds
+never commit the same message twice. A key that already committed is answered
+from its record as that send (`reason: "already_committed"`), before the target
+or its freshness is checked, so a later change (the person left, newer
+messages arrived) never reports it refused or held. Only the send whose key the draft holds
 clears it. `--send-draft --expected-draft-key <key>` refuses with
 `SAVED_DRAFT_IDENTITY_CHANGED`, before any request, when the draft now belongs
 to another send. A draft past its ten minutes is not sent: `--send-draft`
