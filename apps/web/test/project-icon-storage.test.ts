@@ -2,6 +2,7 @@ import { expect, mock, test } from "bun:test";
 
 import type { FileStorage } from "#src/server/files/file-storage.server";
 import * as fileStorage from "#src/server/files/file-storage.server";
+import * as publicImageStorage from "#src/server/files/public-image-storage.server";
 
 function memoryStorage() {
   const objects = new Map<string, Blob>();
@@ -39,6 +40,7 @@ mock.module("#src/server/files/file-storage.server", () => ({
   getFileStorage: async () => privateFiles,
 }));
 mock.module("#src/server/files/public-image-storage.server", () => ({
+  ...publicImageStorage,
   getPublicImageStorage: async () => publicImages.storage,
 }));
 
