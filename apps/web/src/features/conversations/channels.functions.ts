@@ -276,7 +276,7 @@ export const loadGeneralChannelHidden = createServerFn({ method: "GET" })
   });
 
 /** The Workspace's archived channels for Settings → Workspace profile, newest archive first;
- * none for anyone but a Workspace owner or admin. */
+ * `null` for anyone but a Workspace owner or admin, who may not unarchive them there. */
 export const loadArchivedChannels = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
@@ -284,7 +284,7 @@ export const loadArchivedChannels = createServerFn({ method: "GET" })
     try {
       return await channels.archived(workspaceId, userId);
     } catch (error) {
-      if (isAppError(error) && error.code === "ACCESS_DENIED") return [];
+      if (isAppError(error) && error.code === "ACCESS_DENIED") return null;
       throw error;
     }
   });

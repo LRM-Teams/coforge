@@ -51,8 +51,8 @@ import {
   loadArchivedChannels,
   loadGeneralChannelHidden,
   setGeneralChannelHidden,
-  setPublicChannelArchived,
 } from "#src/features/conversations/channels.functions";
+import { ArchivedChannelsGroup } from "#src/features/conversations/archived-channels-group";
 import { useRefreshSidebarChannels } from "#src/features/conversations/sidebar-lists";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
 import {
@@ -142,7 +142,6 @@ function SettingsPage() {
   const sendTestNotification = useServerFn(sendTestBrowserNotification);
   const saveProfile = useServerFn(saveUserProfile);
   const saveGeneralChannelHidden = useServerFn(setGeneralChannelHidden);
-  const saveChannelArchived = useServerFn(setPublicChannelArchived);
   const saveWorkspaceName = useServerFn(renameWorkspace);
   const saveWorkspaceIcon = useServerFn(uploadWorkspaceIcon);
   const refreshSidebarChannels = useRefreshSidebarChannels();
@@ -226,18 +225,6 @@ function SettingsPage() {
   // other open pages.
   async function changeGeneralChannelHidden(hidden: boolean) {
     await saveGeneralChannelHidden({ data: { hidden } });
-    void refreshSidebarChannels();
-    await router.invalidate({ sync: true });
-  }
-
-  // Unarchiving puts the channel back in every sidebar (this one here, others through its realtime
-  // signal) and takes it off the archived list. A channel deleted meanwhile just leaves the list.
-  async function unarchiveChannel(channelId: string) {
-    try {
-      await saveChannelArchived({ data: { channelId, archived: false } });
-    } catch (cause) {
-      if (!isAppError(cause) || cause.code !== "NOT_FOUND") throw cause;
-    }
     void refreshSidebarChannels();
     await router.invalidate({ sync: true });
   }
@@ -400,8 +387,9 @@ function SettingsPage() {
       workspace={currentWorkspace}
       onWorkspaceRename={changeWorkspaceName}
       onWorkspaceIconUpload={changeWorkspaceIcon}
-      archivedChannels={archivedChannels}
-      onChannelUnarchive={unarchiveChannel}
+      archivedChannelsGroup={
+        <ArchivedChannelsGroup channels={archivedChannels} timeZone={savedTimeZone} />
+      }
     />
   );
 }
