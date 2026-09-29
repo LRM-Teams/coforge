@@ -21,8 +21,8 @@ const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
 /** Records which channels were announced as created, or renamed, described, archived or
  * unarchived. */
 function recordingRealtime() {
-  const updated: { workspaceId: string; conversationId: string }[] = [];
-  const created: { workspaceId: string; conversationId: string }[] = [];
+  const updated: Parameters<NonNullable<ConversationRealtime["channelUpdated"]>>[0][] = [];
+  const created: Parameters<NonNullable<ConversationRealtime["channelCreated"]>>[0][] = [];
   const realtime: ConversationRealtime = {
     async messageAvailable() {},
     async memberChanged() {},
@@ -307,7 +307,12 @@ test.skipIf(!connectionString)(
   async () => {
     const { db, channels, updated, suffix, workspace, owner, creator, bob, team } = await setup();
     try {
-      const announcement = { workspaceId: workspace.id, conversationId: team.id };
+      // Each carries the channel's info after the change, so a sidebar updates its row unread.
+      const announcement = (channel: { description: string; archived: boolean }) => ({
+        workspaceId: workspace.id,
+        conversationId: team.id,
+        channel: { name: `renamed-${suffix}`, ...channel },
+      });
       await channels.updateInfo(workspace.id, { userId: creator.id }, team.id, {
         name: `renamed-${suffix}`,
       });
@@ -316,7 +321,12 @@ test.skipIf(!connectionString)(
       });
       await channels.setArchived(workspace.id, { userId: creator.id }, team.id, true);
       await channels.setArchived(workspace.id, { userId: creator.id }, team.id, false);
-      expect(updated).toEqual([announcement, announcement, announcement, announcement]);
+      expect(updated).toEqual([
+        announcement({ description: "", archived: false }),
+        announcement({ description: "Now described", archived: false }),
+        announcement({ description: "Now described", archived: true }),
+        announcement({ description: "Now described", archived: false }),
+      ]);
 
       await appErrorCode(
         channels.updateInfo(workspace.id, { userId: bob.id }, team.id, { description: "no" }),
@@ -420,7 +430,10 @@ test.skipIf(!connectionString)(
       await setup();
     try {
       // Setup's own channel was announced when it was made.
-      expect(created).toEqual([{ workspaceId: workspace.id, conversationId: team.id }]);
+      const info = (name: string) => ({ name, description: "", archived: false });
+      expect(created).toEqual([
+        { workspaceId: workspace.id, conversationId: team.id, channel: info(`team-${suffix}`) },
+      ]);
       created.length = 0;
 
       const byPerson = await channels.create(workspace.id, bob.id, `lab-${suffix}`);
@@ -446,8 +459,12 @@ test.skipIf(!connectionString)(
         undefined,
       );
       expect(created).toEqual([
-        { workspaceId: workspace.id, conversationId: byPerson.id },
-        { workspaceId: workspace.id, conversationId: byAgent.channel.id },
+        { workspaceId: workspace.id, conversationId: byPerson.id, channel: info(`lab-${suffix}`) },
+        {
+          workspaceId: workspace.id,
+          conversationId: byAgent.channel.id,
+          channel: info(`ops-${suffix}`),
+        },
       ]);
 
       // A name already taken creates nothing and announces nothing.

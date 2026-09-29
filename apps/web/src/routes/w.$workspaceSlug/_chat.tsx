@@ -51,7 +51,7 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
     });
     // Every channel by id, closed ones included: the authority a body's channel links check. The
     // Query cache keeps it across navigations; `channel.created.v1` and `channel.updated.v1`
-    // re-read it (`conversation-navigation.tsx`). A page that was away from Chat heard neither, so
+    // are written into it (`useApplyChannelSignal`). A page that was away from Chat heard neither, so
     // names behind the channel list just read are read again.
     const channelNames = workspaceId.then(async (workspaceId) => {
       const query = channelNamesQuery(workspaceId);

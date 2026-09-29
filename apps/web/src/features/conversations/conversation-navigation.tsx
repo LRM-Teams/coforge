@@ -30,7 +30,7 @@ import { channelNamesQuery } from "./conversation-queries";
 import { projectsQuery } from "#src/features/projects/project-tree-queries";
 import { rememberConversation } from "./last-conversation";
 import { unknownAgentOf, useChannelUnread } from "./conversation-unread";
-import { useRefreshSidebar, useSidebarLists } from "./sidebar-lists";
+import { useApplyChannelSignal, useRefreshSidebar, useSidebarLists } from "./sidebar-lists";
 import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
 
@@ -80,7 +80,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const agents = useLiveAgents();
   const workspaceId = useCurrentWorkspaceId();
   // Every channel by id, from the Query cache the chat loader filled; kept live by
-  // `channel.created.v1` / `channel.updated.v1` (`workspaceSignalLists`).
+  // `channel.created.v1` / `channel.updated.v1` (`useApplyChannelSignal`).
   const channelNames = useSuspenseQuery(channelNamesQuery(workspaceId ?? "")).data;
   const workspaceSlug = useWorkspaceSlug();
   const desktop = useBreakpoint("lg");
@@ -130,6 +130,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     [visibleChannels, directs, agents],
   );
   const refreshSidebar = useRefreshSidebar();
+  const applyChannelSignal = useApplyChannelSignal();
   const knownAgentIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents]);
   // The Workspace layout's Agent roster only re-reads through the router: one re-read at a time.
   const rosterRefresh = useRef<Promise<void> | undefined>(undefined);
@@ -151,8 +152,10 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
           rosterRefresh.current = undefined;
         });
     },
-    // A channel changed, or the viewer joined, left, closed, muted or pinned a chat elsewhere:
-    // only the lists named are stale.
+    // A channel was created, changed or is gone: applied from the event, not re-read.
+    onChannelSignal: applyChannelSignal,
+    // The viewer joined, left, closed, muted or pinned a chat elsewhere: only the lists named
+    // are stale.
     onSidebarListsChanged: (lists) => void refreshSidebar(lists),
   });
   // Every server read of the lists carries the persisted counts; local arithmetic restarts from

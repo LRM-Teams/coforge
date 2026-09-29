@@ -1,3 +1,4 @@
+import type { ChannelSignal } from "./channel-signals";
 import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
@@ -168,15 +169,15 @@ export function sidebarListsChangedBy(event: ViewerEvent): readonly ChatList[] {
 }
 
 /**
- * Which lists a Workspace-channel publication makes stale: a channel created or changed anywhere in
- * the Workspace (`channel.created.v1`, `channel.updated.v1`) makes the channel list and the channel
- * names stale; anything else (a message signal) is undefined.
+ * A channel created or changed anywhere in the Workspace (`channel.created.v1`,
+ * `channel.updated.v1`), for the page to apply to its lists; undefined for anything else on the
+ * Workspace channel (a message signal).
  */
-export function workspaceSignalLists(data: unknown): readonly ChatList[] | undefined {
-  if (decodeChannelCreatedEvent(data)) return ["channels", "channelNames"];
+export function channelSignalOf(data: unknown): ChannelSignal | undefined {
+  const created = decodeChannelCreatedEvent(data);
+  if (created) return created;
   try {
-    decodeChannelUpdatedEvent(data);
-    return ["channels", "channelNames"];
+    return decodeChannelUpdatedEvent(data);
   } catch {
     return undefined;
   }
@@ -289,6 +290,7 @@ export function useChannelUnread({
   openConversationId,
   listedConversationIds,
   onClosedConversationActivity,
+  onChannelSignal,
   onSidebarListsChanged,
 }: {
   workspaceId?: string;
@@ -303,9 +305,10 @@ export function useChannelUnread({
   /** A new message arrived in a closed chat, or a DM the list has not read yet: these lists
    * bring it in. */
   onClosedConversationActivity: (lists: readonly ChatList[], event: UnreadEventInput) => void;
-  /** These lists are stale: a channel was created, renamed, described, archived or unarchived
-   * (`channel.created.v1`, `channel.updated.v1`), or the viewer's own place in a chat changed
-   * elsewhere (`ViewerEvent`). */
+  /** A channel was created, renamed, described, archived, unarchived or is gone
+   * (`channel.created.v1`, `channel.updated.v1`). */
+  onChannelSignal: (signal: ChannelSignal) => void;
+  /** These lists are stale: the viewer's own place in a chat changed elsewhere (`ViewerEvent`). */
   onSidebarListsChanged: (lists: readonly ChatList[]) => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
@@ -316,6 +319,7 @@ export function useChannelUnread({
     openConversationId,
     listedConversationIds,
     onClosedConversationActivity,
+    onChannelSignal,
     onSidebarListsChanged,
   });
   refs.current = {
@@ -323,13 +327,14 @@ export function useChannelUnread({
     openConversationId,
     listedConversationIds,
     onClosedConversationActivity,
+    onChannelSignal,
     onSidebarListsChanged,
   };
 
   const onPublication = useCallback((publication: { data: unknown }) => {
-    const lists = workspaceSignalLists(publication.data);
-    if (lists) {
-      refs.current.onSidebarListsChanged(lists);
+    const signal = channelSignalOf(publication.data);
+    if (signal) {
+      refs.current.onChannelSignal(signal);
       return;
     }
     try {

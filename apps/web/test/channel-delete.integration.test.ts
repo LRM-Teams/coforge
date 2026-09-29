@@ -42,7 +42,7 @@ test.skipIf(!connectionString)(
       name: "Delete channel",
       userId: owner.id,
     });
-    const updated: string[] = [];
+    const updated: { conversationId: string; gone?: true }[] = [];
     const tasksDeleted: { conversationId: string; deleted: string[] }[] = [];
     const purged: AgentInboxPurgeRequest[] = [];
     const removed: string[] = [];
@@ -50,7 +50,7 @@ test.skipIf(!connectionString)(
       async messageAvailable() {},
       async memberChanged() {},
       async channelUpdated(input) {
-        updated.push(input.conversationId);
+        updated.push({ conversationId: input.conversationId, gone: input.gone });
       },
       async taskChanged(input) {
         if (input.deleted.length > 0)
@@ -195,7 +195,8 @@ test.skipIf(!connectionString)(
           reason: "member_removed",
         },
       ]);
-      expect(updated).toEqual([team.id]);
+      // Every sidebar drops the row from the event alone.
+      expect(updated).toEqual([{ conversationId: team.id, gone: true }]);
       // Open Tasks pages drop the channel's Tasks.
       expect(tasksDeleted).toEqual([
         { conversationId: team.id, deleted: task.tasks.map(({ messageId }) => messageId) },

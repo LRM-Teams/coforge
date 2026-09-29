@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { createConversationReconciler } from "#src/features/conversations/conversation-reconciliation";
 import {
+  decodeChannelCreatedEvent,
   decodeChannelUpdatedEvent,
   decodeMessageAvailableEvent,
   decodeNotificationAvailableEvent,
@@ -21,6 +22,25 @@ describe("conversation realtime", () => {
     );
     expect(() => decodeChannelUpdatedEvent({ ...event, type: "member.changed.v1" })).toThrow();
     expect(() => decodeChannelUpdatedEvent({ ...event, workspaceId: "" })).toThrow();
+  });
+
+  test("a channel event carries the channel's info, or that it is gone, for a sidebar to apply", () => {
+    const ids = { workspaceId: "workspace-a", conversationId: "conversation-a" };
+    const channel = { name: "lab", description: "Where we test", archived: false };
+    const updated = { type: "channel.updated.v1" as const, ...ids, channel };
+    const gone = { type: "channel.updated.v1" as const, ...ids, gone: true as const };
+    const created = { type: "channel.created.v1" as const, ...ids, channel };
+    expect(decodeChannelUpdatedEvent(updated)).toEqual(updated);
+    expect(decodeChannelUpdatedEvent(gone)).toEqual(gone);
+    expect(decodeChannelCreatedEvent(created)).toEqual(created);
+    // Ids alone still decode (a page can meet an older server), and ask for a read.
+    expect(decodeChannelCreatedEvent({ type: "channel.created.v1", ...ids })).toEqual({
+      type: "channel.created.v1",
+      ...ids,
+    });
+    expect(() =>
+      decodeChannelUpdatedEvent({ ...updated, channel: { ...channel, archived: "no" } }),
+    ).toThrow();
   });
 
   test("decodes the viewer's own channel events, which name only ids and the unread count", () => {
