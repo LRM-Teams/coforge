@@ -14,7 +14,7 @@ import {
   type Sidebar,
 } from "./sidebar-collections";
 import { directListsOf, type DirectRow } from "./sidebar-rows";
-import type { SidebarList } from "./conversation-unread";
+import { sidebarRefreshQueue, type SidebarList } from "./conversation-unread";
 
 // React access to the Chat sidebar's lists (`sidebar-collections.ts`).
 
@@ -96,31 +96,23 @@ const listQueryKey: Record<SidebarList, (workspaceId: string) => readonly unknow
  * Re-reads the named lists, and only them, after something outside the sidebar changed them: a
  * channel's rename, description or archive (here or `channel.updated.v1`), the Activity page
  * moving badges, or the viewer's own place in a chat changed on another page, tab or device (a
- * `ViewerEvent`). Lists named again before the re-read starts are read once. The collections
- * follow the refetched Query data.
+ * `ViewerEvent`). A burst is read once (`sidebarRefreshQueue`). The collections follow the
+ * refetched Query data.
  */
 export function useRefreshSidebar() {
   const queryClient = useQueryClient();
   const workspaceId = useCurrentWorkspaceId() ?? "";
-  return useMemo(() => {
-    let pending: Set<SidebarList> | undefined;
-    let flushed: Promise<void> = Promise.resolve();
-    return (lists: readonly SidebarList[]) => {
-      if (!pending) {
-        const batch = (pending = new Set());
-        flushed = Promise.resolve().then(() => {
-          pending = undefined;
-          return Promise.all(
-            [...batch].map((list) =>
-              queryClient.invalidateQueries({ queryKey: listQueryKey[list](workspaceId) }),
-            ),
-          ).then(() => undefined);
-        });
-      }
-      for (const list of lists) pending.add(list);
-      return flushed;
-    };
-  }, [queryClient, workspaceId]);
+  return useMemo(
+    () =>
+      sidebarRefreshQueue((lists) =>
+        Promise.all(
+          [...lists].map((list) =>
+            queryClient.invalidateQueries({ queryKey: listQueryKey[list](workspaceId) }),
+          ),
+        ).then(() => undefined),
+      ),
+    [queryClient, workspaceId],
+  );
 }
 
 /** Re-reads the channel list alone: a channel changed outside the sidebar (a rename, description or

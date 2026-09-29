@@ -15,7 +15,7 @@ import {
 import { PublicChannels } from "./public-channels.server";
 import {
   announceMemberChanged,
-  announceMembershipChanged,
+  announceJoinedOrLeft,
   type ConversationRealtime,
 } from "./conversation-realtime.server";
 import {
@@ -442,7 +442,7 @@ export class AgentChannelManagement {
       if (wasMember) removedUserIds = [user.id];
     }
     if (wasMember)
-      await announceMembershipChanged(this.realtime, {
+      await announceJoinedOrLeft(this.realtime, {
         workspaceId,
         conversationId: channel.id,
         change: "left",

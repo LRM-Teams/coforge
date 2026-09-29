@@ -8,7 +8,7 @@ import {
   type HistoryWindow,
 } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { PrismaDirectConversationPreferences } from "#src/server/db/repositories/direct-conversation-preferences.repositories.server";
-import type { ConversationRealtime } from "./conversation-realtime.server";
+import { announceViewerEvent, type ConversationRealtime } from "./conversation-realtime.server";
 import { SendDirectMessage } from "./direct-message.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { toggleUserMessageReaction } from "./user-message-reactions.server";
@@ -136,10 +136,22 @@ export class DirectConversations {
     return this.preferences.unreadCountsForUser(workspaceId, viewerId);
   }
 
-  /** Pins the DM after the viewer's other pins, or unpins it. */
+  /** Pins the DM after the viewer's other pins, or unpins it. Pins are one order across the
+   * viewer's channels and DMs, so a change tells their other pages `pref.changed.v1` (`pins`). */
   async setPinned(workspaceId: string, viewerId: string, conversationId: string, pinned: boolean) {
     const memberId = await this.viewerMember(workspaceId, viewerId, conversationId);
-    return this.preferences.setPinned(workspaceId, viewerId, { conversationId, memberId }, pinned);
+    const { changed } = await this.preferences.setPinned(
+      workspaceId,
+      viewerId,
+      { conversationId, memberId },
+      pinned,
+    );
+    if (changed)
+      await announceViewerEvent(undefined, {
+        userIds: [viewerId],
+        event: { type: "pref.changed.v1", workspaceId, name: "pins" },
+      });
+    return { pinned };
   }
 
   /** Marks the DM unread from the newest top-level message someone else sent, or clears the

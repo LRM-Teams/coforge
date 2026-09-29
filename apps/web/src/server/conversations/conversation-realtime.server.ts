@@ -324,7 +324,7 @@ export async function announceMemberChanged(
  * (`channel.joined.v1` / `channel.left.v1`), as Slack sends both `member_joined_channel` and
  * `channel_joined`. An Agent-only change names nobody.
  */
-export async function announceMembershipChanged(
+export async function announceJoinedOrLeft(
   realtime: Pick<ConversationRealtime, "memberChanged" | "viewerChanged"> | undefined,
   input: {
     workspaceId: string;

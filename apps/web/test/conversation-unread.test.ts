@@ -5,6 +5,7 @@ import {
   applyChannelMarked,
   applyUnreadEvent,
   sidebarListsChangedBy,
+  sidebarRefreshQueue,
   clearUnread,
   seedUnreadCounts,
   replaceUnreadCounts,
@@ -419,5 +420,32 @@ describe("the viewer's own channel events", () => {
     expect(
       sidebarListsChangedBy({ type: "pref.changed.v1", workspaceId: "workspace-a", name: "pins" }),
     ).toEqual(["channels", "dms"]);
+  });
+});
+
+describe("sidebarRefreshQueue", () => {
+  test("lists named while a re-read is running are read once, together, after it", async () => {
+    const reads: string[][] = [];
+    const running: (() => void)[] = [];
+    const refresh = sidebarRefreshQueue(
+      (lists) =>
+        new Promise<void>((resolve) => {
+          reads.push([...lists].sort());
+          running.push(resolve);
+        }),
+    );
+    const first = refresh(["channels"]);
+    await Promise.resolve();
+    expect(reads).toEqual([["channels"]]);
+
+    const second = refresh(["dms"]);
+    const third = refresh(["channels"]);
+    expect(second).toBe(third);
+    running.shift()!();
+    await first;
+    await Promise.resolve();
+    expect(reads).toEqual([["channels"], ["channels", "dms"]]);
+    running.shift()!();
+    await second;
   });
 });

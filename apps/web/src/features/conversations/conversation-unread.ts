@@ -144,6 +144,29 @@ export function sidebarListsChangedBy(event: ViewerEvent): readonly SidebarList[
 }
 
 /**
+ * Coalesces sidebar re-reads: lists named before a re-read starts go into it, and lists named
+ * while one is running go into a single re-read after it, so a burst of events costs at most one
+ * read in flight and one queued. Each call settles once a re-read covering its lists has.
+ */
+export function sidebarRefreshQueue(read: (lists: ReadonlySet<SidebarList>) => Promise<void>) {
+  let running: Promise<void> = Promise.resolve();
+  let queued: { lists: Set<SidebarList>; done: Promise<void> } | undefined;
+  return (lists: readonly SidebarList[]): Promise<void> => {
+    if (!queued) {
+      const batch = new Set<SidebarList>();
+      const done = running.then(() => {
+        queued = undefined;
+        return read(batch);
+      });
+      running = done.catch(() => undefined);
+      queued = { lists: batch, done };
+    }
+    for (const list of lists) queued.lists.add(list);
+    return queued.done;
+  };
+}
+
+/**
  * The highest top-level sequence in a loaded conversation page — the boundary "I have read
  * everything shown in the main pane". Thread replies never advance it. Shared by
  * the channel and DM routes so the two mark-read paths cannot drift.

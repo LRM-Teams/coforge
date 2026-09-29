@@ -11,7 +11,7 @@ import { announceViewerEvent, type ConversationRealtime } from "./conversation-r
  * every channel and DM they have in the Workspace (the sidebar's Pinned section lists them
  * together), so a new pin goes after all of them. Pinning what is already pinned keeps its place
  * unless the caller supplies an order. Runs inside the caller's transaction, which holds
- * `lockMemberPins` and then the conversation's lock, in that order.
+ * `lockMemberPins` and then the conversation's lock, in that order. Says whether the pin changed.
  */
 export async function setConversationPin(
   tx: Prisma.TransactionClient,
@@ -21,23 +21,19 @@ export async function setConversationPin(
 ) {
   const { workspaceId, userId, conversationId, memberId } = pin;
   const key = { conversationId, memberId };
-  if (!pinned) {
-    await tx.conversationPin.deleteMany({ where: key });
-    return;
-  }
-  if (sortOrder === undefined) {
-    const existing = await tx.conversationPin.findUnique({
-      where: { conversationId_memberId: key },
-      select: { sortOrder: true },
-    });
-    if (existing) return;
-  }
+  if (!pinned) return (await tx.conversationPin.deleteMany({ where: key })).count > 0;
+  const existing = await tx.conversationPin.findUnique({
+    where: { conversationId_memberId: key },
+    select: { sortOrder: true },
+  });
+  if (existing && (sortOrder === undefined || sortOrder === existing.sortOrder)) return false;
   const order = sortOrder ?? (await nextPinOrder(tx, workspaceId, userId));
   await tx.conversationPin.upsert({
     where: { conversationId_memberId: key },
     create: { conversationId, memberId, workspaceId, sortOrder: order },
     update: { sortOrder: order },
   });
+  return true;
 }
 
 /** One past the highest order among the user's pins in this Workspace. `memberId` is a
@@ -69,7 +65,7 @@ export async function arrangeConversationPins(
   arrangement: { pins: readonly ConversationPinRef[]; unpinned: readonly ConversationPinRef[] },
   realtime?: Pick<ConversationRealtime, "viewerChanged">,
 ) {
-  await db.$transaction(async (tx) => {
+  const changed = await db.$transaction(async (tx) => {
     await lockMemberPins(tx, workspaceId, userId);
     const resolved = await activeMemberships(tx, workspaceId, userId, arrangement.pins);
     if (resolved.some((member) => member === undefined)) throw new AppError("ACCESS_DENIED");
@@ -141,11 +137,13 @@ export async function arrangeConversationPins(
           ${moved.map((pin) => pin.order)}::int[]
         ) AS v("conversationId", "memberId", "sortOrder")
         WHERE p."conversationId" = v."conversationId" AND p."memberId" = v."memberId"`;
+    return removed.length + added.length + moved.length > 0;
   });
-  await announceViewerEvent(realtime, {
-    userIds: [userId],
-    event: { type: "pref.changed.v1", workspaceId, name: "pins" },
-  });
+  if (changed)
+    await announceViewerEvent(realtime, {
+      userIds: [userId],
+      event: { type: "pref.changed.v1", workspaceId, name: "pins" },
+    });
 }
 
 /** The member's active membership behind each ref, in order; `undefined` where the member is not

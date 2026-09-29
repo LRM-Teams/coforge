@@ -9,6 +9,7 @@ import {
 import type { ConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { AgentChannelManagement } from "#src/server/conversations/agent-channel-management.server";
 import { arrangeConversationPins } from "#src/server/conversations/conversation-pins.server";
+import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 
 /**
  * The events a person's own pages hear about their place in a channel (`ViewerEvent`), from the
@@ -289,6 +290,86 @@ test.skipIf(!connectionString)(
       );
       expect(announced).toEqual([pref("muted"), pref("pins"), pref("pins")]);
     } finally {
+      await teardown();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a write that leaves the member's place as it was announces nothing",
+  async () => {
+    const { teardown, db, workspace, bob, team, channels, realtime, announced } = await setup();
+    try {
+      await channels.setUserMuted(workspace.id, bob.id, team.id, true);
+      await channels.setUserHidden(workspace.id, bob.id, team.id, true);
+      await channels.setUserPinned(workspace.id, bob.id, team.id, true);
+      announced.length = 0;
+
+      await channels.setUserMuted(workspace.id, bob.id, team.id, true);
+      await channels.setUserHidden(workspace.id, bob.id, team.id, true);
+      await channels.setUserPinned(workspace.id, bob.id, team.id, true);
+      await arrangeConversationPins(
+        db,
+        workspace.id,
+        bob.id,
+        { pins: [{ kind: "channel", channelId: team.id }], unpinned: [] },
+        realtime,
+      );
+      // Nobody else has spoken, so there is no marker to set or clear.
+      await channels.setUserUnread(workspace.id, bob.id, team.id, true);
+      await channels.setUserUnread(workspace.id, bob.id, team.id, false);
+      // Already in the channel.
+      await channels.join(workspace.id, bob.id, team.id);
+      expect(announced).toEqual([]);
+    } finally {
+      await teardown();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "pinning a DM tells the viewer's pages their pins changed, since pins are one order across chats",
+  async () => {
+    const published: unknown[] = [];
+    const centrifugo = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        published.push(await request.json());
+        return Response.json({ result: {} });
+      },
+    });
+    const env = {
+      url: process.env.COFORGE_CENTRIFUGO_API_URL,
+      key: process.env.COFORGE_CENTRIFUGO_API_KEY,
+    };
+    process.env.COFORGE_CENTRIFUGO_API_URL = `http://127.0.0.1:${centrifugo.port}/api`;
+    process.env.COFORGE_CENTRIFUGO_API_KEY = "test-key";
+    const { teardown, db, workspace, ada, bob } = await setup();
+    try {
+      const dms = new DirectConversations(db);
+      const { conversationId } = await dms.open(workspace.id, bob.id, { userId: ada.id });
+      published.length = 0;
+
+      await dms.setPinned(workspace.id, bob.id, conversationId, true);
+      await dms.setPinned(workspace.id, bob.id, conversationId, true);
+      expect(published).toEqual([
+        {
+          method: "broadcast",
+          params: {
+            channels: [`chat:user:${bob.id}`],
+            data: { type: "pref.changed.v1", workspaceId: workspace.id, name: "pins" },
+            idempotency_key: expect.any(String),
+          },
+        },
+      ]);
+    } finally {
+      for (const [name, value] of [
+        ["COFORGE_CENTRIFUGO_API_URL", env.url],
+        ["COFORGE_CENTRIFUGO_API_KEY", env.key],
+      ] as const)
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      await centrifugo.stop(true);
       await teardown();
     }
   },
