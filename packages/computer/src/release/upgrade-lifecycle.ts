@@ -447,7 +447,7 @@ async function settleLifecycleWork(
   const deadline = Date.now() + settle.timeoutMs;
   while (true) {
     const runtimes = await local.control("snapshot").catch(() => []);
-    const underWay = runtimes.filter((runtime) => runtime.cloudConnection === "connecting");
+    const underWay = runtimes.filter((runtime) => runtime.lifecycleUnderWay);
     if (!underWay.length) return;
     if (Date.now() >= deadline) {
       const ids = underWay.map((runtime) => runtime.workspaceId);

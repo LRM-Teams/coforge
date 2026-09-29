@@ -129,9 +129,7 @@ test("an upgrade waits for a start or restart still under way before it pauses t
         if (method !== "daemon:snapshot") return [runtime("a", { processId: 7 })];
         snapshots += 1;
         // Still restarting for the first two looks: its old process gone, the new one not yet.
-        return [
-          runtime("a", snapshots <= 2 ? { cloudConnection: "connecting" } : { processId: 7 }),
-        ];
+        return [runtime("a", snapshots <= 2 ? { lifecycleUnderWay: true } : { processId: 7 })];
       },
     },
   });
@@ -158,7 +156,7 @@ test("an upgrade gives up on a restart that stays under way, naming it with the 
     runtime: {
       command: async (method) => {
         calls.push(method);
-        return [runtime("a", { cloudConnection: "connecting" })];
+        return [runtime("a", { lifecycleUnderWay: true })];
       },
     },
   });
@@ -170,6 +168,28 @@ test("an upgrade gives up on a restart that stays under way, naming it with the 
     );
     expect(calls).not.toContain("daemon:pause");
     expect(await Bun.file(join(root, "launch-hold")).exists()).toBe(false);
+  } finally {
+    await server.close();
+  }
+});
+
+test("an upgrade does not wait for a Workspace whose cloud connection is merely retrying", async () => {
+  const calls: string[] = [];
+  const server = await startDaemonLocalRpcServer({
+    socketPath: join(root, "daemon.sock"),
+    validateCredential: () => true,
+    credentials: new InMemoryDaemonCredentialStore(),
+    runtime: {
+      command: async (method) => {
+        calls.push(method);
+        return [runtime("a", { processId: 7, cloudConnection: "connecting" })];
+      },
+    },
+  });
+  try {
+    await lifecycle({ timeoutMs: 20, pollMs: 1 }).pauseLaunches("request-1");
+
+    expect(calls).toContain("daemon:pause");
   } finally {
     await server.close();
   }

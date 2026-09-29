@@ -602,6 +602,8 @@ export type ManagedRuntimeIdentity = {
   /** Only on the Workspaces an operator start or restart just started. */
   cloudConnection?: WorkspaceCloudConnection;
   cloudConnectionError?: string;
+  /** A start, restart, or configure of this Workspace is queued or running in the Coordinator. */
+  lifecycleUnderWay?: boolean;
 };
 export type DaemonCommandResponse = {
   protocolMajor: number;
@@ -704,6 +706,7 @@ export function decodeDaemonCommandResponse(bytes: Uint8Array): DaemonCommandRes
       version: runtime.version,
       ...(runtime.parkReason ? { parkReason: runtime.parkReason } : {}),
       ...connectionFields(runtime),
+      ...(runtime.lifecycleUnderWay ? { lifecycleUnderWay: true } : {}),
     })),
     ...(value.error ? { error: value.error } : {}),
     ...(value.errorCode ? { errorCode: value.errorCode } : {}),

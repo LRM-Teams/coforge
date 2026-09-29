@@ -585,13 +585,13 @@ test.skipIf(process.platform !== "darwin")(
       // The restart answers at once with the Workspace still under way ...
       const answered = await client.control("restart", "a", "restart-1");
       expect(answered.find((runtime) => runtime.workspaceId === "a")).toMatchObject({
-        cloudConnection: "connecting",
+        lifecycleUnderWay: true,
       });
       // ... and finishes behind the answer: the replacement is adopted and nothing is under way,
       // which is what `status` and an upgrade's check read.
       const after = await until(
         (runtime) =>
-          runtime.cloudConnection === undefined &&
+          !runtime.lifecycleUnderWay &&
           runtime.processId > 0 &&
           runtime.processId !== before.processId,
         "the restart never finished behind its answer",
@@ -605,16 +605,14 @@ test.skipIf(process.platform !== "darwin")(
       await client.control("restart", "a", "restart-2");
       await client.control("stop", "a");
       await until(
-        (runtime) =>
-          !runtime.enabled && runtime.processId === 0 && runtime.cloudConnection === undefined,
+        (runtime) => !runtime.enabled && runtime.processId === 0 && !runtime.lifecycleUnderWay,
         "the stop did not win over the restart under way",
       );
 
       // A start after it still runs.
       await client.control("start", "a");
       await until(
-        (runtime) =>
-          runtime.enabled && runtime.processId > 0 && runtime.cloudConnection === undefined,
+        (runtime) => runtime.enabled && runtime.processId > 0 && !runtime.lifecycleUnderWay,
         "the start after the stop never finished",
       );
     } finally {

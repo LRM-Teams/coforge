@@ -258,7 +258,7 @@ test("start names each Workspace still under way, and fails naming the restart f
       ensureRunning: async () => {},
       command: async () => [
         runtime("ws-a", { cloudConnection: "connected" }),
-        runtime("ws-b", { cloudConnection: "connecting" }),
+        runtime("ws-b", { lifecycleUnderWay: true }),
         runtime("ws-c", {
           cloudConnection: "not_connected",
           cloudConnectionError: "transport closed (2)",
@@ -291,7 +291,7 @@ test("a restart still under way at its deadline says so and succeeds", async () 
   const command = createCommand({
     daemon: {
       ensureRunning: async () => {},
-      command: async () => [runtime("ws-a", { cloudConnection: "connecting" })],
+      command: async () => [runtime("ws-a", { lifecycleUnderWay: true })],
     },
     resolveWorkspace: async (selector) => ({ id: selector, slug: `slug-${selector}` }),
     write: progress.write,
@@ -327,7 +327,7 @@ test("a Workspace still connecting says why its latest attempt failed", async ()
   expect(progress.lines).toEqual([
     "Starting CoForge...",
     "CoForge Computer started, but not every Workspace is connected yet:",
-    "  slug-ws-a: still starting, retrying after connect error 100: internal server error. Run 'coforge-computer status' to follow it.",
+    "  slug-ws-a: still connecting, retrying after connect error 100: internal server error. Run 'coforge-computer status' to follow it.",
   ]);
 });
 
@@ -389,4 +389,23 @@ test("a scoped stop only reports its own Workspace", async () => {
   await command.stop("ws-a");
 
   expect(progress.lines).toEqual([]);
+});
+
+test("a scoped start reports only its own Workspace, not another one's restart under way", async () => {
+  const progress = output();
+  const command = createCommand({
+    daemon: {
+      ensureRunning: async () => {},
+      command: async () => [
+        runtime("ws-a", { cloudConnection: "connected" }),
+        runtime("ws-b", { lifecycleUnderWay: true }),
+      ],
+    },
+    resolveWorkspace: async (selector) => ({ id: selector, slug: selector }),
+    write: progress.write,
+  });
+
+  await command.start("ws-a");
+
+  expect(progress.lines).toEqual(["Starting CoForge...", "CoForge Computer is online."]);
 });

@@ -55,6 +55,9 @@ export function createCommand(input: {
       throw parkedWorkspaceError(error, error.code, refused);
     }
   };
+  /** The Workspace id a `--workspace` selector names, or undefined for the whole machine. */
+  const targetId = async (workspace?: string) =>
+    workspace ? ((await resolve(workspace).catch(() => undefined))?.id ?? workspace) : undefined;
   /** Each runtime's Workspace slug for the terminal, or its id when it has no local registration. */
   const names = (runtimes: readonly ManagedRuntimeIdentity[]) =>
     Promise.all(
@@ -71,12 +74,17 @@ export function createCommand(input: {
    */
   const report = async (
     operation: "start" | "restart",
+    target: string | undefined,
     runtimes: readonly ManagedRuntimeIdentity[],
     online: string,
     pendingHeader: string,
   ) => {
+    // Only the command's own Workspaces: another one's restart under way is not this command's.
     const unsettled = runtimes.filter(
-      (runtime) => runtime.cloudConnection && runtime.cloudConnection !== "connected",
+      (runtime) =>
+        (!target || runtime.workspaceId === target) &&
+        (runtime.lifecycleUnderWay ||
+          (runtime.cloudConnection && runtime.cloudConnection !== "connected")),
     );
     if (!unsettled.length) return write(online);
     write(pendingHeader);
@@ -84,12 +92,18 @@ export function createCommand(input: {
     const failed: string[] = [];
     for (const [index, runtime] of unsettled.entries()) {
       const name = resolved[index]!;
-      if (runtime.cloudConnection === "connecting") {
+      if (runtime.lifecycleUnderWay) {
         const under = operation === "start" ? "still starting" : "still restarting";
+        write(`  ${name}: ${under}. Run 'coforge-computer status' to follow it.`);
+        continue;
+      }
+      if (runtime.cloudConnection === "connecting") {
         const retrying = runtime.cloudConnectionError
           ? `, retrying after ${terminalText(runtime.cloudConnectionError)}`
           : "";
-        write(`  ${name}: ${under}${retrying}. Run 'coforge-computer status' to follow it.`);
+        write(
+          `  ${name}: still connecting${retrying}. Run 'coforge-computer status' to follow it.`,
+        );
         continue;
       }
       failed.push(name);
@@ -112,10 +126,12 @@ export function createCommand(input: {
       input.logger?.info("Computer start requested", { event: "computer:starting" });
       write("Starting CoForge...");
       await input.daemon.ensureRunning();
+      const target = await targetId(workspace);
       const runtimes = await run("start", workspace);
       input.logger?.info("Computer start completed", { event: "computer:started" });
       await report(
         "start",
+        target,
         runtimes,
         "CoForge Computer is online.",
         "CoForge Computer started, but not every Workspace is connected yet:",
@@ -124,9 +140,7 @@ export function createCommand(input: {
     async stop(workspace) {
       input.logger?.info("Computer stop requested", { event: "computer:stopping" });
       await input.daemon.ensureRunning();
-      const target = workspace
-        ? ((await resolve(workspace).catch(() => undefined))?.id ?? workspace)
-        : undefined;
+      const target = await targetId(workspace);
       const runtimes = await run("stop", workspace);
       input.logger?.info("Computer stop completed", { event: "computer:stopped" });
       // The stop answers by its deadline; a Workspace it has not reached yet still has its process.
@@ -142,10 +156,12 @@ export function createCommand(input: {
       input.logger?.info("Computer restart requested", { event: "computer:restarting" });
       write(workspace ? `Restarting Workspace ${workspace}...` : "Restarting CoForge...");
       await input.daemon.ensureRunning();
+      const target = await targetId(workspace);
       const runtimes = await run("restart", workspace);
       input.logger?.info("Computer restart completed", { event: "computer:restarted" });
       await report(
         "restart",
+        target,
         runtimes,
         workspace
           ? `Workspace ${workspace} restarted and is back online.`

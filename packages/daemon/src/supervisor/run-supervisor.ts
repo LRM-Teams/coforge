@@ -455,7 +455,7 @@ async function runWithSupervisorLock(
   /**
    * An operator start or restart answers under one deadline for the whole command: every
    * Workspace it started is answered with where its first cloud connect stands, one still under
-   * way (queued, holding, stopping, or starting) as still connecting while its work finishes
+   * way (queued, holding, stopping, or starting) with `lifecycleUnderWay` while its work finishes
    * behind the answer, and one the cloud refused for good refuses the command with its park.
    */
   const startForOperator = async (
@@ -473,8 +473,8 @@ async function runWithSupervisorLock(
     // Only finished Workspaces are asked: one still restarting may be answered by its old process.
     const outcomes = await awaitCloudConnections(startPorts, started, deadline);
     const answered = new Map(outcomes.map((outcome) => [outcome.workspaceId, outcome]));
-    for (const id of pending) answered.set(id, { workspaceId: id, cloudConnection: "connecting" });
     return (await view()).map((runtime) => {
+      if (pending.includes(runtime.workspaceId)) return { ...runtime, lifecycleUnderWay: true };
       const outcome = answered.get(runtime.workspaceId);
       if (!outcome) return runtime;
       return {
@@ -489,9 +489,9 @@ async function runWithSupervisorLock(
   const runtimes = async (bindings: Awaited<ReturnType<typeof supervisor.snapshot>>) =>
     Promise.all(
       bindings.map(async (binding) => {
-        // A start or restart under way answers as still connecting, as a command's pending
-        // Workspaces do, so an upgrade waits for it instead of reading it as down.
-        const underWay = binding.inFlight ? { cloudConnection: "connecting" as const } : {};
+        // A start, restart, or configure queued or running: an upgrade waits for it instead of
+        // reading the Workspace as down, and the CLI reports it as still starting.
+        const underWay = binding.inFlight ? { lifecycleUnderWay: true } : {};
         const child = children.get(binding.workspaceId);
         if (child && binding.instanceId === child.osInstanceId)
           return { ...child.identity, enabled: binding.enabled, ...underWay };
