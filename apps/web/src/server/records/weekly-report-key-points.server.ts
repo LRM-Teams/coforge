@@ -82,6 +82,7 @@ export function buildTeamKeyPointWakeText(input: {
     `week: ${input.year} W${input.week}`,
     "",
     "平台已触发「全员要点提炼」。请按下列提示词阅读本周所有已提交成员周报，整理成一份团队要点纪要，",
+    "如需解释事项的延续关系，可用 coforge weekly-report list / read 查看同一模板最近两周的已提交周报；只引用当前用户有权限看到的来源。",
     "然后通过 `coforge weekly-report-key-points submit --report-id <overviewReportId> --idempotency-key <uuid> --markdown <file>`",
     "写回 markdown（reportId 使用 overviewReportId；不要用 body-edit Confirm）。",
     "",
