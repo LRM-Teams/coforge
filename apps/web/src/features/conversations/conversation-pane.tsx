@@ -986,7 +986,7 @@ export function ConversationPane({
                         id={item.id}
                         messages={item.messages}
                         expanded={groupOpen}
-                        onToggleExpanded={() => toggleSystemGroup(item.messages)}
+                        onToggleExpanded={toggleSystemGroup}
                         dayChanged={
                           !opensThread &&
                           groupsWithPrevious(first, previous, false, false, dateLocale).dayChanged
