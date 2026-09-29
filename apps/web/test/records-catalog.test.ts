@@ -501,6 +501,39 @@ test("createTemplate allows a regular Workspace member during MVP rollout", asyn
   ).resolves.toEqual({ id: "member-settings" });
 });
 
+test("loadLatestEditableMemberReport selects the current user's newest draft", async () => {
+  let query: unknown;
+  const db = {
+    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    weeklyReport: {
+      findFirst: async (input: unknown) => {
+        query = input;
+        return {
+          id: "report-current",
+          title: "2026 W39 周报",
+          cycle: { year: 2026, week: 39, title: "2026 W39" },
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await expect(
+    new RecordCatalog(db).loadLatestEditableMemberReport({
+      workspaceId: "workspace-1",
+      userId: "member-a",
+    }),
+  ).resolves.toMatchObject({ id: "report-current" });
+  expect(query).toMatchObject({
+    where: {
+      workspaceId: "workspace-1",
+      authorId: "member-a",
+      kind: "member",
+      status: "draft",
+      hiddenFromAuthor: false,
+    },
+  });
+});
+
 test("createTemplate with scheduleEnabled false stays inactive", async () => {
   const createdTemplates: Array<Record<string, unknown>> = [];
   const db = {

@@ -2754,6 +2754,26 @@ export class RecordCatalog {
     };
   }
 
+  async loadLatestEditableMemberReport(input: { workspaceId: string; userId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "member",
+        status: "draft",
+        hiddenFromAuthor: false,
+      },
+      orderBy: [{ cycle: { year: "desc" } }, { cycle: { week: "desc" } }, { updatedAt: "desc" }],
+      select: {
+        id: true,
+        title: true,
+        cycle: { select: { year: true, week: true, title: true } },
+      },
+    });
+    return report;
+  }
+
   /** Builds the checked-in Foundation Models weekly PPT for one Leader overview. */
   async exportWeeklyReportPresentation(input: {
     workspaceId: string;
