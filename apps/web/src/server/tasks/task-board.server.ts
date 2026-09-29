@@ -710,7 +710,7 @@ export class TaskBoard {
       data: { ...data, revision: { increment: 1 } },
     });
     if (changed.count !== 1) throw new AppError("CONFLICT");
-    const task = await tx.task.findUniqueOrThrow({
+    let task = await tx.task.findUniqueOrThrow({
       where: { messageId: before.messageId },
       select: taskSelection,
     });
@@ -735,6 +735,12 @@ export class TaskBoard {
     }
     if (task.owner?.agentId && task.ownerMemberId !== before.ownerMemberId) {
       await this.ensureTaskExecutionSession(tx, task, task.owner.agentId);
+      // Read the row again so the result names the session every later read of this Task shows
+      // (a restarted session keeps its older createdAt, so patching it in could disagree).
+      task = await tx.task.findUniqueOrThrow({
+        where: { messageId: before.messageId },
+        select: taskSelection,
+      });
     }
     const changes = taskChanges(before, task);
     if (!changes.length) return { task, events: [] };
