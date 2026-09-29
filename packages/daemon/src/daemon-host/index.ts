@@ -3,8 +3,10 @@ export { SystemdUserDaemonHost, systemdUserUnit } from "./systemd-user";
 export { WindowsUserDaemonHost, windowsDaemonTaskXml } from "./windows-task";
 export { windowsTaskUserId } from "../platform/windows-scheduled-task";
 export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./launcher";
+export { COORDINATOR_SERVICE, coordinatorServiceName } from "./service-identity";
 
 import { LaunchdDaemonHost } from "./launchd";
+import { COORDINATOR_SERVICE } from "./service-identity";
 import { SystemdUserDaemonHost } from "./systemd-user";
 import { WindowsUserDaemonHost } from "./windows-task";
 
@@ -21,7 +23,7 @@ export function createDaemonHost(input: {
   runtimeHomeDirectory?: string;
 }) {
   if (input.platform === "darwin") {
-    return new LaunchdDaemonHost({ ...input, label: "cn.coforge.computer.daemon" });
+    return new LaunchdDaemonHost({ ...input, label: COORDINATOR_SERVICE.launchdLabel });
   }
   if (input.platform === "linux") return new SystemdUserDaemonHost(input);
   if (input.platform === "win32") return new WindowsUserDaemonHost(input);

@@ -48,7 +48,20 @@ relative to `src/`.
 | `logging/`                           | Computer LogTape configuration and the `logs` follower                        |
 | `updater.ts`                         | Verified installation, launchers, and version activation                      |
 | `release/`                           | Installer scripts and the independent upgrade/rollback coordinator            |
+| `release/installer-contract.ts`      | Shapes shared only with `coforge-installer` (manifest, receipt, lifecycle)    |
 | `version.ts`                         | Build version                                                                 |
+
+`scripts/installer-contract.ts` (outside `src/`, never bundled) generates
+`installer/contract/`, the cross-language contract with the Rust installer:
+JSON Schema via `z.toJSONSchema()` plus golden files. This package is its source
+of truth; each shape's zod schema lives in the module that owns the concept
+(`updater.ts`, `release/upgrade-coordinator.ts`, `release/installer-contract.ts`).
+After changing a contract shape or a value it exports (paths, service names,
+launchers, lock, feed environments), run `bun run generate:installer-contract`
+and commit the result; `test/installer-contract.test.ts` and CI fail otherwise.
+Contract objects are `z.looseObject` (fields only get added). Resolve the home
+directory with `os.homedir()` only, never `HOME`/`USERPROFILE` directly: the
+installer follows the same rule (`installer/contract/paths.json`).
 
 The map describes ownership, not permission to create empty layers. Keep an
 existing file in place when it still has one clear responsibility; move code

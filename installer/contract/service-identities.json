@@ -1,0 +1,13 @@
+{
+  "coordinator": {
+    "launchd_label": "cn.coforge.computer.daemon",
+    "launchd_domain": "gui/{uid}",
+    "systemd_user_unit": "coforge-daemon.service",
+    "windows_task": "CoForge Daemon"
+  },
+  "upgrade_job": {
+    "launchd_label": "cn.coforge.upgrade.{request_id}",
+    "systemd_user_unit": "coforge-upgrade-{request_id}.service",
+    "windows_task": "CoForge Upgrade {request_id}"
+  }
+}

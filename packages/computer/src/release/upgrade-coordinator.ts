@@ -1,6 +1,11 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { UPGRADE_ERROR_CODE } from "@lrm/coforge-sdk/internal";
+import {
+  RFC_UUID_PATTERN,
+  UPGRADE_ERROR_CODE,
+  UPGRADE_ERROR_CODE_PATTERN,
+} from "@lrm/coforge-sdk/internal";
+import { z } from "zod";
 
 import {
   ComputerUpdater,
@@ -40,24 +45,27 @@ export type UpgradeCoordinatorOptions = UpgradeOperation &
     updater?: Pick<ComputerUpdater, "withExclusiveOperation">;
   };
 
-/** The durable receipt one operation leaves behind; the only evidence the Daemon reads. */
-export type UpgradeResult = {
-  schema_version: 1;
-  request_id: string;
-  operation: UpgradeOperationKind;
-  status: "succeeded" | "failed";
-  version?: string;
-  restoredVersion?: string;
-  error?: string;
+/** The durable receipt one operation leaves behind (`upgrade-results/<id>.result.json`); the only
+ * evidence the Daemon reads. Written once, before Workspace launches resume. The installer's
+ * receipt extends it (`InstallerReceiptSchema`). */
+export const UpgradeResultSchema = z.looseObject({
+  schema_version: z.literal(1),
+  request_id: z.string().regex(RFC_UUID_PATTERN),
+  operation: z.enum(["upgrade", "rollback"]),
+  status: z.enum(["succeeded", "failed"]),
+  version: z.string().optional(),
+  restoredVersion: z.string().optional(),
+  error: z.string().optional(),
   /** See `UPGRADE_ERROR_CODE`. Set when this machine can name a stable reason: the updater's own
    * `UpdateError.code` when the failure happened before any switch, or a generic rollback-outcome
    * code once one was attempted. */
-  errorCode?: string;
+  errorCode: z.string().regex(UPGRADE_ERROR_CODE_PATTERN).optional(),
   /** Whether the Computer supervisor was running before the switch. Kept JSON-plain so a CLI
    * reading the receipt back can tell a caller their Workspaces were never touched. */
-  supervisorRunning?: boolean;
-  runtimes?: { bindingId: string; running: boolean }[];
-};
+  supervisorRunning: z.boolean().optional(),
+  runtimes: z.array(z.looseObject({ bindingId: z.string(), running: z.boolean() })).optional(),
+});
+export type UpgradeResult = z.infer<typeof UpgradeResultSchema>;
 
 export class UpgradeCoordinatorError extends Error {
   constructor(

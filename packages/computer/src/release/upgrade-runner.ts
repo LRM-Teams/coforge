@@ -15,13 +15,15 @@ import {
 } from "./upgrade-coordinator";
 import type { UpgradeOperation } from "./upgrade-operation";
 
-/** This machine's installation, release feed, and Coordinator locations. */
+/** This machine's installation, release feed, and Coordinator locations, all resolved from
+ * `os.homedir()`: HOME on POSIX (else the account's passwd entry), USERPROFILE on Windows (else
+ * the profile directory). The installer follows the same rule; see installer/contract/paths.json. */
 export function resolveUpgradeCoordinatorPaths(): LaunchUpgradeCoordinatorPaths {
-  const homeDirectory = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const homeDirectory = homedir();
   const supervisorStatePath = resolveComputerStateDirectory({
     platform: process.platform,
-    homeDirectory: homedir(),
-    environment: Bun.env,
+    homeDirectory,
+    environment: process.env,
   });
   return {
     installRoot: resolveComputerInstallDirectory({

@@ -31,7 +31,7 @@ export function computerUpgradeCommand(
       "systemd-run",
       "--user",
       "--collect",
-      `--unit=coforge-upgrade-${requestId}.service`,
+      `--unit=${computerUpgradeUnitName(requestId)}`,
       "--property=Type=exec",
       ...action,
     ];
@@ -43,6 +43,13 @@ export function computerUpgradeCommand(
   throw new Error("remote Computer upgrade has no safe external coordinator on this platform");
 }
 
+/** Transient systemd user unit for a Linux one-shot remote upgrade. */
+export function computerUpgradeUnitName(requestId: string): string {
+  if (!RFC_UUID_PATTERN.test(requestId)) throw new Error("invalid Computer upgrade request ID");
+  return `coforge-upgrade-${requestId}.service`;
+}
+
+/** launchd label for a macOS one-shot remote upgrade. */
 export function computerUpgradeJobLabel(requestId: string): string {
   if (!RFC_UUID_PATTERN.test(requestId)) throw new Error("invalid Computer upgrade request ID");
   return `cn.coforge.upgrade.${requestId}`;

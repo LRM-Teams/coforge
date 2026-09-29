@@ -1,0 +1,20 @@
+{
+  "schema_version": 4,
+  "version": "0.1.0",
+  "computer": {
+    "size": 71303168,
+    "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "agentCli": {
+    "size": 63,
+    "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "githubCli": {
+    "size": 74,
+    "checksum": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "photonWasm": {
+    "size": 1843200,
+    "checksum": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  }
+}

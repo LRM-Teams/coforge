@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "lifecycle_protocol": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "version": {
+      "type": "string"
+    },
+    "supervisor": {
+      "type": "object",
+      "properties": {
+        "running": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "running"
+      ],
+      "additionalProperties": {}
+    },
+    "bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "binding_id": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "process_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "binding_id",
+          "enabled",
+          "running",
+          "process_id"
+        ],
+        "additionalProperties": {}
+      }
+    },
+    "healthy": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "lifecycle_protocol",
+    "version",
+    "supervisor",
+    "bindings",
+    "healthy"
+  ],
+  "additionalProperties": {},
+  "title": "__lifecycle status"
+}

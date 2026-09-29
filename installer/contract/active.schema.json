@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "number",
+      "const": 1
+    },
+    "current": {
+      "type": "string"
+    },
+    "previous": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "current",
+    "previous"
+  ],
+  "additionalProperties": {},
+  "title": "CoForge active version"
+}

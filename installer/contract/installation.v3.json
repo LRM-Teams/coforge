@@ -1,0 +1,16 @@
+{
+  "schema_version": 3,
+  "version": "0.0.9",
+  "computer": {
+    "size": 70254592,
+    "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "agentCli": {
+    "size": 63,
+    "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "githubCli": {
+    "size": 74,
+    "checksum": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  }
+}

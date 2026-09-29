@@ -13,7 +13,8 @@
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "generate:installer-contract": "bun scripts/installer-contract.ts"
   },
   "dependencies": {
     "@logtape/file": "2.3.2",

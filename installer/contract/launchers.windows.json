@@ -1,0 +1,15 @@
+{
+  "agentCli": {
+    "file": "coforge.cmd",
+    "contents": "@echo off\r\n\"%~dp0coforge-computer.exe\" __agent-cli %*\r\n"
+  },
+  "githubCli": {
+    "file": "gh.cmd",
+    "contents": "@echo off\r\n\"%~dp0coforge-computer.exe\" __agent-cli github gh %*\r\n"
+  },
+  "shim": {
+    "file": "coforge-computer.cmd",
+    "install_root": "C:\\Users\\example\\.coforge\\computer\\install",
+    "contents": "@echo off\r\nfor /f \"usebackq tokens=*\" %%i in (`powershell -NoProfile -Command \"(Get-Content -Raw 'C:\\Users\\example\\.coforge\\computer\\install\\active.json' | ConvertFrom-Json).current\"`) do set COFORGE_ACTIVE=%%i\r\n\"C:\\Users\\example\\.coforge\\computer\\install\\versions\\%COFORGE_ACTIVE%\\coforge-computer.exe\" %*\r\n"
+  }
+}

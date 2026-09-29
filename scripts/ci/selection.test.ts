@@ -101,6 +101,9 @@ test("documentation skips application checks, while shared and unknown inputs fa
   for (const path of ["installer/src/fetch.rs", "installer/Cargo.lock", "installer/mise.toml"]) {
     expect(selectChecks([path], "changes")).toEqual(["installer-crate"]);
   }
+  for (const path of ["installer/contract/receipt.schema.json", "installer/contract/rust/x.json"]) {
+    expect(selectChecks([path], "changes")).toEqual(["computer", "installer-crate"]);
+  }
   expect(selectChecks(["installer/AGENTS.md"], "changes")).toEqual([]);
   expect(selectChecks(["infra/staging/caddy/Caddyfile"], "changes")).toEqual(["deploy", "web"]);
   expect(selectChecks(["scripts/ops/renew-cdn-certificates.sh"], "changes")).toEqual(["cdn-certs"]);
