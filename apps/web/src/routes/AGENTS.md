@@ -37,3 +37,8 @@ These rules apply to `src/routes/`.
   `.lazy.tsx` route file, use `getRouteApi()` rather than importing `Route`.
 - Raw routes under `api/` and OAuth callbacks are thin adapters: parse the
   request, call the owning `src/server/` module, and map its result.
+- Everything a route file imports outside `component`, `pendingComponent`,
+  `errorComponent` and `notFoundComponent` (the split properties, see
+  `vite.config.ts`) lands in the entry chunk of every page. Import loader,
+  `beforeLoad` and search-validation dependencies from small query or schema
+  modules, never from a feature's view module.
