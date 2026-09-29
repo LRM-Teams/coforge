@@ -5,10 +5,12 @@
  * Renders images and file cards (no preview/download galleries).
  */
 
+import { useState } from "react";
 import { Trash01 as Trash2 } from "@untitledui/icons";
 import { Button as AriaButton } from "react-aria-components";
 import { cn } from "#src/lib/utils";
 import { isAllowedFileCardHref } from "#src/features/records/report-editor/utils/file-cards";
+import { ReportImageZoom } from "#src/features/records/report-image-zoom";
 
 export type AttachmentInput = {
   kind: "url";
@@ -40,6 +42,7 @@ export function Attachment({
 }) {
   const { url, filename, uploading, width, height, forceKind } = attachment;
   const asImage = isImageUrl(url, filename, forceKind);
+  const [zoomOpen, setZoomOpen] = useState(false);
 
   if (uploading) {
     return (
@@ -66,10 +69,14 @@ export function Attachment({
             alt={filename || ""}
             width={width}
             height={height}
-            className="max-w-full rounded-md"
+            className="max-w-full cursor-zoom-in rounded-md"
             draggable={false}
+            onClick={() => setZoomOpen(true)}
           />
         </figure>
+        {zoomOpen ? (
+          <ReportImageZoom src={url} alt={filename || ""} onClose={() => setZoomOpen(false)} />
+        ) : null}
         {editable && onDelete ? (
           <AriaButton
             type="button"

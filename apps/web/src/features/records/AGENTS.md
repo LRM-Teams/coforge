@@ -38,3 +38,6 @@ These rules also cover `src/server/records/`.
 - Live format documents rebase onto the current ISO week when reused or when
   posting the offer-send card; do not keep showing the creation-week cycle after
   the calendar advances (see `rebaseLiveFormatToCurrentWeek`).
+- Present mode shows one template-dimension page at a time and zooms images in
+  place. It does not rewrite report JSON. Use a full-bleed portal
+  (`report-present-mode.tsx`); `ModalOverlay` is padded and is not full-bleed.

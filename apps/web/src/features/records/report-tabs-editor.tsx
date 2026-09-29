@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { ChevronLeft, ChevronRight, XClose as X } from "@untitledui/icons";
+import { ChevronLeft, ChevronRight, Maximize02 as Maximize, XClose as X } from "@untitledui/icons";
 
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
@@ -18,6 +18,7 @@ import { ReportSectionEditor } from "#src/features/records/report-editor/report-
 import type { ReportContent } from "./records-content";
 import { cn } from "#src/lib/utils";
 import type { UploadResult } from "#src/features/records/report-editor/types";
+import { ReportPresentMode } from "./report-present-mode";
 import { RecordsReadingColumn } from "./records-reading-column";
 
 export function ReportTabsEditor({
@@ -53,6 +54,7 @@ export function ReportTabsEditor({
   const [editingTab, setEditingTab] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
+  const [presenting, setPresenting] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const activeTab = allTabIds.includes(selectedTab)
@@ -329,6 +331,16 @@ export function ReportTabsEditor({
           {m.records_template_add_heading_level_one()}
         </Button>
       ) : null}
+      {tabNames.length > 0 ? (
+        <ButtonUtility
+          size="xs"
+          color="tertiary"
+          icon={Maximize}
+          aria-label={m.records_report_present()}
+          onClick={() => setPresenting(true)}
+          className={chevronClass}
+        />
+      ) : null}
     </>
   );
 
@@ -374,6 +386,14 @@ export function ReportTabsEditor({
           </RecordsReadingColumn>
         </div>
       )}
+      {presenting ? (
+        <ReportPresentMode
+          pages={tabNames.map((name) => ({ name, markdown: pages[name]?.markdown ?? "" }))}
+          startIndex={Math.max(0, tabNames.indexOf(activeTab))}
+          placeholder={placeholder ?? ""}
+          onClose={() => setPresenting(false)}
+        />
+      ) : null}
     </div>
   );
 }
