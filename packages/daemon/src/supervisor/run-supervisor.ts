@@ -344,7 +344,7 @@ async function runWithSupervisorLock(
   const supervisor = new MachineSupervisor(
     bindings,
     {
-      async start(binding) {
+      async start(binding, options = {}) {
         const directory = workspaceDirectory(binding.workspaceId);
         // A degraded Workspace must fail fast, not spend up to 30s discovering the OS unit will
         // never open local RPC: the replacement child would itself observe the same latch and
@@ -392,6 +392,8 @@ async function runWithSupervisorLock(
         const deadline = Date.now() + WORKSPACE_READINESS_MS;
         try {
           while (Date.now() < deadline) {
+            // A stop or configure took over: it stops this unit itself.
+            options.signal?.throwIfAborted();
             const reported = await client.identity().catch(() => null);
             if (reported?.processId === processId && reported.version === COFORGE_DAEMON_VERSION) {
               const current = await instance.identity();
@@ -487,9 +489,12 @@ async function runWithSupervisorLock(
   const runtimes = async (bindings: Awaited<ReturnType<typeof supervisor.snapshot>>) =>
     Promise.all(
       bindings.map(async (binding) => {
+        // A start or restart under way answers as still connecting, as a command's pending
+        // Workspaces do, so an upgrade waits for it instead of reading it as down.
+        const underWay = binding.inFlight ? { cloudConnection: "connecting" as const } : {};
         const child = children.get(binding.workspaceId);
         if (child && binding.instanceId === child.osInstanceId)
-          return { ...child.identity, enabled: binding.enabled };
+          return { ...child.identity, enabled: binding.enabled, ...underWay };
         // Only a Workspace that is down can be parked.
         const reason = await startPorts.parkReason(binding.workspaceId);
         const parked = reason ? { parkReason: reason } : {};
@@ -501,6 +506,7 @@ async function runWithSupervisorLock(
           instanceId: "",
           version: "",
           ...parked,
+          ...underWay,
         };
       }),
     );
@@ -755,7 +761,11 @@ async function runWithSupervisorLock(
               if (operation !== "start" && operation !== "stop" && operation !== "restart")
                 throw new Error("unknown lifecycle operation");
               if (operation === "stop") {
-                await supervisor.command(operation, request.workspaceId);
+                // Answers by the same deadline: a Workspace it has not stopped yet still shows its
+                // process, which the CLI reports as still stopping.
+                await supervisor.command(operation, request.workspaceId, undefined, {
+                  deadline: Date.now() + OPERATOR_COMMAND_BUDGET_MS,
+                });
                 return view();
               }
               return startForOperator(operation, request.workspaceId, request.requestId);

@@ -55,6 +55,15 @@ export function createCommand(input: {
       throw parkedWorkspaceError(error, error.code, refused);
     }
   };
+  /** Each runtime's Workspace slug for the terminal, or its id when it has no local registration. */
+  const names = (runtimes: readonly ManagedRuntimeIdentity[]) =>
+    Promise.all(
+      runtimes.map(async (runtime) =>
+        terminalText(
+          (await resolve(runtime.workspaceId).catch(() => undefined))?.slug ?? runtime.workspaceId,
+        ),
+      ),
+    );
   /**
    * "Online" only when every started Workspace connected. Otherwise the header, then one line per
    * Workspace still under way (with `status` to follow it) or that did not connect (with why), and
@@ -71,16 +80,10 @@ export function createCommand(input: {
     );
     if (!unsettled.length) return write(online);
     write(pendingHeader);
-    const names = await Promise.all(
-      unsettled.map(async (runtime) =>
-        terminalText(
-          (await resolve(runtime.workspaceId).catch(() => undefined))?.slug ?? runtime.workspaceId,
-        ),
-      ),
-    );
+    const resolved = await names(unsettled);
     const failed: string[] = [];
     for (const [index, runtime] of unsettled.entries()) {
-      const name = names[index]!;
+      const name = resolved[index]!;
       if (runtime.cloudConnection === "connecting") {
         const under = operation === "start" ? "still starting" : "still restarting";
         const retrying = runtime.cloudConnectionError
@@ -121,8 +124,19 @@ export function createCommand(input: {
     async stop(workspace) {
       input.logger?.info("Computer stop requested", { event: "computer:stopping" });
       await input.daemon.ensureRunning();
-      await run("stop", workspace);
+      const target = workspace
+        ? ((await resolve(workspace).catch(() => undefined))?.id ?? workspace)
+        : undefined;
+      const runtimes = await run("stop", workspace);
       input.logger?.info("Computer stop completed", { event: "computer:stopped" });
+      // The stop answers by its deadline; a Workspace it has not reached yet still has its process.
+      const stopping = runtimes.filter(
+        (runtime) => runtime.processId > 0 && (!target || runtime.workspaceId === target),
+      );
+      if (!stopping.length) return;
+      write("CoForge Computer stop requested, but not every Workspace has stopped yet:");
+      for (const name of await names(stopping))
+        write(`  ${name}: still stopping. Run 'coforge-computer status' to follow it.`);
     },
     async restart(workspace) {
       input.logger?.info("Computer restart requested", { event: "computer:restarting" });

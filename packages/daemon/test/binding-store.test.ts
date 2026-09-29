@@ -214,3 +214,28 @@ test("legacy upgrade requests reopen as pending operations", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("binding registry keeps a Workspace's last lifecycle failure and refuses a malformed one", async () => {
+  const root = await mkdtemp(join(tmpdir(), "coforge-bindings-failure-"));
+  const binding: ManagedBinding = {
+    workspaceId: "a",
+    computerId: "c",
+    workspaceRoot: "/a",
+    enabled: true,
+    lastFailure: { operation: "start", message: "Workspace a failed process readiness", at: 5 },
+  };
+  try {
+    await new FileBindingStore(root).save([binding]);
+    expect(await new FileBindingStore(root).load()).toEqual([binding]);
+    for (const lastFailure of [
+      { operation: "configure", message: "x", at: 5 },
+      { operation: "start", message: "", at: 5 },
+      { operation: "start", message: "x", at: -1 },
+    ])
+      await expect(
+        new FileBindingStore(root).save([{ ...binding, lastFailure } as ManagedBinding]),
+      ).rejects.toThrow("invalid binding registry last failure");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

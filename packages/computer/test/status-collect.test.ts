@@ -444,3 +444,40 @@ test("a parked Workspace's health is surfaced with its stable reason and the slu
     ],
   });
 });
+
+test("a Workspace's start or restart under way and its last failed lifecycle command are reported", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      probeDaemonSnapshot: async () => ({
+        reachable: true,
+        runtimes: [{ workspaceId: "ws-1", processId: 0, underWay: true }],
+      }),
+      loadBindings: async () => ({
+        ok: true,
+        bindings: [
+          healthyBinding({
+            lastFailure: {
+              operation: "start",
+              message: "Workspace ws-1 failed process readiness",
+              at: NOW.getTime(),
+            },
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(report.workspaces).toMatchObject({
+    readable: true,
+    workspaces: [
+      {
+        underWay: true,
+        lastFailure: {
+          operation: "start",
+          message: "Workspace ws-1 failed process readiness",
+          at: NOW.toISOString(),
+        },
+      },
+    ],
+  });
+});

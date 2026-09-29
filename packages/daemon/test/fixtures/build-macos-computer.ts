@@ -1,6 +1,8 @@
 import { join } from "node:path";
 
-const [executable, serverUrl] = Bun.argv.slice(2);
+/** An optional third argument shortens the operator command budget, so a test can observe a
+ * command answering before its work is done. */
+const [executable, serverUrl, operatorBudgetMs] = Bun.argv.slice(2);
 const result = await Bun.build({
   entrypoints: [join(import.meta.dir, "../../../computer/src/main.ts")],
   compile: { outfile: executable! },
@@ -8,6 +10,20 @@ const result = await Bun.build({
     {
       name: "private-mac-fixtures",
       setup(build) {
+        if (operatorBudgetMs)
+          build.onLoad({ filter: /\/supervisor\/workspace-start-outcome\.ts$/ }, async (args) => {
+            const source = await Bun.file(args.path).text();
+            const budget = "OPERATOR_COMMAND_BUDGET_MS = 25_000";
+            if (!source.includes(budget))
+              throw new Error(`${args.path} no longer declares ${budget}`);
+            return {
+              loader: "ts",
+              contents: source.replace(
+                budget,
+                `OPERATOR_COMMAND_BUDGET_MS = ${Number(operatorBudgetMs)}`,
+              ),
+            };
+          });
         build.onLoad({ filter: /\/connection\/daemon-connection\.ts$/ }, () => ({
           loader: "ts",
           contents: `export { DaemonConnection, defaultCentrifugeWorkspaceClientFactory } from ${JSON.stringify(join(import.meta.dir, "local-ready-connection.ts"))}`,

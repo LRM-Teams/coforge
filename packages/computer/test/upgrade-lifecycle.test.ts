@@ -20,12 +20,13 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const lifecycle = () =>
+const lifecycle = (lifecycleSettle?: { timeoutMs: number; pollMs: number }) =>
   createSupervisorUpgradeLifecycle({
     installRoot: join(root, "install"),
     supervisorSocketPath: join(root, "daemon.sock"),
     supervisorStatePath: root,
     homeDirectory: root,
+    ...(lifecycleSettle ? { lifecycleSettle } : {}),
   });
 
 const runtime = (workspaceId: string, extra: Partial<ManagedRuntimeIdentity> = {}) => ({
@@ -113,4 +114,63 @@ test("with no Coordinator running, an enabled binding that is not parked names t
   await expect(subject.snapshot()).rejects.toThrow(
     "configured running bindings have no healthy supervisor. Run 'coforge-computer start' to recover them, then upgrade again.",
   );
+});
+
+test("an upgrade waits for a start or restart still under way before it pauses the Coordinator", async () => {
+  const calls: string[] = [];
+  let snapshots = 0;
+  const server = await startDaemonLocalRpcServer({
+    socketPath: join(root, "daemon.sock"),
+    validateCredential: () => true,
+    credentials: new InMemoryDaemonCredentialStore(),
+    runtime: {
+      command: async (method) => {
+        calls.push(method);
+        if (method !== "daemon:snapshot") return [runtime("a", { processId: 7 })];
+        snapshots += 1;
+        // Still restarting for the first two looks: its old process gone, the new one not yet.
+        return [
+          runtime("a", snapshots <= 2 ? { cloudConnection: "connecting" } : { processId: 7 }),
+        ];
+      },
+    },
+  });
+  try {
+    await lifecycle({ timeoutMs: 5_000, pollMs: 1 }).pauseLaunches("request-1");
+
+    expect(calls).toEqual([
+      "daemon:snapshot",
+      "daemon:snapshot",
+      "daemon:snapshot",
+      "daemon:pause",
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+test("an upgrade gives up on a restart that stays under way, naming it with the command to follow it", async () => {
+  const calls: string[] = [];
+  const server = await startDaemonLocalRpcServer({
+    socketPath: join(root, "daemon.sock"),
+    validateCredential: () => true,
+    credentials: new InMemoryDaemonCredentialStore(),
+    runtime: {
+      command: async (method) => {
+        calls.push(method);
+        return [runtime("a", { cloudConnection: "connecting" })];
+      },
+    },
+  });
+  try {
+    await expect(
+      lifecycle({ timeoutMs: 20, pollMs: 1 }).pauseLaunches("request-1"),
+    ).rejects.toThrow(
+      "Workspace a is still starting or restarting. Run 'coforge-computer status' to follow it, then upgrade again.",
+    );
+    expect(calls).not.toContain("daemon:pause");
+    expect(await Bun.file(join(root, "launch-hold")).exists()).toBe(false);
+  } finally {
+    await server.close();
+  }
 });

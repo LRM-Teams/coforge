@@ -40,21 +40,33 @@ Rules for the machine Coordinator in `src/supervisor/`. They extend
   (`connecting`, `connected`, `not_connected` with why). A connection that is
   retrying, before or after it first connected, reports `connecting` with its
   latest failed attempt; an operator answer carries that reason.
-- An operator `start`/`restart` has one deadline for the whole command
-  (`OPERATOR_COMMAND_BUDGET_MS` in `workspace-start-outcome.ts`, below the
-  local lifecycle client's 35 s timeout). It bounds the answer, not the work:
-  `MachineSupervisor.command` answers by then even while still queued, holding,
-  stopping, or starting, and names those Workspaces `pending`; their work
-  finishes in the serialized queue afterwards, so the instance is still adopted
-  and a restart's result still recorded. A restart's runner hold draws from
-  what is left of the deadline. Finished Workspaces are answered with their
-  first cloud connect (`awaitCloudConnections`, watched side by side, each
-  checked at least once); pending ones as still connecting. A park refuses the
-  command. Recovery passes no deadline.
+- An operator `start`, `restart`, or `stop` has one deadline for the whole
+  command (`OPERATOR_COMMAND_BUDGET_MS` in `workspace-start-outcome.ts`, below
+  the local lifecycle client's 35 s timeout). It bounds the answer, not the
+  work: `MachineSupervisor.command` answers by then even while still queued,
+  holding, stopping, or starting, and names those Workspaces `pending`; their
+  work finishes in the serialized queue afterwards, so the instance is still
+  adopted and a restart's result still recorded. A restart's runner hold keeps
+  its full `RUNNER_HOLD_MS`; the deadline never cuts the drain for busy Agents.
+  Finished Workspaces are answered with their first cloud connect
+  (`awaitCloudConnections`, side by side, each checked at least once); pending
+  ones as still connecting. A park refuses the command. Recovery passes no
+  deadline.
+- A `stop` or `configure` of a Workspace supersedes every start or restart of
+  it requested before (systemd's job replacement): the one under way aborts at
+  its next step (hold poll, readiness poll, or before stop/start) and one still
+  queued never runs; a replaced restart is recorded `cancelled`. Its caller, if
+  still waiting, gets the superseded error with the command that starts it again.
+- A command that fails after it answered is logged and recorded as the binding's
+  `lastFailure` (operation, message, time), which `coforge-computer status`
+  shows with the command to retry; the next successful step clears it. A park or
+  a supersede is not recorded.
 - What an operator reads (`daemon:snapshot`, a command's answer) comes from
   `MachineSupervisor.view()`, which never waits behind a mutation, so neither
-  `status` nor a command answer can end in a client timeout. The Coordinator's
-  own steps keep the serialized `snapshot()`.
+  `status` nor a command answer can end in a client timeout. A Workspace whose
+  start, restart, or configure is queued or running reads as still connecting;
+  an upgrade waits for those before it pauses the Coordinator. The
+  Coordinator's own steps keep the serialized `snapshot()`.
 - The snapshot reports a parked Workspace's `park_reason`; an upgrade treats it
   as down on purpose, not as an unhealthy runtime set.
 - systemd Workspace units restart on failure after cgroup cleanup.

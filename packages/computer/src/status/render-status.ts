@@ -88,6 +88,14 @@ function renderWorkspaces(report: ComputerStatusReport): string[] {
     for (const pending of workspace.pending) lines.push(`    pending: ${renderPending(pending)}`);
     for (const unsettled of workspace.unsettledUpgrades)
       lines.push(`    unsettled upgrade: ${renderUnsettledUpgrade(unsettled)}`);
+    if (workspace.underWay) lines.push("    under way: a start or restart is still running");
+    if (workspace.lastFailure) {
+      const { operation, message, at } = workspace.lastFailure;
+      lines.push(
+        `    last ${operation} failed: ${terminalText(message)}  at=${terminalText(at)}`,
+        `      retry: coforge-computer ${operation} --workspace ${terminalText(workspace.workspaceId)}`,
+      );
+    }
     if (workspace.health.status === "degraded") lines.push(...renderDegradedHealth(workspace));
     if (workspace.health.status === "parked") lines.push(...renderParkedHealth(workspace));
   }

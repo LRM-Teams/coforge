@@ -1,6 +1,7 @@
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  LIFECYCLE_FAILURE_OPERATIONS,
   UPGRADE_OPERATION_HISTORY,
   type BindingStore,
   type ManagedBinding,
@@ -123,6 +124,16 @@ function validateBindings(value: unknown): asserts value is ManagedBinding[] {
       }
       if (record(binding.restart) && requests.has(String(binding.restart.requestId)))
         throw new Error("invalid binding registry conflicting restart");
+    }
+    if (binding.lastFailure !== undefined) {
+      const failure = binding.lastFailure;
+      if (
+        !record(failure) ||
+        !(LIFECYCLE_FAILURE_OPERATIONS as readonly unknown[]).includes(failure.operation) ||
+        !text(failure.message) ||
+        !integer(failure.at)
+      )
+        throw new Error("invalid binding registry last failure");
     }
     if (binding.upgradeRequestIds !== undefined) {
       if (

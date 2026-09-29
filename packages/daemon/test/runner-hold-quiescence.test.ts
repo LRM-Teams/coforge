@@ -30,6 +30,25 @@ function busy(agentId: string, detailKind = "tool_started"): HeldBusyAgent {
 const idle: RunnerHoldSnapshot = { busyAgents: [], unreachableWorkspaceIds: [] };
 
 describe("runner hold quiescence wait", () => {
+  test("ends early, not quiescent, once the operation that asked is taken over", async () => {
+    const time = clock();
+    const controller = new AbortController();
+    let calls = 0;
+    const outcome = await holdRunnersUntilQuiescent({
+      hold: async () => {
+        calls += 1;
+        if (calls === 2) controller.abort();
+        return { busyAgents: [busy("agent-a")], unreachableWorkspaceIds: [] };
+      },
+      signal: controller.signal,
+      ...time,
+    });
+
+    expect(outcome.quiescent).toBe(false);
+    expect(calls).toBe(2);
+    expect(outcome.elapsedMs).toBe(RUNNER_HOLD_POLL_MS);
+  });
+
   test("returns as soon as every Agent is idle, without burning the whole budget", async () => {
     const time = clock();
     let calls = 0;

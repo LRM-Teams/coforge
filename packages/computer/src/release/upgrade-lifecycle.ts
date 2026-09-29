@@ -116,7 +116,17 @@ export type SupervisorUpgradeIntegrationOptions = {
   serviceName?: string;
   homeDirectory?: string;
   runtimeHomeDirectory?: string;
+  /** How long an upgrade waits for a start or restart already under way; tests shorten it. */
+  lifecycleSettle?: { timeoutMs: number; pollMs: number };
 };
+
+/**
+ * How long an upgrade waits for Workspace start/restart work already under way before it pauses
+ * the Coordinator: one restart's runner hold (30 s), its stop, and its readiness (30 s), with
+ * room for a second Workspace behind it. Pausing earlier would queue behind that work and outlast
+ * the local lifecycle client's 35 s timeout.
+ */
+const LIFECYCLE_SETTLE = { timeoutMs: 120_000, pollMs: 500 };
 
 export function createSupervisorUpgradeLifecycle(
   options: SupervisorUpgradeIntegrationOptions,
@@ -223,6 +233,7 @@ export function createSupervisorUpgradeLifecycle(
     },
     async pauseLaunches(requestId) {
       await mkdir(options.supervisorStatePath, { recursive: true, mode: 0o700 });
+      await settleLifecycleWork(local, options.lifecycleSettle ?? LIFECYCLE_SETTLE);
       await writeFile(holdPath, `${requestId}\n`, { mode: 0o600 });
       supervisorWasRunning = await local.identity().then(
         () => true,
@@ -423,4 +434,27 @@ export function createSupervisorUpgradeLifecycle(
       await rm(holdPath, { force: true });
     },
   };
+}
+
+/**
+ * Waits until no Workspace start or restart is under way (the Coordinator answers those as still
+ * connecting), or gives up naming them. No Coordinator running means nothing is under way.
+ */
+async function settleLifecycleWork(
+  local: LocalDaemonLauncher,
+  settle: { timeoutMs: number; pollMs: number },
+): Promise<void> {
+  const deadline = Date.now() + settle.timeoutMs;
+  while (true) {
+    const runtimes = await local.control("snapshot").catch(() => []);
+    const underWay = runtimes.filter((runtime) => runtime.cloudConnection === "connecting");
+    if (!underWay.length) return;
+    if (Date.now() >= deadline) {
+      const ids = underWay.map((runtime) => runtime.workspaceId);
+      throw new Error(
+        `Workspace ${ids.join(", ")} ${ids.length === 1 ? "is" : "are"} still starting or restarting. Run 'coforge-computer status' to follow ${ids.length === 1 ? "it" : "them"}, then upgrade again.`,
+      );
+    }
+    await Bun.sleep(settle.pollMs);
+  }
 }

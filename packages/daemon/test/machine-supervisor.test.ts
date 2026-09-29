@@ -927,11 +927,18 @@ function gatedFixture(bindings: ManagedBinding[]) {
     {
       instance: async (binding) => running.get(binding.workspaceId) ?? null,
       // Adopts a live instance, as the OS units do; only a fresh start waits for the gate.
-      async start(binding) {
+      async start(binding, options) {
         const live = running.get(binding.workspaceId);
         if (live) return live;
         starts.push(binding.workspaceId);
-        if (gated) await gate.promise;
+        // Like the readiness loop, a start under way gives up once its lifecycle is superseded.
+        if (gated)
+          await Promise.race([
+            gate.promise,
+            new Promise((_, reject) =>
+              options?.signal?.addEventListener("abort", () => reject(options.signal!.reason)),
+            ),
+          ]);
         const id = `new-${starts.length}`;
         running.set(binding.workspaceId, id);
         return id;
@@ -948,6 +955,11 @@ function gatedFixture(bindings: ManagedBinding[]) {
     open() {
       gated = false;
       gate.resolve();
+    },
+    /** Fails the start waiting at the gate; later starts go through. */
+    fail(error: Error) {
+      gated = false;
+      gate.reject(error);
     },
   };
 }
@@ -1029,4 +1041,161 @@ test("the view answers while a lifecycle mutation is still under way", async () 
 
   expect(view.map((entry) => entry.workspaceId)).toEqual(["a"]);
   fixture.open();
+});
+
+/** Waits until the fixture's gated start has been reached `count` times. */
+async function untilStarted(fixture: { starts: string[] }, count = 1) {
+  const deadline = Date.now() + 1_000;
+  while (fixture.starts.length < count) {
+    if (Date.now() > deadline) throw new Error("the start was never reached");
+    await Bun.sleep(1);
+  }
+}
+
+test("a stop wins over a restart still under way: the restart is abandoned and recorded cancelled", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+  const restart = fixture.supervisor.command("restart", "a", "first");
+  await untilStarted(fixture);
+
+  await fixture.supervisor.command("stop", "a");
+
+  await expect(restart).rejects.toThrow(
+    "Workspace a restart was superseded by a stop. Run 'coforge-computer start --workspace a' to start it again.",
+  );
+  const [saved] = fixture.saved();
+  expect(saved).toMatchObject({ enabled: false });
+  expect(saved?.restart).toBeUndefined();
+  expect(saved?.restartResults).toEqual([{ requestId: "first", status: "cancelled" }]);
+  expect(fixture.starts).toEqual(["a"]);
+  expect((await fixture.supervisor.view())[0]?.instanceId).toBeNull();
+});
+
+test("a restart queued before a stop never runs", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+  const first = fixture.supervisor.command("restart", "a", "first");
+  const second = fixture.supervisor.command("restart", "a", "second");
+  await untilStarted(fixture);
+
+  await fixture.supervisor.command("stop", "a");
+
+  await expect(first).rejects.toThrow("superseded by a stop");
+  await expect(second).rejects.toThrow("superseded by a stop");
+  expect(fixture.starts).toEqual(["a"]);
+  expect(fixture.saved()[0]?.restartResults).toEqual([{ requestId: "first", status: "cancelled" }]);
+});
+
+test("a start requested after a stop still runs", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+  fixture.open();
+  await fixture.supervisor.command("stop", "a");
+
+  expect(await fixture.supervisor.command("start", "a")).toEqual({ started: ["a"], pending: [] });
+});
+
+test("configure takes over a restart still under way instead of refusing", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+  const restart = fixture.supervisor.command("restart", "a", "first");
+  await untilStarted(fixture);
+
+  const configured = fixture.supervisor.configure({
+    workspaceId: "a",
+    computerId: "c",
+    workspaceRoot: "/a",
+  });
+  fixture.open();
+  await configured;
+
+  await expect(restart).rejects.toThrow("superseded");
+  const [saved] = fixture.saved();
+  expect(saved).toMatchObject({ enabled: true });
+  expect(saved?.restart).toBeUndefined();
+  expect(saved?.restartResults).toEqual([{ requestId: "first", status: "cancelled" }]);
+  expect(fixture.starts).toEqual(["a", "a"]);
+});
+
+test("a stop answers by its deadline while another Workspace's work holds the queue", async () => {
+  const fixture = gatedFixture([binding("a"), binding("b", false)]);
+  await fixture.supervisor.recover();
+  const startB = fixture.supervisor.command("start", "b");
+
+  expect(
+    await fixture.supervisor.command("stop", "a", undefined, { deadline: Date.now() + 50 }),
+  ).toEqual({ started: [], pending: ["a"] });
+  fixture.open();
+  await startB;
+  await fixture.supervisor.snapshot();
+  expect(fixture.saved()[0]).toMatchObject({ enabled: false });
+});
+
+test("the view marks a Workspace whose lifecycle work is under way", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+  void fixture.supervisor.command("restart", "a", "request", { deadline: Date.now() + 10 });
+  await Bun.sleep(20);
+
+  // Past its answer, the restart is still waiting for its start.
+  expect((await fixture.supervisor.view())[0]).toMatchObject({ inFlight: true });
+  fixture.open();
+  await fixture.supervisor.snapshot();
+  expect((await fixture.supervisor.view())[0]).toMatchObject({ inFlight: false });
+});
+
+test("the view marks a Workspace whose start or restart is still queued, until it has run", async () => {
+  const fixture = gatedFixture([binding("a"), binding("b", false)]);
+  await fixture.supervisor.recover();
+  const startB = fixture.supervisor.command("start", "b");
+  const restartA = fixture.supervisor.command("restart", "a", "request");
+  await untilStarted(fixture);
+
+  expect((await fixture.supervisor.view()).map((entry) => entry.inFlight)).toEqual([true, true]);
+  fixture.open();
+  await Promise.all([startB, restartA]);
+  expect((await fixture.supervisor.view()).map((entry) => entry.inFlight)).toEqual([false, false]);
+});
+
+test("a start that fails after its command answered is recorded on its binding", async () => {
+  const fixture = gatedFixture([binding("a", false)]);
+  await fixture.supervisor.recover();
+  await fixture.supervisor.command("start", "a", undefined, { deadline: Date.now() + 10 });
+
+  fixture.fail(new Error("Workspace a failed process readiness"));
+  const deadline = Date.now() + 1_000;
+  while (!fixture.saved()[0]?.lastFailure && Date.now() < deadline) await Bun.sleep(1);
+
+  expect(fixture.saved()[0]?.lastFailure).toEqual({
+    operation: "start",
+    message: "Workspace a failed process readiness",
+    at: expect.any(Number),
+  });
+});
+
+test("the next start that succeeds clears a recorded failure", async () => {
+  const fixture = gatedFixture([
+    {
+      ...binding("a", false),
+      lastFailure: { operation: "start", message: "earlier", at: 1 },
+    },
+  ]);
+  await fixture.supervisor.recover();
+  fixture.open();
+
+  await fixture.supervisor.command("start", "a");
+
+  expect(fixture.saved()[0]?.lastFailure).toBeUndefined();
+});
+
+test("a restart a stop took over after its answer is not recorded as a failure", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+  await fixture.supervisor.command("restart", "a", "first", { deadline: Date.now() + 10 });
+  await untilStarted(fixture);
+
+  await fixture.supervisor.command("stop", "a");
+  await fixture.supervisor.snapshot();
+
+  expect(fixture.saved()[0]?.lastFailure).toBeUndefined();
 });
