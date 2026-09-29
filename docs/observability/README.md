@@ -8,7 +8,7 @@
 
 ## 目标与非目标
 
-基线必须回答三件事：请求或消息发生在哪里、当前实例是否能接收流量、失败后能否定位影响范围。当前 tracing 仅覆盖 Web/backend 的消息发送入口及其持久化/发布阶段；浏览器点击到请求发出的时延仍需前端性能数据补充。
+基线必须回答三件事：请求或消息发生在哪里、当前实例是否能接收流量、失败后能否定位影响范围。当前 tracing 仅覆盖 Web/backend 的消息发送入口及其持久化/发布阶段；SSR 文档与 Server Function 的服务端耗时由开关控制的 `Server-Timing` 响应头给出；浏览器点击到请求发出的时延仍需前端性能数据补充。
 
 ## 目录
 
@@ -20,3 +20,4 @@
 - [健康探针与指标](health-and-metrics.md): liveness/readiness 探针与 MVP 指标。
 - [关联、保留与实施顺序](correlation-and-retention.md): 关联与故障定位、日志保留与访问、实施顺序。
 - [OpenTelemetry Tracing](tracing.md): Web/backend 消息发送链路的 OpenTelemetry tracing。
+- [Server-Timing](server-timing.md): Web/backend SSR 文档与 Server Function 响应的 `Server-Timing` 头（`total`、`db`），开关与安全边界。

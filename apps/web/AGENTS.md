@@ -130,7 +130,7 @@ responsibility.
 - `server/errors/` — public error mapping and request error handling.
 - `server/files/` — file storage, delivery, and uploaded-image validation.
 - `server/http/`, `server/install/`, `server/observability/` — public origin,
-  install scripts, and tracing.
+  install scripts, tracing, and Server-Timing.
 - `server/inbox/` — the Activity inbox read model and its Done and read-all writes.
 - `server/integrations/` — GitHub connection, configuration, and webhooks.
 - `server/notifications/` — Web Push and in-page notification delivery.
