@@ -5,6 +5,7 @@ import {
   type CodeAgentProvider,
   type ProviderDiscoveryOptions,
 } from "#src/code-agent/contract";
+import { InterruptTracker } from "#src/code-agent/interrupt-tracker";
 import { agentEnvironment } from "#src/code-agent/environment";
 import { exitFailureMessage } from "#src/code-agent/exit-failure-message";
 import { asRecord, eventTime } from "#src/code-agent/json-record";
@@ -84,9 +85,7 @@ class CursorAgentSession implements AgentSession {
   #pendingOutcome: PendingOutcome;
   #sessionReports: Promise<void> = Promise.resolve();
   #bootstrap: { resolve(): void; reject(error: Error): void } | undefined;
-  #pendingInterrupt:
-    | { promise: Promise<void>; resolve(): void; reject(error: Error): void }
-    | undefined;
+  #interrupt = new InterruptTracker();
 
   constructor(options: AgentSessionOptions, command: readonly string[]) {
     this.#options = options;
@@ -147,23 +146,16 @@ class CursorAgentSession implements AgentSession {
 
   async interrupt(): Promise<void> {
     if (this.#state === "idle" || this.#state === "disposed") return;
-    if (this.#pendingInterrupt) return this.#pendingInterrupt.promise;
-    let resolve!: () => void;
-    let reject!: (error: Error) => void;
-    const promise = new Promise<void>((resolvePromise, rejectPromise) => {
-      resolve = resolvePromise;
-      reject = rejectPromise;
-    });
-    this.#pendingInterrupt = { promise, resolve, reject };
+    if (this.#interrupt.isPending) return this.#interrupt.begin();
+    const interrupted = this.#interrupt.begin();
     this.#state = "interrupting";
     try {
       this.#currentTurn?.interrupt();
     } catch (error) {
-      this.#pendingInterrupt = undefined;
       if (!this.#isDisposed()) this.#state = "running";
-      reject(error instanceof Error ? error : new Error(String(error)));
+      this.#interrupt.fail(error instanceof Error ? error : new Error(String(error)));
     }
-    return promise;
+    return interrupted;
   }
 
   #isDisposed(): boolean {
@@ -191,11 +183,7 @@ class CursorAgentSession implements AgentSession {
       this.#bootstrap = undefined;
       reject(disposeError);
     }
-    if (this.#pendingInterrupt) {
-      const pending = this.#pendingInterrupt;
-      this.#pendingInterrupt = undefined;
-      pending.reject(disposeError);
-    }
+    this.#interrupt.fail(disposeError);
     const turn = this.#currentTurn;
     this.#currentTurn = undefined;
     if (turn) await turn.dispose();
@@ -365,11 +353,7 @@ class CursorAgentSession implements AgentSession {
       this.#emit({ type: "error", message: exitFailureMessage(result) });
     }
     this.#emit({ type: "completed", status });
-    const pending = this.#pendingInterrupt;
-    if (pending) {
-      this.#pendingInterrupt = undefined;
-      pending.resolve();
-    }
+    this.#interrupt.settle();
     if (this.#state === "disposed") return;
     this.#drainQueueOrIdle();
   }

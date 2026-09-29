@@ -4,6 +4,7 @@ import {
   type AgentRuntimeEvent,
   type CodeAgentProvider,
 } from "#src/code-agent/contract";
+import { InterruptTracker } from "#src/code-agent/interrupt-tracker";
 import type { AgentSession, AgentSessionIdentity, AgentSessionOptions } from "@coforge/agent";
 import { agentEnvironment } from "#src/code-agent/environment";
 import { JsonlProcess } from "#src/code-agent/jsonl-process";
@@ -153,9 +154,7 @@ class ClaudeCodeAgentSession implements AgentSession {
     reject(error: Error): void;
   }> = [];
   #usageSnapshot: UsageSnapshot = { provider: RUNTIME_PROVIDER.CLAUDE_CODE };
-  #pendingInterrupt:
-    | { promise: Promise<void>; resolve(): void; reject(error: Error): void }
-    | undefined;
+  #interrupt = new InterruptTracker();
 
   constructor(
     process: JsonlProcess,
@@ -400,23 +399,16 @@ class ClaudeCodeAgentSession implements AgentSession {
 
   async interrupt(): Promise<void> {
     if (this.#state === "idle" || this.#state === "disposed") return;
-    if (this.#pendingInterrupt) return this.#pendingInterrupt.promise;
-    let resolve!: () => void;
-    let reject!: (error: Error) => void;
-    const promise = new Promise<void>((resolvePromise, rejectPromise) => {
-      resolve = resolvePromise;
-      reject = rejectPromise;
-    });
-    this.#pendingInterrupt = { promise, resolve, reject };
+    if (this.#interrupt.isPending) return this.#interrupt.begin();
+    const interrupted = this.#interrupt.begin();
     this.#state = "interrupting";
     try {
       this.#process.interrupt();
     } catch (error) {
-      this.#pendingInterrupt = undefined;
       if (!this.#isDisposed()) this.#state = "running";
-      reject(error instanceof Error ? error : new Error(String(error)));
+      this.#interrupt.fail(error instanceof Error ? error : new Error(String(error)));
     }
-    return promise;
+    return interrupted;
   }
 
   onExit(listener: () => void): () => void {
@@ -432,8 +424,7 @@ class ClaudeCodeAgentSession implements AgentSession {
     if (this.#state === "disposed") return;
     this.#state = "disposed";
     this.#rejectWaitingNotices(new Error("code agent process closed before writing input"));
-    this.#pendingInterrupt?.reject(new Error("code agent process closed"));
-    this.#pendingInterrupt = undefined;
+    this.#interrupt.fail(new Error("code agent process closed"));
     try {
       await this.#process.dispose();
       this.#finishClose();
@@ -624,11 +615,7 @@ class ClaudeCodeAgentSession implements AgentSession {
       this.#setIdentity("resumable");
       this.#compacting = false;
       this.#outstandingTools.clear();
-      const pending = this.#pendingInterrupt;
-      if (pending) {
-        this.#pendingInterrupt = undefined;
-        pending.resolve();
-      }
+      this.#interrupt.settle();
       if (this.#state !== "running" && this.#state !== "interrupting") return;
       const interrupted = this.#state === "interrupting";
       this.#state = "idle";
@@ -708,10 +695,7 @@ class ClaudeCodeAgentSession implements AgentSession {
   }
 
   #rejectPendingInterrupt(error: Error): void {
-    const pending = this.#pendingInterrupt;
-    if (!pending) return;
-    this.#pendingInterrupt = undefined;
-    pending.reject(error);
+    this.#interrupt.fail(error);
   }
 }
 
