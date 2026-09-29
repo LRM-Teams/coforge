@@ -185,6 +185,30 @@ describe("RedisMessageRequestIdempotency", () => {
     expect(await first).toBe(message);
   });
 
+  test("finds a key's record without claiming it: completed, processing, or none", async () => {
+    const redis = new FakeRedisCommands();
+    const idempotency = new RedisMessageRequestIdempotency(redis);
+
+    expect(await idempotency.find(scope)).toBeUndefined();
+
+    let release: () => void;
+    const pending = idempotency.execute(
+      scope,
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(message);
+        }),
+    );
+    await Promise.resolve();
+    expect(await idempotency.find(scope)).toEqual({ state: "processing" });
+
+    release!();
+    await pending;
+    expect(await idempotency.find(scope)).toEqual({ state: "completed", message });
+    // A lookup never claims: only the one send above ever issued `SET … NX`.
+    expect(redis.setCalls).toHaveLength(1);
+  });
+
   test("uses every scope field to distinguish Redis keys", async () => {
     const redis = new FakeRedisCommands();
     const idempotency = new RedisMessageRequestIdempotency(redis);

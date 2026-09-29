@@ -9,7 +9,7 @@ import {
   DaemonConnection,
   type CentrifugeWorkspaceClient,
 } from "#src/connection/daemon-connection";
-import type { AgentSendResponse } from "@lrm/coforge-sdk/agent";
+import type { AgentSendDecisionResponse } from "@lrm/coforge-sdk/agent";
 import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
 import {
   AGENT_MESSAGE_ACK_METHOD,
@@ -35,7 +35,10 @@ import {
   COMPUTER_UPGRADE_RESULT_METHOD,
   type AgentReminderOperationRequest,
 } from "@lrm/coforge-sdk/internal";
-import { DAEMON_RUNTIME_READY_METHOD } from "@lrm/coforge-sdk/internal";
+import {
+  AGENT_SEND_REQUEST_TIMEOUT_MS,
+  DAEMON_RUNTIME_READY_METHOD,
+} from "@lrm/coforge-sdk/internal";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
 import { AgentTransportError } from "#src/connection/agent-transport-error";
@@ -2452,7 +2455,7 @@ test("adapts the resolve route's AgentResolveResponse (message -> messages: [mes
 
 const sendAdapterCases: Array<{
   label: string;
-  response: AgentSendResponse;
+  response: AgentSendDecisionResponse;
   expected: Partial<AgentMessageTransportResponse>;
 }> = [
   {
@@ -2669,6 +2672,133 @@ test("requestSend posts Raft's send body: idempotencyKey, sendDraft and structur
   });
   expect(capturedBody).not.toHaveProperty("requestId");
   expect(capturedBody).not.toHaveProperty("continue");
+});
+
+const reconciliationInput = {
+  url: "https://server.example/api/agent/v1/messages",
+  agentApiKey: `sk_agent_${"a".repeat(43)}`,
+  daemonApiKey: "daemon-token",
+  request: {
+    idempotencyKey: "request-send",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    target: "@ada",
+  },
+};
+
+test("a reconciliation carries only the key, the target and reconcileOnly, on the send route", async () => {
+  let capturedBody: Record<string, unknown> | undefined;
+  const client = createAgentMessageHttpClient(async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return Response.json({
+      idempotencyKey: "request-send",
+      state: "not_found",
+      reconciliation: true,
+    });
+  });
+  const response = await client.requestSendReconciliation!(reconciliationInput);
+  expect(capturedBody).toEqual({
+    idempotencyKey: "request-send",
+    target: "@ada",
+    reconcileOnly: true,
+  });
+  expect(response.state).toBe("not_found");
+});
+
+test("a reconciliation answer must be committed with a message id, or not_found", async () => {
+  for (const malformed of [
+    { idempotencyKey: "request-send", state: "committed", reconciliation: true },
+    { idempotencyKey: "request-send", state: "sent", decision: "forward", messageId: "m" },
+  ]) {
+    const client = createAgentMessageHttpClient(async () => Response.json(malformed));
+    await expect(client.requestSendReconciliation!(reconciliationInput)).rejects.toMatchObject({
+      failureClass: "protocol_mismatch",
+    });
+  }
+});
+
+test("each request of a message send carries the send request deadline", async () => {
+  const timeout = spyOn(AbortSignal, "timeout");
+  const signals: Array<AbortSignal | null | undefined> = [];
+  try {
+    const client = createAgentMessageHttpClient(async (_input, init) => {
+      signals.push(init?.signal);
+      return String(_input).includes("reconcile") || String(init?.body).includes("reconcileOnly")
+        ? Response.json({
+            idempotencyKey: "request-send",
+            state: "not_found",
+            reconciliation: true,
+          })
+        : init?.method === "GET"
+          ? Response.json({ messages: [], hasOlder: false, hasNewer: false })
+          : Response.json({ idempotencyKey: "request-send", state: "sent", decision: "forward" });
+    });
+    await client.requestSend!({
+      ...reconciliationInput,
+      request: { ...reconciliationInput.request, operation: "send", content: "hi" },
+    });
+    await client.requestSendReconciliation!(reconciliationInput);
+    await client.requestRead!({
+      ...reconciliationInput,
+      request: { ...reconciliationInput.request, operation: "read" },
+    });
+    expect(timeout.mock.calls).toEqual([
+      [AGENT_SEND_REQUEST_TIMEOUT_MS],
+      [AGENT_SEND_REQUEST_TIMEOUT_MS],
+      [AGENT_SEND_REQUEST_TIMEOUT_MS],
+    ]);
+    expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true);
+  } finally {
+    timeout.mockRestore();
+  }
+});
+
+test("a plain send answered as a reconciliation is a protocol mismatch", async () => {
+  const client = createAgentMessageHttpClient(async () =>
+    Response.json({
+      idempotencyKey: "request-send",
+      state: "committed",
+      reconciliation: true,
+      receiptComplete: false,
+      messageId: "m",
+    }),
+  );
+  await expect(
+    client.requestSend!({
+      ...reconciliationInput,
+      request: { ...reconciliationInput.request, operation: "send", content: "hi" },
+    }),
+  ).rejects.toMatchObject({ failureClass: "protocol_mismatch" });
+});
+
+test("reconcileAgentSend posts to the send route through the client's reconciliation call", async () => {
+  const fake = fakeClient();
+  let seen: { url: string; request: unknown } | undefined;
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
+    requestSendReconciliation: async ({ url, request }) => {
+      seen = { url, request };
+      return {
+        idempotencyKey: request.idempotencyKey,
+        state: "committed",
+        reconciliation: true,
+        receiptComplete: false,
+        messageId: "message-1",
+      };
+    },
+  });
+  await transport.start("daemon-token", {
+    ...config,
+    serverHttpUrl: "https://server.example/api/internal/centrifugo",
+  });
+  const result = await transport.reconcileAgentSend(
+    reconciliationInput.request,
+    TEST_AGENT_API_KEY,
+  );
+  expect(result).toMatchObject({ state: "committed", messageId: "message-1" });
+  expect(seen).toEqual({
+    url: "https://server.example/api/agent/v1/messages",
+    request: reconciliationInput.request,
+  });
 });
 
 test("requestSend rejects a response whose state is not sent/held/denied instead of returning it untyped", async () => {

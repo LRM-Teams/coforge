@@ -57,6 +57,8 @@ test("preserves privacy, credential handling and uncertain-send safety", () => {
   expect(instructions).toContain("Do not solicit or expose credentials");
   expect(instructions).toContain("Draft saved: yes");
   expect(instructions).toContain("do not resend automatically");
+  // A failed same-key replay whose draft still holds the key is the one retry the Agent runs itself.
+  expect(instructions).toContain("If a failed send says `Retryable: yes`, run its next action");
 });
 
 test("recovers context on demand and keeps help discoverable", () => {

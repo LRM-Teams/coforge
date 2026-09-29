@@ -1,5 +1,6 @@
 import {
-  AGENT_MESSAGE_VALIDATION_MESSAGES,
+  AGENT_SEND_LOCAL_DEADLINE_MS,
+  type AgentProxyFailureBody,
   decodeAgentMessageResponse,
   decodeAgentReminderOperationResponse,
   decodeLocalReminderRequest,
@@ -56,53 +57,32 @@ import {
   unknownDeliveryNextAction,
 } from "./cli-error";
 
-/**
- * A legacy or pre-request-validation daemon may still answer with a bare-text body (never JSON):
- * the fixed literals `agent-proxy.ts` uses for its own request parsing (`"not found"`, `"bad
- * request"`, ...) and this known-safe validation-message allowlist. Anything else, this client
- * never relays verbatim — it could be arbitrary exception text from an unmigrated daemon build.
- */
-const SAFE_LEGACY_PROXY_TEXT = new Set<string>(AGENT_MESSAGE_VALIDATION_MESSAGES);
-
-/** The local daemon proxy's JSON error body shape (see `agent-proxy-failure.ts`). Best-effort: a
- * legacy or pre-request-validation daemon response may still be a bare text body, which
- * `readProxyErrorBody` tolerates. */
-type AgentProxyErrorBody = {
-  error?: string;
-  code?: string;
-  detail?: string;
-  suggested_next_action?: string;
-  proxy?: {
-    correlation_id?: string;
-    route_family?: string;
-    failure_class?: string;
-    cause_code?: string;
-    upstream_layer?: string;
-    upstream_status?: number;
-    response_started?: boolean;
-    response_complete?: boolean;
-    draft_saved?: boolean;
-  };
+/** The local daemon proxy's JSON error contract (`AgentProxyFailureBody` in the SDK). A few proxy
+ * refusals decided before a request is parsed (`unauthorized`, `not found`, `bad request`, …) are
+ * bare text instead; `readProxyErrorBody` reads those as no body at all, so none is ever relayed. */
+type AgentProxyErrorBody = Partial<Omit<AgentProxyFailureBody, "proxy">> & {
+  proxy?: Partial<AgentProxyFailureBody["proxy"]>;
 };
 
-/** Reads a non-ok proxy response body once, parsing it as the JSON error contract when possible. */
-async function readProxyErrorBody(
-  response: Response,
-): Promise<{ text: string; json?: AgentProxyErrorBody }> {
+/** Reads a non-ok proxy response body once, as the JSON error contract when it is one. */
+async function readProxyErrorBody(response: Response): Promise<{ json?: AgentProxyErrorBody }> {
   const text = await response.text().catch(() => "");
   try {
     const parsed = JSON.parse(text) as unknown;
     if (parsed && typeof parsed === "object" && "code" in parsed)
-      return { text, json: parsed as AgentProxyErrorBody };
+      return { json: parsed as AgentProxyErrorBody };
   } catch {
-    // A legacy bare-text proxy error (e.g. unauthorized/not found); fall through with just `text`.
+    // A bare-text proxy refusal (unauthorized, not found, ...): no body to relay.
   }
-  return { text };
+  return {};
 }
 
 function operationFailedCode(operation: string): string {
   return `${operation.toUpperCase().replace(/-/g, "_")}_FAILED`;
 }
+
+/** The deadline of every local proxy call but a message send (`AGENT_SEND_LOCAL_DEADLINE_MS`). */
+const OPERATION_DEADLINE_MS = 10_000;
 
 /** The agent-context token grammar the proxy checks before issuing any request. */
 const PROXY_CONTEXT_PATTERN = /^sfp_[A-Za-z0-9_-]{43}$/;
@@ -119,7 +99,7 @@ function preIssuanceError(operation: string, message: string): CliError {
 }
 /** The preflight every proxied request runs before it issues: the context must exist and match
  * the token grammar, and a proxy must be configured. Raises the operation's own pre-issuance
- * error, so no request is ever sent — and no `send` can even start retrying — on a missing setup. */
+ * error, so no request is ever sent on a missing setup. */
 function requireProxySetup(operation: string, context: string, proxyUrl: string): void {
   if (!context) throw preIssuanceError(operation, "coforge agent context is not configured");
   if (!PROXY_CONTEXT_PATTERN.test(context))
@@ -131,12 +111,13 @@ function requireProxySetup(operation: string, context: string, proxyUrl: string)
  * Classifies a non-ok proxy response (or a network failure reaching the proxy) into a `CliError`.
  * `send` failures raised here happened AFTER the daemon saved the local draft and handed the
  * request to its transport (see `runtime.ts#sendAgentMessage`): delivery state is unknown, so they
- * are never retryable from this evidence alone (Raft-aligned; see `cli-error.ts`).
+ * are not retryable from this evidence alone (Raft-aligned; see `cli-error.ts`) — unless the daemon
+ * says otherwise: after a failed same-key replay it knows whether the draft still holds the key.
  */
 function proxyHttpFailure(
   operation: string,
   status: number,
-  body: { text: string; json?: AgentProxyErrorBody },
+  body: { json?: AgentProxyErrorBody },
   target: string | undefined,
 ): CliError {
   const isSend = operation === "send";
@@ -145,13 +126,12 @@ function proxyHttpFailure(
   // A local precondition usually means nothing was saved, but a guard that saves a draft before
   // refusing (e.g. --target-confirmed) says so explicitly via `draft_saved`; honour it when present.
   const draftSaved = proxy?.draft_saved !== undefined ? proxy.draft_saved : !isLocalPrecondition;
-  const legacyText = body.text && SAFE_LEGACY_PROXY_TEXT.has(body.text) ? body.text : undefined;
-  const message = body.json?.error || legacyText || `HTTP ${status}`;
+  const message = body.json?.error || `HTTP ${status}`;
   const code = failureCode(operation, status, body.json);
   return new CliError({
     code,
     message,
-    retryable: false,
+    retryable: body.json?.retryable ?? false,
     ...(isSend ? { draftSaved } : {}),
     correlationId: proxy?.correlation_id,
     proxy: proxy
@@ -165,11 +145,15 @@ function proxyHttpFailure(
           responseComplete: proxy.response_complete,
         }
       : { upstreamStatus: status },
+    // The daemon names the next step when it knows better than the generic line: a precondition
+    // with its own remedy, or a failed same-key replay whose draft may or may not be retried.
     suggestedNextAction: isSend
-      ? isLocalPrecondition
-        ? NO_MESSAGE_SENT_NEXT_ACTION
-        : unknownDeliveryNextAction(target ?? "")
+      ? (body.json?.suggested_next_action ??
+        (isLocalPrecondition
+          ? NO_MESSAGE_SENT_NEXT_ACTION
+          : unknownDeliveryNextAction(target ?? "")))
       : body.json?.suggested_next_action,
+    ...(body.json?.details ? { details: body.json.details } : {}),
   });
 }
 
@@ -209,36 +193,6 @@ function proxyTransportFailure(operation: string, target: string | undefined): C
       ? { draftSaved: true, suggestedNextAction: unknownDeliveryNextAction(target ?? "") }
       : {}),
   });
-}
-
-/** How many times a `send` is attempted before its delivery state is reported as unknown, the base
- * delay between attempts (doubled each time: 250ms, 500ms), and a hard ceiling on the whole retry
- * window. The window stays under the server's 30s "processing" idempotency TTL
- * (`redis-message-request-idempotency.server.ts`), so a retry always finds its own idempotencyKey still
- * claimed and can never re-execute a send the server already accepted. */
-const SEND_RETRY_ATTEMPTS = 3;
-const SEND_RETRY_BASE_DELAY_MS = 250;
-const SEND_RETRY_DEADLINE_MS = 25_000;
-
-/**
- * Whether a `send` failure is worth retrying with the SAME `idempotencyKey`. A send is idempotent end
- * to end — the daemon forwards this `idempotencyKey` to the cloud and the server suppresses a duplicate
- * by it (`message-request-idempotency`) — so a retry either lands the message the first attempt
- * failed to deliver or returns the one it already persisted. Only transient transport/gateway
- * failures qualify: a 4xx, a `local_precondition` (e.g. the thread-target guard), or a protocol
- * mismatch is answered the same way however many times it is sent.
- */
-function isRetryableSendFailure(error: unknown): boolean {
-  if (!(error instanceof CliError)) return false;
-  // Nothing answered: the CLI could not reach the local proxy at all.
-  if (!error.proxy) return error.code === "SEND_FAILED";
-  const failureClass = error.proxy.failureClass;
-  if (failureClass === "pre_response_transport" || failureClass === "mid_response_transport")
-    return true;
-  if (failureClass !== "upstream_http_response") return false;
-  const status = error.proxy.upstreamStatus;
-  // 5xx is a gateway/upstream fault; 409 is the server's own "this idempotencyKey is still processing".
-  return status !== undefined && (status >= 500 || status === 409);
 }
 
 function manualFailedCode(errorCode: string | undefined): string {
@@ -486,6 +440,7 @@ export function connectLocal(
     body?: string,
     options?: {
       sendDraft?: boolean;
+      expectedDraftKey?: string;
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
       before?: string;
@@ -508,60 +463,46 @@ export function connectLocal(
       throw preIssuanceError(operation, "coforge agent context is invalid");
     const idempotencyKey = crypto.randomUUID();
     if (!proxyUrl) throw preIssuanceError(operation, "coforge agent proxy is not configured");
-    const attemptRequest = async (): Promise<Response> => {
-      let response: Response;
-      try {
-        response = await fetch(proxyEndpoint(agentApiRoutes.proxy.messages.path), {
-          method: agentApiRoutes.local.messages.method,
-          headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
-          body: JSON.stringify({ idempotencyKey, operation, target, content: body, ...options }),
-          signal: AbortSignal.timeout(10_000),
+    // One attempt, for `send` too: the daemon settles an ambiguous send by its key
+    // (`reconcileOnly`) and replays it at most once, so a blind retry here could only add a guess.
+    let response: Response;
+    try {
+      response = await fetch(proxyEndpoint(agentApiRoutes.proxy.messages.path), {
+        method: agentApiRoutes.local.messages.method,
+        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+        body: JSON.stringify({ idempotencyKey, operation, target, content: body, ...options }),
+        // A send waits out the daemon's whole settlement (send, reconciliation, replay), so its
+        // verdict reaches the Agent; every other operation keeps the short deadline.
+        signal: AbortSignal.timeout(
+          operation === "send" ? AGENT_SEND_LOCAL_DEADLINE_MS : OPERATION_DEADLINE_MS,
+        ),
+      });
+    } catch {
+      throw proxyTransportFailure(operation, target);
+    }
+    if (!response.ok) {
+      const errorBody = await readProxyErrorBody(response);
+      const failure = proxyHttpFailure(operation, response.status, errorBody, target);
+      if (
+        options?.freshnessContextMode === "withheld" &&
+        errorBody.json?.proxy?.failure_class !== "local_precondition"
+      ) {
+        const label = operation === "send" ? "send" : `${operation} request`;
+        // Reviewer isolation redacts only what could carry upstream detail — the message, the code
+        // and the proxy diagnostics. The daemon's verdict (retryable, draft saved, next action)
+        // names only the key and target, so it stays (Raft's reviewer-isolation send failure).
+        throw new CliError({
+          code: response.status >= 500 ? "SERVER_5XX" : operationFailedCode(operation),
+          message: `Reviewer-isolation ${label} failed (HTTP ${response.status}); upstream error detail was withheld.`,
+          retryable: failure.retryable,
+          draftSaved: failure.draftSaved,
+          correlationId: failure.correlationId,
+          suggestedNextAction: failure.suggestedNextAction,
+          details: failure.details,
+          proxy: { upstreamStatus: response.status },
         });
-      } catch {
-        throw proxyTransportFailure(operation, target);
       }
-      if (!response.ok) {
-        const errorBody = await readProxyErrorBody(response);
-        if (
-          options?.freshnessContextMode === "withheld" &&
-          errorBody.json?.proxy?.failure_class !== "local_precondition"
-        ) {
-          const label = operation === "send" ? "send" : `${operation} request`;
-          throw new CliError({
-            code: response.status >= 500 ? "SERVER_5XX" : operationFailedCode(operation),
-            message: `Reviewer-isolation ${label} failed (HTTP ${response.status}); upstream error detail was withheld.`,
-            retryable: false,
-            ...(operation === "send"
-              ? { draftSaved: true, suggestedNextAction: unknownDeliveryNextAction(target ?? "") }
-              : {}),
-            proxy: { upstreamStatus: response.status },
-          });
-        }
-        throw proxyHttpFailure(operation, response.status, errorBody, target);
-      }
-      return response;
-    };
-    // A `send` retries with the same idempotencyKey: the daemon forwards that key to the cloud and the
-    // server suppresses a duplicate by it, so a transient failure no longer has to end in silence.
-    // Every other operation keeps the single attempt it had before.
-    const retryDeadline = Date.now() + SEND_RETRY_DEADLINE_MS;
-    let response: Response | undefined;
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        response = await attemptRequest();
-        break;
-      } catch (error) {
-        if (
-          operation !== "send" ||
-          attempt >= SEND_RETRY_ATTEMPTS - 1 ||
-          Date.now() >= retryDeadline ||
-          !isRetryableSendFailure(error)
-        )
-          throw error;
-        await new Promise((resolve) =>
-          setTimeout(resolve, SEND_RETRY_BASE_DELAY_MS * 2 ** attempt),
-        );
-      }
+      throw failure;
     }
     return (await response.json()) as ReturnType<typeof decodeAgentMessageResponse>;
   };
@@ -585,6 +526,7 @@ export function connectLocal(
       body?: string,
       options?: {
         sendDraft?: boolean;
+        expectedDraftKey?: string;
         continueAnyway?: boolean;
         freshnessContextMode?: "withheld";
         attachmentIds?: string[];

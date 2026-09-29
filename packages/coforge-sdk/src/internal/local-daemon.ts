@@ -215,6 +215,9 @@ export type LocalAgentMessageRequest = {
   target?: string;
   content?: string;
   sendDraft?: boolean;
+  /** `message send --send-draft` only: refuse, before any request, unless the saved draft still
+   * belongs to the logical send with this idempotency key. */
+  expectedDraftKey?: string;
   continueAnyway?: boolean;
   /** `message send` only (daemon-internal): the boundary the sender has already reviewed. */
   seenUpToSeq?: number;
@@ -345,8 +348,9 @@ export type AgentMessageResponse = {
   messages: AgentMessageRecord[];
   messageId: string;
   summaries: MessageAttentionSummary[];
-  /** `message send` only: Raft's send contract, `"sent"` or `"held"`. */
-  state?: "sent" | "held";
+  /** `message send` only: Raft's send contract, `"sent"` or `"held"`, or `"committed"` when the
+   * daemon confirmed an ambiguous send's commit by its key and has no delivery receipt for it. */
+  state?: "sent" | "held" | "committed";
   /** `message send` only: `forward`/`bypass` sent the message, `local_hold`/`syncing_hold` held it. */
   decision?: "forward" | "bypass" | "local_hold" | "syncing_hold";
   reason?: string;

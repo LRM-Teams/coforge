@@ -2352,6 +2352,86 @@ test("parses a held draft retry", () => {
   );
 });
 
+test("parses --expected-draft-key only together with --send-draft", () => {
+  expect(
+    parseArgs([
+      "message",
+      "send",
+      "--send-draft",
+      "--expected-draft-key",
+      "key-1",
+      "--target",
+      "@ada",
+    ]),
+  ).toEqual({ command: "send", target: "@ada", sendDraft: true, expectedDraftKey: "key-1" });
+  expect(() =>
+    parseArgs(["message", "send", "--expected-draft-key", "key-1", "--target", "@ada"]),
+  ).toThrow("--expected-draft-key can only be used together with --send-draft.");
+  let refused: unknown;
+  try {
+    parseArgs(["message", "send", "--expected-draft-key", "key-1", "--target", "@ada"]);
+  } catch (error) {
+    refused = error;
+  }
+  expect(refused).toMatchObject({
+    code: "EXPECTED_DRAFT_KEY_REQUIRES_SEND_DRAFT",
+    draftSaved: false,
+  });
+  expect(() => parseArgs(["message", "send", "--send-draft", "--expected-draft-key"])).toThrow(
+    "Usage:",
+  );
+});
+
+test("message send passes --expected-draft-key to the transport", async () => {
+  let options: unknown;
+  await run(
+    ["message", "send", "--target", "@ada", "--send-draft", "--expected-draft-key", "key-1"],
+    {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async (_target, _body, sendOptions) => {
+        options = sendOptions;
+        return { accepted: true, messageId: "message-1" };
+      },
+      view: async () => ({ bytes: new Uint8Array() }),
+    },
+  );
+  expect(options).toMatchObject({ sendDraft: true, expectedDraftKey: "key-1" });
+});
+
+test("a send confirmed by reconciliation says so, and that no receipt or replay exists", async () => {
+  const transport = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => ({
+      accepted: true,
+      state: "committed",
+      messageId: "message-9",
+      idempotencyKey: "key-9",
+    }),
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  const text = await run(["message", "send", "--target", "@ada", "--send-draft"], transport);
+  expect(text).toBe(
+    [
+      "Message commit confirmed for @ada. Message ID: message-9",
+      "The original response was lost, so delivery-side receipt details (including mention delivery warnings and recent unread context) are unavailable; no message was replayed.",
+    ].join("\n"),
+  );
+  const json = await run(
+    ["message", "send", "--target", "@ada", "--send-draft", "--json"],
+    transport,
+  );
+  expect(JSON.parse(json as string)).toEqual({
+    state: "committed",
+    target: "@ada",
+    messageId: "message-9",
+    idempotencyKey: "key-9",
+    reconciliation: true,
+    receiptComplete: false,
+  });
+});
+
 test("dispatches only through the injected transport seam", async () => {
   const calls: string[] = [];
   await expect(

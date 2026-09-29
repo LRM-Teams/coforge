@@ -3,7 +3,15 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 import { WorkspaceMembers } from "#src/server/workspaces/members.server";
+import type { MessageRequestIdempotency } from "#src/server/conversations/message-request-idempotency.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+
+// Every send goes through request idempotency; these tests store each request once, and no
+// transport is running.
+const sending = {
+  idempotency: { execute: (_scope, persist) => persist() } satisfies MessageRequestIdempotency,
+  centrifugo: { publish: async () => {} },
+};
 
 const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
 if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -41,6 +49,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.workspace.deleteMany({ where: { slug } });
+  await db.computer.deleteMany({ where: { machineId: `dc-${suffix}` } });
   await db.user.deleteMany({ where: { username: { in: usernames } } });
   await db.$disconnect();
 });
@@ -171,4 +180,95 @@ test("an Agent's creator reads only their own DM with it, not another member's",
   await expect(
     new DirectConversations(db).authorize(workspaceId, ada.id, gracesDm.id),
   ).rejects.toThrow("ACCESS_DENIED");
+});
+
+test("a DM between members reads, sends and is read by its conversation id", async () => {
+  const conversations = new DirectConversations(db);
+  const { conversationId } = await conversations.open(workspaceId, ada.id, { userId: grace.id });
+  const sent = await conversations.send(
+    workspaceId,
+    ada.id,
+    conversationId,
+    { requestId: crypto.randomUUID(), body: "Lunch at noon?" },
+    sending,
+  );
+
+  const page = await conversations.page(workspaceId, grace.id, conversationId);
+  expect(page).toMatchObject({ kind: "people", peer: { id: ada.id, username: usernames[0] } });
+  expect(page.messages.map((message) => message.body)).toEqual(["Lunch at noon?"]);
+  expect(await conversations.updates(workspaceId, grace.id, conversationId, 0)).toHaveLength(1);
+
+  await conversations.markRead(workspaceId, grace.id, conversationId, sent.sequence);
+  expect(
+    (await conversations.page(workspaceId, grace.id, conversationId)).readThroughSequence,
+  ).toBe(sent.sequence);
+});
+
+test("a member's DM with themself names them on the other side", async () => {
+  const conversations = new DirectConversations(db);
+  const { conversationId } = await conversations.open(workspaceId, ada.id, { userId: ada.id });
+  expect(await conversations.page(workspaceId, ada.id, conversationId)).toMatchObject({
+    kind: "people",
+    peer: { id: ada.id },
+  });
+});
+
+test("a DM with an Agent reads by its conversation id, the Agent on the other side", async () => {
+  const conversations = new DirectConversations(db);
+  const { conversationId } = await conversations.open(workspaceId, ada.id, { agentId: helper.id });
+  expect(await conversations.page(workspaceId, ada.id, conversationId)).toMatchObject({
+    kind: "agent",
+    agent: { id: helper.id },
+  });
+  await expect(conversations.page(workspaceId, grace.id, conversationId)).rejects.toThrow(
+    "ACCESS_DENIED",
+  );
+});
+
+test("a send in a DM with an Agent is stored as the viewer's and read back", async () => {
+  const conversations = new DirectConversations(db);
+  // Delivered to, so it runs on a Computer.
+  const computer = await db.computer.create({
+    data: { ownerId: ada.id, machineId: `dc-${suffix}` },
+  });
+  const scribe = await db.agent.create({
+    data: {
+      workspaceId,
+      ownerId: ada.id,
+      computerId: computer.id,
+      name: `scribe-${suffix}`,
+      displayName: "Scribe",
+      runtimeConfig: {},
+    },
+  });
+  const { conversationId } = await conversations.open(workspaceId, ada.id, { agentId: scribe.id });
+  const sent = await conversations.send(
+    workspaceId,
+    ada.id,
+    conversationId,
+    { requestId: crypto.randomUUID(), body: "Ship it" },
+    sending,
+  );
+  const page = await conversations.page(workspaceId, ada.id, conversationId);
+  expect(sent.senderMemberId).toBe(page.senderMemberId);
+  expect(page.messages.at(-1)).toMatchObject({ id: sent.id, body: "Ship it" });
+});
+
+test("a DM names the member on the other side after they left the Workspace", async () => {
+  const conversations = new DirectConversations(db);
+  const lin = await db.user.create({ data: { username: `dc-lin-${suffix}` } });
+  await db.workspaceMembership.create({ data: { workspaceId, userId: lin.id } });
+  const { conversationId } = await conversations.open(workspaceId, ada.id, { userId: lin.id });
+  // Leaving the Workspace removes their member rows; the conversation stays Ada's to read.
+  await db.conversationMember.deleteMany({ where: { conversationId, userId: lin.id } });
+  expect(await conversations.page(workspaceId, ada.id, conversationId)).toMatchObject({
+    kind: "people",
+    peer: { id: lin.id },
+  });
+  // Nobody outside the pair reads it.
+  await expect(conversations.page(workspaceId, grace.id, conversationId)).rejects.toThrow(
+    "NOT_FOUND",
+  );
+  await db.conversation.delete({ where: { id: conversationId } });
+  await db.user.delete({ where: { id: lin.id } });
 });

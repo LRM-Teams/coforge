@@ -40,6 +40,19 @@ export interface MessageRequestIdempotency {
   ): Promise<PersistedDirectMessage>;
 }
 
+/** What is recorded under one request key: a send still working, or its persisted result. */
+export type MessageRequestRecord =
+  | { state: "processing" }
+  | { state: "completed"; message: PersistedDirectMessage };
+
+/**
+ * Reads a request key's record without claiming it — the lookup behind an Agent's `reconcileOnly`
+ * send, which must learn whether a key committed without ever sending or holding a message.
+ */
+export interface MessageRequestRecords {
+  find(scope: MessageRequestScope): Promise<MessageRequestRecord | undefined>;
+}
+
 export class MessageRequestInProgressError extends Error {
   constructor() {
     super("message request is already processing; retry later");

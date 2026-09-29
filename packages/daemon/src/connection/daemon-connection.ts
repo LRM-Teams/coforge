@@ -20,6 +20,7 @@ import type {
   AgentMentionExecuteRequest,
   AgentMentionExecuteResponse,
   AgentMentionPendingResponse,
+  AgentSendReconciliationResponse,
 } from "@lrm/coforge-sdk/agent";
 import {
   forwardOpenVikingOffer,
@@ -157,6 +158,7 @@ import {
   type AgentWeeklyReportHttpClient,
   type AgentChannelRequest,
   type AgentMessageTransportResponse,
+  type AgentSendReconciliationRequest,
 } from "./agent-http-clients";
 
 export type AgentLaunchConfig = {
@@ -314,6 +316,11 @@ export interface DaemonConnectionClient {
     request: AgentMessageRequest,
     agentApiKey: string,
   ): Promise<AgentMessageTransportResponse>;
+  /** Whether a send's idempotency key already committed (Raft's `reconcileOnly`); never sends. */
+  reconcileAgentSend?(
+    request: AgentSendReconciliationRequest,
+    agentApiKey: string,
+  ): Promise<AgentSendReconciliationResponse>;
   agentTask?(request: TaskRequest, agentApiKey: string): Promise<TaskResponse>;
   agentChannel?(
     request: AgentChannelRequest,
@@ -1036,6 +1043,21 @@ export class DaemonConnection implements DaemonConnectionClient {
       );
     }
     throw new Error(`unsupported Agent message operation: ${request.operation}`);
+  }
+
+  async reconcileAgentSend(
+    request: AgentSendReconciliationRequest,
+    agentApiKey: string,
+  ): Promise<AgentSendReconciliationResponse> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    const { requestSendReconciliation } = this.agentMessageHttpClient;
+    if (!requestSendReconciliation)
+      throw new Error("unsupported Agent message operation: send reconciliation");
+    return requestSendReconciliation({
+      url: this.#serverEndpoint("Agent message HTTP", agentApiRoutes.cloud.messages.send.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
   }
 
   async workspaceInfo(

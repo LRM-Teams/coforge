@@ -1,5 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { AgentHistoryResponse, AgentSendResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
+import type {
+  AgentHistoryResponse,
+  AgentMessage,
+  AgentSendDecisionResponse,
+  AgentSendResponse,
+} from "@lrm/coforge-sdk/agent";
 import {
   UUID_LIKE_PATTERN,
   isChannelMessageTarget,
@@ -13,12 +18,17 @@ import { PrismaDirectConversationRepository } from "#src/server/db/repositories/
 import {
   readAgentMessages,
   executeAgentSendMessageWithPolicy,
+  reconcileAgentSendMessage,
   type AgentMentionSelector,
   type AgentMessageRepository,
   type AgentSendMessageResult,
 } from "#src/server/agents/agent-messages.server";
 import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
 import { getMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import {
+  MessageRequestInProgressError,
+  type MessageRequestRecords,
+} from "#src/server/conversations/message-request-idempotency.server";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
@@ -89,7 +99,7 @@ function mapSendResult(idempotencyKey: string, result: AgentSendMessageResult) {
       ...message,
       createdAt: message.createdAt.toISOString(),
     }) as AgentMessage;
-  const response: AgentSendResponse = {
+  const response: AgentSendDecisionResponse = {
     idempotencyKey,
     state: result.state,
     decision: result.decision,
@@ -141,11 +151,61 @@ function isValidAttachmentIdsArray(value: unknown): value is string[] {
 
 export type AgentMessagesPostPrincipal = { workspaceId: string; agentId: string };
 
+/** The in-flight duplicate: this key's first request is still working. */
+const inProgress = (error: MessageRequestInProgressError) =>
+  Response.json({ error: error.message }, { status: 409 });
+
+/**
+ * Raft 1.0.38's `reconcileOnly` send: whether this key already committed, answered from the
+ * request record alone. It needs only the target and the key, and never sends or holds.
+ */
+async function handleAgentSendReconciliation(
+  body: Record<string, unknown>,
+  principal: AgentMessagesPostPrincipal,
+  requestRecords: MessageRequestRecords,
+): Promise<Response> {
+  // The key alone identifies the send's record, but Raft's `reconcileOnly` contract carries the
+  // target too, so a request without one is malformed.
+  if (
+    typeof body.target !== "string" ||
+    !body.target ||
+    typeof body.idempotencyKey !== "string" ||
+    !body.idempotencyKey
+  )
+    return Response.json(
+      { error: "reconcileOnly needs target and idempotencyKey" },
+      { status: 400 },
+    );
+  const idempotencyKey = body.idempotencyKey;
+  try {
+    const reconciliation = await reconcileAgentSendMessage(requestRecords, {
+      idempotencyKey,
+      workspaceId: principal.workspaceId,
+      agentId: principal.agentId,
+    });
+    const response: AgentSendResponse =
+      reconciliation.state === "committed"
+        ? {
+            idempotencyKey,
+            state: "committed",
+            reconciliation: true,
+            receiptComplete: false,
+            messageId: reconciliation.messageId,
+          }
+        : { idempotencyKey, state: "not_found", reconciliation: true };
+    return Response.json(response);
+  } catch (error) {
+    if (error instanceof MessageRequestInProgressError) return inProgress(error);
+    throw error;
+  }
+}
+
 /** Send-route body handling; extracted from the route so it can be tested with fakes. */
 export async function handleAgentMessagesPost(
   request: Request,
   principal: AgentMessagesPostPrincipal,
   dependencies: Parameters<typeof executeAgentSendMessageWithPolicy>[0] & {
+    requestRecords: MessageRequestRecords;
     memoryOfferRequired?: (input: {
       workspaceId: string;
       agentId: string;
@@ -154,6 +214,12 @@ export async function handleAgentMessagesPost(
   },
 ): Promise<Response> {
   const body = await request.json().catch(() => undefined);
+  if (body && typeof body === "object") {
+    if (body.reconcileOnly !== undefined && typeof body.reconcileOnly !== "boolean")
+      return Response.json({ error: "invalid reconcileOnly" }, { status: 400 });
+    if (body.reconcileOnly === true)
+      return handleAgentSendReconciliation(body, principal, dependencies.requestRecords);
+  }
   if (
     !body ||
     typeof body !== "object" ||
@@ -217,6 +283,9 @@ export async function handleAgentMessagesPost(
     // unchanged, exactly as it did before this class existed.
     if (error instanceof AgentSendRejectedError)
       return Response.json({ error: error.message }, { status: error.status });
+    // The same key's first request is still working: a duplicate, never a second message. Mapped
+    // here because the Agent auth middleware turns anything thrown past the handler into a 401.
+    if (error instanceof MessageRequestInProgressError) return inProgress(error);
     // An archived channel refuses posting (AppError("CONFLICT") from PublicChannels.send /
     // sendAgentMessage); reported the same way the rest of this route family reports a plain
     // text failure.
@@ -243,9 +312,11 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
       POST: ({ request, context: { principal, db } }) => {
         const repository = new PrismaDirectConversationRepository(db);
         const centrifugo = createCentrifugoServerApi();
+        const requestRecords = getMessageRequestIdempotency();
         const directory = createPrismaMemoryAgentDirectory(db);
         return handleAgentMessagesPost(request, principal, {
           repository,
+          requestRecords,
           memoryOfferRequired: async ({ workspaceId, agentId, target }) => {
             try {
               const conversation = await repository.getAgentChannel(workspaceId, agentId, target);
@@ -266,7 +337,7 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
           },
           sender: new SendDirectMessage(
             repository,
-            getMessageRequestIdempotency(),
+            requestRecords,
             centrifugo,
             new CentrifugoConversationRealtime(centrifugo),
             bestEffortMessageNotifier(db),

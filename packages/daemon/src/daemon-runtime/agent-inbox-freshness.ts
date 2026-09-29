@@ -102,7 +102,7 @@ export function locallyHeldSend(
    * no previews. The caller marks whatever it passes here as reviewed once the Agent has been shown
    * it — Raft's `recordConsumedSeqs(data.seenUpToSeq)` — which is what lets a resend through. */
   window: readonly AgentMessageTransportResponse["messages"][number][] = [],
-): AgentMessageTransportResponse {
+): AgentMessageTransportResponse & { state: "held" } {
   return {
     idempotencyKey: input.idempotencyKey,
     accepted: false,

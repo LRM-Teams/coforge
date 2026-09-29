@@ -32,8 +32,20 @@ context keeps holding the same still-correct reply.
 If a `--anyway` bypass succeeds, the output lists messages you may have missed since your last
 read; review them before continuing.
 
-If `coforge message send` fails and its error shows `Draft saved: yes`, delivery is unknown, not
-failed: do not resend. Wait, or tell a person what happened; running `coforge message read` or
-seeing no reply neither confirms nor rules out that it already sent.
+A saved draft is kept for 10 minutes. After that `--send-draft` sends nothing and fails with
+`SEND_DRAFT_EXPIRED`, printing the discarded body as its last copy; the original may already have
+been delivered, so read the target before sending that body again.
+
+If a send's response was lost, the daemon asks the server by the send's key before anything else.
+`Message commit confirmed` means it was sent: do not send it again.
+
+If `coforge message send` fails with `Retryable: yes`, run the exact command in its next action
+(`coforge message send --send-draft --expected-draft-key "<key>" --target "<target>"`). It reuses
+the same key, so it cannot create a second message, and it refuses if another send replaced the
+draft.
+
+Otherwise, if its error shows `Draft saved: yes`, delivery is unknown, not failed: do not resend.
+Wait, or tell a person what happened; running `coforge message read` or seeing no reply neither
+confirms nor rules out that it already sent.
 `coforge message send --send-draft` after such a failure is a person's deliberate decision to
 accept a possible duplicate, not something you decide on your own.

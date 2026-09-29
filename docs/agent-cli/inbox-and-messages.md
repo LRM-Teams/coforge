@@ -13,18 +13,42 @@ remain, the CLI ends its output telling the Agent to run `message check`
 again instead of reporting no more new messages; run it again to keep
 draining until it reports no new messages.
 
-Before `message send`, Web/backend may return `sideEffectDecision: "hold"` with
-canonical `messages` instead of pretending the send succeeded. The daemon keeps
-only the draft body and Web/backend's opaque hold token. After consuming that
-context, retry the preserved body with `message send --send-draft`. Agents never
-see or supply tokens or sequence numbers. A retry always repeats the exact target with
-`message send --target "@user" --send-draft`. `--anyway` requests a server-authorized
-bypass, is valid only with `--send-draft`, and is rejected until Web/backend has
-issued a second consecutive hold. A successful send consumes the held state.
-When a bypass succeeds, the response appends a `--- New messages you may have
-missed ---` section (or, with `--json`, a `recentUnread` array) listing the
-pending messages the bypass just skipped past; every other successful send
-reports none.
+Before `message send`, the daemon or Web/backend may hold the send
+(`state: "held"`) with the newer context instead of pretending it succeeded.
+The daemon saves the message as the target's local draft (kept ten minutes)
+before issuing it. After consuming that context, resend the unchanged draft
+with `message send --target "@user" --send-draft`, always repeating the exact
+target. `--anyway` is valid only with `--send-draft` and forces the send once
+Web/backend has suggested it for a draft held more than once. A successful
+send consumes the draft. When a bypass succeeds, the response appends a
+`--- New messages you may have missed ---` section (or, with `--json`, a
+`recentUnread` array) listing the pending messages the bypass just skipped
+past; every other successful send reports none.
+
+One logical send keeps one `idempotencyKey`. The draft stores the key of the
+send it came from, and `--send-draft` resends under that key, so the server can
+never commit the same message twice. Only the send whose key the draft holds
+clears it. `--send-draft --expected-draft-key <key>` refuses with
+`SAVED_DRAFT_IDENTITY_CHANGED`, before any request, when the draft now belongs
+to another send. A draft past its ten minutes is not sent: `--send-draft`
+fails with `SEND_DRAFT_EXPIRED`, removes it, and prints its body as the last
+copy (`details.discarded_draft` with `--json`); the original may already have
+been delivered, so read the target before resending.
+
+When a send's outcome is ambiguous (the connection failed before any
+response, or the server answered 5xx, readable body or not), the daemon does
+not retry blind. It
+asks once with `reconcileOnly` whether the key committed. `committed` is a
+success: the CLI prints `Message commit confirmed … no message was replayed`
+(`state: "committed"` with `--json`). `not_found` replays the original send
+once under the same key; if that replay fails while the draft still holds the
+key, the error is `Retryable: yes` and names the exact
+`message send --send-draft --expected-draft-key "<key>" --target "<target>"`
+command. Otherwise, or when reconciliation is unavailable, delivery stays
+unknown: `Draft saved: yes`, not retryable, do not resend. Each daemon request
+of a send has a 30-second deadline (Raft's pre-response deadline), and the CLI
+waits for the daemon's whole settlement plus a margin
+(`AGENT_SEND_LOCAL_DEADLINE_MS` in the SDK), so the verdict always arrives.
 
 `message send` accepts `--attachment-id <uuid>` (repeatable, up to ten per
 message; duplicate values collapse to one) to attach one or more attachments

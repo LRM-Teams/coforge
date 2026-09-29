@@ -358,6 +358,9 @@ test("formatHeldSend renders Raft's held notice and offers the anyway escape onl
   );
   expect(withoutAnyway).toContain("After reviewing the current state of this conversation");
   expect(withoutAnyway).toContain('coforge message send --send-draft --target "#general"');
+  expect(withoutAnyway).toContain(
+    "To send the current draft unchanged (within 10 minutes; after that the draft is discarded and --send-draft reports SEND_DRAFT_EXPIRED):",
+  );
   expect(withoutAnyway).not.toContain("--anyway");
 
   const withAnyway = formatHeldSend("#general", {
