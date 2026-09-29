@@ -4,7 +4,7 @@ import type {
   TaskStatus,
   TaskView,
 } from "@lrm/coforge-sdk/internal";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -41,7 +41,7 @@ import { taskTimeline } from "./task-history-timeline";
 import { TaskPerson } from "./task-owner";
 import { getTaskMoveCommand, taskStatusOptions } from "./task-move";
 import { executeTask } from "./tasks.functions";
-import { conversationTasksQuery } from "./use-conversation-tasks";
+import { useConversationTaskWrites } from "./use-conversation-tasks";
 import { statusLabel, TASK_STATUS_COLOR, type TaskControls } from "./task-workflow";
 
 type DetailCommand = Omit<TaskCommand, "idempotencyKey" | "conversationId"> & { number: number };
@@ -212,7 +212,7 @@ function TaskSection({
   currentMemberId: string | null;
 }) {
   const execute = useServerFn(executeTask);
-  const queryClient = useQueryClient();
+  const writeTasks = useConversationTaskWrites();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(false);
@@ -242,18 +242,16 @@ function TaskSection({
       if (onCommand) {
         await onCommand(command);
       } else {
-        // No external owner: run it here, then refresh the conversation's task list so the chip
-        // and the task tabs reflect the change.
-        await execute({
+        // No external owner: run it here, then write the server's copies into the conversation's
+        // Tasks, so the chip, the popup and the Tasks tab show the change without reading again.
+        const result = await execute({
           data: {
             ...command,
             idempotencyKey: crypto.randomUUID(),
             conversationId: task.conversationId,
           },
         });
-        await queryClient.invalidateQueries({
-          queryKey: conversationTasksQuery(task.conversationId).queryKey,
-        });
+        writeTasks(task.conversationId, [{ tasks: result.tasks, deleted: [] }]);
       }
     } catch {
       setError(true);

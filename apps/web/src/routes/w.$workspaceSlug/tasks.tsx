@@ -110,13 +110,9 @@ function TasksPage() {
     queryFn: () => loadOverviewTask({ data: taskRef! }),
     enabled: Boolean(taskRef && !listed),
   });
-  // The Task whose popup `task` names, and the rest of its conversation's Tasks.
+  // The Task whose popup `task` names.
   const openTask = listed ?? (taskRef && !listed ? (lookup.data ?? undefined) : undefined);
   const openConversationId = openTask?.conversationId;
-  const conversationTasks = useMemo(() => {
-    const rows = known.filter((task) => task.conversationId === openConversationId);
-    return openTask && !rows.includes(openTask) ? [...rows, openTask] : rows;
-  }, [known, openConversationId, openTask]);
   // Opening a popup is a history entry, so Back closes it; closing replaces in place.
   const openPopup = useCallback(
     (task: { conversationId: string; number: number }) =>
@@ -170,7 +166,6 @@ function TasksPage() {
           // One conversation per popup instance: another Task of the same conversation keeps it.
           key={openTask.conversationId}
           task={openTask}
-          conversationTasks={conversationTasks}
           onOpenTask={openConversationTask}
           onClose={closePopup}
           onCommand={(input) => (command ? command(openTask, input) : Promise.resolve())}

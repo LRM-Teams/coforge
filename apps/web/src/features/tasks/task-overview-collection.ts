@@ -7,6 +7,7 @@ import {
 } from "@tanstack/query-db-collection";
 import type { TaskCommand, TaskResult, TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
 
+import { createAnnouncedTasks } from "./announced-tasks";
 import { isFinishedStatus } from "./finished-tasks";
 import type { TaskChangedEvent } from "./task-realtime";
 import { executeTask, loadTaskOverview } from "./tasks.functions";
@@ -56,21 +57,9 @@ export function createTaskOverview(
   workspaceId: string,
   api: TaskOverviewApi = serverTaskOverviewApi,
 ) {
-  // Announced changes a read may not have seen yet: a read whose snapshot was taken before a
-  // change reaches the collection after it, and must not put the older copy back. The collection
-  // also writes each applied change into the cached list, so a copy leaves only once a newer one
-  // is listed; a deleted Task never comes back, so its id stays.
-  const announced = new Map<string, TaskView>();
-  const deletedTasks = new Set<string>();
-  const withAnnounced = (rows: readonly OverviewTaskRow[]) =>
-    rows.flatMap((row) => {
-      if (deletedTasks.has(row.messageId)) return [];
-      const newer = announced.get(row.messageId);
-      if (!newer) return [row];
-      if (newer.revision >= row.revision) return [{ ...row, ...newer }];
-      announced.delete(row.messageId);
-      return [row];
-    });
+  // Announced changes a read may not have seen yet (`announced-tasks.ts`). The collection also
+  // writes each applied change into the cached list, so a copy leaves once a newer one is listed.
+  const announced = createAnnouncedTasks();
 
   const tasks = createCollection(
     queryCollectionOptions({
@@ -79,7 +68,7 @@ export function createTaskOverview(
       queryFn: () => api.load(),
       queryClient,
       getKey: (row: OverviewTaskRow) => row.messageId,
-      select: (overview) => withAnnounced(overview.tasks),
+      select: (overview) => announced.over(overview.tasks),
     }),
   );
 
@@ -162,16 +151,8 @@ export function createTaskOverview(
       if (!row) needsRead ||= !isFinishedStatus(view.status);
       else if (view.revision > row.revision) updates.push(view);
     }
-    for (const view of newest.values())
-      if (!deleted.has(view.messageId)) {
-        announced.set(view.messageId, view);
-        // A Task converted again from the message of a deleted one is back.
-        deletedTasks.delete(view.messageId);
-      }
-    for (const messageId of deleted) {
-      announced.delete(messageId);
-      deletedTasks.add(messageId);
-    }
+    for (const view of newest.values()) if (!deleted.has(view.messageId)) announced.changed(view);
+    for (const messageId of deleted) announced.deleted(messageId);
     const removed = [...deleted].filter((messageId) => tasks.has(messageId));
     if (updates.length > 0 || removed.length > 0)
       tasks.utils.writeBatch(() => {

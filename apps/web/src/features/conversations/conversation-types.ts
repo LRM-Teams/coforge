@@ -109,7 +109,6 @@ export type ConversationProps = {
    * `newest-unread` open mode, where the cursor advances only through this callback.
    */
   onReadLatest?: (throughSequence: number) => void;
-  tasks?: TaskView[];
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   /** Toggles the viewer's own emoji reaction on a message; the route refreshes it. */
   onToggleReaction?: (messageId: string, emoji: string, active: boolean) => Promise<void>;
@@ -162,6 +161,8 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
 /** Which Task's popup is open, and how to open another or close it. */
 export type TaskPopupControls = {
   openTaskNumber: number | undefined;
+  /** The host's own copy of the open Task, shown until the conversation holds it. */
+  task?: TaskView;
   openTask: (number: number) => void;
   closeTask: () => void;
 };

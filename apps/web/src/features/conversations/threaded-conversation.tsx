@@ -9,6 +9,8 @@ import { m } from "#src/paraglide/messages";
 import { AgentProfilePanel } from "#src/features/agents/profile-panel/agent-profile-panel";
 import { resolveVisibleConversationSlot } from "#src/features/agents/profile-panel/profile-panel-slot";
 import { TaskDetailDialog } from "#src/features/tasks/task-detail-dialog";
+import { ConversationTaskDemand } from "#src/features/tasks/conversation-task-demand";
+import { useNumberedTask } from "#src/features/tasks/use-conversation-tasks";
 
 import { ConversationPane } from "./conversation-pane";
 import { useConversationDetailVisible } from "./conversation-navigation";
@@ -32,6 +34,8 @@ import type { ChannelSuggestion } from "./reference-completion";
 
 /** No channels to link or suggest: one array, so what is memoized on the list keeps. */
 const NO_CHANNELS: readonly ChannelSuggestion[] = [];
+/** No messages whose Tasks to read. */
+const NO_MESSAGES: DirectConversationView["messages"] = [];
 
 export function ThreadedConversation(props: ThreadedConversationProps) {
   // Persisted panel sizes use localStorage; mount that UI only after hydration.
@@ -134,10 +138,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     openTask: openTaskReference,
     closeTask: closeTaskReference,
   } = taskPopup ?? conversationTaskPopup;
-  const openTask =
-    openTaskNumber === undefined
-      ? undefined
-      : props.tasks?.find((task) => task.number === openTaskNumber);
+  const openTask = useNumberedTask(conversation.conversationId, openTaskNumber) ?? taskPopup?.task;
   const openTaskRoot =
     openTask && mainMessages.find((message) => message.id === openTask.messageId);
   // What every thread pane shares: the side pane and the thread under the task popup.
@@ -157,7 +158,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     onSend: (...[body, requestId, attachmentIds]: Parameters<typeof conversationProps.onSend>) =>
       conversationProps.onSend(body, requestId, attachmentIds, root.id),
   });
-  const taskDialog = openTask ? (
+  const dialog = openTask ? (
     <TaskDetailDialog
       // One popup instance per task: switching tasks from a chip inside the popup starts fresh.
       key={openTask.messageId}
@@ -186,6 +187,26 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       }
     />
   ) : null;
+  // The Tasks the stream and the popup show are read here, once per window rather than per row. A
+  // popup shown alone has no stream: only its thread's references are read.
+  const taskLayer = (
+    <>
+      <ConversationTaskDemand
+        conversationId={conversation.conversationId}
+        messages={
+          !taskPopup
+            ? conversation.messages
+            : openTaskRoot
+              ? [openTaskRoot, ...repliesOf(openTaskRoot.id)]
+              : NO_MESSAGES
+        }
+        hasNewer={conversation.hasNewer ?? false}
+        readWindow={!taskPopup}
+        openTaskNumber={openTaskNumber}
+      />
+      {dialog}
+    </>
+  );
   // The popup shows the task's thread itself, so a side pane for the same thread closes (two
   // composers on one thread would share and overwrite its draft), and a task message outside the
   // loaded window is fetched the way a thread link is.
@@ -279,7 +300,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     }
   }, [visited, mainMessages, repliesByRoot]);
   // Outside the conversation's page only its Task popup shows; the panes stay unmounted.
-  if (taskPopup) return taskDialog;
+  if (taskPopup) return taskLayer;
   const conversationMainPane = (
     <ThreadStoreProvider store={threads}>
       <ConversationPane
@@ -370,7 +391,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">{conversationSidePane}</div>
           )}
         </div>
-        {taskDialog}
+        {taskLayer}
       </>
     );
   }
@@ -411,7 +432,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
           </>
         )}
       </Group>
-      {taskDialog}
+      {taskLayer}
     </>
   );
 }

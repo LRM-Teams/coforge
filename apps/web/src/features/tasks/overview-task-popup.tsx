@@ -1,4 +1,3 @@
-import type { TaskView } from "@lrm/coforge-sdk/internal";
 import { usePrefetchQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { CatchBoundary, ClientOnly } from "@tanstack/react-router";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -9,15 +8,12 @@ import { channelNamesQuery } from "#src/features/conversations/conversation-quer
 import type { TaskPopupControls } from "#src/features/conversations/direct-conversation";
 import { useChannelConversation } from "#src/features/conversations/use-conversation-data";
 import { TaskDetailDialog } from "./task-detail-dialog";
-import { conversationTasksQuery } from "./use-conversation-tasks";
+import { useNumberedTask } from "./use-conversation-tasks";
 import type { OverviewTaskCommand, OverviewTaskRow } from "./task-overview-collection";
 
 type OverviewTaskPopupProps = {
   /** The open Task, as the overview lists it. */
   task: OverviewTaskRow;
-  /** The overview's Tasks of the same conversation: what the popup offers until the
-   * conversation's own Task list has loaded. */
-  conversationTasks: TaskView[];
   /** Opens another Task of the same conversation (a `task #N` chip in the thread). */
   onOpenTask: (number: number) => void;
   onClose: () => void;
@@ -47,8 +43,6 @@ function TaskPopupBoundary(props: OverviewTaskPopupProps) {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   // Read alongside the conversation rather than after it: both hold the popup back.
   usePrefetchQuery(channelNamesQuery(workspaceId));
-  // The Task list too, so the thread's task references show their badges as early as they can.
-  usePrefetchQuery(conversationTasksQuery(task.conversationId));
   // A conversation that cannot load leaves the popup with the Task alone. The boundary only
   // records the failure; the fallback renders here, outside it, so it keeps one component type
   // (and its pending and error state) across this component's renders.
@@ -86,35 +80,24 @@ function NoFallback() {
 }
 
 function ChannelTaskPopup(props: OverviewTaskPopupProps) {
-  const { conversationProps, taskView } = useChannelConversation(props.task.conversationId);
-  const { channels, tasks, taskPopup } = usePopupState(props, taskView.tasks);
-  return (
-    <ChannelConversation
-      {...conversationProps}
-      tasks={tasks}
-      channels={channels}
-      taskPopup={taskPopup}
-    />
-  );
+  const { conversationProps } = useChannelConversation(props.task.conversationId);
+  const { channels, taskPopup } = usePopupState(props);
+  return <ChannelConversation {...conversationProps} channels={channels} taskPopup={taskPopup} />;
 }
 
 /** What the channel hands its popup, and the overview kept in step with it. */
-function usePopupState(
-  { task, conversationTasks, onOpenTask, onClose, onTaskChanged }: OverviewTaskPopupProps,
-  liveTasks: TaskView[],
-) {
+function usePopupState({ task, onOpenTask, onClose, onTaskChanged }: OverviewTaskPopupProps) {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   const channels = useSuspenseQuery(channelNamesQuery(workspaceId)).data;
   const taskPopup = useMemo<TaskPopupControls>(
-    () => ({ openTaskNumber: task.number, openTask: onOpenTask, closeTask: onClose }),
-    [task.number, onOpenTask, onClose],
+    () => ({ openTaskNumber: task.number, task, openTask: onOpenTask, closeTask: onClose }),
+    [task, onOpenTask, onClose],
   );
-  // The conversation's own list is the live one; until it holds the open Task (still loading,
+  // The conversation's own copy is the live one; until it holds the open Task (still reading it,
   // or its read failed) the overview's copy keeps the popup up.
-  const liveRevision = liveTasks.find((candidate) => candidate.number === task.number)?.revision;
-  const tasks = liveRevision === undefined ? conversationTasks : liveTasks;
+  const liveRevision = useNumberedTask(task.conversationId, task.number)?.revision;
   useEffect(() => {
     if (liveRevision !== undefined && liveRevision > task.revision) onTaskChanged();
   }, [liveRevision, task.revision, onTaskChanged]);
-  return { channels, tasks, taskPopup };
+  return { channels, taskPopup };
 }
