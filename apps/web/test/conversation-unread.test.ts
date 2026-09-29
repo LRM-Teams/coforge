@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  activityInClosedConversation,
   applyMarked,
   applyUnreadEvent,
   sidebarListsChangedBy,
   sidebarRefreshQueue,
   clearUnread,
+  closedConversationLists,
   seedUnreadCounts,
   replaceUnreadCounts,
   latestTopLevelSequence,
@@ -333,44 +333,39 @@ describe("persistReadCursor", () => {
   });
 });
 
-test("a new top-level message in a chat the sidebar is not showing is activity in a closed chat", () => {
+test("a new top-level message in a chat the sidebar is not showing makes only that kind's list stale", () => {
   // The listed chats: channels and the DMs the sidebar shows, by conversation id.
   const listed = new Set(["channel-1", "dm-listed"]);
   const message = { conversationId: "channel-2", sequence: 5 };
 
-  // A channel missing from the list (the viewer closed it), a closed DM, and a DM that started
-  // after the sidebar read its list all count.
-  expect(activityInClosedConversation(message, listed)).toBe(true);
+  // A channel missing from the list (the viewer closed it) re-reads the channel list; a closed DM,
+  // and a DM that started after the sidebar read its list, re-read the DM list.
+  expect(closedConversationLists(message, listed)).toEqual(["channels"]);
   expect(
-    activityInClosedConversation(
+    closedConversationLists(
       { ...message, conversationId: "dm-closed", agentId: "agent-closed" },
       listed,
     ),
-  ).toBe(true);
+  ).toEqual(["dms"]);
   expect(
-    activityInClosedConversation(
-      { ...message, conversationId: "dm-new", agentId: "agent-new" },
-      listed,
-    ),
-  ).toBe(true);
+    closedConversationLists({ ...message, conversationId: "dm-new", agentId: "agent-new" }, listed),
+  ).toEqual(["dms"]);
   expect(
-    activityInClosedConversation(
+    closedConversationLists(
       { ...message, conversationId: "dm-member", peerUserId: "grace" },
       listed,
     ),
-  ).toBe(true);
+  ).toEqual(["dms"]);
 
   // Listed chats and thread replies do not: nothing new would appear in the list.
-  expect(activityInClosedConversation({ ...message, conversationId: "channel-1" }, listed)).toBe(
-    false,
-  );
+  expect(closedConversationLists({ ...message, conversationId: "channel-1" }, listed)).toEqual([]);
   expect(
-    activityInClosedConversation(
+    closedConversationLists(
       { ...message, conversationId: "dm-listed", agentId: "agent-open" },
       listed,
     ),
-  ).toBe(false);
-  expect(activityInClosedConversation({ ...message, threadRootId: "root-1" }, listed)).toBe(false);
+  ).toEqual([]);
+  expect(closedConversationLists({ ...message, threadRootId: "root-1" }, listed)).toEqual([]);
 });
 
 describe("the viewer's own channel events", () => {
