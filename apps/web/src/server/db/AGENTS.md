@@ -17,7 +17,9 @@ These rules apply to `src/server/db/`.
 - `agent-deletion.repositories.server.ts` makes a deleted Agent inert in one
   transaction; keep every deletion write inside it.
 - `direct-conversation-preferences.repositories.server.ts` owns the viewer's
-  DM list preferences (pinned, marked unread, closed) and their sidebar read.
-  It finds the DM through `PrismaDirectConversationRepository` and never
-  creates one; that repository keeps the DM's messages and read cursors and
-  forwards its preference methods here.
+  DM list preferences (pinned, marked unread, closed) and the sidebar's read
+  of their DMs (which, with whom, unread counts), by conversation id, for DMs
+  with Agents and between members alike. It writes only to a DM
+  `DirectConversations` has authorized and never creates one;
+  `PrismaDirectConversationRepository` keeps the DM's messages and read
+  cursors.

@@ -1,5 +1,3 @@
-import type { DirectRow } from "./sidebar-rows";
-
 export type ConversationRowMenuItemId = "mark-unread" | "pin" | "close-chat";
 
 export type ConversationRowMenuItem = {
@@ -30,21 +28,4 @@ export function conversationRowMenuItems(channel: {
     { id: "pin", pinned: channel.pinned },
     { id: "close-chat", pinned: false },
   ];
-}
-
-/** What one DM row needs, read from its row in the sidebar's DM list (P2b, #708): whether it is a
- * conversation (`enabled`; the menu's preferences need one), whether it is pinned, and whether it
- * is closed. */
-export function directRowPreference(row: DirectRow | undefined): {
-  enabled: boolean;
-  pinned: boolean;
-  hidden: boolean;
-  sortOrder: number | null;
-} {
-  return {
-    enabled: Boolean(row?.conversationId),
-    pinned: row?.pinned ?? false,
-    hidden: row?.hidden ?? false,
-    sortOrder: row?.pinned ? row.pinSortOrder : null,
-  };
 }

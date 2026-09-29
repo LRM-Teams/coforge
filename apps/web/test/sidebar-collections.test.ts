@@ -32,8 +32,20 @@ async function sidebarWith(overrides: Partial<SidebarApi> = {}, { synced = true 
   const server = {
     channels: [channel("general"), channel("random", { unreadCount: 2 })],
     preferences: {
-      conversations: [{ agentId: "helper", conversationId: "dm-helper" }],
-      pinned: [{ agentId: "helper", sortOrder: 0 }],
+      conversations: [
+        { conversationId: "dm-helper", peer: { kind: "agent" as const, agentId: "helper" } },
+        {
+          conversationId: "dm-grace",
+          peer: {
+            kind: "people" as const,
+            userId: "grace",
+            username: "grace",
+            displayName: "Grace",
+            avatarUrl: null,
+          },
+        },
+      ],
+      pinned: [{ conversationId: "dm-helper", sortOrder: 0 }],
       hidden: [] as string[],
     },
     failReads: false,
@@ -91,11 +103,11 @@ test("a change made before the lists have synced (another page) is saved and mar
       (query) => queryClient.getQueryState(query.queryKey)?.isInvalidated,
     );
   expect(stale()).toEqual([false, false]);
-  await sidebar.actions.markUnread({ kind: "direct", agentId: "helper" });
+  await sidebar.actions.markUnread({ kind: "direct", conversationId: "dm-helper" });
   await sidebar.actions.setPinned({ kind: "channel", channelId: "random" }, true);
   await sidebar.actions.close({ kind: "channel", channelId: "random" });
   expect(saves).toEqual([
-    `unread {"kind":"direct","agentId":"helper"}`,
+    `unread {"kind":"direct","conversationId":"dm-helper"}`,
     `pin {"kind":"channel","channelId":"random"} true`,
     `close {"kind":"channel","channelId":"random"}`,
   ]);
@@ -141,10 +153,25 @@ test("a failed DM re-read keeps the rows it has", async () => {
   const { sidebar, server } = await sidebarWith();
   server.failReads = true;
   await sidebar.directs.utils.refetch();
-  expect(sidebar.directs.get("helper")).toMatchObject({
+  expect(sidebar.directs.get("dm-helper")).toMatchObject({
     pinned: true,
-    conversationId: "dm-helper",
+    peer: { kind: "agent", agentId: "helper" },
   });
+});
+
+test("a DM row changes by its conversation id, a DM between members as one with an Agent", async () => {
+  const { sidebar, saves } = await sidebarWith();
+  const pinned = sidebar.actions.setPinned({ kind: "direct", conversationId: "dm-grace" }, true);
+  // After the viewer's other pin.
+  expect(sidebar.directs.get("dm-grace")).toMatchObject({ pinned: true, pinSortOrder: 1 });
+  await pinned;
+  const closed = sidebar.actions.close({ kind: "direct", conversationId: "dm-grace" });
+  expect(sidebar.directs.get("dm-grace")?.hidden).toBe(true);
+  await closed;
+  expect(saves).toEqual([
+    `pin {"kind":"direct","conversationId":"dm-grace"} true`,
+    `close {"kind":"direct","conversationId":"dm-grace"}`,
+  ]);
 });
 
 test("a change to a row that has left the list is still saved", async () => {

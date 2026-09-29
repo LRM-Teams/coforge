@@ -12,6 +12,7 @@ import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.serv
 import { PrismaWorkspaceEnrollmentStore } from "#src/server/workspaces/enrollment.server";
 import { readAuthorizedAttachment } from "#src/server/attachments/attachment.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
 import type { CentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import {
@@ -4397,16 +4398,18 @@ test("pins keep one order across the member's channels and DMs: a new pin goes l
       },
     });
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis));
-    const directs = new PrismaDirectConversationRepository(db);
+    const directs = new DirectConversations(db);
     const ops = await channels.create(workspace.id, alice.id, "ops");
     const eng = await channels.create(workspace.id, alice.id, "eng");
-    await directs.getOrCreateUserAgent(workspace.id, alice.id, helper.id);
+    const { conversationId: helperDm } = await directs.open(workspace.id, alice.id, {
+      agentId: helper.id,
+    });
 
     /** The member's pins as one list, the way the sidebar's Pinned section reads them. */
     const pinned = async () => {
       const [channelRows, preferences] = await Promise.all([
         channels.list(workspace.id, alice.id),
-        directs.preferencesForUser(workspace.id, alice.id),
+        directs.list(workspace.id, alice.id),
       ]);
       return [
         ...channelRows
@@ -4419,7 +4422,7 @@ test("pins keep one order across the member's channels and DMs: a new pin goes l
     };
 
     await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
-    await directs.setPinnedForUser(workspace.id, alice.id, helper.id, true);
+    await directs.setPinned(workspace.id, alice.id, helperDm, true);
     await channels.setUserPinned(workspace.id, alice.id, eng.id, true);
     expect(await pinned()).toEqual(["ops", "@helper", "eng"]);
 
@@ -4478,15 +4481,17 @@ test("arranging a member's pins sets their order in one step, pins what is new, 
       },
     });
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis));
-    const directs = new PrismaDirectConversationRepository(db);
+    const directs = new DirectConversations(db);
     const ops = await channels.create(workspace.id, alice.id, "ops");
     const eng = await channels.create(workspace.id, alice.id, "eng");
     const bobsOwn = await channels.create(workspace.id, bob.id, "bobs");
-    await directs.getOrCreateUserAgent(workspace.id, alice.id, helper.id);
+    const { conversationId: helperDm } = await directs.open(workspace.id, alice.id, {
+      agentId: helper.id,
+    });
     const pinned = async () => {
       const [channelRows, preferences] = await Promise.all([
         channels.list(workspace.id, alice.id),
-        directs.preferencesForUser(workspace.id, alice.id),
+        directs.list(workspace.id, alice.id),
       ]);
       return [
         ...channelRows
@@ -4502,7 +4507,7 @@ test("arranging a member's pins sets their order in one step, pins what is new, 
     // A new pin dropped at the top, ahead of the existing one.
     await arrangeConversationPins(db, workspace.id, alice.id, {
       pins: [
-        { kind: "direct", agentId: helper.id },
+        { kind: "direct", conversationId: helperDm },
         { kind: "channel", channelId: ops.id },
       ],
       unpinned: [],
@@ -4513,7 +4518,7 @@ test("arranging a member's pins sets their order in one step, pins what is new, 
     await arrangeConversationPins(db, workspace.id, alice.id, {
       pins: [
         { kind: "channel", channelId: eng.id },
-        { kind: "direct", agentId: helper.id },
+        { kind: "direct", conversationId: helperDm },
       ],
       unpinned: [{ kind: "channel", channelId: ops.id }],
     });
@@ -4523,7 +4528,7 @@ test("arranging a member's pins sets their order in one step, pins what is new, 
     await channels.setUserPinned(workspace.id, alice.id, ops.id, true);
     await arrangeConversationPins(db, workspace.id, alice.id, {
       pins: [
-        { kind: "direct", agentId: helper.id },
+        { kind: "direct", conversationId: helperDm },
         { kind: "channel", channelId: eng.id },
       ],
       unpinned: [],
@@ -4545,7 +4550,7 @@ test("arranging a member's pins sets their order in one step, pins what is new, 
     // Dragging the only arranged row out: the rest close up from the first place.
     await arrangeConversationPins(db, workspace.id, alice.id, {
       pins: [],
-      unpinned: [{ kind: "direct", agentId: helper.id }],
+      unpinned: [{ kind: "direct", conversationId: helperDm }],
     });
     expect(await pinned()).toEqual(["eng", "ops"]);
     expect(
@@ -4559,7 +4564,7 @@ test("arranging a member's pins sets their order in one step, pins what is new, 
     for (let round = 0; round < 15; round += 1) {
       await Promise.all([
         channels.setUserPinned(workspace.id, alice.id, ops.id, round % 2 === 0),
-        directs.setPinnedForUser(workspace.id, alice.id, helper.id, round % 2 === 1),
+        directs.setPinned(workspace.id, alice.id, helperDm, round % 2 === 1),
         arrangeConversationPins(db, workspace.id, alice.id, {
           pins: [
             { kind: "channel", channelId: ops.id },
@@ -4572,7 +4577,7 @@ test("arranging a member's pins sets their order in one step, pins what is new, 
     // Whichever finished last, the drag left ops and eng pinned, in that order, with no gaps.
     const [channelRows, preferences] = await Promise.all([
       channels.list(workspace.id, alice.id),
-      directs.preferencesForUser(workspace.id, alice.id),
+      directs.list(workspace.id, alice.id),
     ]);
     const orders = [
       ...channelRows.flatMap((channel) => (channel.pinned ? [channel.pinSortOrder!] : [])),

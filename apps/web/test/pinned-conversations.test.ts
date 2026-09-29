@@ -19,9 +19,11 @@ const channel = (name: string, pinSortOrder: number | null = null) => ({
   pinned: pinSortOrder !== null,
   pinSortOrder,
 });
-const direct = (id: string, sortOrder: number | null = null, hidden = false) => ({
-  agent: { id },
-  preference: { pinned: sortOrder !== null, sortOrder, hidden },
+const direct = (conversationId: string, pinSortOrder: number | null = null, hidden = false) => ({
+  conversationId,
+  pinned: pinSortOrder !== null,
+  pinSortOrder,
+  hidden,
 });
 
 test("pinned channels and DMs share one list ordered by pin order, and leave their own sections", () => {
@@ -32,7 +34,7 @@ test("pinned channels and DMs share one list ordered by pin order, and leave the
   expect(split.pinned.map((entry) => entry.id)).toEqual(["eng", "helper", "ops"]);
   expect(split.pinned.map((entry) => entry.kind)).toEqual(["channel", "direct", "channel"]);
   expect(split.channels.map((entry) => entry.id)).toEqual(["general"]);
-  expect(split.directs.map((entry) => entry.agent.id)).toEqual(["scout"]);
+  expect(split.directs.map((entry) => entry.conversationId)).toEqual(["scout"]);
 });
 
 test("pins with the same order keep channels first, each in the order its own list gives", () => {
@@ -56,11 +58,11 @@ test("closing a chat hides it from its own section but never from Pinned", () =>
     [direct("helper", 0, true), direct("scout", null, true), direct("docs")],
   );
   expect(split.pinned.map((entry) => entry.id)).toEqual(["helper"]);
-  expect(split.directs.map((entry) => entry.agent.id)).toEqual(["docs"]);
+  expect(split.directs.map((entry) => entry.conversationId)).toEqual(["docs"]);
 });
 
 /**
- * Dragging rows between the sidebar's sections. Rows are keyed `channel:<id>` / `direct:<agentId>`;
+ * Dragging rows between the sidebar's sections. Rows are keyed `channel:<id>` / `direct:<conversationId>`;
  * `natural` is each section's own order (the channel list, the Agent list), which a row returns to
  * when it leaves Pinned.
  */
@@ -82,7 +84,7 @@ test("a row dragged into Pinned lands where it is dropped and leaves its own sec
     pins: [
       { kind: "channel", channelId: "ops" },
       { kind: "channel", channelId: "eng" },
-      { kind: "direct", agentId: "helper" },
+      { kind: "direct", conversationId: "helper" },
     ],
     unpinned: [],
   });
@@ -93,7 +95,7 @@ test("a pinned row dragged back to its own section is unpinned and returns to it
   expect(moved.pinned).toEqual(["direct:helper"]);
   expect(moved.channels).toEqual(["channel:general", "channel:ops", "channel:eng"]);
   expect(pinsAfterDrag(layout, moved)).toEqual({
-    pins: [{ kind: "direct", agentId: "helper" }],
+    pins: [{ kind: "direct", conversationId: "helper" }],
     unpinned: [{ kind: "channel", channelId: "ops" }],
   });
 });
@@ -112,7 +114,7 @@ test("pinned rows reorder among themselves; a section's own rows keep their orde
   expect(reordered.pinned).toEqual(["direct:helper", "channel:ops"]);
   expect(pinsAfterDrag(layout, reordered)).toEqual({
     pins: [
-      { kind: "direct", agentId: "helper" },
+      { kind: "direct", conversationId: "helper" },
       { kind: "channel", channelId: "ops" },
     ],
     unpinned: [],

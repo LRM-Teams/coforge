@@ -90,7 +90,8 @@ export class UserDirectConversations {
   }
 
   /**
-   * Stores a member's message once per `requestId`, then tells both members' pages. Nothing is
+   * Stores a member's message once per `requestId`, then tells the conversation's open pages and
+   * the other member's list. Nothing is
    * delivered to an Agent, and `@handle` stays plain text: a direct conversation between people
    * has no one else to mention.
    */
@@ -113,7 +114,10 @@ export class UserDirectConversations {
         conversationId,
         messageId: message.id,
         sequence: message.sequence,
-        directUserIds: members.flatMap((member) => (member.userId ? [member.userId] : [])),
+        // The other member's list only: the sender's own message never bumps their badge.
+        directUserIds: members.flatMap((member) =>
+          member.userId && member.userId !== senderUserId ? [member.userId] : [],
+        ),
         directPair: peopleDirectKeyPair(conversation.directKey),
         requestId: input.requestId,
         ...(message.threadRootId ? { threadRootId: message.threadRootId } : {}),

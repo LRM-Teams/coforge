@@ -4,18 +4,21 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { DndContext } from "@dnd-kit/core";
 import { Link as AriaLink } from "react-aria-components";
 
+import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { useAppToast } from "#src/components/ui/toast";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import type { LiveAgent } from "#src/features/agents/workspace-agents-realtime";
+import { useMemberOnline } from "#src/features/workspaces/member-presence";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
+import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
 import { useChannelUnreadCounts, useCloseConversationList } from "./conversation-navigation";
 import { useSavedEntries } from "./conversation-host";
 import { ConversationRowMenu } from "./conversation-row-menu";
-import { conversationRowMenuEnabled, directRowPreference } from "./conversation-row-menu-model";
+import { conversationRowMenuEnabled } from "./conversation-row-menu-model";
 import { useSidebarActions } from "./sidebar-lists";
 import type { DirectRow } from "./sidebar-rows";
 import { DirectoryDragRow, DirectoryDropList, useDirectoryDrag } from "./directory-drag";
@@ -45,6 +48,26 @@ type DirectoryChannel = {
   /** Where the row sits in the Pinned section, among the member's pinned channels and DMs. */
   pinSortOrder: number | null;
 };
+
+/** A DM row as the directory shows it: its row, the name it goes by, and its live Agent when it is
+ * one with an Agent. */
+type DirectEntry = DirectRow & { name: string; agent?: LiveAgent; self: boolean };
+
+/** A member's avatar in their DM row, with the online dot once presence is known (an unknown
+ * state is never drawn as offline). */
+function MemberAvatar({ userId, name, src }: { userId: string; name: string; src: string | null }) {
+  const online = useMemberOnline(userId);
+  return (
+    <Avatar
+      size="xs"
+      alt={name}
+      src={src ?? undefined}
+      initials={avatarInitial(name)}
+      contentClassName={avatarToneClassName(name)}
+      status={online === undefined ? undefined : online ? "online" : "offline"}
+    />
+  );
+}
 
 /** Slack-style badge: the count up to 99, then "99+". Hidden from AT by the row's label. */
 export function UnreadBadge({ count }: { count: number }) {
@@ -210,7 +233,8 @@ function DirectorySection({
 export function ConversationDirectory({
   channels,
   agents,
-  directRows: directRowsByAgent,
+  directRows: directRowList,
+  viewerId,
   selectedChannelId,
   selectedDmId,
   selectedSaved,
@@ -218,9 +242,11 @@ export function ConversationDirectory({
 }: {
   channels: DirectoryChannel[];
   agents: LiveAgent[];
-  /** The viewer's own DM rows by Agent (P2b, #708): which Agents they have a conversation with (and
-   * its id), which are pinned (and in what order), and which are closed. */
-  directRows: ReadonlyMap<string, DirectRow>;
+  /** The viewer's DMs, with their Agents and with members, in the list's order: who each is with,
+   * which are pinned (and in what order), and which are closed. */
+  directRows: readonly DirectRow[];
+  /** The viewer, whose DM with themself reads "(you)". */
+  viewerId?: string;
   selectedChannelId?: string;
   /** The open direct message, by conversation id (from the URL, so it highlights at once). */
   selectedDmId?: string;
@@ -237,13 +263,15 @@ export function ConversationDirectory({
     const sortedChannels = [...channels].sort((left, right) =>
       left.joined === right.joined ? 0 : left.joined ? -1 : 1,
     );
-    /** DM rows in the Agent list's own order, one per existing conversation (an Agent the viewer
-     * never wrote to has none, as in Raft); a closed one is left out of its section by the split. */
-    const directRows = agents.flatMap((agent) => {
-      const row = directRowsByAgent.get(agent.id);
-      return row?.conversationId
-        ? [{ agent, conversationId: row.conversationId, preference: directRowPreference(row) }]
-        : [];
+    /** One row per existing DM (an Agent or member the viewer never wrote to has none, as in
+     * Raft), Agents and members mixed in the list's order. A DM with an Agent that is gone is left
+     * out; a closed one is left out of its section by the split. */
+    const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
+    const directRows = directRowList.flatMap((row): DirectEntry[] => {
+      if (row.peer.kind === "people")
+        return [{ ...row, name: row.peer.displayName, self: row.peer.userId === viewerId }];
+      const agent = agentsById.get(row.peer.agentId);
+      return agent ? [{ ...row, name: agent.displayName, agent, self: false }] : [];
     });
     const sections = splitPinnedConversations(sortedChannels, directRows);
     const base: DirectoryLayout = {
@@ -251,18 +279,18 @@ export function ConversationDirectory({
         entry.kind === "channel" ? channelRowKey(entry.id) : directRowKey(entry.id),
       ),
       channels: sections.channels.map((channel) => channelRowKey(channel.id)),
-      agents: sections.directs.map(({ agent }) => directRowKey(agent.id)),
+      agents: sections.directs.map((direct) => directRowKey(direct.conversationId)),
     };
     /** Where a row returns to when it is dragged out of Pinned: its list's own order. A closed DM
      * that is still pinned is included so it can be seen while it is dragged. */
     const natural = {
       channels: sortedChannels.map((channel) => channelRowKey(channel.id)),
       agents: directRows
-        .filter(({ preference }) => preference.pinned || !preference.hidden)
-        .map(({ agent }) => directRowKey(agent.id)),
+        .filter((direct) => direct.pinned || !direct.hidden)
+        .map((direct) => directRowKey(direct.conversationId)),
     };
     return { sortedChannels, directRows, base, natural };
-  }, [channels, agents, directRowsByAgent]);
+  }, [channels, agents, directRowList, viewerId]);
   const toast = useAppToast();
   const actions = useSidebarActions();
   const drag = useDirectoryDrag({
@@ -311,30 +339,28 @@ export function ConversationDirectory({
       </ConversationRowMenu>
     );
   };
-  const directRow = ({ agent, conversationId, preference }: (typeof directRows)[number]) => (
-    <ConversationRowMenu
-      target={{
-        kind: "direct",
-        agentId: agent.id,
-        enabled: preference.enabled,
-        pinned: preference.pinned,
-      }}
-    >
+  const directRow = ({ conversationId, peer, pinned, name, agent, self }: DirectEntry) => (
+    <ConversationRowMenu target={{ kind: "direct", conversationId, pinned }}>
       <ConversationRow
         target={{ dmId: conversationId }}
         current={conversationId === selectedDmId}
-        unreadCount={unreadCounts[agent.id]}
-        label={agent.displayName}
+        unreadCount={unreadCounts[conversationId]}
+        label={self ? `${name} ${m.conversation_dm_self_suffix()}` : name}
         icon={
-          <AgentDisplayAvatar
-            name={agent.displayName}
-            src={agent.avatarUrl}
-            display={agent.display}
-            size="xs"
-          />
+          agent ? (
+            <AgentDisplayAvatar
+              name={agent.displayName}
+              src={agent.avatarUrl}
+              display={agent.display}
+              size="xs"
+            />
+          ) : peer.kind === "people" ? (
+            <MemberAvatar userId={peer.userId} name={name} src={peer.avatarUrl} />
+          ) : null
         }
       >
-        {agent.displayName}
+        {name}
+        {self && <span className="ml-1 text-quaternary">{m.conversation_dm_self_suffix()}</span>}
       </ConversationRow>
     </ConversationRowMenu>
   );
@@ -349,10 +375,7 @@ export function ConversationDirectory({
     ),
     ...directRows.map(
       (row) =>
-        [
-          directRowKey(row.agent.id),
-          { node: directRow(row), draggable: row.preference.enabled },
-        ] as const,
+        [directRowKey(row.conversationId), { node: directRow(row), draggable: true }] as const,
     ),
   ]);
   const list = (section: DirectorySectionId) =>

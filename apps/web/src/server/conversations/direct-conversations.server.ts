@@ -11,6 +11,7 @@ import {
   PrismaDirectConversationRepository,
   type HistoryWindow,
 } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { PrismaDirectConversationPreferences } from "#src/server/db/repositories/direct-conversation-preferences.repositories.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
 import { SendDirectMessage } from "./direct-message.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
@@ -34,15 +35,18 @@ export type DirectMessageSending = {
 
 /**
  * A viewer's direct conversations addressed by id, the way their pages are (`dm/<id>`): opening
- * one with an Agent or a member, deciding who may use a conversation id and who it is with, and
- * everything the page does there. A DM with an Agent and one between members share every
- * operation; only a send goes its own way, since only an Agent is delivered to.
+ * one with an Agent or a member, deciding who may use a conversation id and who it is with,
+ * everything the page does there, and the viewer's Direct messages list (which DMs, with whom,
+ * unread, pinned, closed). A DM with an Agent and one between members share every operation; only
+ * a send goes its own way, since only an Agent is delivered to.
  */
 export class DirectConversations {
   private readonly conversations: PrismaDirectConversationRepository;
+  private readonly preferences: PrismaDirectConversationPreferences;
 
   constructor(private readonly db: PrismaClient) {
     this.conversations = new PrismaDirectConversationRepository(db);
+    this.preferences = new PrismaDirectConversationPreferences(db);
   }
 
   /** The viewer's conversation with their own Agent or a member, started on first open. */
@@ -93,12 +97,12 @@ export class DirectConversations {
         id: conversationId,
         workspaceId,
         directKey: { not: null },
-        members: { some: { userId: viewerId } },
+        members: { some: { userId: viewerId, leftAt: null } },
       },
       select: {
         directKey: true,
         members: {
-          where: { OR: [{ agentId: { not: null } }, { userId: viewerId }] },
+          where: { OR: [{ agentId: { not: null } }, { userId: viewerId, leftAt: null }] },
           select: {
             id: true,
             userId: true,
@@ -123,6 +127,41 @@ export class DirectConversations {
       throw new AppError("ACCESS_DENIED");
     if (canSend) assertAgentLive(agent);
     return { target: { kind: "agent", agentId: agent.id }, viewerMemberId };
+  }
+
+  /** The viewer's DMs as their Direct messages list shows them: each one and who it is with, the
+   * pinned ones in order, and the closed ones. */
+  list(workspaceId: string, viewerId: string) {
+    return this.preferences.preferencesForUser(workspaceId, viewerId);
+  }
+
+  /** Unread per DM of the viewer's, by conversation id, for the list's badges. */
+  unreadCounts(workspaceId: string, viewerId: string) {
+    return this.preferences.unreadCountsForUser(workspaceId, viewerId);
+  }
+
+  /** Pins the DM after the viewer's other pins, or unpins it. */
+  async setPinned(workspaceId: string, viewerId: string, conversationId: string, pinned: boolean) {
+    const memberId = await this.viewerMember(workspaceId, viewerId, conversationId);
+    return this.preferences.setPinned(workspaceId, viewerId, { conversationId, memberId }, pinned);
+  }
+
+  /** Marks the DM unread from its newest top-level message, or clears the marker. */
+  async setUnread(workspaceId: string, viewerId: string, conversationId: string, unread: boolean) {
+    const memberId = await this.viewerMember(workspaceId, viewerId, conversationId);
+    return this.preferences.setUnread({ conversationId, memberId }, unread);
+  }
+
+  /** Closes the DM in the viewer's list only, or brings it back; someone else's next top-level
+   * message brings it back too. */
+  async setHidden(workspaceId: string, viewerId: string, conversationId: string, hidden: boolean) {
+    const memberId = await this.viewerMember(workspaceId, viewerId, conversationId);
+    return this.preferences.setHidden({ conversationId, memberId }, hidden);
+  }
+
+  /** The viewer's own member row in a DM they may use; a list preference never needs more. */
+  private async viewerMember(workspaceId: string, viewerId: string, conversationId: string) {
+    return (await this.access(workspaceId, viewerId, conversationId, {})).viewerMemberId;
   }
 
   /** A window of the conversation's history and who is on the other side. */

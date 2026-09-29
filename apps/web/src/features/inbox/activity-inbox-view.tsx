@@ -376,7 +376,7 @@ function useActivityItemActions({
             ? setMentionRead({ data: { resolutionId: mentionAction.resolutionId, read: false } })
             : place.kind === "channel"
               ? setChannelUnread({ data: { channelId: place.conversationId, unread: true } })
-              : setDirectUnread({ data: { agentId: place.agent.id, unread: true } }),
+              : setDirectUnread({ data: { conversationId: place.conversationId, unread: true } }),
         ),
       unfollow: ({ place, thread }: ActivityInboxItem) => {
         if (!thread) return;

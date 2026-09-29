@@ -17,8 +17,8 @@ export const workspaceConversationChannel = (workspaceId: string) =>
 /**
  * The viewer's own direct-message signal channel. A DM event is published here (and on its
  * conversation channel) instead of the workspace channel, so direct-message metadata never
- * reaches every Workspace member, and the publication can name the Agent badge it belongs to
- * directly rather than making the browser reverse-map a conversation id.
+ * reaches every Workspace member; each publication names who is on the other side, which is how
+ * the sidebar tells a DM's event from a channel's.
  */
 export const userConversationChannel = (userId: string) => `chat:user:${userId}`;
 
@@ -31,15 +31,11 @@ export type MessageAvailableEvent = {
   workspaceId?: string;
   /** Set only for a thread reply: reading a thread consumes thread unread, never channel unread. */
   threadRootId?: string;
-  /**
-   * Set only for a direct message: the Agent whose sidebar badge this event bumps. The user
-   * channel is already scoped to one viewer, so the badge key needs no conversation alias.
-   */
+  /** Set only for a direct message with an Agent: that Agent. */
   agentId?: string;
   /**
    * Set only on a member's own signal channel for a direct conversation between people: the
-   * other member, whose sidebar badge this event bumps (the member themself in their own
-   * conversation).
+   * other member (the member themself in their own conversation).
    */
   peerUserId?: string;
   /**

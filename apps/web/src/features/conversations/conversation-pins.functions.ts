@@ -5,7 +5,7 @@ import { arrangeConversationPins } from "#src/server/conversations/conversation-
 
 const pinRefSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("channel"), channelId: z.uuid() }),
-  z.object({ kind: z.literal("direct"), agentId: z.uuid() }),
+  z.object({ kind: z.literal("direct"), conversationId: z.uuid() }),
 ]);
 
 /** Puts the viewer's pinned channels and DMs in the order a drag in the sidebar's Pinned section
