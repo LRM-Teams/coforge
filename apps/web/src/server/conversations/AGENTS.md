@@ -9,8 +9,8 @@ These rules apply to `src/server/conversations/`.
   read/write and ordering, human read positions, persistent follow state, and
   mute/mention delivery eligibility. `channelAgentRecipients` is the one rule
   for which Agents a sent channel message wakes, whether a person or an Agent
-  sent it; the Agent send path in the direct-conversation repository calls it
-  too. A Task and an action card keep their own rules.
+  sent it; the Agent send path in the direct-conversation repository calls it too, and
+  `enrollThreadReplyFollowers`, the one rule for who a thread reply makes a follower. A Task and an action card keep their own rules.
 - `DirectConversations` (`direct-conversations.server.ts`) owns the viewer's
   direct conversations by id: opening one by who it is with (only their own
   live Agent, or a Workspace member), `authorize` (who may use a conversation

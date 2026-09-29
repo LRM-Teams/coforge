@@ -346,6 +346,43 @@ export async function channelAgentRecipients(
   return [...new Set(ids)].filter((id) => id !== message.senderAgentId);
 }
 
+/**
+ * Enrolls the followers a channel thread reply makes, whether a person or an Agent sent it:
+ * everyone who takes part (the replier and every member the reply mentions or binds) and, the
+ * first time the thread gets a reply, the author of the message replied to. Without that last
+ * one, a reply under someone's own message never enrolls them, and since a thread reply is not a
+ * parent-channel post, nothing would ever notify them of the discussion started under it. Only
+ * while the thread is brand new: an explicit unfollow is a decision, and a later reply must not
+ * silently enroll the root author back. Runs before `channelAgentRecipients`, which reads these
+ * follows.
+ */
+export async function enrollThreadReplyFollowers(
+  tx: Prisma.TransactionClient,
+  reply: {
+    workspaceId: string;
+    conversationId: string;
+    root: { id: string; senderMemberId: string | null };
+    participantMemberIds: readonly string[];
+  },
+): Promise<void> {
+  const { workspaceId, conversationId, root } = reply;
+  const followerIds = new Set(reply.participantMemberIds);
+  const existingFollower = await tx.threadFollow.findFirst({
+    where: { rootMessageId: root.id },
+    select: { memberId: true },
+  });
+  if (root.senderMemberId && !existingFollower) followerIds.add(root.senderMemberId);
+  await tx.threadFollow.createMany({
+    data: [...followerIds].map((memberId) => ({
+      memberId,
+      rootMessageId: root.id,
+      conversationId,
+      workspaceId,
+    })),
+    skipDuplicates: true,
+  });
+}
+
 /** Workspace-visible history with per-Agent notification preferences. */
 export class PublicChannels {
   private readonly inboxPurge: Pick<AgentInboxPurgePublisher, "purge">;
@@ -2112,30 +2149,13 @@ export class PublicChannels {
                 channelMentionTargets(tx, { workspaceId, conversationId: channelId }, handles),
             },
           );
-          if (root) {
-            // Everyone who takes part in a thread is a follower: whoever replies, everyone the
-            // reply @mentions, and — the first time the thread gets a reply — the author of the
-            // message being replied to. Without that last one, a reply under someone's own
-            // message never enrolls them, and since a thread reply is not a parent-channel post,
-            // nothing would ever notify them of the discussion started under their message.
-            const participants = [member.id, ...stored.mentions.map((mention) => mention.key)];
-            // Only while the thread is brand new: an explicit `thread unfollow` is a decision, and
-            // a later reply must not silently enroll the root author back into the thread.
-            const existingFollower = await tx.threadFollow.findFirst({
-              where: { rootMessageId: root.id },
-              select: { memberId: true },
+          if (root)
+            await enrollThreadReplyFollowers(tx, {
+              workspaceId,
+              conversationId: channelId,
+              root,
+              participantMemberIds: [member.id, ...stored.mentions.map((mention) => mention.key)],
             });
-            if (root.senderMemberId && !existingFollower) participants.push(root.senderMemberId);
-            await tx.threadFollow.createMany({
-              data: participants.map((memberId) => ({
-                memberId,
-                rootMessageId: root.id,
-                conversationId: channelId,
-                workspaceId,
-              })),
-              skipDuplicates: true,
-            });
-          }
           const recipients = await channelAgentRecipients(tx, {
             conversationId: channelId,
             threadRootId: root?.id,

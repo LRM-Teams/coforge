@@ -4097,6 +4097,124 @@ test("an Agent's thread reply enrolls exactly the members its stored mention row
   }
 });
 
+test("a thread reply from a person or an Agent enrolls its sender, the members it mentions or binds, and the root author on the first reply", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `fa${suffix}` } });
+  const bob = await db.user.create({ data: { username: `fb${suffix}` } });
+  const carol = await db.user.create({ data: { username: `fc${suffix}` } });
+  const dave = await db.user.create({ data: { username: `fd${suffix}` } });
+  const erin = await db.user.create({ data: { username: `fe${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `reply-enroll-${suffix}`,
+      name: "Thread reply enrollment",
+      members: {
+        create: [
+          { userId: alice.id, role: "owner" },
+          { userId: bob.id },
+          { userId: carol.id },
+          { userId: dave.id },
+          { userId: erin.id },
+        ],
+      },
+    },
+  });
+  try {
+    const agent = (name: string) =>
+      db.agent.create({
+        data: {
+          workspaceId: workspace.id,
+          ownerId: alice.id,
+          name,
+          displayName: name,
+          runtimeConfig: {},
+        },
+      });
+    const helper = await agent("helper");
+    const scout = await agent("scout");
+    await enrollGeneral(db, workspace.id);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const repo = new PrismaDirectConversationRepository(db);
+    const general = (await channels.list(workspace.id, alice.id))[0]!;
+    const followers = async (rootMessageId: string) =>
+      (
+        await db.threadFollow.findMany({
+          where: { rootMessageId },
+          select: { member: { select: { userId: true, agentId: true } } },
+        })
+      )
+        .map(({ member }) => member.userId ?? member.agentId)
+        .sort();
+
+    // A person's reply: the replier, the member it @mentions, and the root author (first reply).
+    const root = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "root by alice",
+    });
+    await channels.send({
+      workspaceId: workspace.id,
+      userId: bob.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: `@${carol.username} can you look?`,
+      threadRootId: root.id,
+    });
+    expect(await followers(root.id)).toEqual([alice.id, bob.id, carol.id].sort());
+
+    // An Agent's later reply adds itself, the member its body @mentions and the one its
+    // `--mention` binding names without the body writing the handle.
+    await repo.sendAgentMessage(
+      general.id,
+      helper.id,
+      `@${dave.username} and scout, please take this.`,
+      [],
+      root.id.slice(0, 8),
+      [{ type: "agent", id: scout.id, name: "scout" }],
+    );
+    expect(await followers(root.id)).toEqual(
+      [alice.id, bob.id, carol.id, dave.id, helper.id, scout.id].sort(),
+    );
+
+    // An Agent's first reply under a person's message enrolls that person too, and a person's
+    // reply that mentions themself enrolls them once.
+    const erinRoot = await channels.send({
+      workspaceId: workspace.id,
+      userId: erin.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "root by erin",
+    });
+    await repo.sendAgentMessage(general.id, scout.id, "On it.", [], erinRoot.id.slice(0, 8));
+    await channels.send({
+      workspaceId: workspace.id,
+      userId: dave.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: `@${dave.username} noting this for myself`,
+      threadRootId: erinRoot.id,
+    });
+    expect(await followers(erinRoot.id)).toEqual([dave.id, erin.id, scout.id].sort());
+  } finally {
+    await db.workspace.deleteMany({ where: { id: workspace.id } });
+    await db.user.deleteMany({
+      where: { id: { in: [alice.id, bob.id, carol.id, dave.id, erin.id] } },
+    });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
 test("a channel member can list and unfollow Agents following a thread; a private Agent is never a channel follower", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
