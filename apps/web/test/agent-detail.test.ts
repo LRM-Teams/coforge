@@ -227,7 +227,7 @@ test("a tool_end status row between two text fragments closes the merge group li
   ];
   const rows = presentActivityRows(activity);
   expect(rows.map((row) => row.label)).toEqual(["Output", "Working", "Output"]);
-  expect(rows.map((row) => row.detail)).toEqual(["after", "Tool finished", "before"]);
+  expect(rows.map((row) => row.detail)).toEqual(["before", "Tool finished", "after"]);
 });
 
 test("subagent_activity always shows one unified label, even with entries", () => {
@@ -418,8 +418,8 @@ test("text, text, tool, text keeps two Output rows around the visible tool row",
   ];
   const rows = presentActivityRows(activity);
   expect(rows.map((row) => row.label)).toEqual(["Output", "Running command", "Output"]);
-  expect(rows[0].detail).toBe("after");
-  expect(rows[2].detail).toBe("first-second");
+  expect(rows[0].detail).toBe("first-second");
+  expect(rows[2].detail).toBe("after");
 });
 
 test("a hidden send_message tool call between fragments still separates them", () => {
@@ -438,8 +438,8 @@ test("a hidden send_message tool call between fragments still separates them", (
   expect(presentActivity(activity[1])).toEqual([]);
   const rows = presentActivityRows(activity);
   expect(rows.map((row) => row.label)).toEqual(["Output", "Output"]);
-  expect(rows[0].detail).toBe("final part");
-  expect(rows[1].detail).toBe("firstsecond");
+  expect(rows[0].detail).toBe("firstsecond");
+  expect(rows[1].detail).toBe("final part");
 });
 
 test("text followed by thinking does not merge", () => {
@@ -448,7 +448,7 @@ test("text followed by thinking does not merge", () => {
     textFrame(1, "said"),
   ];
   const rows = presentActivityRows(activity);
-  expect(rows.map((row) => row.label)).toEqual(["Thinking", "Output"]);
+  expect(rows.map((row) => row.label)).toEqual(["Output", "Thinking"]);
 });
 
 test("fragments from different launches do not merge", () => {
@@ -457,7 +457,7 @@ test("fragments from different launches do not merge", () => {
     textFrame(1, "a"),
   ]);
   expect(rows).toHaveLength(2);
-  expect(rows.map((row) => row.detail)).toEqual(["b", "a"]);
+  expect(rows.map((row) => row.detail)).toEqual(["a", "b"]);
 });
 
 test("fragments from different subagent lineage do not merge", () => {
@@ -473,7 +473,7 @@ test("fragments from different subagent lineage do not merge", () => {
   ];
   const rows = presentActivityRows(activity);
   expect(rows).toHaveLength(2);
-  expect(rows.map((row) => row.detail)).toEqual(["b", "a"]);
+  expect(rows.map((row) => row.detail)).toEqual(["a", "b"]);
 });
 
 test("an error-level row never merges with surrounding text fragments", () => {
@@ -490,7 +490,7 @@ test("an error-level row never merges with surrounding text fragments", () => {
   ];
   const rows = presentActivityRows(activity);
   expect(rows.map((row) => row.tone)).toEqual(["output", "error", "output"]);
-  expect(rows.map((row) => row.detail)).toEqual(["after", "boom", "before"]);
+  expect(rows.map((row) => row.detail)).toEqual(["before", "boom", "after"]);
 });
 
 test("a newly appended fragment keeps the same row key as the statement grows", () => {
@@ -843,5 +843,5 @@ test("a system entry closes an open statement merge group instead of merging int
   ];
   const rows = presentActivityRows(activity);
   expect(rows.map((row) => row.label)).toEqual(["Output", "Session reset", "Output"]);
-  expect(rows.map((row) => row.detail)).toEqual(["after", "restarted", "before"]);
+  expect(rows.map((row) => row.detail)).toEqual(["before", "restarted", "after"]);
 });

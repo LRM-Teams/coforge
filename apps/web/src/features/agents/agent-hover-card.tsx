@@ -183,9 +183,8 @@ function CardRecentActivity({
   const timeZone = appRoute.useLoaderData({ select: (data) => data.timeZone });
   const closePreview = useClosePreview();
   // The recent-Activity cache is capped already; merging a statement's fragments into rows can
-  // still leave more rows than the card shows. The cache is newest first; the card reads top to
-  // bottom in time order, newest last.
-  const rows = presentActivityRows(activity).slice(0, RECENT_ACTIVITY_LIMIT).reverse();
+  // still leave more rows than the card shows, so it keeps the newest few.
+  const rows = presentActivityRows(activity).slice(-RECENT_ACTIVITY_LIMIT);
   if (!rows.length) return null;
   return (
     <div className="border-t border-secondary px-3 py-2">
