@@ -159,13 +159,12 @@ function finiteNumber(value: unknown): number | undefined {
   const n = number(value);
   return n === undefined ? undefined : n;
 }
-/** Grok 1.0.41 wraps the on-demand cap and its usage as `{ val: number }` where the shape this
- * reader was built against sent plain numbers; accept both rather than pick one. */
+/** The on-demand cap and its usage, as Grok 1.0.41 wraps them: `{ val: number }`. That is the only
+ * shape read here — the bare number the reader briefly also accepted is one no current grok sends
+ * (1.0.41 is its newest release), so accepting it only kept a second path alive that nothing
+ * produces. */
 function quotaNumber(value: unknown): number | undefined {
-  const direct = finiteNumber(value);
-  if (direct !== undefined) return direct;
-  const wrapped = asRecord(value);
-  return wrapped ? finiteNumber(wrapped.val) : undefined;
+  return finiteNumber(asRecord(value)?.val);
 }
 function instant(value: unknown): string | undefined {
   const date = new Date(typeof value === "number" ? value * 1000 : String(value ?? ""));
