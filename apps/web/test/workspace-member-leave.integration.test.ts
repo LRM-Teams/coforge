@@ -450,7 +450,7 @@ async function outcome(respond: () => Promise<Response>) {
 }
 
 test.skipIf(!connectionString || !redisUrl)(
-  "an Agent's send or upload to someone outside the Workspace reads exactly like an unknown username",
+  "an Agent's send, upload or action card to someone outside the Workspace reads exactly like an unknown username",
   async () => {
     const { db, workspace, owner, bob } = await setup();
     const redis = new RedisClient(redisUrl!);
@@ -522,6 +522,19 @@ test.skipIf(!connectionString || !redisUrl)(
               { resolveTarget, create: refuseStore },
             ),
           ),
+          prepare: await outcome(() =>
+            handleAgentActionPrepare(
+              new Request("https://server.example/api/agent/v1/actions/prepare", {
+                method: "POST",
+                body: JSON.stringify({
+                  target,
+                  action: { type: "channel:create", name: "ops", visibility: "public" },
+                }),
+              }),
+              principal,
+              () => new ActionCards(db, repo),
+            ),
+          ),
         };
       };
 
@@ -529,6 +542,7 @@ test.skipIf(!connectionString || !redisUrl)(
       expect(await answers(`@${elsewhere.username}`)).toEqual(unknown);
       expect(unknown.send).toEqual({ status: 403, body: { error: "target is not accessible" } });
       expect(unknown.upload).toEqual(unknown.send);
+      expect(unknown.prepare).toEqual(unknown.send);
     } finally {
       redis.close();
       await db.workspace.delete({ where: { id: otherWorkspace.id } }).catch(() => {});
@@ -555,7 +569,7 @@ test.skipIf(!connectionString)(
           }),
         }),
         { workspaceId: workspace.id, agentId: helper.id },
-        new ActionCards(db, repo),
+        () => new ActionCards(db, repo),
       );
       expect({ status: response.status, body: await response.json() }).toEqual({
         status: 403,

@@ -1,4 +1,5 @@
 import {
+  AGENT_REQUEST_REFUSED_CODE,
   AGENT_SEND_LOCAL_DEADLINE_MS,
   type AgentProxyFailureBody,
   decodeAgentMessageResponse,
@@ -23,6 +24,7 @@ import type {
 } from "../index";
 import {
   agentApiRoutes,
+  decodeAgentApiRefusal,
   decodeAgentChannelErrorResponse,
   decodeAgentManualErrorResponse,
   decodeAgentManualGetResponse,
@@ -64,17 +66,20 @@ type AgentProxyErrorBody = Partial<Omit<AgentProxyFailureBody, "proxy">> & {
   proxy?: Partial<AgentProxyFailureBody["proxy"]>;
 };
 
-/** Reads a non-ok proxy response body once, as the JSON error contract when it is one. */
-async function readProxyErrorBody(response: Response): Promise<{ json?: AgentProxyErrorBody }> {
+/** Reads a non-ok proxy response body once, as the JSON error contract when it is one, keeping
+ * the raw text for a caller that falls back to it. */
+async function readProxyErrorBody(
+  response: Response,
+): Promise<{ json?: AgentProxyErrorBody; text: string }> {
   const text = await response.text().catch(() => "");
   try {
     const parsed = JSON.parse(text) as unknown;
     if (parsed && typeof parsed === "object" && "code" in parsed)
-      return { json: parsed as AgentProxyErrorBody };
+      return { json: parsed as AgentProxyErrorBody, text };
   } catch {
     // A bare-text proxy refusal (unauthorized, not found, ...): no body to relay.
   }
-  return {};
+  return { text };
 }
 
 function operationFailedCode(operation: string): string {
@@ -123,6 +128,9 @@ function proxyHttpFailure(
   const isSend = operation === "send";
   const proxy = body.json?.proxy;
   const isLocalPrecondition = proxy?.failure_class === "local_precondition";
+  // The server refused the request with its own reason: nothing was sent, which is known, not
+  // ambiguous like a transport failure.
+  const nothingSent = isLocalPrecondition || proxy?.failure_class === "upstream_refusal";
   // A local precondition usually means nothing was saved, but a guard that saves a draft before
   // refusing (e.g. --target-confirmed) says so explicitly via `draft_saved`; honour it when present.
   const draftSaved = proxy?.draft_saved !== undefined ? proxy.draft_saved : !isLocalPrecondition;
@@ -149,9 +157,7 @@ function proxyHttpFailure(
     // with its own remedy, or a failed same-key replay whose draft may or may not be retried.
     suggestedNextAction: isSend
       ? (body.json?.suggested_next_action ??
-        (isLocalPrecondition
-          ? NO_MESSAGE_SENT_NEXT_ACTION
-          : unknownDeliveryNextAction(target ?? "")))
+        (nothingSent ? NO_MESSAGE_SENT_NEXT_ACTION : unknownDeliveryNextAction(target ?? "")))
       : body.json?.suggested_next_action,
     ...(body.json?.details ? { details: body.json.details } : {}),
   });
@@ -169,6 +175,11 @@ function failureCode(operation: string, status: number, json: AgentProxyErrorBod
       return json?.code ?? operationFailedCode(operation);
     case "protocol_mismatch":
       return "INVALID_JSON_RESPONSE";
+    // The server's own stable code when its refusal named one (`DM_PEER_NOT_IN_WORKSPACE`).
+    case "upstream_refusal":
+      return json?.code === undefined || json.code === AGENT_REQUEST_REFUSED_CODE
+        ? operationFailedCode(operation)
+        : json.code;
     case "upstream_http_response":
       return (proxy?.upstream_status ?? status) >= 500
         ? "SERVER_5XX"
@@ -754,14 +765,18 @@ export function connectLocal(
     response: Response,
   ): Promise<{ message: string; code?: string; retryable?: boolean }> {
     const text = await response.text().catch(() => "");
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(text) as { error?: string; code?: string; retryable?: boolean };
-      if (parsed && typeof parsed.error === "string")
-        return { message: parsed.error, code: parsed.code, retryable: parsed.retryable };
+      parsed = JSON.parse(text);
     } catch {
       // Not JSON: keep the raw text (e.g. a legacy bare-text proxy error).
     }
-    return { message: text };
+    // Only the documented refusal shape names a code the Agent is shown.
+    const refusal = decodeAgentApiRefusal(parsed);
+    if (refusal)
+      return { message: refusal.error, code: refusal.code, retryable: refusal.retryable };
+    const error = (parsed as { error?: unknown } | undefined)?.error;
+    return { message: typeof error === "string" ? error : text };
   }
 
   async function callAttachmentUpload(input: {
@@ -833,11 +848,11 @@ export function connectLocal(
         });
       }
       if (!response.ok) {
-        const { message } = await readAttachmentErrorBody(response);
+        const { message, code, retryable } = await readAttachmentErrorBody(response);
         throw new CliError({
-          code: response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED",
+          code: code ?? (response.status >= 500 ? "SERVER_5XX" : "UPLOAD_FAILED"),
           message: message || `HTTP ${response.status}`,
-          retryable: false,
+          retryable: retryable === true,
         });
       }
       return (await response.json()) as AttachmentUploadResult;
@@ -1148,7 +1163,9 @@ export function connectLocal(
     return response.json();
   }
 
-  /** Server non-2xx maps to `PREPARE_FAILED` (4xx, server error text) or `SERVER_5XX`. */
+  /** A daemon proxy failure maps like any other proxied operation (a refusal keeps the server's
+   * code and reason); any other non-2xx maps to `PREPARE_FAILED` (4xx, its error text) or
+   * `SERVER_5XX`. */
   async function callActionPrepare(
     target: string,
     action: ActionCardAction,
@@ -1172,13 +1189,16 @@ export function connectLocal(
       });
     }
     if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      let message = text;
+      const errorBody = await readProxyErrorBody(response);
+      if (errorBody.json?.proxy)
+        throw proxyHttpFailure("prepare", response.status, errorBody, target);
+      // Not the daemon's contract: a legacy `{ error, message }` body or bare text.
+      let message = errorBody.text;
       try {
-        const json = JSON.parse(text) as { error?: string; message?: string };
-        message = json.message || json.error || text;
+        const json = JSON.parse(errorBody.text) as { error?: string; message?: string };
+        message = json.message || json.error || errorBody.text;
       } catch {
-        // A legacy or bare-text proxy error; fall through with the raw text.
+        // Bare text: keep it.
       }
       throw new CliError({
         code: response.status >= 500 ? "SERVER_5XX" : "PREPARE_FAILED",

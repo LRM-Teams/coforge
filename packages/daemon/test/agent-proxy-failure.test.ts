@@ -9,6 +9,8 @@ import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
 import { AgentSendVerdictError } from "#src/daemon-runtime/agent-send-verdict";
 import { AgentMessageRequestError } from "#src/connection/agent-message-request-error";
 import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
+import { AgentExplainedRefusalError } from "#src/connection/agent-explained-refusal-error";
+import { AGENT_REQUEST_REFUSED_CODE } from "@lrm/coforge-sdk/internal";
 
 const context = {
   method: "POST",
@@ -251,4 +253,65 @@ test("a judged send failure is classified by its cause, then carries the daemon'
     proxy: { cause_code: "REVIEWER_ISOLATION_WITHHELD", draft_saved: false },
   });
   expect(redacted.body.proxy.upstream_status).toBeUndefined();
+});
+
+const explainedRefusal = (status: number, body: unknown) =>
+  AgentExplainedRefusalError.fromResponse(status, JSON.stringify(body))!;
+
+test("an explained refusal reaches the caller with its status, reason, code and retryability", () => {
+  const classified = classifyAgentProxyFailure(
+    explainedRefusal(403, {
+      error:
+        "@bob is not a member of this Workspace, so this Agent cannot send them a direct message",
+      code: "DM_PEER_NOT_IN_WORKSPACE",
+      retryable: false,
+    }),
+    context,
+  );
+  expect(classified.status).toBe(403);
+  expect(classified.body).toMatchObject({
+    error:
+      "@bob is not a member of this Workspace, so this Agent cannot send them a direct message",
+    code: "DM_PEER_NOT_IN_WORKSPACE",
+    retryable: false,
+    proxy: {
+      failure_class: "upstream_refusal",
+      cause_code: "DM_PEER_NOT_IN_WORKSPACE",
+      upstream_status: 403,
+      response_started: true,
+      response_complete: true,
+    },
+  });
+});
+
+test("an explained refusal without a code carries its reason and names no upstream code", () => {
+  const classified = classifyAgentProxyFailure(
+    explainedRefusal(403, { error: "target is not accessible" }),
+    context,
+  );
+  expect(classified.status).toBe(403);
+  expect(classified.body.error).toBe("target is not accessible");
+  expect(classified.body.proxy.failure_class).toBe("upstream_refusal");
+  expect(classified.body.code).toBe(AGENT_REQUEST_REFUSED_CODE);
+  expect(classified.body.proxy.cause_code).toBe("HTTP_403");
+  expect(classified.body.retryable).toBeUndefined();
+});
+
+test("an explained refusal's reason is bounded and never carries a credential", () => {
+  const classified = classifyAgentProxyFailure(
+    explainedRefusal(403, { error: `refused sk_agent_${"a".repeat(24)} ${"x".repeat(600)}` }),
+    context,
+  );
+  expect(classified.body.error).not.toContain("sk_agent_");
+  expect(classified.body.error.length).toBeLessThanOrEqual(501);
+});
+
+test("reviewer isolation withholds an explained refusal too", () => {
+  const classified = classifyAgentProxyFailure(
+    explainedRefusal(403, { error: "sensitive reason", code: "DM_PEER_NOT_IN_WORKSPACE" }),
+    { ...context, redact: true },
+  );
+  expect(classified.status).toBe(502);
+  expect(JSON.stringify(classified.body)).not.toContain("sensitive reason");
+  expect(JSON.stringify(classified.body)).not.toContain("DM_PEER_NOT_IN_WORKSPACE");
 });

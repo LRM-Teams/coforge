@@ -5,21 +5,25 @@ import { ActionCards, ActionCardError } from "#src/server/conversations/action-c
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { isAppError } from "#src/lib/app-error";
-import { dmPeerNotInWorkspaceResponse } from "#src/server/agents/agent-target-status.server";
+import { postingTargetRefusalResponse } from "#src/server/agents/agent-target-status.server";
 
 export type AgentActionPreparePrincipal = { workspaceId: string; agentId: string };
 
-/** Action-card prepare body handling; extracted from the route so it can be tested directly. */
+/**
+ * Action-card prepare body handling; extracted from the route so it can be tested directly.
+ * `actionCards` is built only once the body is valid: building it reaches for Centrifugo, and an
+ * invalid body is a 400 whether or not Centrifugo is configured.
+ */
 export async function handleAgentActionPrepare(
   request: Request,
   principal: AgentActionPreparePrincipal,
-  actionCards: Pick<ActionCards, "prepare">,
+  actionCards: () => Pick<ActionCards, "prepare">,
 ): Promise<Response> {
   const body = await request.json().catch(() => undefined);
   if (!body || typeof body !== "object" || typeof body.target !== "string" || !body.target)
     return Response.json({ error: "target is required" }, { status: 400 });
   try {
-    const result = await actionCards.prepare(
+    const result = await actionCards().prepare(
       { workspaceId: principal.workspaceId, agentId: principal.agentId },
       { target: body.target, action: body.action },
     );
@@ -35,7 +39,7 @@ export async function handleAgentActionPrepare(
         },
         { status: error.status },
       );
-    const refused = dmPeerNotInWorkspaceResponse(error, body.target);
+    const refused = postingTargetRefusalResponse(error, body.target);
     if (refused) return refused;
     if (isAppError(error))
       return Response.json(
@@ -56,11 +60,12 @@ export const Route = createFileRoute("/api/agent/v1/actions/prepare")({
         handleAgentActionPrepare(
           request,
           principal,
-          new ActionCards(
-            db,
-            new PrismaDirectConversationRepository(db),
-            new CentrifugoConversationRealtime(createCentrifugoServerApi()),
-          ),
+          () =>
+            new ActionCards(
+              db,
+              new PrismaDirectConversationRepository(db),
+              new CentrifugoConversationRealtime(createCentrifugoServerApi()),
+            ),
         ),
     },
   },

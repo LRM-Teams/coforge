@@ -3,7 +3,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
-import { AGENT_SEND_LOCAL_DEADLINE_MS } from "@lrm/coforge-sdk/internal";
+import {
+  AGENT_REQUEST_REFUSED_CODE,
+  AGENT_SEND_LOCAL_DEADLINE_MS,
+} from "@lrm/coforge-sdk/internal";
 import { connectLocal } from "#src/local-client";
 import { CliError, renderCliErrorJson, renderCliErrorText } from "#src/cli-error";
 
@@ -1461,4 +1464,137 @@ test("a mention action server error is SERVER_5XX, and a refusal carries the ser
   const pending = (await client.mentionPending().catch((caught: unknown) => caught)) as CliError;
   expect(pending.code).toBe("MENTION_PENDING_FAILED");
   expect(pending.message).toBe("bad request");
+});
+
+const departedReason =
+  "@bob is not a member of this Workspace, so this Agent cannot send them a direct message";
+
+/** The daemon proxy's body for a send the server refused with an explained reason. */
+const refusedByServer = (refusal: { error: string; code?: string; retryable?: boolean }) =>
+  Response.json(
+    {
+      error: refusal.error,
+      code: refusal.code ?? AGENT_REQUEST_REFUSED_CODE,
+      ...(refusal.retryable !== undefined ? { retryable: refusal.retryable } : {}),
+      proxy: {
+        layer: "local_daemon_proxy",
+        correlation_id: "corr-refused",
+        route_family: "agent-api/send",
+        failure_class: "upstream_refusal",
+        cause_code: refusal.code ?? "HTTP_403",
+        upstream_layer: "http_status",
+        upstream_status: 403,
+        response_started: true,
+        response_complete: true,
+      },
+    },
+    { status: 403 },
+  );
+
+test("a send the server refuses shows the Agent its code and reason, and that nothing was sent", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    refusedByServer({ error: departedReason, code: "DM_PEER_NOT_IN_WORKSPACE", retryable: false }),
+  );
+
+  const error = await connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  )
+    .send("@bob", "hi")
+    .catch((thrown: unknown) => thrown);
+
+  expect(error).toBeInstanceOf(CliError);
+  const text = renderCliErrorText(error as CliError);
+  expect(text).toContain(`Error: ${departedReason}`);
+  expect(text).toContain("Code: DM_PEER_NOT_IN_WORKSPACE");
+  expect(text).toContain("Retryable: no");
+  expect(text).toContain("Next action: No message was sent; fix the problem above");
+  expect(text).not.toContain("Delivery state is UNKNOWN");
+});
+
+test("a send refused without a code keeps the server's reason under the send's own code", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    refusedByServer({ error: "target is not accessible" }),
+  );
+
+  const attempt = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.messages),
+  ).send("@nobody", "hi");
+
+  await expect(attempt).rejects.toMatchObject({
+    code: "SEND_FAILED",
+    message: "target is not accessible",
+    retryable: false,
+  });
+});
+
+test("an upload the server refuses shows the Agent its code and reason", async () => {
+  spyOn(globalThis, "fetch").mockImplementation((async (input) => {
+    if (String(input).endsWith("/capabilities"))
+      return Response.json({
+        maxBytes: 1024,
+        directUploadEnabled: false,
+        directUploadThresholdBytes: 0,
+        sessionExpiresInSeconds: 900,
+      });
+    return Response.json(
+      { error: departedReason, code: "DM_PEER_NOT_IN_WORKSPACE", retryable: false },
+      { status: 403 },
+    );
+  }) as typeof fetch);
+  const dir = await mkdtemp(join(tmpdir(), "coforge-local-client-"));
+  const path = join(dir, "note.txt");
+  await writeFile(path, "hello");
+  try {
+    const attempt = connectLocal(
+      "",
+      `sfp_${"a".repeat(43)}`,
+      proxyUrl(agentApiRoutes.local.messages),
+    ).upload!({ path, target: "@bob" });
+    await expect(attempt).rejects.toMatchObject({
+      code: "DM_PEER_NOT_IN_WORKSPACE",
+      message: departedReason,
+      retryable: false,
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an action card the server refuses shows the Agent its code and reason", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    refusedByServer({ error: departedReason, code: "DM_PEER_NOT_IN_WORKSPACE", retryable: false }),
+  );
+
+  const attempt = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.actionPrepare),
+  ).actionPrepare("@bob", { type: "channel:create", name: "ops", visibility: "public" });
+
+  await expect(attempt).rejects.toMatchObject({
+    code: "DM_PEER_NOT_IN_WORKSPACE",
+    message: departedReason,
+    retryable: false,
+  });
+});
+
+test("an action card refused without a code keeps the server's reason under the prepare code", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    refusedByServer({ error: "target is not accessible" }),
+  );
+
+  const attempt = connectLocal(
+    "",
+    `sfp_${"a".repeat(43)}`,
+    proxyUrl(agentApiRoutes.local.actionPrepare),
+  ).actionPrepare("@nobody", { type: "channel:create", name: "ops", visibility: "public" });
+
+  await expect(attempt).rejects.toMatchObject({
+    code: "PREPARE_FAILED",
+    message: "target is not accessible",
+  });
 });

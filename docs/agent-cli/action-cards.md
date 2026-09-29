@@ -32,16 +32,19 @@ Three kinds are supported today; CoForge does not yet implement Raft's
 Identity fields (`initialHumans`, `initialAgents`, `suggestedComputer`,
 `requiredComputer`, `channel`, `humans`, `agents`) are handles the Agent
 already knows — `@alice`, `alice`, `#general`, `general` — or a UUID; the
-server resolves each one at prepare time and fails the whole request with
-the offending field named if any handle does not resolve. The Agent never
-invents a database id.
+server resolves each one at prepare time and fails the whole request if any
+handle does not resolve (the server names the field, but the CLI does not
+relay it yet). The Agent never invents a database id.
 
 Local zod validation, then `validateActionCardAction`'s cross-field rules
 (`agent:create` may set at most one of `suggestedComputer`/
 `requiredComputer`; `channel:add_member` needs at least one human or
 agent), run before the request is sent; a failure is reported as
-`Action failed validation: <path>: <message>; …`. A non-2xx server response
-is reported with the server's error text. On success the CLI prints:
+`Action failed validation: <path>: <message>; …`. A refusal the server
+explains is reported with its reason and stable code, as for `message send`
+(`DM_PEER_NOT_IN_WORKSPACE`, or `PREPARE_FAILED` for `target is not
+accessible`, which answers an unknown username and someone outside the
+Workspace alike). On success the CLI prints:
 
 ```
 Action card posted to <target> as message <uuid> (short <first 8>). The human can click the action verb to commit.

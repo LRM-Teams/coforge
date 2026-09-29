@@ -65,6 +65,15 @@ unmodified `--send-draft` resend. On `--send-draft`, explicit `--mention`
 values replace the draft's saved mentions; omitting them reuses the draft's
 saved mentions.
 
+When the server refuses a send with a reason written for the Agent, the error
+is that reason, `Code:` is the server's stable code (`DM_PEER_NOT_IN_WORKSPACE`
+for a direct message whose person left the Workspace), or `SEND_FAILED` when it
+names none (`target is not accessible`, the same answer for an unknown username
+and someone outside the Workspace), and `Retryable:` is the server's. Nothing
+was sent; the draft stays saved. Only a 4xx whose body is exactly
+`{ error, code?, retryable? }` is relayed this way; any other upstream body is
+withheld.
+
 A top-level send can be refused when the Agent's most recently read context
 in that conversation was actually a thread rooted under it — a likely
 reply-to-the-wrong-place mistake the guard catches once. A `message read` other

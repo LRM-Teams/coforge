@@ -1,3 +1,4 @@
+import type { AgentApiRefusal } from "@lrm/coforge-sdk/agent";
 import { isAppError } from "#src/lib/app-error";
 import { errorResponse } from "./agent-http-error.server";
 
@@ -26,9 +27,11 @@ export function targetResolutionStatus(error: unknown): number {
  * someone outside the Workspace it never had a direct message with. The message route answers it
  * the way the attachment routes do. Undefined for any other error.
  */
-export function unknownTargetUserResponse(error: unknown) {
+function unknownTargetUserResponse(error: unknown) {
   if (!(error instanceof Error) || error.message !== "target user not found") return undefined;
-  return Response.json({ error: "target is not accessible" }, { status: 403 });
+  return Response.json({ error: "target is not accessible" } satisfies AgentApiRefusal, {
+    status: 403,
+  });
 }
 
 /**
@@ -44,4 +47,13 @@ export function dmPeerNotInWorkspaceResponse(error: unknown, target: string) {
     403,
     false,
   );
+}
+
+/**
+ * The answer to an Agent posting a message or an action card to a target it cannot reach: a
+ * person who left (`DM_PEER_NOT_IN_WORKSPACE`), or an unknown username and someone outside the
+ * Workspace, which read alike (`target is not accessible`). Undefined for any other error.
+ */
+export function postingTargetRefusalResponse(error: unknown, target: string) {
+  return dmPeerNotInWorkspaceResponse(error, target) ?? unknownTargetUserResponse(error);
 }

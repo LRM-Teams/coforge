@@ -9,6 +9,7 @@ export type AgentProxyFailureClass =
   | "protocol_mismatch"
   | "local_precondition"
   | "request_validation"
+  | "upstream_refusal"
   | "unclassified";
 
 /** Code-specific data a local precondition carries for the caller's `--json` output. */
@@ -16,6 +17,10 @@ export type AgentProxyFailureDetails = {
   /** `SEND_DRAFT_EXPIRED`: the discarded draft, whose body is its last copy. */
   discarded_draft?: { content: string; saved_at: string };
 };
+
+/** The `code` of an `upstream_refusal` whose server named no code of its own; the caller then
+ * reports it under its own operation's code. Any other `upstream_refusal` code is the server's. */
+export const AGENT_REQUEST_REFUSED_CODE = "agent_request_refused";
 
 export type AgentProxyFailureBody = {
   error: string;

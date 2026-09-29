@@ -16,7 +16,9 @@ against the server's advertised size limit; a capabilities lookup that 404s
 is treated as "no limit advertised" and skips this client-side check (the
 server still enforces its own limit), any other capabilities failure is
 `UPLOAD_CAPABILITY_FAILED`, and a file over an advertised limit is rejected
-locally with `ATTACHMENT_TOO_LARGE`, never partially uploaded. On success it
+locally with `ATTACHMENT_TOO_LARGE`, never partially uploaded. A refused upload
+reports the server's reason and, when it names one, its code
+(`DM_PEER_NOT_IN_WORKSPACE`), otherwise `UPLOAD_FAILED`. On success it
 prints:
 
 ```
