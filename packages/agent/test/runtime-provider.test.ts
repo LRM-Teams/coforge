@@ -2,6 +2,13 @@ import { expect, test } from "bun:test";
 import { runtimeFetch } from "#src/runtime-provider";
 
 test("session fetch uses proxy precedence and honors exact host, wildcard, and port exclusions", async () => {
+  // The bypass this asserts is the map's, but Bun's own proxy settings are the process's: an
+  // environment that names loopback in `NO_PROXY` (agent sandboxes do) skips the proxy this fixture
+  // stands up, so no case expecting a proxied answer can be reached. Clear the process's bypass for
+  // the test and put it back; `runtimeFetch` reads only the map it is handed.
+  const hostNoProxy = { upper: process.env.NO_PROXY, lower: process.env.no_proxy };
+  process.env.NO_PROXY = "";
+  process.env.no_proxy = "";
   const target = Bun.serve({ port: 0, fetch: () => new Response("direct") });
   const upper = Bun.serve({ port: 0, fetch: () => new Response("upper") });
   const lower = Bun.serve({ port: 0, fetch: () => new Response("lower") });
@@ -30,5 +37,13 @@ test("session fetch uses proxy precedence and honors exact host, wildcard, and p
     target.stop(true);
     upper.stop(true);
     lower.stop(true);
+    restoreHostEnv("NO_PROXY", hostNoProxy.upper);
+    restoreHostEnv("no_proxy", hostNoProxy.lower);
   }
 });
+
+/** Put a process environment variable back the way the host had it, absence included. */
+function restoreHostEnv(name: "NO_PROXY" | "no_proxy", value: string | undefined) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
