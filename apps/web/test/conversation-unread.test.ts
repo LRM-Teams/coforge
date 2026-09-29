@@ -6,11 +6,13 @@ import {
   sidebarListsChangedBy,
   sidebarRefreshQueue,
   channelSignalOf,
+  listsMissedBySubscribe,
   clearUnread,
   closedConversationLists,
   seedUnreadCounts,
   unknownAgentOf,
   replaceUnreadCounts,
+  unreadIdsToKeep,
   latestTopLevelSequence,
   persistReadCursor,
 } from "#src/features/conversations/conversation-unread";
@@ -222,6 +224,44 @@ describe("replaceUnreadCounts", () => {
       new Set(["channel-a"]),
     );
     expect(next).toEqual({ "channel-b": 2, "channel-a:seq": 8 });
+  });
+});
+
+describe("unread seeding after a single-list read", () => {
+  // The Chat lists live for the whole session and a read moves only the local count, so a row's
+  // `unreadCount` is as old as its list's last read. A re-read of one list must not bring back the
+  // other list's old counts.
+  const channels = (readAt: number, a: number) => ({
+    readAt,
+    rows: [{ id: "channel-a", unreadCount: a }],
+  });
+  const dms = (readAt: number, d: number) => ({ readAt, rows: [{ id: "dm-d", unreadCount: d }] });
+
+  test("a list not read again keeps its live counts; the one read again takes the server's", () => {
+    const last = [channels(1, 5), dms(1, 2)];
+    // #a was read here (local 0); then only the DM list was read again.
+    const keep = unreadIdsToKeep([channels(1, 5), dms(2, 3)], last);
+    expect([...keep]).toEqual(["channel-a"]);
+    const next = replaceUnreadCounts(
+      { "dm-d": 2 },
+      [
+        { id: "channel-a", unreadCount: 5 },
+        { id: "dm-d", unreadCount: 3 },
+      ],
+      new Set(),
+      keep,
+    );
+    expect(next).toEqual({ "dm-d": 3 });
+  });
+
+  test("a row whose own count changed (a mark-unread) takes it, read again or not", () => {
+    expect([...unreadIdsToKeep([channels(1, 1), dms(1, 2)], [channels(1, 0), dms(1, 2)])]).toEqual([
+      "dm-d",
+    ]);
+  });
+
+  test("the first seed keeps nothing", () => {
+    expect([...unreadIdsToKeep([channels(1, 5), dms(1, 2)], undefined)]).toEqual([]);
   });
 });
 
@@ -511,5 +551,26 @@ describe("channelSignalOf", () => {
       }),
     ).toBeUndefined();
     expect(channelSignalOf({ type: "channel.created.v1", workspaceId: "w" })).toBeUndefined();
+  });
+});
+
+describe("listsMissedBySubscribe", () => {
+  test("a subscribe that replayed everything missed nothing", () => {
+    expect(listsMissedBySubscribe("workspace", { wasRecovering: true, recovered: true })).toEqual(
+      [],
+    );
+    expect(listsMissedBySubscribe("user", { wasRecovering: true, recovered: true })).toEqual([]);
+  });
+
+  test("a first subscribe, or one that lost publications, re-reads what that channel keeps live", () => {
+    // The Workspace channel carries channel messages and channel events.
+    for (const recovery of [
+      { wasRecovering: false, recovered: false },
+      { wasRecovering: true, recovered: false },
+    ]) {
+      expect(listsMissedBySubscribe("workspace", recovery)).toEqual(["channels", "channelNames"]);
+      // The viewer's own channel carries DM messages and their ViewerEvents (channels, DMs, saves).
+      expect(listsMissedBySubscribe("user", recovery)).toEqual(["channels", "dms", "saved"]);
+    }
   });
 });

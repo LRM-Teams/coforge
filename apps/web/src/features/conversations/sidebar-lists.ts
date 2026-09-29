@@ -90,7 +90,7 @@ export function useSidebarLists() {
     channels,
     directs,
     viewerId: directsCache.viewerId,
-    readAt: `${channelsCache.fetchedAt}:${directsCache.fetchedAt}`,
+    readAt: { channels: channelsCache.fetchedAt, dms: directsCache.fetchedAt },
   };
 }
 

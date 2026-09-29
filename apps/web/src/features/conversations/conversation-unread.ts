@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
 import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
+import { subscriptionGap, type SubscribedRecovery } from "#src/features/realtime/subscription-gap";
 import {
   getUserConversationSubscriptionToken,
   getWorkspaceConversationSubscriptionToken,
@@ -184,6 +185,21 @@ export function channelSignalOf(data: unknown): ChannelSignal | undefined {
 }
 
 /**
+ * The lists a Chat page must re-read once one of its two signal channels is subscribed, as
+ * `subscriptionGap` reads the event: nothing when the subscribe replayed every missed publication;
+ * otherwise (a first subscribe, which follows the page's own read, or a resubscribe that lost
+ * publications) every list that channel keeps live. The Workspace channel carries channel messages
+ * and channel events; the viewer's own channel carries DM messages and their `ViewerEvent`s.
+ */
+export function listsMissedBySubscribe(
+  channel: "workspace" | "user",
+  recovery: SubscribedRecovery,
+): readonly ChatList[] {
+  if (subscriptionGap(recovery) === "none") return [];
+  return channel === "workspace" ? ["channels", "channelNames"] : ["channels", "dms", "saved"];
+}
+
+/**
  * Coalesces sidebar re-reads: lists named before a re-read starts go into it, and lists named
  * while one is running go into a single re-read after it, so a burst of events costs at most one
  * read in flight and one queued. Each call settles once a re-read covering its lists has.
@@ -260,21 +276,51 @@ export function replaceUnreadCounts(
   current: UnreadCounts,
   entries: readonly UnreadChannel[],
   suppressKeys: ReadonlySet<string> = new Set<string>(),
+  keepIds: ReadonlySet<string> = new Set<string>(),
 ): UnreadCounts {
   const boundaries: UnreadCounts = {};
   for (const entry of entries) {
     const boundary = current[`${entry.id}:seq`];
     if (boundary !== undefined) boundaries[`${entry.id}:seq`] = boundary;
   }
-  const seeded = seedUnreadCounts(entries);
+  const seeded = seedUnreadCounts(
+    entries.map((entry) =>
+      keepIds.has(entry.id) ? { id: entry.id, unreadCount: current[entry.id] ?? 0 } : entry,
+    ),
+  );
   for (const key of suppressKeys) delete seeded[key];
   return { ...seeded, ...boundaries };
+}
+
+/** One Chat list's rows as last seeded, and when the server sent them. */
+export type SeededList = { readAt: number; rows: readonly UnreadChannel[] };
+
+/**
+ * The conversations whose live count a re-seed keeps (`replaceUnreadCounts`' `keepIds`): the rows
+ * of a list not read again since the last seed, whose own count has not changed either. A row's
+ * `unreadCount` is as old as its list's last read, since reading a chat moves only the live count,
+ * so re-seeding from a list not read again would bring back counts already read. A list read again
+ * brings the server's counts, and a row whose count changed (a mark-unread) brings its own.
+ */
+export function unreadIdsToKeep(
+  lists: readonly SeededList[],
+  last: readonly SeededList[] | undefined,
+): Set<string> {
+  const keep = new Set<string>();
+  lists.forEach((list, index) => {
+    const before = last?.[index];
+    if (!before || before.readAt !== list.readAt) return;
+    const counts = new Map(before.rows.map((row) => [row.id, row.unreadCount ?? 0]));
+    for (const row of list.rows)
+      if (counts.get(row.id) === (row.unreadCount ?? 0)) keep.add(row.id);
+  });
+  return keep;
 }
 
 export type UnreadState = {
   counts: UnreadCounts;
   clear: (key: string, readThroughSequence?: number) => void;
-  replace: (entries: readonly UnreadChannel[]) => void;
+  replace: (entries: readonly UnreadChannel[], keepIds?: ReadonlySet<string>) => void;
 };
 
 /**
@@ -308,7 +354,8 @@ export function useChannelUnread({
   /** A channel was created, renamed, described, archived, unarchived or is gone
    * (`channel.created.v1`, `channel.updated.v1`). */
   onChannelSignal: (signal: ChannelSignal) => void;
-  /** These lists are stale: the viewer's own place in a chat changed elsewhere (`ViewerEvent`). */
+  /** These lists are stale: the viewer's own place in a chat changed elsewhere (`ViewerEvent`),
+   * or a subscribe may have missed what kept them live (`listsMissedBySubscribe`). */
   onSidebarListsChanged: (lists: readonly ChatList[]) => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
@@ -363,6 +410,10 @@ export function useChannelUnread({
     channel: workspaceId ? workspaceConversationChannel(workspaceId) : undefined,
     getToken: workspaceId ? getWorkspaceToken : undefined,
     onPublication,
+    onSubscribed: (recovery) => {
+      const lists = listsMissedBySubscribe("workspace", recovery);
+      if (lists.length > 0) refs.current.onSidebarListsChanged(lists);
+    },
   });
   // The viewer's own channel also carries their `ViewerEvent`s; the Workspace channel never does.
   const onUserPublication = useCallback(
@@ -384,6 +435,10 @@ export function useChannelUnread({
     channel: userId ? userConversationChannel(userId) : undefined,
     getToken: userId ? getUserToken : undefined,
     onPublication: onUserPublication,
+    onSubscribed: (recovery) => {
+      const lists = listsMissedBySubscribe("user", recovery);
+      if (lists.length > 0) refs.current.onSidebarListsChanged(lists);
+    },
   });
 
   const clear = useCallback(
@@ -391,12 +446,14 @@ export function useChannelUnread({
       setCounts((current) => clearUnread(current, key, readThroughSequence)),
     [],
   );
-  const replace = useCallback((next: readonly UnreadChannel[]) => {
+  const replace = useCallback((next: readonly UnreadChannel[], keepIds?: ReadonlySet<string>) => {
     // The conversation on screen keeps no badge, exactly like a live event for it: in
     // `newest-unread` the server cursor deliberately lags, so seeding it here would
     // re-raise the badge of the conversation being read.
     const open = refs.current.openConversationId;
-    setCounts((current) => replaceUnreadCounts(current, next, new Set(open ? [open] : [])));
+    setCounts((current) =>
+      replaceUnreadCounts(current, next, new Set(open ? [open] : []), keepIds),
+    );
   }, []);
   return { counts, clear, replace };
 }
