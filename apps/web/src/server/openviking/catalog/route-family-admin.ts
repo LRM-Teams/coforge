@@ -8,6 +8,7 @@ import {
   type GatewayCapability,
   type OpenVikingTransportLimits,
   templateMatches,
+  toFamilyGatewayPolicies,
 } from "../route-policy";
 
 export const ADMIN_FAMILY_PINNED_FAMILIES = ["acl", "admin", "privacy"] as const;
@@ -264,9 +265,5 @@ export function adminFamilyMemoryAgentMayRead(route: AdminFamilyRoutePolicy): bo
 export function toAdminFamilyGatewayPolicies(
   routes: readonly AdminFamilyRoutePolicy[] = ADMIN_FAMILY_ROUTES,
 ): GatewayRoutePolicy[] {
-  return routes.map((route) => ({
-    method: route.method,
-    path: route.path,
-    classification: route.classification,
-  }));
+  return toFamilyGatewayPolicies(routes);
 }
