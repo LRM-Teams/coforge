@@ -347,11 +347,14 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
     },
     // A membership change stale-dates the composer's @-directory (and plain-@handle
     // resolution) and the settings panel's Members strip; the next render picks the refetched
-    // lists up. Inert for DMs.
-    () =>
+    // lists up. The first subscribe refetches only the directory the page payload carried
+    // (`exact`): the outsiders list under the same prefix was first read after hydration, and a
+    // second read would only duplicate it. Inert for DMs.
+    (stale) =>
       void Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["conversation", "mentionables", conversationId],
+          exact: stale === "page-payload",
         }),
         queryClient.invalidateQueries({ queryKey: channelMembersQueryKey(conversationId) }),
       ]).catch(() => {}),

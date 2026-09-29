@@ -121,25 +121,37 @@ describe("subscribeToConversationRealtime", () => {
     expect(reconciled).toBe(0);
   });
 
-  test("a subscribe that could not replay publications refreshes the member list as well as messages", () => {
-    const { client, subscribed } = fakeClient();
-    let memberChanges = 0;
+  test("the first subscribe refreshes only what the page payload carried; a lost stream refreshes the whole member directory", () => {
+    const { client, subscribed, publish } = fakeClient();
+    const memberChanges: string[] = [];
+    let reconciled = 0;
     subscribeToConversationRealtime(client, {
       conversationId: "conversation-a",
       getToken: async () => "token",
-      reconcile: () => {},
-      onMemberChanged: () => {
-        memberChanges += 1;
+      reconcile: () => {
+        reconciled += 1;
+      },
+      onMemberChanged: (stale) => {
+        memberChanges.push(stale);
       },
     });
 
+    // The first subscribe covers what changed while the page loaded: only the copies the page
+    // payload carried were read before it. A list the browser first reads after hydration is not.
+    subscribed({ wasRecovering: false, recovered: false });
+    expect(memberChanges).toEqual(["page-payload"]);
+    expect(reconciled).toBe(1);
+
     // A recovered resubscribe replays every missed publication, so it needs no refetch.
     subscribed({ wasRecovering: true, recovered: true });
-    expect(memberChanges).toBe(0);
+    expect(memberChanges).toEqual(["page-payload"]);
+    expect(reconciled).toBe(1);
 
-    // The first subscribe cannot replay a change made while the page was loading its list.
-    subscribed({ wasRecovering: false, recovered: false });
+    // A resubscribe that lost the stream, like a member change itself, may have missed a change
+    // to any member list.
     subscribed({ wasRecovering: true, recovered: false });
-    expect(memberChanges).toBe(2);
+    publish({ type: "member.changed.v1", conversationId: "conversation-a", workspaceId: "w" });
+    expect(memberChanges).toEqual(["page-payload", "all", "all"]);
+    expect(reconciled).toBe(2);
   });
 });

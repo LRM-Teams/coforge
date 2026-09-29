@@ -10,6 +10,7 @@ import {
   useRealtimeSubscription,
   useRealtimeSubscriptions,
 } from "#src/features/realtime/browser-realtime";
+import { subscriptionGap } from "#src/features/realtime/subscription-gap";
 import { AGENT_VISIBILITY } from "./agent-visibility";
 import { ACTIVITY_PROBE_TIMEOUT_MS } from "./activity-probe-timeout";
 
@@ -401,7 +402,14 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   useRealtimeSubscription({
     channel: workspaceId ? agentStatusChannel(workspaceId) : undefined,
     getToken: getConnectionToken,
-    onConnected: () => void refreshSnapshot().catch(() => {}),
+    // Re-read the list once the channel is live, so a change published before it (while the page
+    // loaded, or while the connection was down) is not lost; reading it on `connected` instead
+    // left the gap until this channel's token arrived. The `agent` namespace keeps no history
+    // (`infra/centrifugo/config.yaml`), so every subscribe — the first and each one after a
+    // reconnect — is unrecovered and reads once.
+    onSubscribed: (recovery) => {
+      if (subscriptionGap(recovery) !== "none") void refreshSnapshot().catch(() => {});
+    },
     onPublication: (publication) => handleStatusPublication(publication.data),
   });
 

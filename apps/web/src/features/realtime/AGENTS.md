@@ -17,3 +17,7 @@ These rules apply to `src/features/realtime/`.
   rejects a second subscription to the same channel.
 - Presence and join/leave exist only in the `presence` Centrifugo namespace; do
   not enable them on another namespace to answer "who is online".
+- Re-read state a channel may have missed in its `onSubscribed`, as
+  `subscriptionGap` (`subscription-gap.ts`) classifies the event, never on
+  the client's `connected` event: a channel receives nothing until its own
+  subscribe completes, which waits for its subscription token.

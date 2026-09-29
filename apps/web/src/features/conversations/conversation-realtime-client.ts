@@ -6,6 +6,7 @@ import {
   type BrowserRealtimeSubscription,
 } from "#src/features/realtime/browser-realtime";
 import { getConversationRealtimeToken } from "#src/features/realtime/realtime.functions";
+import { subscriptionGap, type SubscribedRecovery } from "#src/features/realtime/subscription-gap";
 import {
   conversationRealtimeChannel,
   decodeChannelUpdatedEvent,
@@ -14,11 +15,11 @@ import {
 } from "./conversation-realtime";
 import { deviceComposerOutbox } from "./use-message-outbox";
 
+/** Which member lists a missed membership change may have stale-dated (see `onMemberChanged`). */
+export type MemberDirectoryStale = "page-payload" | "all";
+
 type RealtimeSubscription = {
-  on(
-    event: "subscribed",
-    listener: (context: { wasRecovering: boolean; recovered: boolean }) => void,
-  ): unknown;
+  on(event: "subscribed", listener: (context: SubscribedRecovery) => void): unknown;
   on(event: "publication", listener: (context: { data: unknown }) => void): unknown;
   subscribe(): void;
   unsubscribe(): void;
@@ -42,9 +43,13 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
     conversationId: string;
     getToken: () => Promise<string>;
     reconcile: () => void;
-    /** A membership change in this conversation (join/leave/add/remove): the member directory
-     * (composer candidates, plain-@handle resolution) is stale and must be refetched. */
-    onMemberChanged?: () => void;
+    /** A membership change in this conversation (join/leave/add/remove) may have gone unseen:
+     * the member directory (composer candidates, plain-@handle resolution) must be refetched.
+     * `"page-payload"`: the first subscribe, which covers what changed while the page loaded, so
+     * only the lists read before it (the page payload's) are stale; a list the browser first
+     * read after hydration was read about as late as the subscribe. `"all"`: a
+     * `member.changed.v1` publication, or a resubscribe that lost publications. */
+    onMemberChanged?: (stale: MemberDirectoryStale) => void;
     /** This channel was renamed, described, archived or unarchived: the page's own copy of those
      * facts is stale and must be refetched. */
     onChannelUpdated?: () => void;
@@ -63,13 +68,13 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
     positioned: true,
     getToken: input.getToken,
   });
-  subscription.on("subscribed", ({ wasRecovering, recovered }) => {
+  subscription.on("subscribed", (context) => {
     // Anything the subscription could not replay — before the first subscribe, or across a
     // resubscribe that lost publications — may include a member change as well as messages.
-    if (!wasRecovering || !recovered) {
-      requestReconciliation();
-      input.onMemberChanged?.();
-    }
+    const gap = subscriptionGap(context);
+    if (gap === "none") return;
+    requestReconciliation();
+    input.onMemberChanged?.(gap === "unrecovered" ? "page-payload" : "all");
   });
   subscription.on("publication", ({ data }) => {
     try {
@@ -84,7 +89,7 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
     // touches the message window.
     try {
       const event = decodeMemberChangedEvent(data);
-      if (event.conversationId === input.conversationId) input.onMemberChanged?.();
+      if (event.conversationId === input.conversationId) input.onMemberChanged?.("all");
       return;
     } catch {}
     try {
@@ -110,7 +115,7 @@ export function subscribeToConversationRealtime<T extends RealtimeSubscription>(
 export function useConversationRealtime(
   conversationId: string,
   reconcile: () => Promise<void>,
-  onMemberChanged?: () => void,
+  onMemberChanged?: (stale: MemberDirectoryStale) => void,
   onChannelUpdated?: () => void,
 ) {
   const client = useBrowserRealtime();
@@ -128,7 +133,7 @@ export function useConversationRealtime(
       conversationId,
       getToken: () => getToken({ data: { conversationId } }),
       reconcile: () => void reconcileRef.current().catch(() => {}),
-      onMemberChanged: () => memberChangedRef.current?.(),
+      onMemberChanged: (stale) => memberChangedRef.current?.(stale),
       onChannelUpdated: () => channelUpdatedRef.current?.(),
       onSentMessage: (requestId, messageId) =>
         deviceComposerOutbox().acknowledge(requestId, messageId),
