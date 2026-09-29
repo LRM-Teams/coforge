@@ -88,6 +88,12 @@ import {
   encodeAgentStatus,
   encodeAgentMessageDeliveryAck,
   encodeAgentMessageDeliveryRejection,
+  encodeAgentMentionDeliveryTransition,
+  encodeAgentMentionDeliveryTerminalError,
+  AGENT_MENTION_DELIVERY_TRANSITION_METHOD,
+  AGENT_MENTION_DELIVERY_TERMINAL_ERROR_METHOD,
+  type AgentMentionDeliveryTransition,
+  type AgentMentionDeliveryTerminalError,
   encodeDaemonRuntimeReadyRequest,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
   DAEMON_RUNTIME_READY_METHOD,
@@ -365,6 +371,10 @@ export interface DaemonConnectionClient {
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
   /** Rejects a delivery the daemon did not take custody of back to the server; never an ACK. */
   sendAgentDeliveryRejection?(rejection: AgentMessageDeliveryRejection): Promise<void>;
+  /** Progress of a tracked @mention delivery; diagnostic only, never an ACK. */
+  sendAgentMentionDeliveryTransition?(report: AgentMentionDeliveryTransition): Promise<void>;
+  /** The final result of a tracked @mention delivery the daemon will not drain. */
+  sendAgentMentionDeliveryTerminalError?(report: AgentMentionDeliveryTerminalError): Promise<void>;
   agentMessage?(
     request: AgentMessageRequest,
     agentApiKey: string,
@@ -1109,6 +1119,22 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async sendAgentDeliveryRejection(rejection: AgentMessageDeliveryRejection): Promise<void> {
     await this.#rpc(AGENT_MESSAGE_REJECT_METHOD, encodeAgentMessageDeliveryRejection(rejection));
+  }
+
+  async sendAgentMentionDeliveryTransition(report: AgentMentionDeliveryTransition): Promise<void> {
+    await this.#rpc(
+      AGENT_MENTION_DELIVERY_TRANSITION_METHOD,
+      encodeAgentMentionDeliveryTransition(report),
+    );
+  }
+
+  async sendAgentMentionDeliveryTerminalError(
+    report: AgentMentionDeliveryTerminalError,
+  ): Promise<void> {
+    await this.#rpc(
+      AGENT_MENTION_DELIVERY_TERMINAL_ERROR_METHOD,
+      encodeAgentMentionDeliveryTerminalError(report),
+    );
   }
 
   /** Credentials for one Agent-scoped HTTP call: the Agent's own key plus the daemon key. */

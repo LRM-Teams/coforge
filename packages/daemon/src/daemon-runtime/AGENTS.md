@@ -63,25 +63,40 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   consumption scope for this Agent settles, in every other target of that
   conversation (and thread, matched by root whatever its case), only the
   messages the read returned.
-- A delivery is ACKed as soon as the daemon takes custody of it: when its
-  notice is accepted, or when it is held for a later notice or launch
+- An untracked delivery is ACKed as soon as the daemon takes custody of it:
+  when its notice is accepted, or when it is held for a later notice or launch
   (`AgentDeliveryQueue`, a failed launch's input queue). A delivery queued
   behind the runner hold of a Computer upgrade is not ACKed.
 - An Agent with no process, no launch in progress, and no restart config
-  takes no custody: its delivery, and any a lifted runner hold left queued for
-  it, is not ACKed but rejected over `agent:v1:message:reject` with reason
-  `no_process`, and the server decides whether to start it. A delivery it has
-  already consumed is still ACKed and dropped instead. A failed server Start
-  leaves no daemon-side restart config or failure record.
+  takes no custody: its untracked delivery, and any a lifted runner hold left
+  queued for it, is not ACKed but rejected over `agent:v1:message:reject` with
+  reason `no_process`, and the server decides whether to start it. A delivery
+  it has already consumed is still ACKed and dropped instead. A failed server
+  Start leaves no daemon-side restart config or failure record.
+- A tracked @mention delivery (it carries a `mentionDelivery` envelope) is
+  settled by `mention-delivery-tracker.ts`, in memory only. It is ACKed, with
+  its envelope echoed, only once drained: already consumed (whatever launch the
+  envelope names), or told to the launch and native session the daemon last
+  reported, at a moment the Agent is idle or in a turn that has ended. It is
+  never held, never wakes an Agent, and never becomes `no_process`; otherwise
+  the daemon reports a terminal error: `IDENTITY_DRIFT` (another Computer,
+  launch or session), `INSTRUMENT_FAILED` (another message), `IDENTITY_UNKNOWN`
+  (no running session, including during a launch or a pending server Start),
+  `QUOTA_LIMITED` (rate-limit backoff), `UNSUPPORTED_DELIVERY_PATH` (a provider
+  that takes notices only between turns, while busy), or `DELIVERY_REJECTED`
+  (another backoff or the fence, a refused notice, a process gone before it
+  accepted the notice, an inbox purge). A runner hold queues it
+  unacknowledged; one still queued for an Agent without a session when the
+  hold lifts is refused. Nothing is reported when a process exits.
 - While a server Start is pending for such an Agent
   (`AgentControl.startPending`: from the `start` call through every
-  launch-retry cooldown), its deliveries are held, unacknowledged, instead of
+  launch-retry cooldown), its untracked deliveries are held, unacknowledged, instead of
   rejected. When the Start settles, a launched Agent receives them as ordinary
   deliveries; otherwise they are dropped unacknowledged and stay unread in the
   cloud.
 - An inbox purge (`agent:v1:inbox:purge`) drops the waiting deliveries and
   pending attention of channels the Agent can no longer read, threads
-  included; what it drops is ACKed, so a later rejoin does not replay it on
+  included; an untracked delivery it drops is ACKed, so a later rejoin does not replay it on
   `ready` (a Start still surfaces it as unread from the read boundary).
 - Never launch an exited Agent for a delivery it has already consumed; ACK it
   instead.

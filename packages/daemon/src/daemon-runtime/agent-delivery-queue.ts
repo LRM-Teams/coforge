@@ -17,6 +17,13 @@ import type { AgentMessageDelivery } from "@lrm/coforge-sdk/internal";
  */
 export type AgentDeliveryMode = "steer" | "queue_until_idle";
 
+/** Why deliveries to an Agent are explicitly held: a runtime-error backoff after a rate limit or
+ * after another retryable error, or the fingerprint fence after the same failure repeated. */
+export type DeliveryHoldReason =
+  | "rate_limit_backoff"
+  | "runtime_error_backoff"
+  | "fingerprint_fence";
+
 /** Scope decision: moving Claude/Codex/Pi steering into the daemon itself, so this
  * table could eventually replace every provider's own busy handling, is a later cleanup. This PR
  * only gates the providers that have no safe busy path today — none, right now. */
@@ -40,11 +47,9 @@ export const AGENT_DELIVERY_MODE: Readonly<Record<RuntimeProvider, AgentDelivery
  * enqueues deliveries that wait for an exited Agent's next launch (a wake cooldown, a failed
  * launch, a batched wake).
  *
- * This module also exposes the seams later PRs in the same series attach to, without
- * implementing their behavior: `hold`/`release` for an explicit pause (error backoff, the
- * 3-strike fence, stall recovery), and `pending`/`hasQueued` for carrying held deliveries into a
- * relaunch or deciding a stalled Agent needs help. Keeping them here now, even unused by this
- * PR's own runtime wiring, avoids re-deriving this state's ownership later.
+ * It also owns the explicit pause (`hold`/`release`, with a `DeliveryHoldReason`) the
+ * runtime-error backoff and fingerprint fence use, and `pending`/`hasQueued` for carrying held
+ * deliveries into a relaunch.
  */
 export class AgentDeliveryQueue {
   readonly #mode = new Map<string, AgentDeliveryMode>();
@@ -60,9 +65,9 @@ export class AgentDeliveryQueue {
    * since the original delivery this text came from was already ACKed (or never had one, for an
    * App Inbox notice); redelivering it must never touch ACK bookkeeping again. */
   readonly #heldFallbackNotices = new Map<string, string[]>();
-  /** An explicit hold from `hold()`, keyed by Agent; its value is an opaque marker a later PR
-   * interprets (e.g. a backoff deadline). Presence alone means "held", regardless of busy/idle. */
-  readonly #explicitHolds = new Map<string, unknown>();
+  /** An explicit hold from `hold()`, keyed by Agent, with its reason. Presence alone means
+   * "held", regardless of busy/idle. */
+  readonly #explicitHolds = new Map<string, DeliveryHoldReason>();
 
   /** Records which delivery mode this Agent's current launch uses; call at every launch, since a
    * runtime config change (or a provider switch) can change it. */
@@ -92,6 +97,16 @@ export class AgentDeliveryQueue {
     this.#busy.delete(agentId);
     if (this.#explicitHolds.has(agentId)) return [];
     return this.#drain(agentId);
+  }
+
+  /** Whether this Agent is mid-turn: a notice written now lands in the turn in progress. */
+  isBusy(agentId: string): boolean {
+    return this.#busy.has(agentId);
+  }
+
+  /** Why this Agent's explicit hold (`hold`) is in force, or undefined when none is. */
+  explicitHold(agentId: string): DeliveryHoldReason | undefined {
+    return this.#explicitHolds.get(agentId);
   }
 
   /** True when a delivery for this Agent must be held rather than notified immediately. */
@@ -186,13 +201,12 @@ export class AgentDeliveryQueue {
   }
 
   /**
-   * Explicit hold seam for later PRs (error backoff, the 3-strike fence, stall recovery): while
-   * held, `shouldHold` is true regardless of busy/idle state. `until` is an opaque marker a later
-   * PR interprets; this PR only stores and clears it — it does not itself schedule an automatic
-   * release.
+   * An explicit hold: while it is in force, `shouldHold` is true regardless of busy/idle state.
+   * `reason` says why (a runtime-error backoff, after a rate limit or another retryable error, or
+   * the fingerprint fence); the caller owns when it ends and calls `release`.
    */
-  hold(agentId: string, until?: unknown): void {
-    this.#explicitHolds.set(agentId, until ?? true);
+  hold(agentId: string, reason: DeliveryHoldReason): void {
+    this.#explicitHolds.set(agentId, reason);
   }
 
   /** Clears an explicit hold and, if the Agent is not also busy, returns and clears everything
