@@ -31,7 +31,11 @@ describe("user time zone preferences", () => {
     let saved: string | null = null;
     let browserNotificationsEnabled = false;
     const repository: UserPreferencesRepository = {
-      getTimeZone: async () => saved,
+      read: async () => ({
+        timeZone: saved,
+        timeFormat: null,
+        conversationOpenMode: "newest-read",
+      }),
       setTimeZone: async (_userId, timeZone) => {
         saved = timeZone;
         return saved;
@@ -41,16 +45,14 @@ describe("user time zone preferences", () => {
         browserNotificationsEnabled = enabled;
         return enabled;
       },
-      getConversationOpenMode: async () => "newest-read",
       setConversationOpenMode: async (_userId, mode) => mode,
-      getTimeFormat: async () => null,
       setTimeFormat: async (_userId, timeFormat) => timeFormat,
     };
     const preferences = new UserPreferences(repository);
 
-    expect(await preferences.get("user-1")).toBeNull();
+    expect((await preferences.read("user-1")).timeZone).toBeNull();
     expect(await preferences.set("user-1", "Asia/Tokyo")).toBe("Asia/Tokyo");
-    expect(await preferences.get("user-1")).toBe("Asia/Tokyo");
+    expect((await preferences.read("user-1")).timeZone).toBe("Asia/Tokyo");
     await expect(preferences.set("user-1", "invalid/time-zone")).rejects.toThrow(
       "Invalid IANA time zone",
     );
@@ -60,13 +62,11 @@ describe("user time zone preferences", () => {
   test("saves the global browser notification preference", async () => {
     let enabled = false;
     const repository: UserPreferencesRepository = {
-      getTimeZone: async () => null,
+      read: async () => ({ timeZone: null, timeFormat: null, conversationOpenMode: "newest-read" }),
       setTimeZone: async () => null,
       getBrowserNotificationsEnabled: async () => enabled,
       setBrowserNotificationsEnabled: async (_userId, next) => (enabled = next),
-      getConversationOpenMode: async () => "newest-read",
       setConversationOpenMode: async (_userId, mode) => mode,
-      getTimeFormat: async () => null,
       setTimeFormat: async (_userId, timeFormat) => timeFormat,
     };
     const preferences = new UserPreferences(repository);
@@ -105,21 +105,46 @@ describe("user time zone preferences", () => {
   test("saves a 12- or 24-hour time format, or clears it back to the language default", async () => {
     let saved: string | null = null;
     const preferences = new UserPreferences({
-      getTimeZone: async () => null,
+      read: async () => ({
+        timeZone: null,
+        timeFormat: saved,
+        conversationOpenMode: "first-unread",
+      }),
       setTimeZone: async () => null,
       getBrowserNotificationsEnabled: async () => false,
       setBrowserNotificationsEnabled: async (_userId, enabled) => enabled,
-      getConversationOpenMode: async () => "first-unread",
       setConversationOpenMode: async (_userId, mode) => mode,
-      getTimeFormat: async () => saved,
       setTimeFormat: async (_userId, timeFormat) => (saved = timeFormat),
     });
 
-    expect(await preferences.getTimeFormat("user-1")).toBeNull();
+    expect((await preferences.read("user-1")).timeFormat).toBeNull();
     expect(await preferences.setTimeFormat("user-1", "24h")).toBe("24h");
-    expect(await preferences.getTimeFormat("user-1")).toBe("24h");
+    expect((await preferences.read("user-1")).timeFormat).toBe("24h");
     await expect(preferences.setTimeFormat("user-1", "25h")).rejects.toThrow();
     expect(await preferences.setTimeFormat("user-1", null)).toBeNull();
+  });
+
+  test("reads the time zone, time format and conversation open mode from one stored row", async () => {
+    let reads = 0;
+    const preferences = new UserPreferences({
+      read: async () => {
+        reads += 1;
+        return { timeZone: "Asia/Tokyo", timeFormat: "25h", conversationOpenMode: "newest-unread" };
+      },
+      setTimeZone: async () => null,
+      getBrowserNotificationsEnabled: async () => false,
+      setBrowserNotificationsEnabled: async (_userId, enabled) => enabled,
+      setConversationOpenMode: async (_userId, mode) => mode,
+      setTimeFormat: async (_userId, timeFormat) => timeFormat,
+    });
+
+    // A stored time format outside the known set reads as no choice, as the column's own read did.
+    expect(await preferences.read("user-1")).toEqual({
+      timeZone: "Asia/Tokyo",
+      timeFormat: null,
+      conversationOpenMode: "newest-unread",
+    });
+    expect(reads).toBe(1);
   });
 
   test("shows clock times in the chosen hour cycle, or the language's own without a choice", () => {

@@ -17,14 +17,7 @@ function preferences() {
 
 export const getUserPreferences = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const userId = context.user.id;
-    return {
-      timeZone: await preferences().get(userId),
-      timeFormat: await preferences().getTimeFormat(userId),
-      conversationOpenMode: await preferences().getConversationOpenMode(userId),
-    };
-  });
+  .handler(({ context }) => preferences().read(context.user.id));
 
 /** The Language & region page saves its Date & time group as one unit. */
 export const saveDateTimePreferences = createServerFn({ method: "POST" })

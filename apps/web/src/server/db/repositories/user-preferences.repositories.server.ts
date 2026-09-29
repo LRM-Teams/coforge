@@ -2,20 +2,25 @@ import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 
 import { validateTimeZone } from "#src/lib/dates";
 import { AppError } from "#src/lib/app-error";
-import { isTimeFormat, type TimeFormat } from "#src/lib/time-format";
+import { isTimeFormat } from "#src/lib/time-format";
 import {
   isConversationOpenMode,
   DEFAULT_CONVERSATION_OPEN_MODE,
 } from "#src/features/settings/conversation-open-mode";
 
+/** The settings every page reads together, as stored: one row, so one read. */
+export type StoredUserPreferences = {
+  timeZone: string | null;
+  timeFormat: string | null;
+  conversationOpenMode: string;
+};
+
 export type UserPreferencesRepository = {
-  getTimeZone(userId: string): Promise<string | null>;
+  read(userId: string): Promise<StoredUserPreferences>;
   setTimeZone(userId: string, timeZone: string | null): Promise<string | null>;
   getBrowserNotificationsEnabled(userId: string): Promise<boolean>;
   setBrowserNotificationsEnabled(userId: string, enabled: boolean): Promise<boolean>;
-  getConversationOpenMode(userId: string): Promise<string>;
   setConversationOpenMode(userId: string, mode: string): Promise<string>;
-  getTimeFormat(userId: string): Promise<string | null>;
   setTimeFormat(userId: string, timeFormat: string | null): Promise<string | null>;
 };
 
@@ -28,8 +33,17 @@ export class PrismaUserPreferencesRepository implements UserPreferencesRepositor
   constructor(private readonly db: PrismaClient) {}
 
   /** A user without a row has never saved a preference, so every setting reads as its default. */
-  private read(userId: string) {
+  private row(userId: string) {
     return this.db.userPreference.findUnique({ where: { userId } });
+  }
+
+  async read(userId: string) {
+    const row = await this.row(userId);
+    return {
+      timeZone: row?.timeZone ?? null,
+      timeFormat: row?.timeFormat ?? null,
+      conversationOpenMode: row?.conversationOpenMode ?? DEFAULT_CONVERSATION_OPEN_MODE,
+    };
   }
 
   private write(userId: string, data: PreferenceValues) {
@@ -40,16 +54,12 @@ export class PrismaUserPreferencesRepository implements UserPreferencesRepositor
     });
   }
 
-  async getTimeZone(userId: string) {
-    return (await this.read(userId))?.timeZone ?? null;
-  }
-
   async setTimeZone(userId: string, timeZone: string | null) {
     return (await this.write(userId, { timeZone })).timeZone;
   }
 
   async getBrowserNotificationsEnabled(userId: string) {
-    return (await this.read(userId))?.browserNotificationsEnabled ?? false;
+    return (await this.row(userId))?.browserNotificationsEnabled ?? false;
   }
 
   async setBrowserNotificationsEnabled(userId: string, enabled: boolean) {
@@ -59,17 +69,9 @@ export class PrismaUserPreferencesRepository implements UserPreferencesRepositor
     );
   }
 
-  async getConversationOpenMode(userId: string) {
-    return (await this.read(userId))?.conversationOpenMode ?? DEFAULT_CONVERSATION_OPEN_MODE;
-  }
-
   async setConversationOpenMode(userId: string, mode: string) {
     const saved = await this.write(userId, { conversationOpenMode: mode });
     return saved.conversationOpenMode ?? DEFAULT_CONVERSATION_OPEN_MODE;
-  }
-
-  async getTimeFormat(userId: string) {
-    return (await this.read(userId))?.timeFormat ?? null;
   }
 
   async setTimeFormat(userId: string, timeFormat: string | null) {
@@ -80,8 +82,14 @@ export class PrismaUserPreferencesRepository implements UserPreferencesRepositor
 export class UserPreferences {
   constructor(private readonly repository: UserPreferencesRepository) {}
 
-  get(userId: string) {
-    return this.repository.getTimeZone(userId);
+  /** The time zone, time format and conversation open mode, read together. */
+  async read(userId: string) {
+    const stored = await this.repository.read(userId);
+    return {
+      timeZone: stored.timeZone,
+      timeFormat: isTimeFormat(stored.timeFormat) ? stored.timeFormat : null,
+      conversationOpenMode: stored.conversationOpenMode,
+    };
   }
 
   async set(userId: string, timeZone: string | null) {
@@ -99,18 +107,9 @@ export class UserPreferences {
     return this.repository.setBrowserNotificationsEnabled(userId, enabled);
   }
 
-  getConversationOpenMode(userId: string) {
-    return this.repository.getConversationOpenMode(userId);
-  }
-
   async setConversationOpenMode(userId: string, mode: string) {
     if (!isConversationOpenMode(mode)) throw new AppError("INVALID_INPUT");
     return this.repository.setConversationOpenMode(userId, mode);
-  }
-
-  async getTimeFormat(userId: string): Promise<TimeFormat | null> {
-    const saved = await this.repository.getTimeFormat(userId);
-    return isTimeFormat(saved) ? saved : null;
   }
 
   async setTimeFormat(userId: string, timeFormat: string | null) {
