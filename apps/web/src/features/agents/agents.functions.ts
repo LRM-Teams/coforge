@@ -216,30 +216,24 @@ export const listAgents = createServerFn({ method: "GET" })
     // whole point and every row asks for the same kind of thing. Agents without a Computer have no
     // lease to read, so they are not asked for and stay `undefined` exactly as before.
     const scoped = agents.filter((agent) => agent.computerId);
-    const statusSnapshots = await statuses.snapshotMany(
-      scoped.map((agent) => ({
-        workspaceId,
-        computerId: agent.computerId as string,
-        agentId: agent.id,
-      })),
-    );
-    let snapshotIndex = 0;
-    const statusByAgentId = new Map(
-      scoped.map((agent) => [agent.id, statusSnapshots[snapshotIndex++]] as const),
-    );
+    const scopes = scoped.map((agent) => ({
+      workspaceId,
+      computerId: agent.computerId as string,
+      agentId: agent.id,
+    }));
     // The display read model is script-backed and reads or projects each Agent's own state, so it
     // gets the same treatment: one round trip for the page. A display failure still never hides an
     // Agent profile — it leaves the rows without their display block, all of them together rather
-    // than one at a time.
-    const displaySnapshots = await getAgentDisplay()
-      .snapshotMany(
-        scoped.map((agent) => ({
-          workspaceId,
-          computerId: agent.computerId as string,
-          agentId: agent.id,
-        })),
-      )
-      .catch(() => []);
+    // than one at a time. The two reads touch different keys, so they go out together.
+    const [statusSnapshots, displaySnapshots] = await Promise.all([
+      statuses.snapshotMany(scopes),
+      getAgentDisplay()
+        .snapshotMany(scopes)
+        .catch(() => []),
+    ]);
+    const statusByAgentId = new Map(
+      scoped.map((agent, index) => [agent.id, statusSnapshots[index]] as const),
+    );
     const displayByAgentId = new Map(
       scoped.map((agent, index) => [agent.id, displaySnapshots[index]] as const),
     );
