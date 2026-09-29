@@ -708,7 +708,9 @@ exit 0
       expect(env).toContain(`COFORGE_CENTRIFUGO_CONFIG_SHA256=${markerSha256}`);
       expect(stderr).toContain("restored the last healthy release configuration");
       const calls = await Bun.file(join(root, "calls")).text();
-      const upCalls = calls.split("\n").filter((line) => line.includes("up -d --wait"));
+      // Count the command, not a flag order: the snapshot rollback passes
+      // --remove-orphans and a filter on "up -d --wait" would miss it.
+      const upCalls = calls.split("\n").filter((line) => / up -d/.test(line));
       expect(upCalls).toHaveLength(2);
       expect(upCalls[1]?.trim().endsWith(" web")).toBe(false);
     } finally {

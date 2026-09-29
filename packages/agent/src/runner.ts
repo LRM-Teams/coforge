@@ -79,10 +79,7 @@ type ProxyToolResult = {
   details: Record<string, never>;
 };
 
-function localProxyUrl(
-  path: string,
-  env?: Readonly<Record<string, string | undefined>>,
-): string {
+function localProxyUrl(path: string, env?: Readonly<Record<string, string | undefined>>): string {
   const endpoint = env?.COFORGE_AGENT_PROXY_URL ?? Bun.env.COFORGE_AGENT_PROXY_URL;
   const token = env?.COFORGE_AGENT_CONTEXT ?? Bun.env.COFORGE_AGENT_CONTEXT;
   if (!endpoint || !token) throw new Error("CoForge Agent proxy is not configured");
@@ -133,9 +130,7 @@ function toolResult(value: unknown): ProxyToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value) }], details: {} };
 }
 
-function defaultMemoryProxy(
-  env?: Readonly<Record<string, string | undefined>>,
-): MemoryAgentProxy {
+function defaultMemoryProxy(env?: Readonly<Record<string, string | undefined>>): MemoryAgentProxy {
   // The session environment, not the process env: Pi sessions run in the
   // Daemon process, so a second Agent's launch would otherwise overwrite
   // Bun.env.COFORGE_AGENT_CONTEXT and route this Agent's proxy calls — and
