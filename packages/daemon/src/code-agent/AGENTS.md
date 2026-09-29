@@ -33,8 +33,9 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
 - Translate persisted model and reasoning selections into each provider's
   native startup configuration.
 - Bound every catalog discovery with `CATALOG_DISCOVERY_TIMEOUT_MS` per wait.
-  Pi's in-process SDK call gets two waits (`PI_CATALOG_DISCOVERY_TIMEOUT_MS`)
-  because the SDK's own network refresh is already capped at 5 s and its
+  Pi's in-process SDK call gets the network refresh cap plus one wait
+  (`PI_CATALOG_DISCOVERY_TIMEOUT_MS`, derived from `PI_MODEL_REFRESH_TIMEOUT_MS`
+  in `@coforge/agent`) because that refresh is capped separately and the
   resource loader runs after it. A discovery that fails or times out leaves its
   provider out of that pass, is logged as `code_agent_catalog:discovery_failed`,
   and is never cached.
