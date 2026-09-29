@@ -18,6 +18,15 @@ export function agentProfileQuery(agentId: string | undefined) {
   });
 }
 
+/** Whether the viewer manages this Agent (its creator, or a Workspace owner/admin): who gets the
+ * panel's manager tabs, Activity among them, and the Agent card's recent Activity. */
+export function canManageAgent(profile: {
+  canManageAgentRole: boolean;
+  ownedByCurrentUser: boolean;
+}): boolean {
+  return profile.canManageAgentRole || profile.ownedByCurrentUser;
+}
+
 /**
  * The RUNTIME CONFIG section's masked env chips and the Runtime config dialog's Advanced rows
  * share this one load: owner-only (the GET itself enforces it; `enabled` just avoids firing the

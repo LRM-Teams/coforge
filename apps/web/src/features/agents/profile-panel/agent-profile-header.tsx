@@ -8,10 +8,9 @@ import {
 } from "@untitledui/icons";
 
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
-import { AgentActivityAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
-import { useAgentRecentActivity } from "#src/features/agents/workspace-agents-realtime";
 import { m } from "#src/paraglide/messages";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { useOpenDirectConversation } from "#src/features/conversations/open-direct-conversation";
@@ -25,7 +24,6 @@ import { useOpenDirectConversation } from "#src/features/conversations/open-dire
 export function AgentProfileHeader({
   agent,
   display,
-  timeZone,
   controls,
   canMessage,
   onClose,
@@ -33,13 +31,11 @@ export function AgentProfileHeader({
 }: {
   agent: {
     id: string;
-    name: string;
     displayName: string;
     description?: string;
     avatarUrl?: string | null;
   };
   display?: AgentDisplaySnapshot;
-  timeZone: string | null;
   controls: AgentRuntimeControls;
   /** The viewer created this Agent: only its creator has a direct message with it. */
   canMessage: boolean;
@@ -48,7 +44,6 @@ export function AgentProfileHeader({
    * members): a Back button before the avatar returns there. */
   back?: { label: string; onPress: () => void };
 }) {
-  const activity = useAgentRecentActivity(agent.id);
   const openDirectConversation = useOpenDirectConversation();
   // The live status line, from the same source the avatar's own label uses.
   const statusLabel = agentDisplay(display).label;
@@ -68,14 +63,7 @@ export function AgentProfileHeader({
           onClick={back.onPress}
         />
       )}
-      <AgentActivityAvatar
-        agent={agent}
-        src={agent.avatarUrl}
-        display={display}
-        size="sm"
-        timeZone={timeZone}
-        {...activity}
-      />
+      <AgentDisplayAvatar name={agent.displayName} src={agent.avatarUrl} display={display} />
       <div className="min-w-0 flex-1 leading-tight">
         <p className="truncate text-sm font-semibold text-primary">{agent.displayName}</p>
         {/* What the Agent is doing, under its name — the line a direct message's header already

@@ -37,25 +37,6 @@ export const agentActivityChannelForAgent = (workspaceId: string, agentId: strin
 export const RECENT_ACTIVITY_LIMIT = 5;
 
 /**
- * `runtime_progress` is the one detail kind that stays a
- * content-free liveness filler — never persisted, never shown anywhere.
- * `tool_end`, `thinking_end` and `compaction_finished` are ordinary status
- * rows now (persisted to history, part of the live Activity timeline); they
- * are still excluded from the avatar's short recent-activity popover
- * (`agent-activity-avatar.tsx`) so that view stays limited to genuinely
- * noteworthy events instead of every tool/thinking completion. Kept local
- * (rather than imported from the server display module) because this file is
- * shared with the browser bundle.
- */
-export const POPOVER_EXCLUDED_DETAIL_KINDS: ReadonlySet<string> = new Set([
-  AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
-  AGENT_ACTIVITY_DETAIL_KIND.TOOL_END,
-  AGENT_ACTIVITY_DETAIL_KIND.THINKING_END,
-  AGENT_ACTIVITY_DETAIL_KIND.COMPACTION_FINISHED,
-  AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED,
-]);
-
-/**
  * `thinking_started`/`model_response_started` fire twice: once as a content-free marker the
  * instant a run begins (no `entries`, empty `detail` — its only job is flipping the display
  * status, which `agent-display.server.ts` already does from `detailKind`/`level` alone, entries
@@ -95,9 +76,7 @@ export function decodeActivityObservation(
       !Number.isSafeInteger(event.observedAtMs) ||
       event.observedAtMs < 1 ||
       // A busy heartbeat only renews the display lease; a content-free
-      // runtime_progress frame carries no rendered content
-      // (tool_end/thinking_end/compaction_finished no longer belong here, see
-      // POPOVER_EXCLUDED_DETAIL_KINDS); a run-start marker carries
+      // runtime_progress frame carries no rendered content; a run-start marker carries
       // no rendered content either (see isRunStartMarker); a reply to the
       // server's own liveness probe is a liveness fact, not new
       // content. None of these belong in the Activity timeline or the

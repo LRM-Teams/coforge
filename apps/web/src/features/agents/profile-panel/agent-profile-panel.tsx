@@ -77,6 +77,7 @@ import {
   agentEnvironmentKey,
   agentEnvironmentQuery,
   agentProfileQuery,
+  canManageAgent,
   useInvalidateAgentProfile,
 } from "./agent-profile-queries";
 
@@ -126,7 +127,7 @@ export function AgentProfilePanel({
   usePrefetchAgentActivityFeed(agentId);
 
   const knownName = profile?.displayName ?? liveAgent?.displayName ?? "";
-  const canManage = profile ? profile.canManageAgentRole || profile.ownedByCurrentUser : false;
+  const canManage = profile ? canManageAgent(profile) : false;
   const canSeeWorkspace = profile ? profile.ownedByCurrentUser : false;
   const loadComputers = useServerFn(listComputers);
   const computersQuery = useQuery({
@@ -329,7 +330,6 @@ export function AgentProfilePanel({
         canMessage={Boolean(profile?.ownedByCurrentUser)}
         agent={{
           id: agentId,
-          name: profile?.name ?? liveAgent?.name ?? "",
           displayName: knownName,
           description: profile?.description ?? undefined,
           avatarUrl: profile?.avatarUrl,
@@ -341,7 +341,6 @@ export function AgentProfilePanel({
         // status/display snapshot for any Agent the viewer can see; prefer the live one once a
         // publication lands, but seed from the authorized fetch instead of showing nothing.
         display={liveAgent?.display ?? profile?.display}
-        timeZone={timeZone}
         controls={controls}
         onClose={onClose}
         back={back}

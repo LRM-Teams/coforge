@@ -66,11 +66,13 @@ These rules apply to `src/features/agents/`.
   `tool_end`, `thinking_end`, and `compaction_finished` as status rows. The
   Daemon's `detail` wins; fall back to the "… finished" wording only when
   `detail` is empty.
-- The avatar's recent-activity popover shows noteworthy events only: it
-  excludes those end frames (`POPOVER_EXCLUDED_DETAIL_KINDS`) and run-start
-  markers (`isRunStartMarker`). The Agent detail Activity tab and the profile
-  panel's Activity tab show the full log through the same timeline component
-  (the `compact` prop), not a second component.
+- The Agent card (`agent-hover-card.tsx`) peeks from the avatars in a message
+  stream only; conversation and profile headers show a plain avatar. Its
+  Recent activity goes only to the viewers who get the panel's Activity tab
+  (`canManageAgent`): the five newest rows, "finished" status rows included,
+  oldest at the top. The Agent detail Activity tab and the profile panel's
+  Activity tab show the full log through the same timeline component (the
+  `compact` prop), not a second component.
 
 ## Members page
 

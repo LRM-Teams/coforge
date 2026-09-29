@@ -17,6 +17,9 @@ type AgentProfileSearch = {
   threadRootId?: string;
 };
 
+/** Opens the Agent profile panel, on `tab` when one is named. */
+export type OpenAgentProfile = (agentId: string, tab?: AgentProfileTab) => void;
+
 /**
  * The one way a conversation page or the Members directory opens/closes/switches the Agent
  * profile panel. Per `src/features/agents/AGENTS.md` ("the conversations feature does not own Agent state"),
@@ -29,7 +32,7 @@ type AgentProfileSearch = {
  */
 export function useOpenAgentProfile() {
   const router = useRouter();
-  const openAgentProfile = (agentId: string, tab?: AgentProfileTab) =>
+  const openAgentProfile: OpenAgentProfile = (agentId, tab) =>
     void router.navigate({
       to: ".",
       search: (previous: AgentProfileSearch) => ({

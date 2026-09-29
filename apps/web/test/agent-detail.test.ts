@@ -185,6 +185,18 @@ test.each([
   },
 );
 
+test("the recent-activity list marks a finished compaction with the idle dot and its finished text", () => {
+  const observation = {
+    activityKind: "working" as const,
+    detailKind: "compaction_finished",
+    level: "info",
+    detail: "",
+  };
+  expect(presentActivity(observation)).toMatchObject([
+    { recentLabel: "Compaction finished", recentTone: "idle" },
+  ]);
+});
+
 test("a daemon-sent tool_end/thinking_end detail wins over the fallback wording", () => {
   const observation = {
     activityKind: "working" as const,

@@ -1,18 +1,14 @@
 import { useMemo } from "react";
-import { getRouteApi } from "@tanstack/react-router";
 
 import type { ConversationTab } from "#src/features/conversations/conversation-tabs";
 
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Button } from "#src/components/base/buttons/button";
 import { StatusDot } from "#src/components/ui/status-dot";
-import { AgentActivityAvatar } from "#src/features/agents/agent-activity-avatar";
+import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
-import {
-  useAgentRecentActivity,
-  useLiveAgent,
-} from "#src/features/agents/workspace-agents-realtime";
+import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
 import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
@@ -24,8 +20,6 @@ import type {
   DirectConversationView,
   ThreadedConversationProps,
 } from "./conversation-types";
-
-const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /** The direct-message header: identity, live Agent presence, and the conversation tabs. */
 export function DirectConversationHeader({
@@ -44,30 +38,40 @@ export function DirectConversationHeader({
   /** Opens the Agent profile panel from this DM's own Agent identity. */
   onOpenAgentProfile?: (agentId: string) => void;
 }) {
-  const activity = useAgentRecentActivity(conversation.agent.id);
   const display = useLiveAgent(conversation.agent.id)?.display;
-  const timeZone = appRoute.useLoaderData().timeZone;
   const status = agentDisplay(display);
   // A deleted Agent's DM stays readable, but offers no profile and no new messages.
   const deleted = Boolean(conversation.agent.deletedAt);
   const openProfile =
     onOpenAgentProfile && !deleted ? () => onOpenAgentProfile(conversation.agent.id) : undefined;
+  const avatar = (
+    <AgentDisplayAvatar
+      name={conversation.agent.displayName}
+      src={conversation.agent.avatarUrl}
+      display={display}
+      deleted={deleted}
+      cornerDot={false}
+    />
+  );
   return (
     <TabbedHeader
       identity={
         <>
           <ConversationListButton />
-          <AgentActivityAvatar
-            agent={conversation.agent}
-            src={conversation.agent.avatarUrl}
-            size="sm"
-            display={display}
-            deleted={deleted}
-            timeZone={timeZone}
-            cornerDot={false}
-            onPress={openProfile}
-            {...activity}
-          />
+          {/* No hover card here: the card belongs to the avatars in the message stream. */}
+          {openProfile ? (
+            <Button
+              color="tertiary"
+              noTextPadding
+              aria-label={m.agent_open_profile({ name: conversation.agent.displayName })}
+              onPress={openProfile}
+              className="h-auto w-auto min-w-0 rounded-full p-0 hover:bg-transparent"
+            >
+              {avatar}
+            </Button>
+          ) : (
+            avatar
+          )}
           {/* One line: name, then the live status as a dot and a label. */}
           <div className="flex min-w-0 flex-1 items-center gap-2">
             {openProfile ? (

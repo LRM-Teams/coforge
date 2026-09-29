@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { TaskView } from "@lrm/coforge-sdk/internal";
 
 import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
+import type { OpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import type { ThreadFollow } from "./thread-pane-header";
 import type { Mentionable } from "./mention-text";
 import type { ChipMention } from "./message-markdown";
@@ -112,8 +113,9 @@ export type ConversationProps = {
   onShowTasks?: () => void;
   onShowFiles?: () => void;
   /** Opens the Agent profile panel from an Agent sender's avatar/name; absent where the
-   * conversation route does not own that slot. See `features/agents/profile-panel/`. */
-  onOpenAgentProfile?: (agentId: string) => void;
+   * conversation route does not own that slot. See `features/agents/profile-panel/`. A named tab
+   * opens the panel on it (the avatar card's "Recent activity" opens Activity). */
+  onOpenAgentProfile?: OpenAgentProfile;
   /** The Agent profile panel's URL state, owned by the route (`profile`/`agentTab` search
    * params via `features/agents/profile-panel/`), not by this feature. `agentId` undefined means
    * the panel is closed. */

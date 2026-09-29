@@ -235,21 +235,14 @@ export function useLiveAgentDisplay(agentId: string): AgentDisplaySnapshot | und
   );
 }
 
-/** One Agent's recent activity (≤5, newest first), for its avatar popover. */
-export function useAgentRecentActivity(agentId: string) {
+/** One Agent's recent activity (≤5, newest first), for the Agent card. */
+export function useAgentRecentActivity(agentId: string): ActivityEntry[] {
   const workspaceId = useContext(WorkspaceIdContext);
   const query = useQuery({
     ...workspaceActivityQuery(workspaceId),
     select: (data) => data[agentId] ?? EMPTY_ACTIVITY,
   });
-  const activity = query.data ?? EMPTY_ACTIVITY;
-  return {
-    activity,
-    // Without a workspaceId the query is disabled via skipToken, which also
-    // reads as isPending, so the caller needs the guard to tell them apart.
-    loading: query.isPending && Boolean(workspaceId),
-    error: query.isError && activity.length === 0,
-  };
+  return query.data ?? EMPTY_ACTIVITY;
 }
 
 /** The profile panel's Activity tab feed, kept live by the shared subscription. */
