@@ -59,6 +59,16 @@ describe("conversation realtime", () => {
     ).toBeUndefined();
   });
 
+  test("decodes the viewer's own DM events alike", () => {
+    const ids = { workspaceId: "workspace-a", conversationId: "dm-a" };
+    const marked = { type: "dm.marked.v1" as const, ...ids, unreadCount: 2 };
+    expect(decodeViewerEvent(marked)).toEqual(marked);
+    for (const type of ["dm.created.v1", "dm.opened.v1", "dm.closed.v1"] as const)
+      expect(decodeViewerEvent({ type, ...ids })).toEqual({ type, ...ids });
+    expect(decodeViewerEvent({ ...marked, unreadCount: -2 })).toBeUndefined();
+    expect(decodeViewerEvent({ type: "dm.joined.v1", ...ids })).toBeUndefined();
+  });
+
   test("decodes only the versioned message-available contract", () => {
     const event = {
       type: "message.available.v1" as const,

@@ -61,13 +61,12 @@ These rules apply to `src/server/conversations/`.
 - `human-unread.server.ts` owns a person's unread rule and their read and Done
   cursor SQL. The sidebar badges and the Activity inbox (`server/inbox/`) both
   use it; do not write another unread predicate or cursor update.
-- `conversation-history.server.ts` owns browser message index and
-  around-window reads. They are scoped by `conversationId` for both direct
-  conversations and public channels; this module owns Conversation-type
-  visibility checks and bounded history mapping.
-  Its `browserMessageFields` and `mapBrowserMessage` are the one browser-facing
-  message shape: channel pages and updates, saved messages, search, and the
-  Activity inbox all select and render through them.
+- `conversation-history.server.ts` owns browser message index and around-window
+  reads. They are scoped by `conversationId` for both direct conversations and
+  public channels; this module owns Conversation-type visibility checks and
+  bounded history mapping. Its `browserMessageFields` and `mapBrowserMessage`
+  are the one browser-facing message shape: channel pages and updates, saved
+  messages, search, and the Activity inbox all select and render through them.
 - `message-search.server.ts` owns human message search: a Workspace member
   searches every channel (joined or not, archived too, never one hidden from the
   Workspace) and only their own direct conversations, the same rule as `ConversationHistory.authorize`. Its SQL lives in
@@ -76,7 +75,7 @@ These rules apply to `src/server/conversations/`.
   its own Agent-membership rule in the direct-conversation repository.
 - A thread uses its root Message identity, never a separate conversation or
   Agent runtime.
-- A write that changes a person's own place in a channel (read cursor, membership, close, mute, pins) announces a `ViewerEvent` to that person through `announceViewerEvent` after it commits; a write that changed nothing announces nothing. Closing a chat always restamps `hiddenAt`, since a newer message may have brought it back.
+- A write that changes a person's own place in a channel or DM (read cursor, membership, start, close, mute, pins) announces a `ViewerEvent` to that person through `announceViewerEvent` after it commits; a write that changed nothing announces nothing. A read cursor moves only through `markHumanRead`; closing a chat always restamps `hiddenAt`, since a newer message may have brought it back.
 - A member's pins share one order across all their channels and DMs in the
   Workspace. Change pins only through `conversation-pins.server.ts`; find a
   user's pins with `member: { userId }`, never by `memberId` (a
@@ -89,8 +88,8 @@ These rules apply to `src/server/conversations/`.
 ## `#general`
 
 - Every Workspace has a `#general` that every human member and every public,
-  live Agent is in. Workspace creation creates it with its creator in it;
-  joining the Workspace (an accepted invitation or a join link, both through
+  live Agent is in. Workspace creation creates it with its creator in it; joining
+  the Workspace (an accepted invitation or a join link, both through
   `admitWorkspaceMember`), creating a public Agent, and making an Agent public
   enroll through `enrollGeneralChannel` or `joinGeneralChannel`, so reads never
   enroll. A private Agent is never in it.
@@ -147,9 +146,9 @@ These rules apply to `src/server/conversations/`.
 
 - Leaving or being removed soft-leaves every conversation (channels and direct
   conversations) in one write; coming back (`admitWorkspaceMember`, by an
-  invitation or a join link) makes the
-  person's direct conversations and `#general` active again on the same rows,
-  read positions kept. Other channels stay left until they join.
+  invitation or a join link) makes the person's direct conversations and
+  `#general` active again on the same rows, read positions kept. Other channels
+  stay left until they join.
 - A direct conversation whose person left stays readable to the other side (a
   person, or an Agent that still reads it and marks it read) and takes no new
   message. An Agent posting to it, a message or an attachment, resolves the
@@ -159,13 +158,12 @@ These rules apply to `src/server/conversations/`.
 ## Channel authority
 
 - `channel-authority.server.ts` is the single authority seam for channel
-  administration on both the human and Agent sides. Do not add
-  `Agent.role`-only or Workspace-role-only channel checks elsewhere. The three
-  Workspace-level channel actions, hiding `#general`, deleting a channel and
-  listing every archived channel in Workspace settings, are decided there by
-  server role alone (`canHideGeneralChannel`, `canDeleteChannel`,
-  `canListArchivedChannels`) and stay out of the capability matrix, which
-  Agents also receive.
+  administration on both the human and Agent sides. Do not add `Agent.role`-only
+  or Workspace-role-only channel checks elsewhere. The three Workspace-level
+  channel actions, hiding `#general`, deleting a channel and listing every
+  archived channel in Workspace settings, are decided there by server role alone
+  (`canHideGeneralChannel`, `canDeleteChannel`, `canListArchivedChannels`) and
+  stay out of the capability matrix, which Agents also receive.
 - `ConversationMember.channelRole` (`admin | member`, default `member`) is
   stored on the membership. A channel's creator, human or Agent, gets
   `admin` on their own row.

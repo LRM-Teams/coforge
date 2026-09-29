@@ -51,7 +51,7 @@ export async function openPeopleDirectConversation(
       workspaceId,
       userIds,
     });
-    return { conversationId: existing.id };
+    return { conversationId: existing.id, created: false };
   }
   try {
     const created = await db.conversation.create({
@@ -67,12 +67,12 @@ export async function openPeopleDirectConversation(
       },
       select: { id: true },
     });
-    return { conversationId: created.id };
+    return { conversationId: created.id, created: true };
   } catch (error) {
     // A concurrent first open won the insert; reuse its conversation.
     if (!isUniqueViolation(error)) throw error;
     const raced = await db.conversation.findUniqueOrThrow({ where, select: { id: true } });
-    return { conversationId: raced.id };
+    return { conversationId: raced.id, created: false };
   }
 }
 
@@ -89,8 +89,14 @@ export class UserDirectConversations {
   ) {}
 
   /** Opens the viewer's direct conversation with `peerUserId`, starting it on first open. */
-  open(workspaceId: string, viewerId: string, peerUserId: string) {
-    return openPeopleDirectConversation(this.db, workspaceId, viewerId, peerUserId);
+  async open(workspaceId: string, viewerId: string, peerUserId: string) {
+    const { conversationId } = await openPeopleDirectConversation(
+      this.db,
+      workspaceId,
+      viewerId,
+      peerUserId,
+    );
+    return { conversationId };
   }
 
   /**

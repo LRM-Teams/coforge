@@ -8,6 +8,7 @@ import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member
 import {
   HUMAN_UNREAD_MESSAGE_SQL,
   humanUnreadCount,
+  markHumanRead,
   markUnreadAnchor,
 } from "./human-unread.server";
 import {
@@ -1229,45 +1230,15 @@ export class PublicChannels {
     await this.channel(workspaceId, userId, channelId);
     if (!Number.isSafeInteger(throughSequence) || throughSequence < 1)
       throw new AppError("INVALID_INPUT");
-    const moved = await this.db.$transaction(async (tx) => {
-      const latest = await tx.message.findFirst({
-        where: { conversationId: channelId },
-        orderBy: { sequence: "desc" },
-        select: { sequence: true },
-      });
-      const boundary = Math.min(throughSequence, latest?.sequence ?? 0);
-      if (boundary < 1) return undefined;
-      const advanced = await tx.conversationMember.updateMany({
-        where: {
-          conversationId: channelId,
-          userId,
-          readThroughSequence: { lt: boundary },
-          ...ACTIVE_MEMBER_WHERE,
-        },
-        data: { readThroughSequence: boundary },
-      });
-      // Reading past the forced `mark as unread` marker consumes it, so the badge does not come
-      // back on the next render (see the marker's note in the schema).
-      const consumed = await tx.conversationMember.updateMany({
-        where: {
-          conversationId: channelId,
-          userId,
-          unreadFromSequence: { not: null, lte: boundary },
-          ...ACTIVE_MEMBER_WHERE,
-        },
-        data: { unreadFromSequence: null },
-      });
-      if (advanced.count === 0 && consumed.count === 0) return undefined;
-      return { throughLatest: boundary === latest?.sequence };
-    });
     // A read that moved the cursor tells the reader's other pages the badge it leaves (Slack's
     // `channel_marked`); one that moved nothing says nothing, so an open channel reading along
-    // with new messages announces only real moves. Read through the newest message, nothing is
-    // left; otherwise the count is read after the commit, outside the write.
-    if (!moved) return;
-    const unreadCount = moved.throughLatest
-      ? 0
-      : await humanUnreadCount(this.db, channelId, userId);
+    // with new messages announces only real moves.
+    const unreadCount = await markHumanRead(this.db, {
+      conversationId: channelId,
+      userId,
+      throughSequence,
+    });
+    if (unreadCount === undefined) return;
     await announceViewerEvent(this.realtime, {
       userIds: [userId],
       event: { type: "channel.marked.v1", workspaceId, conversationId: channelId, unreadCount },

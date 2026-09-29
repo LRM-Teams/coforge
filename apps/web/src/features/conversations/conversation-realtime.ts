@@ -205,7 +205,7 @@ export function decodeChannelUpdatedEvent(value: unknown): ChannelUpdatedEvent {
 }
 
 /**
- * Something about the viewer's own place in a channel changed, wherever they changed it (this tab,
+ * Something about the viewer's own place in a channel or DM changed, wherever they changed it (this tab,
  * another tab, another device) or whoever changed it for them (added to or removed from a
  * channel). Published only on the viewer's own `chat:user:<user_id>` channel, the way Slack sends
  * `channel_marked`, `channel_joined`, `channel_left` and `pref_change` to every connection of one
@@ -217,11 +217,13 @@ export function decodeChannelUpdatedEvent(value: unknown): ChannelUpdatedEvent {
  * - `channel.joined.v1` / `channel.left.v1`: the viewer joined, was added, created, left or was removed.
  * - `channel.closed.v1` / `channel.opened.v1`: the viewer closed the chat in their list, or brought it back.
  * - `pref.changed.v1`: the viewer's `muted` state of a channel, or their `pins` (pin, unpin, order).
+ * - `dm.marked.v1`, `dm.opened.v1`, `dm.closed.v1`: the same for one of the viewer's DMs (Slack's
+ *   `im_marked`, `im_open`, `im_close`); `dm.created.v1`: a DM with them was started (`im_created`).
  */
 const viewerEventIds = { workspaceId: z.string().min(1), conversationId: z.string().min(1) };
 const viewerEvent = z.discriminatedUnion("type", [
   z.object({
-    type: z.literal("channel.marked.v1"),
+    type: z.enum(["channel.marked.v1", "dm.marked.v1"]),
     ...viewerEventIds,
     unreadCount: z.number().int().nonnegative(),
   }),
@@ -231,6 +233,9 @@ const viewerEvent = z.discriminatedUnion("type", [
       "channel.left.v1",
       "channel.closed.v1",
       "channel.opened.v1",
+      "dm.created.v1",
+      "dm.opened.v1",
+      "dm.closed.v1",
     ]),
     ...viewerEventIds,
   }),

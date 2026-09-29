@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   activityInClosedConversation,
-  applyChannelMarked,
+  applyMarked,
   applyUnreadEvent,
   sidebarListsChangedBy,
   sidebarRefreshQueue,
@@ -383,24 +383,24 @@ describe("the viewer's own channel events", () => {
 
   test("a read elsewhere sets the channel's badge to the count it left, keeping its boundary", () => {
     const current = { "channel-a": 4, "channel-a:seq": 9, "channel-b": 2 };
-    expect(applyChannelMarked(current, marked("channel-a", 1), {})).toEqual({
+    expect(applyMarked(current, marked("channel-a", 1), {})).toEqual({
       "channel-a": 1,
       "channel-a:seq": 9,
       "channel-b": 2,
     });
-    expect(applyChannelMarked(current, marked("channel-a", 0), {})).toEqual({
+    expect(applyMarked(current, marked("channel-a", 0), {})).toEqual({
       "channel-a:seq": 9,
       "channel-b": 2,
     });
     // Marked unread in another tab: the badge appears here too.
-    expect(applyChannelMarked({}, marked("channel-b", 3), {})).toEqual({ "channel-b": 3 });
+    expect(applyMarked({}, marked("channel-b", 3), {})).toEqual({ "channel-b": 3 });
   });
 
   test("the channel on screen keeps no badge, whatever the count", () => {
     const current = { "channel-a:seq": 9 };
-    expect(
-      applyChannelMarked(current, marked("channel-a", 2), { openConversationId: "channel-a" }),
-    ).toBe(current);
+    expect(applyMarked(current, marked("channel-a", 2), { openConversationId: "channel-a" })).toBe(
+      current,
+    );
   });
 
   test("names the one list each event makes stale, and none for a read", () => {
@@ -420,6 +420,33 @@ describe("the viewer's own channel events", () => {
     expect(
       sidebarListsChangedBy({ type: "pref.changed.v1", workspaceId: "workspace-a", name: "pins" }),
     ).toEqual(["channels", "dms"]);
+  });
+});
+
+describe("the viewer's own DM events", () => {
+  const ids = { workspaceId: "workspace-a", conversationId: "dm-a" };
+
+  test("a DM read elsewhere sets its badge like a channel's", () => {
+    expect(
+      applyMarked(
+        { "dm-a": 5, "dm-a:seq": 7 },
+        { type: "dm.marked.v1", ...ids, unreadCount: 0 },
+        {},
+      ),
+    ).toEqual({ "dm-a:seq": 7 });
+    expect(
+      applyMarked(
+        {},
+        { type: "dm.marked.v1", ...ids, unreadCount: 1 },
+        { openConversationId: "dm-a" },
+      ),
+    ).toEqual({});
+  });
+
+  test("a DM started, closed or brought back makes only the DM list stale", () => {
+    expect(sidebarListsChangedBy({ type: "dm.marked.v1", ...ids, unreadCount: 0 })).toEqual([]);
+    for (const type of ["dm.created.v1", "dm.opened.v1", "dm.closed.v1"] as const)
+      expect(sidebarListsChangedBy({ type, ...ids })).toEqual(["dms"]);
   });
 });
 

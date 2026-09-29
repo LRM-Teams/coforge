@@ -109,15 +109,18 @@ export function clearUnread(
   return next;
 }
 
+/** A viewer event that moved a read cursor, carrying the count it left. */
+export type MarkedEvent = Extract<ViewerEvent, { unreadCount: number }>;
+
 /**
- * The viewer's read cursor in a channel moved (`channel.marked.v1`): read or marked unread here,
- * in another tab or on another device. The badge takes the count the move left, as Slack's
- * `channel_marked` sets `unread_count`; the sequence boundary stays. The channel on screen keeps
- * no badge, like `applyUnreadEvent`.
+ * The viewer's read cursor in a channel or DM moved (`channel.marked.v1`, `dm.marked.v1`): read or
+ * marked unread here, in another tab or on another device. The badge takes the count the move
+ * left, as Slack's `channel_marked` and `im_marked` set `unread_count`; the sequence boundary
+ * stays. The chat on screen keeps no badge, like `applyUnreadEvent`.
  */
-export function applyChannelMarked(
+export function applyMarked(
   current: UnreadCounts,
-  event: Extract<ViewerEvent, { type: "channel.marked.v1" }>,
+  event: MarkedEvent,
   options: { openConversationId?: string },
 ): UnreadCounts {
   const key = event.conversationId;
@@ -134,13 +137,14 @@ export type SidebarList = "channels" | "dms";
 
 /**
  * Which of the sidebar's lists a viewer event makes stale, for the page to re-read those alone. A
- * read carries its own count (`applyChannelMarked`) and needs none; pins are one order across
+ * read carries its own count (`applyMarked`) and needs none; pins are one order across
  * channels and DMs, so they touch both.
  */
 export function sidebarListsChangedBy(event: ViewerEvent): readonly SidebarList[] {
-  if (event.type === "channel.marked.v1") return [];
-  if (event.type === "pref.changed.v1" && event.name === "pins") return ["channels", "dms"];
-  return ["channels"];
+  if ("unreadCount" in event) return [];
+  if (event.type === "pref.changed.v1")
+    return event.name === "pins" ? ["channels", "dms"] : ["channels"];
+  return event.type.startsWith("dm.") ? ["dms"] : ["channels"];
 }
 
 /**
@@ -324,9 +328,9 @@ export function useChannelUnread({
     (publication: { data: unknown }) => {
       const event = decodeViewerEvent(publication.data);
       if (!event) return onPublication(publication);
-      if (event.type === "channel.marked.v1")
+      if ("unreadCount" in event)
         setCounts((current) =>
-          applyChannelMarked(current, event, {
+          applyMarked(current, event, {
             openConversationId: refs.current.openConversationId,
           }),
         );
