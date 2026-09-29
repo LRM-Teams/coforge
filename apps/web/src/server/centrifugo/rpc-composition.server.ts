@@ -37,6 +37,7 @@ import {
   createAgentContextScanResultMethod,
   createComputerUpgradeResultMethod,
   createDaemonConnectionStatusMethod,
+  createDaemonRuntimeShutdownMethod,
   createAgentStatusMethod,
   createReminderFireMethod,
   createReminderSnapshotMethod,
@@ -44,6 +45,7 @@ import {
 import {
   DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
   DAEMON_RUNTIME_READY_METHOD,
+  DAEMON_RUNTIME_SHUTDOWN_METHOD,
   DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
   DAEMON_RUNTIME_MODEL_REFRESH_RESULT_METHOD,
   AGENT_CONTEXT_SCAN_RESULT_METHOD,
@@ -55,6 +57,9 @@ import { WorkspaceQueryUseCase } from "#src/server/workspaces/query.server";
 import { getComputerRestartStore } from "#src/server/computers/computer-restart-store.server";
 import { getComputerUpgradeStore } from "#src/server/computers/computer-upgrade-store.server";
 import { recordComputerObservation } from "#src/server/computers/computer-metadata.server";
+import { ComputerLifecycleActivity } from "#src/server/agents/computer-lifecycle-activity.server";
+import { getComputerLifecycleMemory } from "#src/server/computers/computer-lifecycle-memory.server";
+import { AgentActivityRepository } from "#src/server/db/repositories/agent-activity.repositories.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
@@ -249,6 +254,16 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
         encodeReminderSync(sync),
       ),
     );
+    const agentActivity = new AgentActivityRepository(db);
+    const computerLifecycle = new ComputerLifecycleActivity({
+      agents: ({ workspaceId, computerId }) =>
+        agentRepository.listVisibilityForComputer(workspaceId, computerId),
+      record: (activities) => agentActivity.recordMany(activities),
+      publish: (channel, data) => centrifugo.publish(channel, data),
+      memory: getComputerLifecycleMemory(),
+      upgradeStatus: (scope, requestId) => getComputerUpgradeStore().status(scope, requestId),
+      restartStatus: (scope, requestId) => getComputerRestartStore().status(scope, requestId),
+    });
     return new CentrifugoRpcHandler({
       methods: {
         [AGENT_SESSION_METHOD]: createAgentSessionMethod(sessions, sessionReceiver),
@@ -266,8 +281,8 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
           },
         ),
         [WORKSPACE_LIST_METHOD]: createWorkspaceListMethod(query),
-        [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(
-          new WorkspaceAgentRecovery(
+        [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod({
+          recovery: new WorkspaceAgentRecovery(
             agentRepository,
             directConversations,
             centrifugo,
@@ -277,9 +292,9 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
             control,
             controlStore,
           ),
-          getComputerRestartStore(),
-          reminderLease,
-          {
+          restarts: getComputerRestartStore(),
+          capabilities: reminderLease,
+          reminderRecovery: {
             snapshotAssigned: async (workspaceId, computerId) => {
               const agents = await db.agent.findMany({
                 where: { workspaceId, computerId, ...ACTIVE_AGENT_WHERE },
@@ -300,8 +315,13 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
               );
             },
           },
-          (scope, observation) => recordComputerObservation(db, scope, observation),
-          getComputerUpgradeStore(),
+          observe: (scope, observation) => recordComputerObservation(db, scope, observation),
+          upgrades: getComputerUpgradeStore(),
+          lifecycle: computerLifecycle,
+        }),
+        [DAEMON_RUNTIME_SHUTDOWN_METHOD]: createDaemonRuntimeShutdownMethod(
+          computerLifecycle,
+          async (scope) => (await getComputerRestartStore().identity?.(scope))?.workerInstanceId,
         ),
         ...reminderCallbackMethods(
           createReminderFireMethod(reminders),
@@ -365,6 +385,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
     methods: {
       [WORKSPACE_LIST_METHOD]: unavailableMethod,
       [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(),
+      [DAEMON_RUNTIME_SHUTDOWN_METHOD]: unavailableMethod,
       [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
       [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: unavailableMethod,
       [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),

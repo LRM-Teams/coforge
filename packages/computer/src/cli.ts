@@ -33,7 +33,11 @@ import {
   HttpWorkspaceRpcTransport,
   resolveDaemonConnectionEndpoint,
 } from "./cloud-rpc-transport";
-import { ComputerRegistrationClient, type HeldBusyAgent } from "@lrm/coforge-sdk/internal";
+import {
+  ComputerRegistrationClient,
+  RUNNER_HOLD_REASONS,
+  type HeldBusyAgent,
+} from "@lrm/coforge-sdk/internal";
 import {
   cleanupComputerUpgradeJob,
   createDaemonHost,
@@ -567,7 +571,7 @@ export async function restartSupervisor(
       io.stdout("Holding Agent runners until idle...");
       const outcome = await holdRunnersUntilQuiescent({
         hold: async () => {
-          const response = await local.hold("hold", "restart-supervisor");
+          const response = await local.hold("hold", RUNNER_HOLD_REASONS.COMPUTER_RESTART);
           if (!response.accepted) throw new Error("Coordinator did not accept the runner hold");
           return { busyAgents: response.busyAgents, unreachableWorkspaceIds: [] };
         },
@@ -585,7 +589,7 @@ export async function restartSupervisor(
     await host.restart();
     io.stdout("Computer supervisor restarted and answered its local handshake.");
   } finally {
-    if (held) await local.hold("release", "restart-supervisor").catch(() => {});
+    if (held) await local.hold("release", RUNNER_HOLD_REASONS.COMPUTER_RESTART).catch(() => {});
   }
 }
 

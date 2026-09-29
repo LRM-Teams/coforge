@@ -43,6 +43,20 @@ message DaemonRuntimeReadyRequest {
   repeated string recovered_upgrade_request_ids = 14;
 }
 
+// The Workspace daemon's last word before it closes its connection on purpose: why it is going
+// down. Best effort, never retried; a crash or a lost connection sends nothing. The server records
+// the Computer event in each of the Computer's Agents' Activity. Additive: protocol_major stays 1.
+message DaemonRuntimeShutdown {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  // The `worker_instance_id` this runtime reported in its ready.
+  string worker_instance_id = 5;
+  // "computer_upgrade", "computer_restart", or "computer_stop" (DAEMON_SHUTDOWN_REASONS).
+  string reason = 6;
+}
+
 message ComputerRestartIntent {
   uint32 protocol_major = 1;
   string request_id = 2;

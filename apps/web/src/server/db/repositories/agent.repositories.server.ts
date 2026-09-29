@@ -137,6 +137,21 @@ export class PrismaAgentRepository implements AgentRepository {
     return agents.map(mapAgent);
   }
 
+  /** The active Agents on one Computer and where their Activity may be published. */
+  async listVisibilityForComputer(workspaceId: string, computerId: string) {
+    const agents = await this.db.agent.findMany({
+      where: { workspaceId, computerId, ...ACTIVE_AGENT_WHERE },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, visibility: true },
+    });
+    // An unrecognized persisted value fails closed to private, as `mapAgent` reads it.
+    return agents.map(({ id, visibility }) => ({
+      id,
+      visibility:
+        visibility === AGENT_VISIBILITY.PUBLIC ? AGENT_VISIBILITY.PUBLIC : AGENT_VISIBILITY.PRIVATE,
+    }));
+  }
+
   async listDeletedForComputer(workspaceId: string, computerId: string) {
     const agents = await this.db.agent.findMany({
       where: { workspaceId, computerId, deletedAt: { not: null } },

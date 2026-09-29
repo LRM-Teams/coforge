@@ -122,13 +122,15 @@ responsibility.
 - `features/tasks/` — Task board, list, overview, and message task actions.
 - `features/workspaces/` — Workspace switcher and creation (the switcher dialog and the page a signed-in person in no Workspace lands on, `/workspaces/new`), the Workspace a page URL names (`/w/<slug>`) and the one each QueryClient last showed, member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, join links and the invite-link page (`/join/<token>`), human roles, the Settings → Workspace profile Danger zone (leave, or delete for its owner), leaving a page whose Workspace was deleted (`workspace.deleted.v1`), and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,
-  visibility, deletion, and the Agent HTTPS API.
+  Activity (Computer lifecycle rows included), visibility, deletion, and the
+  Agent HTTPS API.
 - `server/attachments/` — attachment upload sessions, claiming a sender's uploads for a new message, and delivery.
 - `server/auth/` — login, sessions, device auth, API keys, and auth guards.
 - `server/centrifugo/` — Centrifugo proxies, RPC receivers, and short-lived
   result caches.
 - `server/computers/` — Computer registration, metadata, restart and upgrade
-  operations, and runtime visibility.
+  operations, runtime visibility, and what the server remembers across a
+  daemon's shutdown and return.
 - `server/conversations/` — public channels, channel authority, stopping and resuming a channel's Agents, direct messages, history, message search, action cards, reactions, tracked @mention delivery outcomes (`mention-deliveries`), and conversation realtime.
 - `server/db/` — the Prisma client, repositories (a DM's list preferences apart from its messages; the Agent attention rule in `agent-attention`), and the shared unique-violation check.
 - `server/errors/` — public error mapping and request error handling.

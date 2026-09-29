@@ -68,6 +68,8 @@ import {
   type RedisComputerUpgradeStore,
 } from "#src/server/computers/computer-upgrade-store.server";
 import { decodeComputerUpgradeResult } from "@lrm/coforge-sdk/internal";
+import { decodeDaemonRuntimeShutdown, type DaemonRuntimeShutdown } from "@lrm/coforge-sdk/internal";
+import type { ComputerLifecycleActivity } from "#src/server/agents/computer-lifecycle-activity.server";
 import {
   computerObservationSchema,
   type ComputerObservation,
@@ -307,26 +309,39 @@ export function createAgentStatusMethod(
   };
 }
 
+/** What a daemon's ready updates, each optional so a test composes only the step it covers. */
+export type DaemonRuntimeReadyPorts = {
+  recovery?: {
+    recoverWorkspace(
+      workspaceId: string,
+      computerId: string,
+      runningAgentIds: readonly string[],
+    ): Promise<void>;
+  };
+  restarts?: ComputerRestartStore;
+  capabilities?: {
+    record(workspaceId: string, computerId: string, values: readonly string[]): Promise<unknown>;
+  };
+  reminderRecovery?: { snapshotAssigned(workspaceId: string, computerId: string): Promise<void> };
+  observe?: (
+    scope: { workspaceId: string; computerId: string },
+    metadata: ComputerObservation,
+  ) => Promise<void>;
+  upgrades?: RedisComputerUpgradeStore;
+  /** Started after the ready succeeds, never awaited: Activity rows must not hold the reply. */
+  lifecycle?: Pick<ComputerLifecycleActivity, "ready">;
+};
+
 export const createDaemonRuntimeReadyMethod =
-  (
-    recovery?: {
-      recoverWorkspace(
-        workspaceId: string,
-        computerId: string,
-        runningAgentIds: readonly string[],
-      ): Promise<void>;
-    },
-    restarts?: ComputerRestartStore,
-    capabilities?: {
-      record(workspaceId: string, computerId: string, values: readonly string[]): Promise<unknown>;
-    },
-    reminderRecovery?: { snapshotAssigned(workspaceId: string, computerId: string): Promise<void> },
-    observe?: (
-      scope: { workspaceId: string; computerId: string },
-      metadata: ComputerObservation,
-    ) => Promise<void>,
-    upgrades?: RedisComputerUpgradeStore,
-  ): CentrifugoRpcMethod =>
+  ({
+    recovery,
+    restarts,
+    capabilities,
+    reminderRecovery,
+    observe,
+    upgrades,
+    lifecycle,
+  }: DaemonRuntimeReadyPorts = {}): CentrifugoRpcMethod =>
   async (payload, metadata) => {
     const request = decodeDaemonRuntimeReadyRequest(payload);
     const denied = requireDaemonPrincipal(metadata, request);
@@ -401,6 +416,29 @@ export const createDaemonRuntimeReadyMethod =
           },
           request.recoveredUpgradeRequestIds,
         );
+      void lifecycle
+        ?.ready(
+          { workspaceId: request.workspaceId, computerId: request.computerId },
+          {
+            requestId: request.requestId,
+            workerInstanceId: request.workerInstanceId,
+            ...(request.computerVersion ? { computerVersion: request.computerVersion } : {}),
+            recoveredUpgradeRequestIds: request.recoveredUpgradeRequestIds,
+            recoveredRestartRequestIds: request.recoveredRestartRequestIds,
+          },
+        )
+        .catch((error: unknown) =>
+          console.error(
+            JSON.stringify({
+              event: "daemon_ready.lifecycle_activity_failed",
+              outcome: "failed",
+              request_id: request.requestId,
+              workspace_id: request.workspaceId,
+              computer_id: request.computerId,
+              error_type: error instanceof Error ? error.name : typeof error,
+            }),
+          ),
+        );
       return new Uint8Array();
     } catch (error) {
       console.error(
@@ -420,6 +458,75 @@ export const createDaemonRuntimeReadyMethod =
       return { code: 503, message: `daemon ready failed at ${stage}` };
     }
   };
+
+/**
+ * A Workspace daemon's notice that it is going down on purpose, and why. Refusals answer like a
+ * ready does: 400 for a malformed notice, 403 for another Computer's, 409 for one from a daemon a
+ * newer ready already replaced. Each is logged with its stable reason.
+ */
+export function createDaemonRuntimeShutdownMethod(
+  lifecycle: Pick<ComputerLifecycleActivity, "shutdown">,
+  currentWorkerInstanceId?: (scope: {
+    workspaceId: string;
+    computerId: string;
+  }) => Promise<string | undefined>,
+): CentrifugoRpcMethod {
+  const refuse = (
+    error: CentrifugoRpcError,
+    reason: "malformed" | "foreign_computer" | "superseded",
+    notice?: DaemonRuntimeShutdown,
+  ) => {
+    console.warn(
+      JSON.stringify({
+        event: "daemon_shutdown.rejected",
+        outcome: "rejected",
+        reason,
+        ...(notice
+          ? {
+              request_id: notice.requestId,
+              workspace_id: notice.workspaceId,
+              computer_id: notice.computerId,
+            }
+          : {}),
+      }),
+    );
+    return error;
+  };
+  return async (payload, metadata) => {
+    let notice: DaemonRuntimeShutdown;
+    try {
+      notice = decodeDaemonRuntimeShutdown(payload);
+    } catch {
+      return refuse({ code: 400, message: "invalid daemon shutdown notice" }, "malformed");
+    }
+    const denied = requireDaemonPrincipal(metadata, notice);
+    if (denied) return refuse(denied, "foreign_computer", notice);
+    const scope = { workspaceId: notice.workspaceId, computerId: notice.computerId };
+    try {
+      const current = await currentWorkerInstanceId?.(scope);
+      if (current && current !== notice.workerInstanceId)
+        return refuse(
+          { code: 409, message: "daemon runtime was superseded" },
+          "superseded",
+          notice,
+        );
+      await lifecycle.shutdown(scope, { requestId: notice.requestId, reason: notice.reason });
+      return new Uint8Array();
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "daemon_shutdown.record_failed",
+          outcome: "failed",
+          request_id: notice.requestId,
+          workspace_id: notice.workspaceId,
+          computer_id: notice.computerId,
+          error_type: error instanceof Error ? error.name : typeof error,
+        }),
+      );
+      return { code: 503, message: "daemon shutdown notice was not recorded" };
+    }
+  };
+}
 
 /**
  * The Daemon's terminal report for one upgrade operation. A reported failure settles the request

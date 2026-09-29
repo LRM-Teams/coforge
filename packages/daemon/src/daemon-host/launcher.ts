@@ -13,6 +13,8 @@ import {
   encodeDaemonHoldRequest,
   decodeDaemonHoldResponse,
   LOCAL_RPC_METHODS,
+  RUNNER_HOLD_REASONS,
+  type RunnerHoldReason,
 } from "@lrm/coforge-sdk/internal";
 import type {
   DaemonHandshakeResponse,
@@ -222,7 +224,7 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
    */
   async hold(
     operation: "hold" | "release" = "hold",
-    reason = "upgrade",
+    reason: RunnerHoldReason = RUNNER_HOLD_REASONS.UPGRADE,
     requestId: string = crypto.randomUUID(),
   ): Promise<DaemonHoldResponse> {
     const method = operation === "hold" ? LOCAL_RPC_METHODS.HOLD : LOCAL_RPC_METHODS.RELEASE;

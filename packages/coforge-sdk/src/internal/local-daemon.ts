@@ -807,8 +807,26 @@ export type DaemonHoldRequest = {
   protocolMajor: number;
   requestId: string;
   expectedServerUrl: string;
-  reason?: string;
+  reason?: RunnerHoldReason;
 };
+
+/**
+ * Why a runner hold was asked for. A hold precedes a deliberate stop, so a Workspace daemon that
+ * shuts down while held names the matching reason in its shutdown notice.
+ */
+export const RUNNER_HOLD_REASONS = {
+  /** A Computer upgrade; also what a hold that names no reason means. */
+  UPGRADE: "upgrade",
+  /** The Coordinator restarting one Workspace daemon. */
+  WORKSPACE_RESTART: "restart",
+  /** `coforge-computer restart` restarting the whole Coordinator. */
+  COMPUTER_RESTART: "restart-supervisor",
+} as const;
+export type RunnerHoldReason = (typeof RUNNER_HOLD_REASONS)[keyof typeof RUNNER_HOLD_REASONS];
+
+export function isRunnerHoldReason(value: unknown): value is RunnerHoldReason {
+  return Object.values(RUNNER_HOLD_REASONS).some((reason) => reason === value);
+}
 
 /** One Agent whose last emitted Activity is still a busy detail kind. */
 export type HeldBusyAgent = {
@@ -838,7 +856,7 @@ export function decodeDaemonHoldRequest(bytes: Uint8Array): DaemonHoldRequest {
     protocolMajor: value.protocolMajor,
     requestId: value.requestId,
     expectedServerUrl: value.expectedServerUrl,
-    reason: value.reason || undefined,
+    reason: isRunnerHoldReason(value.reason) ? value.reason : undefined,
   };
 }
 

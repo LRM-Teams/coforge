@@ -7,6 +7,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 
 import { AGENT_ACTIVITY_WINDOW } from "./agent-activity-window";
+import { AGENT_VISIBILITY } from "./agent-visibility";
 
 export type ActivityEntry = {
   id?: string;
@@ -32,6 +33,17 @@ export const agentActivityChannel = (workspaceId: string) => `agent:activity:${w
  * viewer who can currently see that Agent is ever issued a subscription token for it. */
 export const agentActivityChannelForAgent = (workspaceId: string, agentId: string) =>
   `agent:activity:${workspaceId}:${agentId}`;
+
+/** Where an Agent's Activity is published: the shared channel for a public Agent, its own for
+ * any other visibility, an unrecognized persisted value included (fails closed). */
+export const agentActivityChannelFor = (
+  workspaceId: string,
+  agentId: string,
+  visibility: string,
+) =>
+  visibility === AGENT_VISIBILITY.PUBLIC
+    ? agentActivityChannel(workspaceId)
+    : agentActivityChannelForAgent(workspaceId, agentId);
 
 /** The Agent card's Recent activity row count. */
 export const RECENT_ACTIVITY_LIMIT = 5;

@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { LocalInboxRequest } from "@lrm/coforge-sdk/internal";
+import type { LocalInboxRequest, RunnerHoldReason } from "@lrm/coforge-sdk/internal";
 import { dispose, getLogger, withContext } from "@logtape/logtape";
 import { startDaemonLocalRpcServer } from "#src/local-rpc";
 import { startAgentProxy, type AgentProxyRuntime } from "#src/agent-proxy";
@@ -392,7 +392,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           requireRuntime().inbox(context, request),
         // Runner hold. A Workspace with no configured runtime has nothing to drain and
         // reports itself quiescent, so it never holds an upgrade up.
-        async hold(reason: string) {
+        async hold(reason: RunnerHoldReason) {
           return { held: true, busyAgents: stampWorkspace(runtime?.holdRunners(reason)) };
         },
         async release() {

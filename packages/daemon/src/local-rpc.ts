@@ -19,6 +19,8 @@ import {
   encodeUsageScanResponse,
   decodeDaemonHoldRequest,
   encodeDaemonHoldResponse,
+  RUNNER_HOLD_REASONS,
+  type RunnerHoldReason,
   type HeldBusyAgent,
   type UsageScanResponse,
   type InboxResponse,
@@ -57,7 +59,7 @@ type DaemonRuntimePort = Partial<{
   inbox(context: string, request: LocalInboxRequest): Promise<InboxResponse>;
   scanUsage(provider: string): Promise<UsageScanResponse>;
   command(method: string, request: DaemonCommandRequest): Promise<ManagedRuntimeIdentity[]>;
-  hold(reason: string): Promise<DaemonHoldReport>;
+  hold(reason: RunnerHoldReason): Promise<DaemonHoldReport>;
   release(): Promise<DaemonHoldReport>;
   /** Where a Workspace daemon's latest cloud connect stands; see `WorkspaceParking`. */
   cloudConnection(): { state: WorkspaceCloudConnection; error?: string };
@@ -236,7 +238,9 @@ class LocalRpcDispatcher {
     const { runtime } = this.input;
     const valid = request.protocolMajor === 1 && request.requestId.length > 0;
     const report = valid
-      ? await (engage ? runtime.hold?.(request.reason ?? "upgrade") : runtime.release?.())
+      ? await (engage
+          ? runtime.hold?.(request.reason ?? RUNNER_HOLD_REASONS.UPGRADE)
+          : runtime.release?.())
       : undefined;
     return encodeDaemonHoldResponse({
       protocolMajor: 1,

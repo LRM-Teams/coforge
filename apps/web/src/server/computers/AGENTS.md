@@ -19,3 +19,5 @@ These rules apply to `src/server/computers/`.
   Computer row or its owner cascades the keys without a record: those
   Computers get the ordinary retryable failure. Add a record there too when
   such a delete path is built.
+- `computer-lifecycle-memory.server.ts` is the only store of a shutdown
+  reason and of the last daemon instance whose return was announced.

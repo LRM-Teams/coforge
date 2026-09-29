@@ -148,6 +148,27 @@ test("status presentation uses backend detail instead of hardcoding the received
   ]);
 });
 
+test.each([
+  ["computer_disconnected", "Computer disconnected", "The Computer is restarting", "offline"],
+  ["computer_started", "Computer started", "", "idle"],
+  ["computer_restarted", "Computer restarted", "", "idle"],
+  ["computer_upgraded", "Computer upgraded", "Now running 0.1.0-dev.80", "idle"],
+] as const)("a %s row names the Computer event", (detailKind, label, detail, tone) => {
+  expect(presentActivity({ detailKind, level: "info", detail })).toEqual([
+    {
+      label,
+      detail,
+      recentLabel: detail ? `${label}: ${detail}` : label,
+      currentLabel: null,
+      tone,
+      recentTone: tone,
+      pulse: false,
+      monospace: false,
+      expandable: false,
+    },
+  ]);
+});
+
 test("compacting_context uses a dedicated label instead of the generic working text", () => {
   const observation = {
     activityKind: "working" as const,

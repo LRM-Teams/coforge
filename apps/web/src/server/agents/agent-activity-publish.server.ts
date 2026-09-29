@@ -15,13 +15,10 @@ import {
 } from "./agent-display.server";
 import { ensureAgentActivitySweep } from "./agent-activity-sweep.server";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
-import {
-  agentStatusChannel,
-  agentStatusChannelForAgent,
-} from "#src/features/agents/agent-status-realtime";
+import { agentStatusChannelFor } from "#src/features/agents/agent-status-realtime";
 import {
   agentActivityChannel,
-  agentActivityChannelForAgent,
+  agentActivityChannelFor,
   isRunStartMarker,
 } from "#src/features/agents/agent-activity";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
@@ -132,9 +129,7 @@ export async function handleAgentActivityPublication(
     const visibility = await dependencies.agentVisibility(workspaceId, activity.agentId);
     if (visibility === undefined) return unauthorized();
     const isPrivate = visibility !== AGENT_VISIBILITY.PUBLIC;
-    const statusChannel = isPrivate
-      ? agentStatusChannelForAgent(workspaceId, activity.agentId)
-      : agentStatusChannel(workspaceId);
+    const statusChannel = agentStatusChannelFor(workspaceId, activity.agentId, visibility);
     const history = isFillerActivity
       ? Promise.resolve()
       : dependencies.observe({ ...cloudActivity, computerId }).catch(() => {});
@@ -165,7 +160,7 @@ export async function handleAgentActivityPublication(
       // recorded it above).
       await dependencies
         .publish?.(
-          agentActivityChannelForAgent(workspaceId, activity.agentId),
+          agentActivityChannelFor(workspaceId, activity.agentId, visibility),
           encodeAgentActivity(cloudActivity),
         )
         .catch(() => {});

@@ -84,3 +84,10 @@ Session invalidate (`sendSessionInvalidate`) and Agent context usage
   identity (such as `reportAgentSession`'s `launchId`). Never learn it from
   Activity or from an invalidate itself, and keep it separate from Activity's
   own superseded-launch replay bookkeeping.
+
+## Shutdown notice
+
+- `sendShutdownNotice` is awaited because the connection closes right after
+  it. It is bounded by `DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS` (the whole stop must
+  fit launchd's 5 s grace), never retried or buffered, skipped when not
+  connected, and never throws.

@@ -178,6 +178,13 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
   Daemon-supplied classification.
 - Persist every Activity frame except busy heartbeats, liveness-probe replies,
   and `runtime_progress`. Never blank `detail` before persisting.
+- Publish Activity and `agent:display` through `agentActivityChannelFor` and
+  `agentStatusChannelFor`; never choose the shared or per-Agent channel inline.
+- Computer lifecycle rows are the only Activity the server writes itself
+  (`computer-lifecycle-activity.server.ts`). The row for a daemon's return
+  follows what happened, never only what its notice announced: the server's
+  upgrade and restart records, then the version the previous instance ran.
+  One row per daemon instance; a reconnect writes none.
 - The Activity history cap is the shared `AGENT_ACTIVITY_WINDOW`
   (`features/agents/agent-activity-window.ts`); the browser timeline keeps the
   same number.

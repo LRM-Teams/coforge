@@ -89,6 +89,9 @@ import {
   encodeDaemonRuntimeReadyRequest,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
   DAEMON_RUNTIME_READY_METHOD,
+  DAEMON_RUNTIME_SHUTDOWN_METHOD,
+  encodeDaemonRuntimeShutdown,
+  type DaemonRuntimeShutdown,
   DAEMON_CONNECTION_STATUS_METHOD,
   DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
   DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
@@ -199,6 +202,10 @@ const RESUME_CONNECT_MAX_MS = 30_000;
 const STABLE_CONNECTION_MS = 60_000;
 const REMEMBERED_REQUEST_IDS = 256;
 const logger = getLogger(["coforge", "daemon", "connection"]);
+
+/** How long a deliberate shutdown waits for the server to take its shutdown notice. The whole
+ * stop, Agents included, has to fit in the service manager's grace period (launchd: 5 s). */
+export const DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS = 1_000;
 
 /** A run of failed connect attempts: how many, since when, and how many of them were the
  * daemon's own reconnects after the client gave up (those set the resume delay). */
@@ -320,6 +327,7 @@ export interface DaemonConnectionClient {
   onAgentContextScan?(callback: (request: AgentContextScanRequest) => Promise<void>): () => void;
   sendAgentContextScanResult?(response: AgentContextScanResponse): Promise<void>;
   sendUpgradeResult?(result: ComputerUpgradeResult): Promise<boolean>;
+  sendShutdownNotice?(notice: DaemonRuntimeShutdown): Promise<void>;
   stop(): Promise<void>;
   /** Why the latest connect attempt failed, while the connection is not up. */
   connectFailure?(): string | undefined;
@@ -1917,6 +1925,60 @@ export class DaemonConnection implements DaemonConnectionClient {
       );
     this.#reportedUpgradeRequestIds.add(result.requestId);
     return true;
+  }
+
+  /**
+   * Tells the server why this daemon is going down on purpose. Awaited, unlike the other
+   * observations, because the connection closes right after it; bounded by
+   * `DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS`, never retried, and a daemon that is not connected sends
+   * nothing. Never throws: a notice that did not arrive must not fail the shutdown.
+   */
+  async sendShutdownNotice(notice: DaemonRuntimeShutdown): Promise<void> {
+    const fields = {
+      event: "daemon_connection:shutdown_notice",
+      request_id: notice.requestId,
+      workspace_id: notice.workspaceId,
+      computer_id: notice.computerId,
+      reason: notice.reason,
+    };
+    const client = this.#connected ? this.#client : undefined;
+    if (!client) {
+      logger.info("Shutdown notice not sent: not connected", {
+        ...fields,
+        outcome: "unknown",
+        error_code: "not_connected",
+      });
+      return;
+    }
+    let timer: unknown;
+    const timedOut = new Promise<"timed_out">((resolve) => {
+      timer = this.timing.schedule(() => resolve("timed_out"), DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS);
+    });
+    try {
+      const answered = await Promise.race([
+        client
+          .rpc(DAEMON_RUNTIME_SHUTDOWN_METHOD, encodeDaemonRuntimeShutdown(notice))
+          .then(() => "answered" as const),
+        timedOut,
+      ]);
+      if (answered === "answered")
+        logger.info("Shutdown notice sent", { ...fields, outcome: "ok" });
+      else
+        logger.warning("Shutdown notice got no answer in time", {
+          ...fields,
+          outcome: "unknown",
+          error_code: "timeout",
+          duration_ms: DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS,
+        });
+    } catch (error) {
+      logger.warning("Shutdown notice was not accepted", {
+        ...fields,
+        outcome: "rejected",
+        error_code: diagnosticErrorCode(error),
+      });
+    } finally {
+      this.timing.cancel(timer);
+    }
   }
 
   async sendUsageScanResult(response: DaemonRuntimeUsageScanResponse): Promise<void> {

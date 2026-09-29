@@ -39,33 +39,41 @@ test("a failing ready names the stage that failed", async () => {
   const cases: { stage: string; method: ReturnType<typeof createDaemonRuntimeReadyMethod> }[] = [
     {
       stage: "restart_recovery",
-      method: createDaemonRuntimeReadyMethod(undefined, {
-        ready: async () => {
-          throw new Error("restart store is down");
-        },
-      } as never),
+      method: createDaemonRuntimeReadyMethod({
+        restarts: {
+          ready: async () => {
+            throw new Error("restart store is down");
+          },
+        } as never,
+      }),
     },
     {
       stage: "capability_record",
-      method: createDaemonRuntimeReadyMethod(undefined, undefined, {
-        record: async () => {
-          throw new Error("capability store is down");
+      method: createDaemonRuntimeReadyMethod({
+        capabilities: {
+          record: async () => {
+            throw new Error("capability store is down");
+          },
         },
       }),
     },
     {
       stage: "agent_recovery",
       method: createDaemonRuntimeReadyMethod({
-        recoverWorkspace: async () => {
-          throw new Error("a pending delivery could not be projected");
+        recovery: {
+          recoverWorkspace: async () => {
+            throw new Error("a pending delivery could not be projected");
+          },
         },
       }),
     },
     {
       stage: "reminder_recovery",
-      method: createDaemonRuntimeReadyMethod(undefined, undefined, undefined, {
-        snapshotAssigned: async () => {
-          throw new Error("reminder mirror is down");
+      method: createDaemonRuntimeReadyMethod({
+        reminderRecovery: {
+          snapshotAssigned: async () => {
+            throw new Error("reminder mirror is down");
+          },
         },
       }),
     },
@@ -79,6 +87,6 @@ test("a failing ready names the stage that failed", async () => {
 });
 
 test("a ready that completes still answers with bytes, not a stage", async () => {
-  const method = createDaemonRuntimeReadyMethod({ recoverWorkspace: async () => {} });
+  const method = createDaemonRuntimeReadyMethod({ recovery: { recoverWorkspace: async () => {} } });
   expect(await method(readyPayload(), { principal: principal() })).toBeInstanceOf(Uint8Array);
 });
