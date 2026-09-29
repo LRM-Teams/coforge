@@ -9,7 +9,7 @@ import { AppError, isAppError } from "#src/lib/app-error";
 import { ProjectSettings } from "#src/server/projects/project-settings.server";
 import { z } from "zod";
 import { createProjectInput, projectIconUploadInput, updateProjectInput } from "./projects.schemas";
-import { ProjectImages, projectIconUrl } from "#src/server/projects/project-images.server";
+import { ProjectImages, withProjectIconUrl } from "#src/server/projects/project-images.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
@@ -164,7 +164,7 @@ export const getProject = createServerFn({ method: "GET" })
       },
     });
     if (!project) return null;
-    const { iconObjectKey, conversations, ...view } = project;
+    const { conversations, ...view } = project;
     const mappedConversations = conversations
       .map(({ _count, messages, ...conversation }) => {
         const lastMessage = messages[0];
@@ -192,11 +192,7 @@ export const getProject = createServerFn({ method: "GET" })
         };
       })
       .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
-    return {
-      ...view,
-      conversations: mappedConversations,
-      iconUrl: projectIconUrl(project.id, iconObjectKey),
-    };
+    return { ...withProjectIconUrl(view), conversations: mappedConversations };
   });
 
 export const updateProject = createServerFn({ method: "POST" })
@@ -241,10 +237,7 @@ export const listProjects = createServerFn({ method: "GET" })
       },
       orderBy: { createdAt: "asc" },
     });
-    return projects.map(({ iconObjectKey, ...project }) => ({
-      ...project,
-      iconUrl: projectIconUrl(project.id, iconObjectKey),
-    }));
+    return projects.map(withProjectIconUrl);
   });
 
 export const createProject = createServerFn({ method: "POST" })

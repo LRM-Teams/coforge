@@ -29,6 +29,14 @@ export function projectIconUrl(
   );
 }
 
+/** A Project read with its icon's object key, as the browser gets it: the key becomes `iconUrl`. */
+export function withProjectIconUrl<Project extends { id: string; iconObjectKey: string | null }>({
+  iconObjectKey,
+  ...project
+}: Project): Omit<Project, "iconObjectKey"> & { iconUrl: string | null } {
+  return { ...project, iconUrl: projectIconUrl(project.id, iconObjectKey) };
+}
+
 export class ProjectImages {
   constructor(
     private readonly db: PrismaClient,

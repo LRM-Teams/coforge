@@ -51,7 +51,7 @@ async function overviewWith(execute: TaskOverviewApi["execute"]) {
           ...view,
           currentMemberId: "member-me",
           source: { channelName: "product", agentId: null, label: "#product" },
-          project: { id: "project-1", name: "Launch", slug: "launch" },
+          project: { id: "project-1", name: "Launch", slug: "launch", iconUrl: null },
         })),
       };
     },
@@ -198,7 +198,7 @@ test("a finished Task moved back to unfinished joins the rows with its page fiel
     ...task(9, { status: "done", revision: 3 }),
     currentMemberId: "member-me",
     source: { channelName: "product", agentId: null, label: "#product" },
-    project: { id: "project-1", name: "Launch", slug: "launch" },
+    project: { id: "project-1", name: "Launch", slug: "launch", iconUrl: null },
   };
   await overview.run(paged, {
     operation: "update",

@@ -2,6 +2,7 @@ import type { TaskMember, TaskView } from "@lrm/coforge-sdk/internal";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { VISIBLE_CONVERSATION_WHERE } from "#src/server/conversations/active-member.server";
+import { withProjectIconUrl } from "#src/server/projects/project-images.server";
 import {
   FINISHED_TASK_STATUSES,
   storedTaskStatus,
@@ -23,8 +24,11 @@ export type TaskOverview = {
         agentId: string | null;
         label: string;
       };
-      /** The Project the task's channel belongs to; a DM task has none. */
-      project: { id: string; name: string; slug: string } | null;
+      /**
+       * The Project the task's channel belongs to; a DM task has none. `iconUrl` is its uploaded
+       * icon, null when it has none.
+       */
+      project: { id: string; name: string; slug: string; iconUrl: string | null } | null;
     }
   >;
 };
@@ -118,7 +122,7 @@ function overviewSelection(userId: string) {
     conversation: {
       select: {
         channelName: true,
-        project: { select: { id: true, name: true, slug: true } },
+        project: { select: { id: true, name: true, slug: true, iconObjectKey: true } },
         members: {
           where: { OR: [{ userId }, { agentId: { not: null } }] },
           select: {
@@ -147,7 +151,7 @@ function overviewRow(
     source: channelName
       ? { channelName, agentId: null, label: `#${channelName}` }
       : { channelName: null, agentId: agent!.id, label: agent!.displayName || agent!.name },
-    project: task.conversation.project,
+    project: task.conversation.project && withProjectIconUrl(task.conversation.project),
   };
 }
 

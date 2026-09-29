@@ -11,8 +11,11 @@ export const NO_PROJECT = "none";
 
 export type FilterableTask = {
   owner: TaskMember | null;
-  /** The Project the Task's conversation belongs to; absent on a one-conversation board. */
-  project?: { id: string; name: string } | null;
+  /**
+   * The Project the Task's conversation belongs to; absent on a one-conversation board. `iconUrl`
+   * is its uploaded icon, which a Task row's pill shows.
+   */
+  project?: { id: string; name: string; iconUrl?: string | null } | null;
   /** The viewer's membership in the Task's conversation: an owner with it is the viewer. */
   currentMemberId?: string | null;
   /** How many Tasks this entry stands for: a counted group of finished Tasks; one when absent. */

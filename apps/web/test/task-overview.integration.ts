@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
+import { projectIconUrl } from "#src/server/projects/project-images.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
 
 test("TaskBoard overview returns every visible Workspace channel task and no direct-message task", async () => {
@@ -70,9 +71,17 @@ test("TaskBoard overview returns every visible Workspace channel task and no dir
     });
 
   const joined = await makeConversation({ channelName: `joined-${short}`, userId: alice!.id });
-  // The joined channel belongs to a Project, so its tasks carry it (the Tasks page filters by it).
+  // The joined channel belongs to a Project, so its tasks carry it (the Tasks page filters by it)
+  // with the icon its pill shows.
+  const iconObjectKey = `workspaces/${workspace.id}/projects/launch/icons/${suffix}/original`;
   const project = await db.project.create({
-    data: { workspaceId: workspace.id, name: "Launch", slug: `launch-${short}` },
+    data: {
+      workspaceId: workspace.id,
+      name: "Launch",
+      slug: `launch-${short}`,
+      iconObjectKey,
+      iconContentType: "image/png",
+    },
   });
   await db.conversation.update({ where: { id: joined.id }, data: { projectId: project.id } });
   const unjoined = await makeConversation({ channelName: `unjoined-${short}`, userId: bob!.id });
@@ -110,7 +119,12 @@ test("TaskBoard overview returns every visible Workspace channel task and no dir
       ...joinedTask.tasks[0],
       currentMemberId: expect.any(String),
       source: { channelName: joined.channelName, agentId: null, label: `#${joined.channelName}` },
-      project: { id: project.id, name: "Launch", slug: project.slug },
+      project: {
+        id: project.id,
+        name: "Launch",
+        slug: project.slug,
+        iconUrl: projectIconUrl(project.id, iconObjectKey),
+      },
     });
     expect(result.tasks.find(({ title }) => title === "Unjoined public")).toEqual({
       ...unjoinedTask.tasks[0],
@@ -474,7 +488,8 @@ test("TaskBoard reads one Task as an overview row, finished or not, only in a ch
       title: "Done long ago",
       status: "done",
       source: { label: `#${f.channel.channelName}` },
-      project: { id: f.project.id },
+      // A Project with no uploaded icon reads with a null `iconUrl`.
+      project: { id: f.project.id, iconUrl: null },
     });
     expect(
       await f.board.overviewTask(scope, { conversationId: f.otherDm.id, number: hidden.number }),
