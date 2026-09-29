@@ -1,14 +1,9 @@
-import type {
-  CoforgeMemoryActor,
-  GatewayRouteClassification,
-  GatewayRoutePolicy,
-} from "../contract";
+import type { CoforgeMemoryActor, GatewayRouteClassification } from "../contract";
 import {
   DEFAULT_OPENVIKING_TRANSPORT_LIMITS,
   type GatewayCapability,
   type OpenVikingTransportLimits,
   templateMatches,
-  toFamilyGatewayPolicies,
 } from "../route-policy";
 
 export const ADMIN_FAMILY_PINNED_FAMILIES = ["acl", "admin", "privacy"] as const;
@@ -260,10 +255,4 @@ export function adminFamilyAllowsActor(
 
 export function adminFamilyMemoryAgentMayRead(route: AdminFamilyRoutePolicy): boolean {
   return route.classification === "data-plane" && route.allowedActors.includes("memory_agent");
-}
-
-export function toAdminFamilyGatewayPolicies(
-  routes: readonly AdminFamilyRoutePolicy[] = ADMIN_FAMILY_ROUTES,
-): GatewayRoutePolicy[] {
-  return toFamilyGatewayPolicies(routes);
 }
