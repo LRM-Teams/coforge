@@ -69,6 +69,7 @@ test("documentation skips application checks, while shared and unknown inputs fa
     "computer",
     "daemon",
     "deploy",
+    "installer-crate",
     "macos-lifecycle",
     "oss-cdn",
     "release",
@@ -97,6 +98,10 @@ test("documentation skips application checks, while shared and unknown inputs fa
     "windows-installer",
   ]);
   expect(selectChecks(["scripts/release/install.sh"], "changes")).toEqual(["release", "web"]);
+  for (const path of ["installer/src/fetch.rs", "installer/Cargo.lock", "installer/mise.toml"]) {
+    expect(selectChecks([path], "changes")).toEqual(["installer-crate"]);
+  }
+  expect(selectChecks(["installer/AGENTS.md"], "changes")).toEqual([]);
   expect(selectChecks(["infra/staging/caddy/Caddyfile"], "changes")).toEqual(["deploy", "web"]);
   expect(selectChecks(["scripts/ops/renew-cdn-certificates.sh"], "changes")).toEqual(["cdn-certs"]);
   expect(selectChecks(["scripts/release/compile-targets.ts"], "changes")).toEqual([
@@ -126,7 +131,7 @@ test("deployment validates the exact Web track only when the image or deployment
   expect(selectChecks(["bun.lock"], "web")).toEqual(["ci", "deploy", "coforge-sdk", "web"]);
 });
 
-test("manual local publication always validates its complete track, regardless of changed files", () => {
+test("manual local publication always validates its complete track, regardless of changed files, without the separately released installer crate", () => {
   expect(selectChecks([], "local")).toEqual([
     "agent",
     "ci",
