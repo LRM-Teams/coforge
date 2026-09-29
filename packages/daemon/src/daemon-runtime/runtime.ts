@@ -926,6 +926,22 @@ export class DaemonRuntime {
     return this.#startPromise;
   }
 
+  /**
+   * Stops the current transport and installs a fresh one, so a later start never reuses a
+   * transport that went through `.stop()` and no replaced transport is left connected. Resolves
+   * with the stop failure, if any.
+   */
+  async #replaceTransport(): Promise<unknown> {
+    const replaced = this.#transport;
+    this.#transport = this.#transportFactory.create(this.#connection);
+    try {
+      await replaced.stop();
+      return undefined;
+    } catch (error) {
+      return error;
+    }
+  }
+
   #subscribe(unsubscribe: (() => void) | undefined): void {
     if (unsubscribe) this.#subscriptions.push(unsubscribe);
   }
@@ -1155,23 +1171,26 @@ export class DaemonRuntime {
       });
       await this.#agentControl.replay();
       await this.#agentSessions.replay();
-      await this.#transport.ready(() => ({
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-        requestId: crypto.randomUUID(),
-        workspaceId: connection.workspaceId,
-        // Legacy connection records have no computer identity; the server rejects this.
-        computerId: connection.computerId ?? "",
-        // Protocol field retained for compatibility with the existing ready handshake.
-        workerInstanceId: this.#runtimeInstanceId,
-        startedAt: this.#startedAt,
-        runningAgentIds: this.#readyRunningAgentIds(),
-        daemonVersion: COFORGE_DAEMON_VERSION,
-        computerVersion: this.computerVersion,
-        ...readOperatingSystem(),
-        recoveredRestartRequestIds: this.lifecycle.recoveredRestartRequestIds ?? [],
-        recoveredUpgradeRequestIds: this.lifecycle.recoveredUpgradeRequestIds ?? [],
-        capabilities: [REMINDER_CAPABILITY],
-      }));
+      await this.#transport.ready(
+        () => ({
+          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+          requestId: crypto.randomUUID(),
+          workspaceId: connection.workspaceId,
+          // Legacy connection records have no computer identity; the server rejects this.
+          computerId: connection.computerId ?? "",
+          // Protocol field retained for compatibility with the existing ready handshake.
+          workerInstanceId: this.#runtimeInstanceId,
+          startedAt: this.#startedAt,
+          runningAgentIds: this.#readyRunningAgentIds(),
+          daemonVersion: COFORGE_DAEMON_VERSION,
+          computerVersion: this.computerVersion,
+          ...readOperatingSystem(),
+          recoveredRestartRequestIds: this.lifecycle.recoveredRestartRequestIds ?? [],
+          recoveredUpgradeRequestIds: this.lifecycle.recoveredUpgradeRequestIds ?? [],
+          capabilities: [REMINDER_CAPABILITY],
+        }),
+        signal,
+      );
       await this.#reportUpgradeResults();
       await Promise.all(
         this.#readyRunningAgentIds().map((agentId) => this.#requestReminderSnapshot(agentId)),
@@ -1192,8 +1211,14 @@ export class DaemonRuntime {
     } catch (error) {
       this.#unsubscribeAll();
       this.#started = false;
-      // A transport may retain partial state after a failed start; never reuse it.
-      this.#transport = this.#transportFactory.create(this.#connection);
+      // A connection left up keeps reporting this Computer online for a Workspace that never
+      // started, so a failed start takes its transport down too.
+      const stopError = await this.#replaceTransport();
+      if (stopError !== undefined)
+        logger.warn("Stopping the connection of a failed start failed", {
+          event: "daemon_runtime:failed_start_stop_failed",
+          error_code: diagnosticErrorCode(stopError),
+        });
       throw error;
     }
   }
@@ -4764,13 +4789,8 @@ export class DaemonRuntime {
         }),
       ),
     );
-    try {
-      await this.#transport.stop();
-    } catch (error) {
-      shutdownError ??= error;
-    }
-    // Recreate so a later start() never reuses a transport that went through `.stop()`.
-    this.#transport = this.#transportFactory.create(this.#connection);
+    const transportError = await this.#replaceTransport();
+    shutdownError ??= transportError;
     if (shutdownError !== undefined) throw shutdownError;
   }
 }
