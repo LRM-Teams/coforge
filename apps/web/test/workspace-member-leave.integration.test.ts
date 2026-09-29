@@ -546,6 +546,59 @@ test.skipIf(!connectionString)(
   },
 );
 
+test.skipIf(!connectionString || !redisUrl)(
+  "a replay of an Agent's committed reply still reports it sent after the person left",
+  async () => {
+    const { db, directory, workspace, owner, bob } = await setup();
+    const redis = new RedisClient(redisUrl!);
+    try {
+      const { repo, helper, conversationId } = await unreadAgentDirectMessage(
+        db,
+        workspace.id,
+        bob,
+      );
+      const records = new RedisMessageRequestIdempotency(redis);
+      const dependencies = {
+        repository: repo,
+        requestRecords: records,
+        sender: new SendDirectMessage(repo, records, { publish: async () => {} }),
+      };
+      const idempotencyKey = crypto.randomUUID();
+      const send = () =>
+        handleAgentMessagesPost(
+          new Request("https://server.example/api/agent/v1/messages", {
+            method: "POST",
+            body: JSON.stringify({
+              target: `@${bob.username}`,
+              content: "on it",
+              idempotencyKey,
+              continueAnyway: true,
+            }),
+          }),
+          { workspaceId: workspace.id, agentId: helper.id },
+          dependencies,
+        ).then(async (response) => ({ status: response.status, body: await response.json() }));
+      const messageCount = () => db.message.count({ where: { conversationId } });
+
+      // The first send commits; its answer is lost, and the person leaves before the retry.
+      const first = await send();
+      expect(first).toMatchObject({ status: 200, body: { state: "sent" } });
+      const committed = await messageCount();
+      await directory.leave({ workspaceId: workspace.id, userId: bob.id });
+
+      const replay = await send();
+      expect(replay).toMatchObject({
+        status: 200,
+        body: { state: "sent", messageId: first.body.messageId },
+      });
+      expect(await messageCount()).toBe(committed);
+    } finally {
+      redis.close();
+      await teardown(db, workspace.id, [owner.id, bob.id]);
+    }
+  },
+);
+
 /** A route's answer, or what it threw past the handler (which the Agent middleware turns into 401). */
 async function outcome(respond: () => Promise<Response>) {
   try {

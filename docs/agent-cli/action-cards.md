@@ -42,7 +42,10 @@ Local zod validation, then `validateActionCardAction`'s cross-field rules
 agent), run before the request is sent; a failure is reported as
 `Action failed validation: <path>: <message>; …`. The server checks the whole
 action again and refuses in the same form: `INVALID_ACTION` (with the issues),
-`INVALID_HANDLE` (naming the field), `CHANNEL_EXISTS`, `AGENT_EXISTS`, or, as
+`INVALID_HANDLE` (naming the field; a private Agent the caller can see is
+refused because it "cannot be a channel member"), `AGENT_NOT_VISIBLE` (a
+private Agent the caller cannot see, as channel management answers it),
+`CHANNEL_EXISTS`, `AGENT_EXISTS`, or, as
 for `message send`, `DM_PEER_NOT_IN_WORKSPACE` and `TARGET_NOT_ACCESSIBLE`. The
 CLI reports its reason, code and next step. On success the CLI prints:
 

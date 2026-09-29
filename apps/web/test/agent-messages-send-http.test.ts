@@ -787,3 +787,81 @@ test("a private Agent's reply in a direct message it may only read names AGENT_D
     retryable: false,
   });
 });
+
+test("a replay of a key that already committed is answered from its record, whatever changed since", async () => {
+  const scopes: MessageRequestScope[] = [];
+  const result = await handleAgentMessagesPost(
+    request({ target: "@bob", content: "hello", idempotencyKey: "idem-committed" }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      requestRecords: {
+        find: async (scope) => {
+          scopes.push(scope);
+          return {
+            state: "completed",
+            message: {
+              id: "message-committed",
+              body: "hello",
+              createdAt: new Date(),
+              sequence: 7,
+              threadRootId: null,
+              attachments: [],
+              workspaceId: "workspace-1",
+            },
+          };
+        },
+      },
+      // Bob has left since: resolving the target now refuses, and no new send may run.
+      repository: {
+        agentTargetFreshness: async () => {
+          throw new AppError("DM_PEER_NOT_IN_WORKSPACE");
+        },
+      },
+      sender: {
+        executeFromAgent: async () => {
+          throw new Error("a committed key is never sent again");
+        },
+      },
+    },
+  );
+
+  expect(result.status).toBe(200);
+  expect(await result.json()).toMatchObject({
+    idempotencyKey: "idem-committed",
+    state: "sent",
+    decision: "forward",
+    reason: "already_committed",
+    messageId: "message-committed",
+  });
+  expect(scopes).toEqual([
+    {
+      workspaceId: "workspace-1",
+      senderKind: "agent",
+      senderId: "agent-1",
+      requestId: "idem-committed",
+    },
+  ]);
+});
+
+test("a send whose key is still being processed by an earlier request answers 409 before anything else", async () => {
+  const result = await handleAgentMessagesPost(
+    request({ target: "@bob", content: "hello", idempotencyKey: "idem-processing" }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    {
+      requestRecords: { find: async () => ({ state: "processing" }) },
+      repository: {
+        agentTargetFreshness: async () => {
+          throw new AppError("DM_PEER_NOT_IN_WORKSPACE");
+        },
+      },
+      sender: {
+        executeFromAgent: async () => {
+          throw new Error("an in-flight key is never sent again");
+        },
+      },
+    },
+  );
+
+  expect(result.status).toBe(409);
+  expect(await result.json()).toMatchObject({ code: "MESSAGE_REQUEST_IN_PROGRESS" });
+});
