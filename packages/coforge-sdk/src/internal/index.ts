@@ -160,6 +160,13 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   // The provider has produced nothing for too long while work is pending.
   // Error-level presentation, like runtime_error/runtime_crashed above.
   RUNTIME_STALLED: "runtime_stalled",
+  // Computer lifecycle rows. Only the server writes them, into each of a Computer's Agents'
+  // Activity: `computer_disconnected` on a shutdown notice, one of the others when a new daemon
+  // instance is ready. Info level: they never change a status.
+  COMPUTER_DISCONNECTED: "computer_disconnected",
+  COMPUTER_STARTED: "computer_started",
+  COMPUTER_RESTARTED: "computer_restarted",
+  COMPUTER_UPGRADED: "computer_upgraded",
   OTHER: "other",
 } as const;
 export type AgentActivityDetailKind =
@@ -881,6 +888,8 @@ export {
   decodeDaemonHoldRequest,
   encodeDaemonHoldResponse,
   decodeDaemonHoldResponse,
+  RUNNER_HOLD_REASONS,
+  isRunnerHoldReason,
 } from "./local-daemon";
 export type {
   AgentMessageRecord,
@@ -910,6 +919,7 @@ export type {
   DaemonHoldRequest,
   DaemonHoldResponse,
   HeldBusyAgent,
+  RunnerHoldReason,
 } from "./local-daemon";
 export {
   encodeDaemonRuntimeReadyRequest,
@@ -998,3 +1008,4 @@ export {
   weeklyReportWorkflowSchema,
   type WeeklyReportWorkflowAction,
 } from "./weekly-report-workflow";
+export * from "./daemon-shutdown";

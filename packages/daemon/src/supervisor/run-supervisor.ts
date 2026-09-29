@@ -1,7 +1,12 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { UPGRADE_ERROR_CODE, type ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
+import {
+  RUNNER_HOLD_REASONS,
+  UPGRADE_ERROR_CODE,
+  type ManagedRuntimeIdentity,
+  type RunnerHoldReason,
+} from "@lrm/coforge-sdk/internal";
 import { startDaemonLocalRpcServer, type DaemonHoldReport } from "#src/local-rpc";
 import { FileDaemonCredentialStore } from "#src/credentials/credential-store";
 import { DaemonConfigStore } from "#src/persistence/daemon-config";
@@ -229,7 +234,7 @@ async function runWithSupervisorLock(
   const holdWorkspaceRunners = async (
     workspaceId: string,
     operation: "hold" | "release",
-    reason: string,
+    reason: RunnerHoldReason,
     eventPrefix: string,
     // `unreachableWorkspaceIds` is optional on the wire report but always known here, so the
     // restart hold can read it without a fallback.
@@ -621,7 +626,7 @@ async function runWithSupervisorLock(
    */
   const fanOutRunnerHold = async (
     operation: "hold" | "release",
-    reason: string,
+    reason: RunnerHoldReason,
   ): Promise<DaemonHoldReport> => {
     const running = (await snapshot()).filter((runtime) => runtime.processId > 0);
     const reports = await Promise.all(
@@ -716,7 +721,7 @@ async function runWithSupervisorLock(
             return pending ? { lifecycleUnderWay: true } : {};
           },
           hold: (reason) => fanOutRunnerHold("hold", reason),
-          release: () => fanOutRunnerHold("release", "upgrade"),
+          release: () => fanOutRunnerHold("release", RUNNER_HOLD_REASONS.UPGRADE),
           async command(method, request) {
             if (method === "daemon:pause") await supervisor.pause();
             else if (method === "daemon:resume") {

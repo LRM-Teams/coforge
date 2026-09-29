@@ -28,6 +28,7 @@ export const RPC_METHODS = {
   workspaceList: "workspace:v1:list",
   workspaceGet: "workspace:v1:get",
   daemonRuntimeReady: "daemon:v1:runtime:ready",
+  daemonRuntimeShutdown: "daemon:v1:runtime:shutdown",
   daemonConnectionStatus: "daemon:v1:connection:status",
   daemonCodeAgentsUpdate: "daemon:v1:provider:inventory_update",
   daemonUsageScan: "daemon:v1:provider:usage_scan",

@@ -58,6 +58,25 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | `runtime_interrupted` | 主动 stop/restart 打断了一个正在忙碌（working/thinking）的 turn | 可见，写入历史，视为在线 |
 | `runtime_unavailable` | Daemon 检测到已存的 native Session 无法恢复——缺失（kiro/pi 的 `session_missing`，或 Claude/Codex 驱动内部静默替换）或被 provider 拒绝 replay（`provider_replay_rejected`）；上报一次 `agent:session:invalidate` 后，以同一 `launchId` 冷启动新 session | 可见，写入历史，视为 working |
 
+## 服务端写入的 Computer 生命周期记录
+
+以下四个 `detailKind` 不由 Daemon 上报，只由服务端写入该 Computer 上每个 active Agent 的
+Activity（`apps/web/src/server/agents/computer-lifecycle-activity.server.ts`）。它们都是
+`info` 级，使用独立的 `launch_id`（`computer-lifecycle:<request_id>`，`client_seq=1`），
+不改变 Agent 状态，也不并入 Agent 的某次运行：
+
+| detailKind | 写入时机 | detail |
+| --- | --- | --- |
+| `computer_disconnected` | Workspace daemon 主动关闭前发送 `daemon:v1:runtime:shutdown`，原因为 `computer_upgrade`、`computer_restart` 或 `computer_stop`（来自关闭时仍新鲜的 runner hold） | 说明关闭原因 |
+| `computer_upgraded` | 新 daemon 实例首次 ready，且服务端升级记录确认由该实例完成，或无升级记录但 Computer 版本相对上一实例变化 | `Now running <version>` |
+| `computer_restarted` | 新实例首次 ready，且之前宣告了重启、服务端重启记录由该实例完成，或宣告的升级未完成（升级记录失败或版本未变） | 升级未完成时说明仍在运行的版本和下一步命令 |
+| `computer_started` | 新实例首次 ready，且不属于以上情况（冷启动、崩溃后再启动、次日启动） | 空 |
+
+同一 daemon 实例的后续 ready（重连、重试）不再写入。意外断线没有服务端信号（Centrifugo
+没有 disconnect proxy，Computer 在线状态只是 90 秒租约自然过期），因此不写
+`computer_disconnected`；下一次 ready 写 `computer_started`。四个值统一使用 `computer_*`
+前缀，只在服务端与浏览器之间使用。
+
 `starting`、`stopped`、`idle` 是 timeline 记录，不是新的 Agent 业务状态；当前状态仍只
 由 `agent:status` 的 `active` / `inactive` 表示。只有真正发生过程或观察结果时才记录
 对应 activity，不能用定时 heartbeat 不断重复制造相同 activity——但见下方的忙碌心跳例外：为了不让安静运行超过 60 秒的 turn（一条 shell 命令或一次安静的模型调用）

@@ -700,19 +700,16 @@ describe("CentrifugoRpcHandler", () => {
   test("starts every existing Workspace Agent after the exact Computer reports ready", async () => {
     const recovered: unknown[][] = [];
     const observed: unknown[] = [];
-    const method = createDaemonRuntimeReadyMethod(
-      {
+    const method = createDaemonRuntimeReadyMethod({
+      recovery: {
         recoverWorkspace: async (workspaceId, computerId, runningAgentIds) => {
           recovered.push([workspaceId, computerId, runningAgentIds]);
         },
       },
-      undefined,
-      undefined,
-      undefined,
-      async (scope, metadata) => {
+      observe: async (scope, metadata) => {
         observed.push({ scope, metadata });
       },
-    );
+    });
     const payload = encodeDaemonRuntimeReadyRequest({
       protocolMajor: 1,
       requestId: "ready-1",
@@ -764,15 +761,11 @@ describe("CentrifugoRpcHandler", () => {
 
   test("rejects invalid observed metadata before persistence", async () => {
     let writes = 0;
-    const method = createDaemonRuntimeReadyMethod(
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      async () => {
+    const method = createDaemonRuntimeReadyMethod({
+      observe: async () => {
         writes++;
       },
-    );
+    });
     for (const metadata of [
       { platform: "invented-os" },
       { computerVersion: "v".repeat(201) },

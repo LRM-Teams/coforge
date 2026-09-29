@@ -2,12 +2,14 @@ import { expect, test } from "bun:test";
 import { encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 import {
   agentActivityChannel,
+  agentActivityChannelFor,
   agentActivityChannelForAgent,
   decodeActivityObservation,
   latestActivityError,
   mergeAgentActivity,
   type ActivityEntry,
 } from "#src/features/agents/agent-activity";
+import { agentStatusChannelFor } from "#src/features/agents/agent-status-realtime";
 
 test("agentActivityChannelForAgent names the per-Agent re-routing destination", () => {
   expect(agentActivityChannelForAgent("workspace-1", "agent-1")).toBe(
@@ -15,6 +17,25 @@ test("agentActivityChannelForAgent names the per-Agent re-routing destination", 
   );
   expect(agentActivityChannelForAgent("workspace-1", "agent-1")).not.toBe(
     agentActivityChannel("workspace-1"),
+  );
+});
+
+test("a public Agent's Activity goes to the shared channel; any other visibility to its own", () => {
+  expect(agentActivityChannelFor("workspace-1", "agent-1", "public")).toBe(
+    "agent:activity:workspace-1",
+  );
+  for (const visibility of ["private", "not-a-real-value"])
+    expect(agentActivityChannelFor("workspace-1", "agent-1", visibility)).toBe(
+      "agent:activity:workspace-1:agent-1",
+    );
+});
+
+test("a public Agent's display goes to the shared status channel; any other to its own", () => {
+  expect(agentStatusChannelFor("workspace-1", "agent-1", "public")).toBe(
+    "agent:status:workspace-1",
+  );
+  expect(agentStatusChannelFor("workspace-1", "agent-1", "private")).toBe(
+    "agent:status:workspace-1:agent-1",
   );
 });
 

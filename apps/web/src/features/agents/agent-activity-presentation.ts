@@ -56,6 +56,17 @@ const FINISHED_STATUS: Readonly<Record<string, { label: string; recentTone?: Ton
   [AGENT_ACTIVITY_DETAIL_KIND.REVIEW_FINISHED]: { label: "Review finished" },
 };
 
+/** Computer lifecycle rows the server writes into each of a Computer's Agents' Activity. */
+const COMPUTER_LIFECYCLE: Readonly<Record<string, { label: string; tone: Tone }>> = {
+  [AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_DISCONNECTED]: {
+    label: "Computer disconnected",
+    tone: "offline",
+  },
+  [AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_STARTED]: { label: "Computer started", tone: "idle" },
+  [AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_RESTARTED]: { label: "Computer restarted", tone: "idle" },
+  [AGENT_ACTIVITY_DETAIL_KIND.COMPUTER_UPGRADED]: { label: "Computer upgraded", tone: "idle" },
+};
+
 /** Working and thinking are the busy tones: their dots pulse. */
 export function isBusyTone(tone: StatusTone): boolean {
   return tone === "working" || tone === "thinking";
@@ -158,6 +169,23 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
       },
     ];
   }
+  const lifecycle = level === "error" ? undefined : COMPUTER_LIFECYCLE[kind];
+  if (lifecycle)
+    return [
+      {
+        row: {
+          label: lifecycle.label,
+          detail,
+          recentLabel: detail ? `${lifecycle.label}: ${detail}` : lifecycle.label,
+          currentLabel: null,
+          tone: lifecycle.tone,
+          recentTone: lifecycle.tone,
+          pulse: false,
+          monospace: false,
+          expandable: false,
+        },
+      },
+    ];
   if (level !== "error") {
     const entries = observation.entries ?? [];
     if (entries.length) return entries.map((entry) => presentEntryItem(entry, kind, detail));

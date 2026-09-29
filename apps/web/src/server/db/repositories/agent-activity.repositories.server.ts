@@ -179,8 +179,13 @@ export class AgentActivityRepository {
   }
 
   async record(input: TrustedAgentActivity) {
+    await this.recordMany([input]);
+  }
+
+  /** One insert for many rows; a row already stored (same Agent, launch, and sequence) is kept. */
+  async recordMany(inputs: readonly TrustedAgentActivity[]) {
     await this.db.agentActivity.createMany({
-      data: {
+      data: inputs.map((input) => ({
         workspaceId: input.workspaceId,
         agentId: input.agentId,
         computerId: input.computerId,
@@ -194,7 +199,7 @@ export class AgentActivityRepository {
         runtimeErrorReason: input.runtimeError?.errorReason,
         runtimeErrorFingerprint: input.runtimeError?.fingerprint,
         occurredAt: new Date(input.observedAtMs),
-      },
+      })),
       skipDuplicates: true,
     });
   }

@@ -67,6 +67,9 @@ import { HeldPublications } from "#src/connection/held-publications";
 import {
   type DaemonConnectRejectionReason,
   WORKSPACE_PROTOCOL_MAJOR,
+  RUNNER_HOLD_REASONS,
+  type DaemonShutdownReason,
+  type RunnerHoldReason,
   AGENT_MESSAGE_REJECT_METHOD,
   AGENT_ACTIVITY_DETAIL_KIND,
   truncateCodePoints,
@@ -152,6 +155,7 @@ import { AgentAppInbox, type MintAppItem } from "#src/agent-app-inbox/agent-app-
 import { isAgentApiKey } from "#src/credentials/agent-api-key";
 import { AgentPreflightError } from "./agent-preflight-error";
 import { settleAgentSend } from "./agent-send-settlement";
+import { shutdownReasonForHold, type RunnerHold } from "./shutdown-reason";
 import {
   discoverCodeAgentRuntimes,
   discoverCodeAgentCatalogs,
@@ -573,7 +577,7 @@ export class DaemonRuntime {
   >();
   /** Runner-hold reason while this runtime is refusing new turns; undefined when not held.
    * Deliberately in-memory only, so a restarted daemon is never born held. */
-  #runnerHold: string | undefined;
+  #runnerHold: RunnerHold | undefined;
   /** Whether a compaction is in flight per Agent, and its 5-minute stale watchdog - see
    * agent-runtime/compaction-tracker.ts. Providers only report the raw start/finish/interrupted
    * signal; this decides what, if anything, that becomes on the wire. */
@@ -1737,7 +1741,7 @@ export class DaemonRuntime {
     // upgrade's stop. Refusing is safe: `#agentControl.replay()` re-issues the intent after the
     // restart. Launches that only extend a live runtime returned above and are untouched.
     if (this.#runnerHold !== undefined)
-      return Promise.reject(new Error(`Agent launches are held for ${this.#runnerHold}`));
+      return Promise.reject(new Error(`Agent launches are held for ${this.#runnerHold.reason}`));
 
     this.#messageAttention.clearAgent(agentId);
 
@@ -2899,7 +2903,7 @@ export class DaemonRuntime {
         event: "agent.message.delivery_held",
         agent_id: message.agentId,
         delivery_id: message.deliveryId,
-        reason: this.#runnerHold,
+        reason: this.#runnerHold.reason,
       });
       return;
     }
@@ -4749,10 +4753,10 @@ export class DaemonRuntime {
    * Stops admitting new Agent turns and reports which Agents are still busy. Idempotent: a repeat
    * call only re-reads the busy set, which is what the upgrade's quiescence poll relies on.
    */
-  holdRunners(reason = "upgrade"): BusyAgentReport[] {
+  holdRunners(reason: RunnerHoldReason = RUNNER_HOLD_REASONS.UPGRADE): BusyAgentReport[] {
     if (this.#runnerHold === undefined)
       logger.info("Runner hold engaged", { event: "daemon.runner_hold.engaged", reason });
-    this.#runnerHold = reason;
+    this.#runnerHold = { reason, renewedAtMs: Date.now() };
     return this.busyAgents();
   }
 
@@ -4761,7 +4765,7 @@ export class DaemonRuntime {
     if (this.#runnerHold !== undefined)
       logger.info("Runner hold released", {
         event: "daemon.runner_hold.released",
-        reason: this.#runnerHold,
+        reason: this.#runnerHold.reason,
       });
     this.#runnerHold = undefined;
     // Copied deliberately: #ensureAgentInputDrain deletes drained queues from this very map.
@@ -4794,6 +4798,7 @@ export class DaemonRuntime {
 
   stop(): Promise<void> {
     if (this.#stopPromise) return this.#stopPromise;
+    const shutdownReason = shutdownReasonForHold(this.#runnerHold, Date.now());
     this.#runnerHold = undefined;
     // Close every local capability synchronously before any shutdown await.
     this.#stopping = true;
@@ -4815,14 +4820,14 @@ export class DaemonRuntime {
     for (const token of this.#agentProxyTokens.values()) this.#agentProxy?.revoke(token);
     this.#agentProxyTokens.clear();
     this.#agentContexts.clear();
-    this.#stopPromise = this.#stop().finally(() => {
+    this.#stopPromise = this.#stop(shutdownReason).finally(() => {
       this.#stopPromise = undefined;
       this.#stopping = false;
     });
     return this.#stopPromise;
   }
 
-  async #stop(): Promise<void> {
+  async #stop(shutdownReason: DaemonShutdownReason): Promise<void> {
     if (this.#startPromise) {
       try {
         await this.#startPromise;
@@ -4854,16 +4859,27 @@ export class DaemonRuntime {
     for (const agentId of activeAgentIds) this.#sendAgentStatus(agentId, "inactive");
     this.#currentActivityLaunches.clear();
     this.#sessionReferences.clear();
-    // Every Agent process is down now; each key they were using gets its one revoke request
-    // here, best-effort: a failure is logged, never fails teardown, and is
-    // not retried.
-    await Promise.all(
-      [...this.#agentApiKeys].map(([agentId, agentApiKey]) =>
+    // Every Agent process is down now. Each key they were using gets its one revoke request,
+    // best-effort: a failure is logged, never fails teardown, and is not retried. The shutdown
+    // notice goes out alongside, never ahead of them: its own bound must not push the revokes
+    // past the service manager's grace period. The transport bounds it and never throws.
+    await Promise.all([
+      this.#connection.computerId
+        ? this.#transport.sendShutdownNotice?.({
+            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+            requestId: crypto.randomUUID(),
+            workspaceId: this.#connection.workspaceId,
+            computerId: this.#connection.computerId,
+            workerInstanceId: this.#runtimeInstanceId,
+            reason: shutdownReason,
+          })
+        : undefined,
+      ...[...this.#agentApiKeys].map(([agentId, agentApiKey]) =>
         this.#revokeAgentApiKey(agentId, agentApiKey).catch((error) => {
           this.#logAgentApiKeyRevokeFailed(agentId, error);
         }),
       ),
-    );
+    ]);
     const transportError = await this.#replaceTransport();
     shutdownError ??= transportError;
     if (shutdownError !== undefined) throw shutdownError;

@@ -1,5 +1,9 @@
 import { getLogger } from "@logtape/logtape";
-import type { DaemonConnectRejectionReason } from "@lrm/coforge-sdk/internal";
+import {
+  RUNNER_HOLD_REASONS,
+  type DaemonConnectRejectionReason,
+  type RunnerHoldReason,
+} from "@lrm/coforge-sdk/internal";
 import type { DaemonConfig } from "#src/daemon-runtime/runtime";
 import { answeredWithin, holdRunnersUntilQuiescent, type RunnerHoldSnapshot } from "./runner-hold";
 import { UpgradeLaunchesPausedError, UpgradeOperationPendingError } from "./upgrade-error";
@@ -128,10 +132,10 @@ export interface WorkspaceProcesses {
    * still busy. Optional: a `WorkspaceProcesses` that cannot reach its children simply restarts
    * with today's behaviour.
    */
-  hold?(binding: ManagedBinding, reason: string): Promise<RunnerHoldSnapshot>;
+  hold?(binding: ManagedBinding, reason: RunnerHoldReason): Promise<RunnerHoldSnapshot>;
   /** Lifts a hold on a daemon that, against expectations, survived: only called when the OS stop
    * after a hold failed, so the still-running daemon does not sit held with nobody to lift it. */
-  release?(binding: ManagedBinding, reason: string): Promise<unknown>;
+  release?(binding: ManagedBinding, reason: RunnerHoldReason): Promise<unknown>;
   /** Clears this Workspace's crash/terminal health latch. Called only for an explicit operator
    * `start`/`restart` through `command()` - never from automatic recovery on Coordinator startup,
    * and never from `stop` - so an OS-level crash-loop restart (which never reaches `command()`)
@@ -734,7 +738,10 @@ export class MachineSupervisor {
         } catch (error) {
           // The daemon we meant to kill is still up and still held: lift the hold before
           // surfacing the failure, or its Agents would queue turns until someone retries.
-          if (current !== null) await this.processes.release?.(binding, "restart").catch(() => {});
+          if (current !== null)
+            await this.processes
+              .release?.(binding, RUNNER_HOLD_REASONS.WORKSPACE_RESTART)
+              .catch(() => {});
           throw error;
         }
       }
@@ -777,7 +784,7 @@ export class MachineSupervisor {
   async #holdRunners(binding: ManagedBinding, signal?: AbortSignal): Promise<void> {
     if (!this.processes.hold) return;
     const outcome = await holdRunnersUntilQuiescent({
-      hold: () => this.processes.hold!(binding, "restart"),
+      hold: () => this.processes.hold!(binding, RUNNER_HOLD_REASONS.WORKSPACE_RESTART),
       ...this.restartHold,
       ...(signal ? { signal } : {}),
     });

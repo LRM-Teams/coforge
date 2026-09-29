@@ -2,11 +2,7 @@ import { RedisClient } from "bun";
 import { redisUrlFor } from "#src/server/redis-url.server";
 import { encodeAgentActivityProbe } from "@lrm/coforge-sdk/internal";
 
-import {
-  agentStatusChannel,
-  agentStatusChannelForAgent,
-} from "#src/features/agents/agent-status-realtime";
-import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
+import { agentStatusChannelFor } from "#src/features/agents/agent-status-realtime";
 import { ACTIVITY_PROBE_TIMEOUT_MS } from "#src/features/agents/activity-probe-timeout";
 import {
   createCentrifugoServerApi,
@@ -148,10 +144,7 @@ export class AgentActivitySweep {
       // later tick once the lookup can answer.
       const visibility = await this.visibility(scope);
       if (visibility === undefined) return;
-      const isPrivate = visibility !== AGENT_VISIBILITY.PUBLIC;
-      const channel = isPrivate
-        ? agentStatusChannelForAgent(scope.workspaceId, scope.agentId)
-        : agentStatusChannel(scope.workspaceId);
+      const channel = agentStatusChannelFor(scope.workspaceId, scope.agentId, visibility);
       await this.api.publishJson(channel, {
         type: "agent:display",
         ...result.snapshot,

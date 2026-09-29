@@ -17,6 +17,11 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   that came up never keeps reporting the Computer online for a Workspace that
   did not start. `stop` aborts a start still waiting on the cloud (connect or
   first ready).
+- A deliberate `stop` sends the shutdown notice after its Agents are down,
+  alongside (never ahead of) the Agent key revokes, and before the transport
+  closes. Only a hold renewed within `SHUTDOWN_HOLD_REASON_WINDOW_MS` names
+  the reason (`shutdown-reason.ts`); a stale or absent hold is
+  `computer_stop`. Hold reasons are `RunnerHoldReason` values, never literals.
 - Context-usage change detection lives here: skip an unchanged reading and
   forget the last reading on launch end or dispose. `connection/` only sends.
 

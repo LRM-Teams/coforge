@@ -156,7 +156,9 @@ message DaemonHoldRequest {
   uint32 protocol_major = 1;
   string request_id = 2;
   string expected_server_url = 3;
-  // Diagnostic only; never used for control flow.
+  // One of RUNNER_HOLD_REASONS: why the hold was asked for. Whether and how long runners are held
+  // never depends on it; a Workspace daemon that shuts down while freshly held reports it as the
+  // reason in its DaemonRuntimeShutdown notice.
   string reason = 4;
 }
 

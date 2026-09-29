@@ -55,6 +55,13 @@ export const agentStatusChannel = (workspaceId: string) => `agent:status:${works
 export const agentStatusChannelForAgent = (workspaceId: string, agentId: string) =>
   `agent:status:${workspaceId}:${agentId}`;
 
+/** Where an Agent's `agent:display` is published; the same fail-closed rule as
+ * `agentActivityChannelFor`. */
+export const agentStatusChannelFor = (workspaceId: string, agentId: string, visibility: string) =>
+  visibility === AGENT_VISIBILITY.PUBLIC
+    ? agentStatusChannel(workspaceId)
+    : agentStatusChannelForAgent(workspaceId, agentId);
+
 /**
  * The id-only event a visibility change publishes on the shared status channel. A
  * browser that receives it refetches its Agent list, drops the Agent from caches if it can no

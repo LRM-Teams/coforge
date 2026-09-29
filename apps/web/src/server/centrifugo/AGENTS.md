@@ -42,3 +42,8 @@ mechanics only; domain rules stay in the owning `src/server/` module.
   never turns the ACK into a 403. The mention transition and terminal-error
   receivers answer 403 only for a malformed report or a foreign Workspace; a
   stale report is `MentionDeliveryReports`' own no-op.
+- The shutdown receiver (`daemon:v1:runtime:shutdown`) refuses like ready:
+  400 malformed, 403 another Computer's, 409 from a replaced daemon, each
+  logged as `daemon_shutdown.rejected` with its reason. The ready receiver
+  starts `ComputerLifecycleActivity.ready` after it succeeds and never awaits
+  it.
