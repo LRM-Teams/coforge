@@ -177,14 +177,11 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
   const stalledRecovery =
     tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.STALLED_RECOVERY;
   const stalled = tone === "error" && kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_STALLED;
-  const crashed = tone === "error" && kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_CRASHED;
   const label =
     tone === "error"
       ? stalled
         ? "Stalled"
-        : crashed
-          ? "Crashed"
-          : "Error"
+        : "Error"
       : starting
         ? "Starting"
         : compacting

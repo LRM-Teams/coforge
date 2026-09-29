@@ -741,26 +741,6 @@ test("runtime_stalled presents with a dedicated Stalled label at error tone", ()
   ]);
 });
 
-test("runtime_crashed presents with a dedicated Crashed label at error tone", () => {
-  const observation = {
-    activityKind: "error" as const,
-    detailKind: "runtime_crashed",
-    level: "error",
-    detail: "Provider process exited (code 1)",
-  };
-  expect(presentActivity(observation)).toMatchObject([
-    {
-      label: "Crashed",
-      detail: "Provider process exited (code 1)",
-      recentLabel: "Crashed: Provider process exited (code 1)",
-      tone: "error",
-    },
-  ]);
-  expect(presentActivity({ ...observation, detail: "" })).toMatchObject([
-    { label: "Crashed", recentLabel: "Crashed" },
-  ]);
-});
-
 test("system_message has no dedicated label and falls back to its own detail", () => {
   const observation = {
     activityKind: "working" as const,

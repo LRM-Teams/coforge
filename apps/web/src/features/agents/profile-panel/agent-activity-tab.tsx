@@ -4,7 +4,10 @@ import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Skeleton } from "#src/components/ui/skeleton";
-import { agentDiagnosticInfo } from "#src/features/agents/agent-diagnostics";
+import {
+  agentDiagnosticInfo,
+  type AgentDiagnosticFacts,
+} from "#src/features/agents/agent-diagnostics";
 import { AgentActivityTimeline } from "#src/features/agents/agent-activity-timeline";
 import { useAgentActivityFeed } from "#src/features/agents/workspace-agents-realtime";
 import { copyText } from "#src/features/records/report-editor/lib/clipboard";
@@ -12,15 +15,13 @@ import { m } from "#src/paraglide/messages";
 import { SECTION_CAPTION_CLASS } from "./inline-edit-field";
 import { PanelMessage } from "./panel-message";
 
-type DiagnosticsAgent = Parameters<typeof agentDiagnosticInfo>[0]["agent"];
-
 /** The profile panel's Activity tab: a diagnostics band with a copy button over the log. */
 export function AgentActivityTab({
   agent,
   display,
   timeZone,
 }: {
-  agent: DiagnosticsAgent;
+  agent: AgentDiagnosticFacts;
   display?: AgentDisplaySnapshot;
   timeZone: string | null;
 }) {
@@ -28,7 +29,7 @@ export function AgentActivityTab({
   return (
     <>
       <div className="flex shrink-0 items-center justify-between border-b border-secondary py-1 pr-3.5 pl-5">
-        <h3 className={SECTION_CAPTION_CLASS}>{m.agent_activity_diagnostics()}</h3>
+        <p className={SECTION_CAPTION_CLASS}>{m.agent_activity_diagnostics()}</p>
         <CopyDiagnosticsButton
           text={() =>
             agentDiagnosticInfo({

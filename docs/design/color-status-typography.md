@@ -22,7 +22,7 @@
 - `color="tertiary-destructive"`（纯红字）只用在本来就没有按钮形态的位置：列表行的 hover 操作、下拉菜单项、图标按钮。正文里的真链接用 `link-destructive`。
 - 说明文字不装进红色警示框，用 `FeaturedIcon` + 灰色描述（参照 `weekly-send-confirm-dialog.tsx`）。
 - 选中项卡片不用红色，和非危险选项同款。
-- 按钮图标一律走 `iconLeading`，不作子元素，否则图标会挤到文字上方。
+- 按钮图标一律走 `iconLeading`，不作子元素，否则图标会挤到文字上方。例外：展开/跳转用的 chevron 跟在文字后面，走 `iconTrailing`（Activity 行的展开、Agent 卡片的“Recent activity ›”）。
 
 ## 状态与徽章
 
