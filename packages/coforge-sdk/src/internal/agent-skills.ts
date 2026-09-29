@@ -1,6 +1,6 @@
 import { RPC_METHODS } from "./rpc-methods";
 import { isScopeId } from "./scope-id";
-import { boundedPayload } from "./codec";
+import { boundedPayload, RPC_PAYLOAD_MAX_BYTES } from "./codec";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   AgentSkillsListRequestSchema,
@@ -12,7 +12,6 @@ export const AGENT_SKILLS_LIST_METHOD = RPC_METHODS.agentSkillsList;
 export const AGENT_SKILLS_LIST_RESULT_METHOD = RPC_METHODS.agentSkillsListResult;
 const REQUEST_TYPE = "coforge.rpc.v1.AgentSkillsListRequest";
 const RESULT_TYPE = "coforge.rpc.v1.AgentSkillsListResult";
-const MAX_BYTES = 1_048_576;
 
 export type AgentSkillsListRequest = {
   protocolMajor: number;
@@ -124,7 +123,7 @@ function scope(
   };
 }
 function bounded(bytes: Uint8Array) {
-  return boundedPayload(bytes, MAX_BYTES, "Skills");
+  return boundedPayload(bytes, RPC_PAYLOAD_MAX_BYTES, "Skills");
 }
 export function encodeAgentSkillsListRequest(value: AgentSkillsListRequest): Uint8Array {
   return toBinary(

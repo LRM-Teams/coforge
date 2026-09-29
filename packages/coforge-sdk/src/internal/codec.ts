@@ -1497,4 +1497,4 @@ export function encodeComputerRegisterResponse(value: ComputerRegisterResponse):
  * 1 MiB, 64 KiB) — but the check and its wording are one rule, and both the encode and the decode
  * path go through it, so a peer cannot make us parse an oversized frame.
  */
-export { boundedPayload } from "./bounded-payload";
+export { boundedPayload, RPC_PAYLOAD_MAX_BYTES } from "./bounded-payload";
