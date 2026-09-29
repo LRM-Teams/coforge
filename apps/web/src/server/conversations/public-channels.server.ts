@@ -1201,8 +1201,9 @@ export class PublicChannels {
     return this.db.conversationMember.findUnique({
       where: { conversationId_userId: { conversationId: channelId, userId } },
       include: {
-        threadReads: true,
-        threadFollows: true,
+        // Every thread the viewer ever read or followed here, so only the columns the page sends.
+        threadReads: { select: { rootMessageId: true, readThroughSequence: true } },
+        threadFollows: { select: { rootMessageId: true } },
         user: { select: { username: true } },
         pins: { select: { sortOrder: true } },
       },
