@@ -6,3 +6,6 @@ These rules apply to `src/features/landing/`.
   legacy controls. Product UI changes must not alter the public homepage.
 - The inline Terminal demonstration has no copy action. Actionable
   installation instructions belong in the authenticated Computer UI.
+- `landing-brand-panel.tsx` is the homepage picture other public pages reuse
+  (sign-in, invite links, through `features/auth/auth-split-layout.tsx`); they
+  embed it whole and keep the motion components inside this directory.

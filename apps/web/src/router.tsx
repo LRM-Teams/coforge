@@ -5,6 +5,7 @@ import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query
 import { GlobalError } from "#src/features/errors/page-load-error";
 import { deLocalizeUrl, localizeUrl } from "#src/paraglide/runtime";
 import { PENDING_DELAY_MS, PENDING_MIN_MS } from "#src/lib/pending-policy";
+import { isNonLocalizedPath } from "#src/lib/non-localized-path";
 import { routeTree } from "./routeTree.gen";
 
 export function getRouter() {
@@ -41,17 +42,6 @@ export function getRouter() {
   setupRouterSsrQueryIntegration({ router, queryClient });
 
   return router;
-}
-
-function isNonLocalizedPath(pathname: string): boolean {
-  return (
-    pathname === "/api" ||
-    pathname.startsWith("/api/") ||
-    pathname === "/oauth" ||
-    pathname.startsWith("/oauth/") ||
-    pathname === "/.well-known" ||
-    pathname.startsWith("/.well-known/")
-  );
 }
 
 declare module "@tanstack/react-router" {

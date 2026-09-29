@@ -1,11 +1,6 @@
-import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
-import codexMark from "@lobehub/icons-static-svg/icons/codex.svg";
-import cursorMark from "@lobehub/icons-static-svg/icons/cursor.svg";
-import kiroMark from "@lobehub/icons-static-svg/icons/kiro-color.svg";
-import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 import { Check, ChevronDown, Translate01 as Languages } from "@untitledui/icons";
+import { Link } from "@tanstack/react-router";
 import { MotionConfig, useReducedMotion } from "motion/react";
-import { useEffect, useState } from "react";
 
 import { Button as AriaButton } from "react-aria-components";
 
@@ -15,41 +10,11 @@ import AnimatedGradient from "#src/components/spell/animated-gradient";
 import { BlurReveal } from "#src/components/spell/blur-reveal";
 import { ShimmerText } from "#src/components/spell/shimmer-text";
 import { installCommands, setupCommand } from "#src/features/install/install-commands";
+import { AgentMark, heroGradient, supportedAgents, useWebGl2 } from "./landing-brand-panel";
 import { m } from "#src/paraglide/messages";
 import { getLocale } from "#src/paraglide/runtime";
 
 export const repositoryUrl = "https://github.com/LRM-Teams/coforge";
-
-// The landing page is dark in both themes, so the gradient carries one fixed palette: the page
-// ground, the brand purple, and the light accent lavender. Shape and swirl follow Spell's "Prism"
-// preset, slowed down so it reads as ambient light behind the type.
-const heroGradient = {
-  preset: "custom",
-  color1: "#0a0912",
-  color2: "#5d36dc",
-  color3: "#c5bafe",
-  rotation: -50,
-  proportion: 42,
-  scale: 0.4,
-  speed: 8,
-  distortion: 3,
-  swirl: 55,
-  swirlIterations: 12,
-  softness: 100,
-  offset: -299,
-  shape: "Checks",
-  shapeSize: 45,
-} as const;
-
-// The code agents supported by the daemon and shown in the terminal demonstration.
-// Marks come from LobeHub's static icon set; the monochrome ones take the text colour via a mask.
-const supportedAgents = [
-  { name: "Claude Code", mark: claudeCodeMark, monochrome: false },
-  { name: "Codex", mark: codexMark, monochrome: true },
-  { name: "Pi", mark: piMark, monochrome: true },
-  { name: "Kiro", mark: kiroMark, monochrome: false },
-  { name: "Cursor", mark: cursorMark, monochrome: true },
-] as const;
 
 // Lucide dropped brand marks, so the GitHub octicon is inlined here.
 function GitHubMark({ className = "size-4 shrink-0" }: { className?: string }) {
@@ -57,20 +22,6 @@ function GitHubMark({ className = "size-4 shrink-0" }: { className?: string }) {
     <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="currentColor">
       <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
     </svg>
-  );
-}
-
-function AgentMark({ mark, monochrome }: { mark: string; monochrome: boolean }) {
-  if (!monochrome) {
-    return <img src={mark} alt="" className="size-5 shrink-0" />;
-  }
-  return (
-    <span
-      aria-hidden="true"
-      className="size-5 shrink-0 bg-white mask-contain mask-center mask-no-repeat"
-      // Vite inlines small SVGs as data URLs that contain quotes, so the url() must be quoted.
-      style={{ maskImage: `url("${mark}")`, WebkitMaskImage: `url("${mark}")` }}
-    />
   );
 }
 
@@ -125,15 +76,6 @@ function LocaleSwitch() {
   );
 }
 
-/** The gradient is WebGL2 and decorative: it exists only after mount, and only where it can draw. */
-function useWebGl2() {
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    setReady(document.createElement("canvas").getContext("webgl2") !== null);
-  }, []);
-  return ready;
-}
-
 export function LandingPage({ installOrigin }: { installOrigin: string }) {
   const gradientReady = useWebGl2();
   const reducedMotion = useReducedMotion() ?? false;
@@ -168,18 +110,18 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
               <GitHubMark className="size-[18px]" />
             </a>
             <LocaleSwitch />
-            <a
-              href="/auth/login"
+            <Link
+              to="/login"
               className="flex h-9 items-center rounded-full px-2 text-sm font-medium whitespace-nowrap text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:px-3"
             >
               <span>{m.landing_action_sign_in()}</span>
-            </a>
-            <a
-              href="/auth/login"
+            </Link>
+            <Link
+              to="/login"
               className="flex h-9 items-center rounded-lg bg-white px-4 text-sm font-medium whitespace-nowrap text-gray-900 transition-colors hover:bg-white/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
               <span>{m.landing_action_sign_up()}</span>
-            </a>
+            </Link>
           </div>
         </header>
 

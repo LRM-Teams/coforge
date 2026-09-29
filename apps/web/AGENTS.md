@@ -98,6 +98,8 @@ responsibility.
 - `lib/` shared pure helpers; `hooks/` shared React hooks; `utils/` Untitled
   UI class helpers.
 - `features/agents/` — Members page, Agent creation, profile panel, control buttons, and Agent status and Activity display.
+- `features/auth/` — the sign-in error page, the split shell of the pages before
+  sign-in, `returnTo` handling, and the auth middleware for server functions.
 - `features/computers/` — Computer list/detail, setup, and Runtime Usage.
 - `features/conversations/` — channels, direct messages, threads, composer, message rendering, action cards, saved messages, and the sidebar lists.
 - `features/device-auth/` — device-code verification page.
