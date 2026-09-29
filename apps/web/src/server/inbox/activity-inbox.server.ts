@@ -7,6 +7,10 @@ import type {
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { ACTIVE_MEMBER_WHERE } from "#src/server/conversations/active-member.server";
 import {
+  announceViewerEvent,
+  type ConversationRealtime,
+} from "#src/server/conversations/conversation-realtime.server";
+import {
   browserMessageFields,
   mapBrowserMessage,
 } from "#src/server/conversations/conversation-history.server";
@@ -14,6 +18,7 @@ import {
   HUMAN_UNREAD_MESSAGE_SQL,
   directThreadsSql,
   followedChannelThreadsSql,
+  humanUnreadCounts,
   humanUnreadReplySql,
   markConversationDoneSql,
   markConversationsReadSql,
@@ -75,7 +80,10 @@ const MAX_PAGE_SIZE = 100;
 export type ActivityInboxItem = Awaited<ReturnType<ActivityInbox["list"]>>["items"][number];
 
 export class ActivityInbox {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly realtime?: Pick<ConversationRealtime, "viewerChanged">,
+  ) {}
 
   async list(
     workspaceId: string,
@@ -134,7 +142,12 @@ export class ActivityInbox {
     }
     const member = await this.db.conversationMember.findFirst({
       where: { conversationId: item.conversationId, workspaceId, userId, ...ACTIVE_MEMBER_WHERE },
-      select: { id: true },
+      select: {
+        id: true,
+        readThroughSequence: true,
+        unreadFromSequence: true,
+        conversation: { select: { channelName: true } },
+      },
     });
     if (!member) throw new AppError("ACCESS_DENIED");
     const rootMessageId = item.kind === "thread" ? item.rootMessageId : null;
@@ -157,6 +170,43 @@ export class ActivityInbox {
             boundary,
           )
         : markConversationDoneSql(member.id, boundary),
+    );
+    // A conversation's Done reads it too, so its badge moves when the read cursor or a mark-unread
+    // marker moves (a thread's Done never touches the badge).
+    const readMoved =
+      member.readThroughSequence < boundary ||
+      (member.unreadFromSequence !== null && member.unreadFromSequence <= boundary);
+    if (!rootMessageId && readMoved)
+      await this.announceMarked(workspaceId, userId, [
+        { conversationId: item.conversationId, channel: member.conversation.channelName !== null },
+      ]);
+  }
+
+  /** Tells the person's other pages the badge each moved conversation is left with (Slack's
+   * `channel_marked` / `im_marked`), as a read inside the conversation does. */
+  private async announceMarked(
+    workspaceId: string,
+    userId: string,
+    moved: readonly { conversationId: string; channel: boolean }[],
+  ) {
+    if (moved.length === 0) return;
+    const counts = await humanUnreadCounts(
+      this.db,
+      userId,
+      moved.map((row) => row.conversationId),
+    );
+    await Promise.all(
+      moved.map(({ conversationId, channel }) =>
+        announceViewerEvent(this.realtime, {
+          userIds: [userId],
+          event: {
+            type: channel ? "channel.marked.v1" : "dm.marked.v1",
+            workspaceId,
+            conversationId,
+            unreadCount: counts.get(conversationId) ?? 0,
+          },
+        }),
+      ),
     );
   }
 
@@ -220,8 +270,10 @@ export class ActivityInbox {
   async markAllRead(workspaceId: string, userId: string, options: { before: Date }) {
     await this.authorize(workspaceId, userId);
     const { before } = options;
-    await this.db.$transaction([
-      this.db.$executeRaw(markConversationsReadSql(workspaceId, userId, before)),
+    const [moved] = await this.db.$transaction([
+      this.db.$queryRaw<{ conversationId: string; channel: boolean }[]>(
+        markConversationsReadSql(workspaceId, userId, before),
+      ),
       this.db.pendingMentionAction.updateMany({
         where: {
           workspaceId,
@@ -238,6 +290,7 @@ export class ActivityInbox {
         markThreadsReadSql(workspaceId, directThreadsSql(workspaceId, userId), before),
       ),
     ]);
+    await this.announceMarked(workspaceId, userId, moved);
   }
 
   private async authorize(workspaceId: string, userId: string) {
