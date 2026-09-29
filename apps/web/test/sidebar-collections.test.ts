@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import {
@@ -8,7 +8,10 @@ import {
   type Arrangement,
   type SidebarApi,
   channelNamesBehind,
+  applyChannelSignalToLists,
 } from "#src/features/conversations/sidebar-collections";
+import { compareChannelNames, type ChannelName } from "#src/features/conversations/channel-signals";
+import { channelNamesQueryKey } from "#src/features/conversations/conversation-query-keys";
 
 /**
  * The Chat sidebar's lists and the changes made from the sidebar, against fake server calls: each
@@ -232,8 +235,10 @@ test("the channel names are behind the sidebar when a listed channel is missing 
 });
 
 /** The channel rows' ids in the order the sidebar shows them. */
-const listed = (sidebar: { channels: { toArray: { id: string; position: number }[] } }) =>
-  [...sidebar.channels.toArray].sort((a, b) => a.position - b.position).map((row) => row.id);
+const listed = (sidebar: { channels: { toArray: { id: string; name: string }[] } }) =>
+  [...sidebar.channels.toArray]
+    .sort((a, b) => compareChannelNames(a.name, b.name))
+    .map((row) => row.id);
 
 async function signalSidebar() {
   const setup = await sidebarWith();
@@ -354,4 +359,108 @@ test("a change the list cannot place asks for a read", async () => {
     ),
   ).toBe(false);
   expect(listed(sidebar)).toEqual(["general", "random"]);
+});
+
+test("while a sidebar change is being saved, a channel event asks for a read instead", async () => {
+  // A failed save's rollback undoes a direct write made meanwhile, even to another row; a read
+  // made meanwhile survives it.
+  let failPin!: (error: Error) => void;
+  const { sidebar } = await sidebarWith({
+    pin: () => new Promise((_, reject) => (failPin = reject)),
+  });
+  const pinned = sidebar.actions.setPinned({ kind: "channel", channelId: "random" }, true);
+  const archiveGeneral = {
+    type: "channel.updated.v1" as const,
+    ...signalIds,
+    conversationId: "general",
+    channel: { name: "general", description: "", archived: true },
+  };
+  expect(sidebar.applyChannelSignal(archiveGeneral, { known: true })).toBe(false);
+  failPin(new Error("offline"));
+  await pinned.catch(() => undefined);
+  expect(sidebar.channels.get("random")?.pinned).toBe(false);
+  // Once nothing is pending, events are written again.
+  expect(sidebar.applyChannelSignal(archiveGeneral, { known: true })).toBe(true);
+  expect(sidebar.channels.get("general")?.archived).toBe(true);
+});
+
+test("a channel event before the list has synced asks for a read instead of failing", async () => {
+  const { sidebar } = await sidebarWith({}, { synced: false });
+  expect(
+    sidebar.applyChannelSignal(
+      {
+        type: "channel.created.v1",
+        ...signalIds,
+        conversationId: "lab",
+        channel: { name: "lab", description: "", archived: false },
+      },
+      { known: false },
+    ),
+  ).toBe(false);
+});
+
+describe("applyChannelSignalToLists", () => {
+  const lab = { name: "lab", description: "", archived: false };
+  async function withNames() {
+    const setup = await sidebarWith();
+    setup.queryClient.setQueryData(channelNamesQueryKey("w"), [
+      { id: "general", name: "general", description: "", archived: false },
+    ]);
+    return setup;
+  }
+
+  test("a created channel is written into every channel's name and the list, with no read", async () => {
+    const { sidebar, queryClient } = await withNames();
+    const stale = applyChannelSignalToLists(queryClient, "w", sidebar, {
+      type: "channel.created.v1",
+      ...signalIds,
+      conversationId: "lab",
+      channel: lab,
+    });
+    expect(stale).toEqual([]);
+    expect(queryClient.getQueryData<ChannelName[]>(channelNamesQueryKey("w"))).toEqual([
+      { id: "general", name: "general", description: "", archived: false },
+      { id: "lab", ...lab },
+    ]);
+    expect(listed(sidebar)).toEqual(["general", "lab", "random"]);
+  });
+
+  test("an ids-only event, a channel coming back, or no hydrated sidebar is re-read", async () => {
+    const { sidebar, queryClient } = await withNames();
+    const idsOnly = { type: "channel.updated.v1" as const, ...signalIds, conversationId: "random" };
+    expect(applyChannelSignalToLists(queryClient, "w", sidebar, idsOnly)).toEqual([
+      "channelNames",
+      "channels",
+    ]);
+    // #general restored: every channel's name had dropped it, so the list cannot place it.
+    expect(
+      applyChannelSignalToLists(queryClient, "w", sidebar, {
+        type: "channel.updated.v1",
+        ...signalIds,
+        conversationId: "back",
+        channel: lab,
+      }),
+    ).toEqual(["channels"]);
+    expect(
+      applyChannelSignalToLists(queryClient, "w", undefined, {
+        type: "channel.created.v1",
+        ...signalIds,
+        conversationId: "new",
+        channel: lab,
+      }),
+    ).toEqual(["channels"]);
+  });
+
+  test("a list being read when the event lands is read again, so an older answer cannot win", async () => {
+    const { sidebar, queryClient } = await withNames();
+    const reading = sidebar.channels.utils.refetch();
+    const stale = applyChannelSignalToLists(queryClient, "w", sidebar, {
+      type: "channel.created.v1",
+      ...signalIds,
+      conversationId: "lab",
+      channel: lab,
+    });
+    expect(stale).toEqual(["channels"]);
+    await reading;
+  });
 });

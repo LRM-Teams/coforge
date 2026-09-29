@@ -39,8 +39,9 @@ These rules apply to `src/features/conversations/`.
   opens. A channel created, changed or gone anywhere in the Workspace (`channel.created.v1`,
   `channel.updated.v1`, Slack's `channel_created` and `channel_rename`) carries the channel's
   info or `gone`, and `useApplyChannelSignal` writes it into the names and the channel list
-  (`channel-signals.ts`, `applyChannelSignal`) without a read; only what an event cannot place
-  is re-read. The server and the list share one order (`compareChannelNames`). Read the lists
+  (`channel-signals.ts`, `applyChannelSignalToLists`) without a read. It re-reads instead what
+  an event cannot place, and a list while it is being read or a sidebar change is being saved
+  (a failed save's rollback undoes a direct write made meanwhile). The server and the list share one order (`compareChannelNames`). Read the lists
   with `useSidebarLists` and change them
   only through `useSidebarActions` (optimistic: the row changes at once, a
   saved change is written into the synced list, a failed save rolls it back);

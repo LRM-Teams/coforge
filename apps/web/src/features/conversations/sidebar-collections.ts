@@ -22,7 +22,11 @@ import {
   setDirectConversationUnread,
 } from "./conversations.functions";
 import { arrangePinnedConversations } from "./conversation-pins.functions";
-import { sidebarChannelsQueryKey, sidebarDirectsQueryKey } from "./conversation-query-keys";
+import {
+  channelNamesQueryKey,
+  sidebarChannelsQueryKey,
+  sidebarDirectsQueryKey,
+} from "./conversation-query-keys";
 import {
   channelRowKey,
   directRowKey,
@@ -31,7 +35,8 @@ import {
   type PinRef,
 } from "./pinned-conversations";
 import { directRowsOf, type DirectRow } from "./sidebar-rows";
-import { compareChannelNames, type ChannelSignal } from "./channel-signals";
+import { channelNamesAfter, type ChannelName, type ChannelSignal } from "./channel-signals";
+import type { ChatList } from "./conversation-unread";
 
 // The Chat sidebar's channel and DM lists as TanStack DB collections, and the changes made to them
 // from the sidebar. How they fit with the Query cache and SSR: `features/conversations/AGENTS.md`.
@@ -79,13 +84,12 @@ export const serverSidebarApi: SidebarApi = {
 };
 
 /**
- * The channel list, with the server's order (#general first, then by name) kept as a field, and
- * when it was read: a direct write to the cache keeps `fetchedAt`, so only a server read changes it.
+ * The channel list (shown in `compareChannelNames` order, the server's), and when it was read: a direct write to the cache keeps `fetchedAt`, so only a server read changes it.
  */
 function fetchChannels(api: SidebarApi) {
   return async () => ({
     fetchedAt: Date.now(),
-    rows: (await api.listChannels()).map((channel, position) => ({ ...channel, position })),
+    rows: await api.listChannels(),
   });
 }
 
@@ -147,22 +151,6 @@ export function channelNamesBehind(
 ): boolean {
   const byId = new Map(names.map((channel) => [channel.id, channel.name]));
   return channels.some((channel) => byId.get(channel.id) !== channel.name);
-}
-
-/** A channel row as the server read it, without TanStack DB's virtual `$` fields. */
-function plainChannelRow(row: ChannelRow): ChannelRow {
-  return {
-    id: row.id,
-    name: row.name,
-    joined: row.joined,
-    archived: row.archived,
-    muted: row.muted,
-    unreadCount: row.unreadCount,
-    hidden: row.hidden,
-    pinned: row.pinned,
-    pinSortOrder: row.pinSortOrder,
-    position: row.position,
-  };
 }
 
 /** The fields of a row that a sidebar change touches, named alike on channel and DM rows. */
@@ -320,11 +308,20 @@ export function createSidebar(
     stale: readonly QueryKey[],
   ) =>
     (transaction.mutations.length > 0
-      ? transaction.isPersisted.promise
+      ? pending(transaction.isPersisted.promise)
       : save().then(() => {
           for (const queryKey of stale) void queryClient.invalidateQueries({ queryKey });
         })
     ).then(() => {});
+  /** Changes shown but not yet saved. A failed save's rollback also undoes any direct write made
+   * to the lists meanwhile, so `applyChannelSignal` does not write while one is pending. */
+  let unsaved = 0;
+  const pending = (persisted: Promise<unknown>) => {
+    unsaved += 1;
+    return persisted.finally(() => {
+      unsaved -= 1;
+    });
+  };
   const channelsKey = sidebarChannelsQueryKey(workspaceId);
   const directsKey = sidebarDirectsQueryKey(workspaceId);
   const listOf = (target: PinRef) => [target.kind === "channel" ? channelsKey : directsKey];
@@ -340,50 +337,37 @@ export function createSidebar(
   /**
    * Applies a channel created, changed or gone anywhere in the Workspace to the synced list, with
    * no read: a new channel is listed as one the viewer has not joined (their own join arrives as
-   * a `ViewerEvent`), a changed one keeps the viewer's place in it, and every row keeps the
-   * server's order. False when the list cannot place it and must be read again: the event names
-   * only ids, or it is a channel the list has never heard of coming back (`#general` restored,
-   * whose place for the viewer the event does not carry). `known`: every channel's name has it,
-   * so a channel the list leaves out on purpose (closed) stays out.
+   * a `ViewerEvent`), and a changed one takes its new name and archived state and keeps the
+   * viewer's place in it. False when the list cannot place it and must be read again: it has not
+   * synced yet, a sidebar change is still being saved (whose rollback, if the save fails, would
+   * undo a direct write too), the event names only ids, or it is a channel the list has never
+   * heard of coming back (`#general` restored, whose place for the viewer the event does not
+   * carry). `known`: every channel's name has it, so a channel the list leaves out on purpose
+   * (closed) stays out.
    */
   const applyChannelSignal = (signal: ChannelSignal, { known }: { known: boolean }): boolean => {
+    if (channels.status !== "ready" || unsaved > 0) return false;
     const id = signal.conversationId;
-    const listed = channels.get(id);
-    const rows = channels.toArray.filter((row) => row.id !== id).map(plainChannelRow);
     if (signal.type === "channel.updated.v1" && signal.gone) {
-      if (!listed) return true;
-    } else if (!signal.channel) {
-      return false;
-    } else if (listed) {
-      rows.push({
-        ...plainChannelRow(listed),
-        name: signal.channel.name,
-        archived: signal.channel.archived,
-      });
-    } else if (signal.type === "channel.created.v1") {
-      rows.push({
+      if (channels.has(id)) channels.utils.writeDelete(id);
+      return true;
+    }
+    if (!signal.channel) return false;
+    const { name, archived } = signal.channel;
+    if (channels.has(id)) channels.utils.writeUpdate({ id, name, archived });
+    else if (signal.type === "channel.created.v1")
+      channels.utils.writeInsert({
         id,
-        name: signal.channel.name,
+        name,
         joined: false,
-        archived: signal.channel.archived,
+        archived,
         muted: false,
         unreadCount: 0,
         hidden: false,
         pinned: false,
         pinSortOrder: null,
-        position: rows.length,
       });
-    } else {
-      return known;
-    }
-    rows.sort((left, right) => compareChannelNames(left.name, right.name));
-    channels.utils.writeBatch(() => {
-      if (listed && !rows.some((row) => row.id === id)) channels.utils.writeDelete(id);
-      rows.forEach((row, position) => {
-        if (!channels.has(row.id)) channels.utils.writeInsert({ ...row, position });
-        else channels.utils.writeUpdate({ ...row, position });
-      });
-    });
+    else return known;
     return true;
   };
 
@@ -391,3 +375,34 @@ export function createSidebar(
 }
 
 export type Sidebar = ReturnType<typeof createSidebar>;
+
+/**
+ * Applies a channel created, changed or gone anywhere in the Workspace to every channel's name and
+ * to the channel list from the event alone, as Slack's clients apply `channel_created`, and returns
+ * the lists still to re-read: one the event cannot place (an older server's ids-only event,
+ * `#general` coming back, a sidebar not yet hydrated or synced), and one whose read was already
+ * under way, whose older answer would otherwise land over the event.
+ */
+export function applyChannelSignalToLists(
+  queryClient: QueryClient,
+  workspaceId: string,
+  sidebar: Sidebar | undefined,
+  signal: ChannelSignal,
+): ChatList[] {
+  const namesKey = channelNamesQueryKey(workspaceId);
+  const reading = (queryKey: QueryKey) => queryClient.isFetching({ queryKey }) > 0;
+  const names = queryClient.getQueryData<ChannelName[]>(namesKey);
+  const known = Boolean(names?.some((channel) => channel.id === signal.conversationId));
+  const stale: ChatList[] = [];
+  if (names) {
+    const next = channelNamesAfter(names, signal);
+    if (next) queryClient.setQueryData(namesKey, next);
+    if (!next || reading(namesKey)) stale.push("channelNames");
+  }
+  if (
+    !sidebar?.applyChannelSignal(signal, { known }) ||
+    reading(sidebarChannelsQueryKey(workspaceId))
+  )
+    stale.push("channels");
+  return stale;
+}
