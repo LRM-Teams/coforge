@@ -145,14 +145,22 @@ export function normalizeOpenVikingPath(raw: string): NormalizedOpenVikingPath {
   return { ok: true, path: normalized.length === 0 ? "/" : `/${normalized.join("/")}` };
 }
 
-function templateMatches(template: string, path: string): boolean {
+/** Whether a path segment is a URL-template parameter, written `{name}`. */
+export function isParam(segment: string): boolean {
+  return segment.startsWith("{") && segment.endsWith("}");
+}
+
+/**
+ * Whether `path` matches the URL `template`: same number of segments, and every segment is either a
+ * parameter or equal to the template's. The route catalog's one matcher; callers reach it here.
+ */
+export function templateMatches(template: string, path: string): boolean {
   const templateSegments = template.split("/");
   const pathSegments = path.split("/");
   if (templateSegments.length !== pathSegments.length) return false;
-  return templateSegments.every((segment, index) => {
-    const value = pathSegments[index];
-    return (segment.startsWith("{") && segment.endsWith("}")) || segment === value;
-  });
+  return templateSegments.every(
+    (segment, index) => isParam(segment) || segment === pathSegments[index],
+  );
 }
 
 export function classifyOpenVikingRoute(

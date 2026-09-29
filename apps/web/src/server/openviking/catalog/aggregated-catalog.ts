@@ -29,6 +29,8 @@ import {
   DEFAULT_OPENVIKING_TRANSPORT_LIMITS,
   type GatewayCapability,
   type OpenVikingTransportLimits,
+  templateMatches,
+  isParam,
 } from "../route-policy";
 import { ADMIN_FAMILY_ROUTES, type AdminFamilyRoutePolicy } from "./route-family-admin";
 import { CONTENT_FAMILY_ROUTES, type ContentFamilyRoutePolicy } from "./route-family-content";
@@ -73,20 +75,6 @@ export class OpenVikingCatalogOverlapError extends Error {
     this.name = "OpenVikingCatalogOverlapError";
     this.overlaps = overlaps;
   }
-}
-
-function isParam(segment: string): boolean {
-  return segment.startsWith("{") && segment.endsWith("}");
-}
-
-function templateMatches(template: string, path: string): boolean {
-  const templateSegments = template.split("/");
-  const pathSegments = path.split("/");
-  if (templateSegments.length !== pathSegments.length) return false;
-  return templateSegments.every((segment, index) => {
-    const value = pathSegments[index];
-    return isParam(segment) || segment === value;
-  });
 }
 
 function patternsOverlap(

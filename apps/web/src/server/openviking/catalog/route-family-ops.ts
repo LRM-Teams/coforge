@@ -13,6 +13,7 @@ import {
   type GatewayCapability,
   type OpenVikingTransportFailure,
   type OpenVikingTransportLimits,
+  templateMatches,
 } from "../route-policy";
 
 export type OpsRouteFamily =
@@ -231,16 +232,6 @@ export const OPS_FAMILY_GATEWAY_POLICIES: readonly GatewayRoutePolicy[] = ROUTE_
     classification: entry.classification,
   }),
 );
-
-function templateMatches(template: string, path: string): boolean {
-  const templateSegments = template.split("/");
-  const pathSegments = path.split("/");
-  if (templateSegments.length !== pathSegments.length) return false;
-  return templateSegments.every((segment, index) => {
-    const value = pathSegments[index];
-    return (segment.startsWith("{") && segment.endsWith("}")) || segment === value;
-  });
-}
 
 export function lookupOpsFamilyRoute(
   method: string,

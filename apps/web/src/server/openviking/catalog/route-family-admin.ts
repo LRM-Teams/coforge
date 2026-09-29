@@ -7,6 +7,7 @@ import {
   DEFAULT_OPENVIKING_TRANSPORT_LIMITS,
   type GatewayCapability,
   type OpenVikingTransportLimits,
+  templateMatches,
 } from "../route-policy";
 
 export const ADMIN_FAMILY_PINNED_FAMILIES = ["acl", "admin", "privacy"] as const;
@@ -229,16 +230,6 @@ export const ADMIN_FAMILY_ROUTES: readonly AdminFamilyRoutePolicy[] = [
     "json",
   ),
 ];
-
-function templateMatches(template: string, path: string): boolean {
-  const templateSegments = template.split("/");
-  const pathSegments = path.split("/");
-  if (templateSegments.length !== pathSegments.length) return false;
-  return templateSegments.every((segment, index) => {
-    const value = pathSegments[index];
-    return (segment.startsWith("{") && segment.endsWith("}")) || segment === value;
-  });
-}
 
 export function lookupAdminFamilyRoute(
   method: string,
