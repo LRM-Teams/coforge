@@ -189,9 +189,10 @@ fi
 
 write_deploy_env() {
 	# Writes .env next to the compose file with chmod 600; never printed.
-	local web_image="$1" env_file env_file_tmp centrifugo_config_sha256
+	local web_image="$1" env_file env_file_tmp centrifugo_config_sha256 caddyfile_sha256
 	env_file="$(cd "$(dirname "$compose_file")" && pwd)/.env"
 	centrifugo_config_sha256="$(sha256sum "$(dirname "$compose_file")/centrifugo/config.yaml" | awk '{print $1}')"
+	caddyfile_sha256="$(sha256sum "$(dirname "$compose_file")/caddy/Caddyfile" | awk '{print $1}')"
 	umask 077
 	env_file_tmp="$(mktemp "${env_file}.XXXXXX")"
 	{
@@ -202,6 +203,7 @@ write_deploy_env() {
 		printf 'COFORGE_CENTRIFUGO_API_KEY=%s\n' "$(cat "$secrets_dir/centrifugo_http_api_key")"
 		printf 'COFORGE_CENTRIFUGO_PROXY_SECRET=%s\n' "$(cat "$secrets_dir/centrifugo_proxy_secret")"
 		printf 'COFORGE_CENTRIFUGO_CONFIG_SHA256=%s\n' "$centrifugo_config_sha256"
+		printf 'COFORGE_CADDYFILE_SHA256=%s\n' "$caddyfile_sha256"
 		printf 'COFORGE_WORKER_JWT_KEY_ID=%s\n' "$(cat "$secrets_dir/worker_jwt_key_id")"
 		printf 'COFORGE_WORKER_JWT_PRIVATE_JWK=%s\n' "$(cat "$secrets_dir/worker_jwt_private_jwk")"
 	} >"$env_file_tmp"
@@ -372,6 +374,19 @@ report() {
 
 write_deploy_env "$image"
 
+# A candidate stopped before anything was recreated leaves its shipped files on
+# the live paths (the workflow copied them before this script ran). Running
+# containers keep the old ones, but a later Caddy or Centrifugo restart (host
+# reboot, daemon restart) would load a file the guards below just rejected, so
+# put the last healthy release's files and .env back.
+discard_candidate_configuration() {
+	[ -d "$release_snapshot_dir" ] || return 0
+	restore_release_snapshot
+	if [ -n "$current_image" ]; then
+		write_deploy_env "$current_image"
+	fi
+}
+
 # Validate the rendered base-plus-environment configuration before mutating.
 if ! compose config --quiet; then
 	report "$current_image" "failed: compose configuration validation failed" "failed" ""
@@ -390,6 +405,7 @@ fi
 # below would otherwise pull it implicitly, and a registry failure must not
 # be reported as a configuration failure.
 if ! compose pull --quiet centrifugo >/dev/null; then
+	discard_candidate_configuration
 	report "$current_image" "failed: Centrifugo image pull failed" "failed" ""
 	exit 0
 fi
@@ -398,7 +414,25 @@ fi
 if ! compose run --rm --no-deps --entrypoint sh centrifugo \
 	-c 'export CENTRIFUGO_VAR_RPC_PROXY_SECRET="$(cat /run/secrets/centrifugo_proxy_secret)"; exec centrifugo checkconfig -c /centrifugo/config.yaml' \
 	</dev/null 1>&2; then
+	discard_candidate_configuration
 	report "$current_image" "failed: Centrifugo configuration validation failed" "failed" ""
+	exit 0
+fi
+
+# Caddy is the only public entry and runs with its admin API off, so a
+# Caddyfile it cannot load takes the whole site down when the container is
+# recreated. `caddy validate` loads and provisions the file with the pinned
+# image without starting servers or obtaining certificates; `--no-deps` keeps
+# web and Centrifugo untouched and `run` publishes no ports.
+if ! compose pull --quiet caddy >/dev/null; then
+	discard_candidate_configuration
+	report "$current_image" "failed: Caddy image pull failed" "failed" ""
+	exit 0
+fi
+if ! compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
+	</dev/null 1>&2; then
+	discard_candidate_configuration
+	report "$current_image" "failed: Caddy configuration validation failed" "failed" ""
 	exit 0
 fi
 

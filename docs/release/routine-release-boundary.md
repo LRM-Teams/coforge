@@ -21,7 +21,9 @@ Routine releases may update application containers only. Shared Caddy routes,
 host firewall rules, registry credentials, deployment-user permissions,
 databases, and GitHub Environment protection are infrastructure changes. Make
 them through separate approved work with a backup, validation, and rollback
-plan; never smuggle them into an application release.
+plan; never smuggle them into an application release. Once merged, an
+approved Caddyfile change ships with the next staging deploy, which validates
+it in the pinned Caddy image and restores the last healthy file on failure.
 
 Local Computer manifest formats, code-signing/notarization keys and algorithms
 (operating-system code signing, unrelated to this contract's checksum-only
