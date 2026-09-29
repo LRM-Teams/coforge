@@ -7,6 +7,7 @@ import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.ser
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { refuseUnclaimed, TaskBoard } from "#src/server/tasks/task-board.server";
+import { CONVERSATION_TASK_NUMBERS_MAX } from "./conversation-task-subset";
 
 const taskCommand = z
   .object({
@@ -69,6 +70,38 @@ export const loadOverviewTask = createServerFn({ method: "GET" })
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
     return new TaskBoard(db).overviewTask({ workspaceId, userId: user.id }, data);
+  });
+
+/**
+ * The part of one conversation's Tasks its page shows (`ConversationTaskSubset`): some statuses,
+ * a message window by sequence, some numbers — every one given applies. The conversation's Tasks
+ * collection (`conversation-tasks-collection.ts`) sends the predicate of each live query here.
+ */
+export const loadConversationTasks = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(
+    z
+      .object({
+        conversationId: z.uuid(),
+        statuses: z.array(z.enum(TASK_STATUSES)).min(1).max(TASK_STATUSES.length).optional(),
+        numbers: z
+          .array(z.number().int().positive())
+          .min(1)
+          .max(CONVERSATION_TASK_NUMBERS_MAX)
+          .optional(),
+        sequenceFrom: z.number().int().nonnegative().optional(),
+        sequenceTo: z.number().int().nonnegative().optional(),
+      })
+      .strict(),
+  )
+  .handler(async ({ context, data }) => {
+    const { user, db, workspaceId } = context;
+    const { conversationId, ...subset } = data;
+    return new TaskBoard(db).conversationTasks(
+      { workspaceId, userId: user.id },
+      conversationId,
+      subset,
+    );
   });
 
 /** Where a finished-work read looks: the Workspace Tasks page, or one conversation's Tasks tab. */

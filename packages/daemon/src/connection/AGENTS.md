@@ -14,12 +14,20 @@ Rules for the Workspace cloud connection in `src/connection/`. They extend
   `DaemonConnectRejectionReason` is a refusal for good: it rejects a pending
   `start`, or reaches `onConnectionRefused` once the connection was up. The
   connection only classifies it; stopping Agents and parking belong to
-  `daemon-runtime/` and `supervisor/workspace-parking.ts`. Any other disconnect
-  keeps the client's own reconnect backoff.
-- The first connect retries like any reconnect: `start` waits through failed
-  attempts (a temporary connect error or a transport that closed before it
-  opened) and settles only on connecting, a refusal, a disconnect the client
-  gives up on, `stop`, or its `signal` aborting. Never add a second retry loop.
+  `daemon-runtime/` and `supervisor/workspace-parking.ts`.
+- centrifuge-js retries a failed attempt itself (a temporary connect error, or
+  a transport that closed before it opened) and reports it as `error`. It
+  emits `disconnected` only once it has given up. A give-up that is not a
+  refusal (a non-temporary connect error, a server code in 3500-3999, a
+  message over the size limit) is resumed by the connection after its own
+  1 s to 30 s doubling backoff; a disconnect it asked for itself (code 0) is
+  not. Add no other retry loop.
+- The first connect follows the same rules: `start` settles only on
+  connecting, a refusal, `stop`, or its `signal` aborting. A stop or abort
+  rejects with `DaemonConnectionStoppedError`, so callers tell a deliberate
+  stop from a failure by type.
+- Failed attempts log `daemon_connection:retry_scheduled` (`retry_by` client
+  or daemon) at warning; a run of them escalates to error, like ready retries.
 - Every initial ready, reconnect ready, and ready retry obtains a fresh request
   and the current running Agent ID snapshot from the runtime. Never reuse a
   cached one.

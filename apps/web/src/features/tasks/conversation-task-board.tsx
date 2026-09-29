@@ -7,7 +7,8 @@ import { TaskBoard, type ConversationBoard } from "./task-board";
 import { useTaskBoardSearch } from "./task-board-search";
 import type { OverviewTaskCommand } from "./task-overview-collection";
 import { useFinishedTasks } from "./use-finished-tasks";
-import type { ConversationTasks } from "./use-conversation-tasks";
+import { useUnfinishedTasks, type ConversationTaskCommands } from "./use-conversation-tasks";
+import { m } from "#src/paraglide/messages";
 
 /**
  * The Tasks a conversation's board holds itself: every unfinished one, and a finished one only
@@ -36,9 +37,9 @@ function useHeldTasks(conversationId: string, listed: readonly TaskView[]) {
 }
 
 /**
- * A conversation's Tasks tab: the Task board scoped to one conversation. Its unfinished Tasks
- * come from the conversation's own list; Done and Closed are counted and paged by the server
- * within the finished-work window, as on the Tasks page.
+ * A conversation's Tasks tab: the Task board scoped to one conversation. It reads the unfinished
+ * Tasks itself while it shows (`useUnfinishedTasks`); Done and Closed are counted and paged by the
+ * server within the finished-work window, as on the Tasks page.
  */
 export function ConversationTaskBoard({
   conversationId,
@@ -53,13 +54,15 @@ export function ConversationTaskBoard({
   /** The viewer's membership in the conversation; empty when they are not a member. */
   currentMemberId: string;
   canMutate: boolean;
-  taskView: ConversationTasks;
+  taskView: ConversationTaskCommands;
   search: Parameters<typeof useTaskBoardSearch>[0];
   onOpenTask: (number: number) => void;
 }) {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   const view = useTaskBoardSearch(search);
-  const { tasks: listed, loading, error, command } = taskView;
+  const { command } = taskView;
+  const { tasks: listed, loading, failed } = useUnfinishedTasks(conversationId);
+  const error = taskView.error || (failed ? m.tasks_load_error() : "");
   const held = useHeldTasks(conversationId, listed);
   const tasks = useMemo(
     () => held.map((task) => ({ ...task, currentMemberId: currentMemberId || null })),
@@ -71,8 +74,8 @@ export function ConversationTaskBoard({
     filter: view.filter,
     onPage: tasks,
   });
-  // The command writes its result into the list, which reads Done and Closed again when they
-  // changed; its announcement then finds nothing new.
+  // The command writes its result into the conversation's Tasks, which reads Done and Closed again
+  // when they changed; its announcement then finds nothing new.
   const run = useMemo(
     () =>
       canMutate

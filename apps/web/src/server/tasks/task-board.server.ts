@@ -20,6 +20,7 @@ import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import type { ConversationTaskSubset } from "#src/features/tasks/conversation-task-subset";
 import {
   conversationSignalScopes,
   messageSignalScope,
@@ -294,6 +295,15 @@ export class TaskBoard {
 
   finishedSummary(scope: FinishedTaskScope, query: { window: FinishedTaskWindow }) {
     return this.overviewReads.finishedSummary(scope, query);
+  }
+
+  /** The part of one conversation's Tasks its page shows; browser-only, read as `list` allows. */
+  conversationTasks(
+    viewer: { workspaceId: string; userId: string },
+    conversationId: string,
+    subset: ConversationTaskSubset,
+  ) {
+    return this.overviewReads.conversationTasks(viewer, conversationId, subset);
   }
 
   /** The conversation whose Tasks the viewer may list, as `list` allows; see `TaskListAccess`. */

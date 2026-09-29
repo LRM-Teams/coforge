@@ -306,6 +306,7 @@ test.skipIf(!connectionString)(
 
       await channels.setUserMuted(workspace.id, bob.id, team.id, true);
       await channels.setUserPinned(workspace.id, bob.id, team.id, true);
+      // Not closed: bringing it back changes nothing.
       await channels.setUserHidden(workspace.id, bob.id, team.id, false);
       await arrangeConversationPins(
         db,

@@ -1,12 +1,12 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
-import { enrollGeneralChannel } from "#src/server/conversations/public-channels.server";
 import {
   WorkspaceMemberDirectory,
   type WorkspaceInvitationRecord,
   type WorkspaceMemberDirectoryStore,
   type WorkspaceMemberRecord,
 } from "./member-directory.server";
+import { admitWorkspaceMember } from "./member-admission.server";
 import {
   isWorkspaceMemberRole,
   type InvitableWorkspaceRole,
@@ -158,29 +158,16 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
         data: { status: "accepted" },
       });
       if (updated.count !== 1) throw new AppError("CONFLICT");
-      await tx.workspaceMembership.create({
-        data: {
-          workspaceId: invitation.workspaceId,
-          userId: input.userId,
-          role: invitation.role,
-        },
-      });
-      await enrollGeneralChannel(tx, invitation.workspaceId);
-      // Someone coming back has their direct conversations again, read positions kept; the other
-      // channels they were in stay left until they join them.
-      await tx.conversationMember.updateMany({
-        where: {
-          workspaceId: invitation.workspaceId,
-          userId: input.userId,
-          leftAt: { not: null },
-          conversation: { directKey: { not: null } },
-        },
-        data: { leftAt: null },
-      });
-      return {
+      const role = asInvitableRole(invitation.role);
+      const { joinedChannelIds } = await admitWorkspaceMember(tx, {
         workspaceId: invitation.workspaceId,
         userId: input.userId,
-        role: asInvitableRole(invitation.role),
+        role,
+      });
+      const member: WorkspaceMemberRecord = {
+        workspaceId: invitation.workspaceId,
+        userId: input.userId,
+        role,
         username: invitation.invitee.username,
         displayName: invitation.invitee.displayName,
         avatarUrl: workspaceUserAvatarUrl(
@@ -189,6 +176,7 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
           invitation.invitee.avatarObjectKey,
         ),
       };
+      return { member, joinedChannelIds };
     });
   }
 

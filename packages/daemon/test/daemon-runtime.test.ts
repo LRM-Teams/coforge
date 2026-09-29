@@ -13,6 +13,7 @@ import { tmpdir, userInfo } from "node:os";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { DaemonRuntime } from "#src/daemon-runtime/runtime";
+import { DaemonConnectionStoppedError } from "#src/connection/daemon-connection-stopped-error";
 import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
@@ -8695,7 +8696,7 @@ test("stopping a runtime whose first cloud connect is still retrying ends its st
 
   await runtime.stop();
 
-  expect(await start).toBeInstanceOf(Error);
+  expect(await start).toBeInstanceOf(DaemonConnectionStoppedError);
 });
 
 test("a stop that arrives before the first cloud connect begins still ends it", async () => {
@@ -8705,7 +8706,7 @@ test("a stop that arrives before the first cloud connect begins still ends it", 
 
   await runtime.stop();
 
-  expect(await start).toBeInstanceOf(Error);
+  expect(await start).toBeInstanceOf(DaemonConnectionStoppedError);
 });
 
 test("a send the daemon holds locally is never issued, and what it showed is then reviewed", async () => {

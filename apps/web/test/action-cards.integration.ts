@@ -276,13 +276,14 @@ test("prepare rejects an unknown handle with a field-scoped INVALID_HANDLE error
   }
 });
 
-test("prepare refuses a private Agent exactly as it refuses a handle that does not exist", async () => {
+test("prepare answers a private Agent as channel management does: not visible, or private", async () => {
   const ctx = await setup();
   try {
     await ctx.db.agent.update({ where: { id: ctx.bobsAgent.id }, data: { visibility: "private" } });
-    const refusalFor = (handle: string) =>
+    const handle = `@${ctx.bobsAgent.name}`;
+    const refusalFor = (principal: { workspaceId: string; agentId: string }) =>
       ctx.actionCards
-        .prepare(ctx.principal, {
+        .prepare(principal, {
           target: `#${ctx.hub.channelName}`,
           action: { type: "channel:add_member", channel: ctx.hub.channelName!, agents: [handle] },
         })
@@ -292,17 +293,23 @@ test("prepare refuses a private Agent exactly as it refuses a handle that does n
             status: error.status,
             code: error.code,
             field: error.field,
-            message: error.message.replace(handle, "<handle>"),
+            message: error.message,
           }),
         );
 
-    const privateAgent = await refusalFor(`@${ctx.bobsAgent.name}`);
-    expect(privateAgent).toEqual(await refusalFor(`@nobody-${ctx.suffix}`));
-    expect(privateAgent).toEqual({
+    // Alice's Agent cannot see Bob's private Agent: the answer channel management gives.
+    expect(await refusalFor(ctx.principal)).toEqual({
+      status: 404,
+      code: "AGENT_NOT_VISIBLE",
+      field: "action.agents[0]",
+      message: `${handle} is not visible to you.`,
+    });
+    // An Agent of the same creator can see it, and learns why it cannot be a member.
+    expect(await refusalFor({ workspaceId: ctx.workspace.id, agentId: ctx.bobsAgent.id })).toEqual({
       status: 422,
       code: "INVALID_HANDLE",
       field: "action.agents[0]",
-      message: "unknown agent handle: <handle>",
+      message: `${handle} is private and cannot be a channel member`,
     });
   } finally {
     await ctx.cleanup();

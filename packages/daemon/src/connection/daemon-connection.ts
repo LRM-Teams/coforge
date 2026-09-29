@@ -1,4 +1,4 @@
-import { Centrifuge } from "centrifuge/build/protobuf";
+import { Centrifuge, disconnectedCodes, type ErrorContext } from "centrifuge/build/protobuf";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import type {
   AgentActionPrepareRequest,
@@ -28,6 +28,7 @@ import {
   type OpenVikingAgentProxyCommand,
 } from "../openviking-read-proxy";
 import { DaemonConnectionRefusedError } from "./daemon-connection-refused-error";
+import { DaemonConnectionStoppedError } from "./daemon-connection-stopped-error";
 import {
   daemonConnectRejectionReason,
   type DaemonConnectData,
@@ -180,9 +181,29 @@ const RECONNECT_READY_RETRY_MAX_MS = 60_000;
 const READY_RETRY_ESCALATE_AFTER = 5;
 /** Once escalated, how often to repeat the error rather than logging all of them — at the capped
  * delay this is roughly every ten minutes. */
-const READY_RETRY_ESCALATE_EVERY = 10;
+const RETRY_ESCALATE_EVERY = 10;
+/** Consecutive failed connect attempts after which the outage stops being a blip: with the
+ * client's jittered backoff (500 ms doubling to 20 s) that is about a minute offline. */
+const CONNECT_RETRY_ESCALATE_AFTER = 8;
+/** After a give-up disconnect the daemon connects the client again itself, doubling from this
+ * delay up to the cap, the same shape as the reference Computer's reconnect. */
+const RESUME_CONNECT_MS = 1_000;
+const RESUME_CONNECT_MAX_MS = 30_000;
 const REMEMBERED_REQUEST_IDS = 256;
 const logger = getLogger(["coforge", "daemon", "connection"]);
+
+/** A run of failed connect attempts: how many, since when, and how many of them were the
+ * daemon's own reconnects after the client gave up (those set the resume delay). */
+type ConnectOutage = { failures: number; sinceMs: number; resumes: number };
+
+/** Whether the `attempt`-th consecutive failure is logged as an error: the first one at
+ * `escalateAfter`, then every `RETRY_ESCALATE_EVERY`-th, so a long outage stays visible
+ * without an error per attempt. */
+function escalates(attempt: number, escalateAfter: number): boolean {
+  return (
+    attempt >= escalateAfter && (attempt === escalateAfter || attempt % RETRY_ESCALATE_EVERY === 0)
+  );
+}
 
 /** The server's own name for the ready step that failed, when its rejection carries one.
  *
@@ -374,7 +395,9 @@ export interface DaemonConnectionClientFactory {
 export interface CentrifugeWorkspaceClient {
   on(event: "connected", callback: () => void): void;
   on(event: "disconnected", callback: (context?: { code: number; reason: string }) => void): void;
-  on(event: "error", callback: (error: unknown) => void): void;
+  /** `connect` and `transport` errors are failed connect attempts the client retries itself;
+   * other types are not about connecting. */
+  on(event: "error", callback: (context: ErrorContext) => void): void;
   on(
     event: "publication",
     callback: (publication: { channel: string; data: Uint8Array }) => void,
@@ -455,6 +478,11 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #connectionRefused = new ListenerSlot<(reason: DaemonConnectRejectionReason) => void>();
   /** Set only while `start` waits for the first connection; rejecting it ends that `start`. */
   #failPendingStart: ((error: Error) => void) | undefined;
+  /** The current run of failed connect attempts, first connect included; cleared once the
+   * connection is up. `resumes` counts only the daemon's own reconnects after a give-up. */
+  #outage: ConnectOutage | undefined;
+  /** Connects the client again after it gave up; see `#resumeAfterGiveUp`. */
+  #resumeTimer: unknown;
   /** Publications received between a ready request and its acknowledgement, in arrival order. */
   #readyPublications: Array<() => void> | undefined;
   #readyRequestFactory: (() => DaemonRuntimeReadyRequest) | undefined;
@@ -544,16 +572,9 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#cancelReadyRecovery();
       const refusal = context ? daemonConnectRejectionReason(context) : undefined;
       if (!refusal) {
-        logger.warning("Daemon cloud connection disconnected", {
-          event: "daemon_connection:disconnected",
-          ...scope,
-          ...(context ? { disconnect_code: context.code } : {}),
-        });
-        this.#failPendingStart?.(
-          Object.assign(new Error(`daemon connection closed: ${context?.reason ?? "unknown"}`), {
-            code: context?.code,
-          }),
-        );
+        // A disconnect this connection asked for is followed by whatever connect it wanted.
+        if (context?.code !== disconnectedCodes.disconnectCalled)
+          this.#resumeAfterGiveUp(client, scope, context?.code);
         return;
       }
       // The client does not reconnect after a terminal disconnect code.
@@ -566,11 +587,14 @@ export class DaemonConnection implements DaemonConnectionClient {
       if (this.#failPendingStart) this.#failPendingStart(new DaemonConnectionRefusedError(refusal));
       else this.#connectionRefused.current?.(refusal);
     });
+    const { signal } = config;
+    let onAbort: (() => void) | undefined;
     await new Promise<void>((resolve, reject) => {
       this.#failPendingStart = reject;
       client.on("connected", () => {
         if (client !== this.#client) return;
         this.#failPendingStart = undefined;
+        this.#outage = undefined;
         const reconnect = this.#hasConnected;
         this.#connected = true;
         this.#hasConnected = true;
@@ -594,31 +618,88 @@ export class DaemonConnection implements DaemonConnectionClient {
         }
         resolve();
       });
-      const { signal } = config;
       if (signal?.aborted) return reject(signal.reason);
-      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
-      // An attempt the client retries with its own backoff, first connect included: a temporary
-      // connect error (the connect proxy failing, or answering non-200) or a transport that
-      // closed before it opened. Only `disconnected` ends a pending start.
-      client.on("error", (context) => {
+      onAbort = () => reject(signal?.reason);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      client.on("error", ({ type, error }) => {
         if (client !== this.#client) return;
-        const { type, error } = (context ?? {}) as { type?: unknown; error?: unknown };
-        logger.warning("Daemon cloud connection attempt failed; retrying", {
-          event: "daemon_connection:failed",
-          ...scope,
-          error_type: typeof type === "string" ? type : undefined,
-          error_code: diagnosticErrorCode(error ?? context),
-          outcome: "retrying",
-        });
+        const details = { ...scope, error_type: type, error_code: diagnosticErrorCode(error) };
+        // A failed attempt the client retries with its own backoff, first connect included: a
+        // temporary connect error (the connect proxy failing, or answering non-200) or a
+        // transport that closed before it opened.
+        if (type === "connect" || type === "transport")
+          this.#recordConnectFailure({ ...details, retry_by: "client" });
+        else
+          logger.warning("Daemon cloud connection client reported an error", {
+            event: "daemon_connection:client_error",
+            ...details,
+          });
       });
       client.connect();
-    }).catch((error) => {
-      this.#failPendingStart = undefined;
-      this.#cancelReadyRecovery();
-      this.#client = undefined;
-      client.disconnect();
-      throw error;
+    })
+      .catch((error) => {
+        this.#failPendingStart = undefined;
+        this.#cancelReadyRecovery();
+        this.#cancelResume();
+        this.#client = undefined;
+        client.disconnect();
+        throw error;
+      })
+      .finally(() => {
+        if (onAbort) signal?.removeEventListener("abort", onAbort);
+      });
+  }
+
+  /** Logs one failed connect attempt; a run of them escalates to an error naming the outage. */
+  #recordConnectFailure(details: Record<string, unknown>): ConnectOutage {
+    const now = this.#nowMs();
+    const outage = (this.#outage ??= { failures: 0, sinceMs: now, resumes: 0 });
+    outage.failures += 1;
+    const properties = {
+      event: "daemon_connection:retry_scheduled",
+      ...details,
+      attempt: outage.failures,
+      failing_for_ms: now - outage.sinceMs,
+    };
+    if (escalates(outage.failures, CONNECT_RETRY_ESCALATE_AFTER))
+      logger.error(
+        "Daemon cloud connection keeps failing: this Computer is offline, so its Agents cannot be reached",
+        properties,
+      );
+    else logger.warning("Daemon cloud connection attempt failed; retrying", properties);
+    return outage;
+  }
+
+  /**
+   * The client stopped reconnecting for a reason that is not a refusal for good: a non-temporary
+   * connect error, a server disconnect code in 3500-3999, or a message over the size limit. None
+   * of them says this Workspace may never connect again, so the connection connects the client
+   * again after its own backoff, first connect included, instead of staying offline until a
+   * person restarts the Computer.
+   */
+  #resumeAfterGiveUp(
+    client: CentrifugeWorkspaceClient,
+    scope: Record<string, unknown>,
+    disconnectCode: number | undefined,
+  ): void {
+    const resumes = this.#outage?.resumes ?? 0;
+    const delayMs = Math.min(RESUME_CONNECT_MAX_MS, RESUME_CONNECT_MS * 2 ** resumes);
+    const outage = this.#recordConnectFailure({
+      ...scope,
+      ...(disconnectCode === undefined ? {} : { disconnect_code: disconnectCode }),
+      retry_by: "daemon",
+      retry_delay_ms: delayMs,
     });
+    outage.resumes = resumes + 1;
+    this.#resumeTimer = this.timing.schedule(() => {
+      this.#resumeTimer = undefined;
+      if (client === this.#client) client.connect();
+    }, delayMs);
+  }
+
+  #cancelResume(): void {
+    if (this.#resumeTimer !== undefined) this.timing.cancel(this.#resumeTimer);
+    this.#resumeTimer = undefined;
   }
 
   onAgentStart(callback: (intent: AgentStartIntent) => void): () => void {
@@ -1926,11 +2007,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       };
       // Retrying forever at WARN hid a 13-hour outage on 2026-09-18: the connection stayed up, so
       // nothing looked wrong, while no Agent on the machine could be reached.
-      if (
-        this.#readyRetryAttempts >= READY_RETRY_ESCALATE_AFTER &&
-        (this.#readyRetryAttempts === READY_RETRY_ESCALATE_AFTER ||
-          this.#readyRetryAttempts % READY_RETRY_ESCALATE_EVERY === 0)
-      )
+      if (escalates(this.#readyRetryAttempts, READY_RETRY_ESCALATE_AFTER))
         logger.error(
           "Daemon reconnect recovery keeps failing: this Computer is connected but its Workspace is not recovered, so its Agents cannot be reached",
           details,
@@ -1974,8 +2051,10 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async stop(): Promise<void> {
     const client = this.#client;
-    this.#failPendingStart?.(new Error("daemon connection stopped before it connected"));
+    this.#failPendingStart?.(new DaemonConnectionStoppedError());
     this.#cancelReadyRecovery();
+    this.#cancelResume();
+    this.#outage = undefined;
     if (this.#statusRefreshTimer) clearInterval(this.#statusRefreshTimer);
     this.#statusRefreshTimer = undefined;
     if (this.#computerStatusRefreshTimer !== undefined) {

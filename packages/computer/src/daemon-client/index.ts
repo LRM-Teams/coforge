@@ -1,5 +1,6 @@
 import {
   DaemonCommandRejectedError,
+  workspaceHealthRecoveryCommand,
   workspaceParkedDescription,
   workspaceParkedRecovery,
   type DaemonCommandRunner,
@@ -70,11 +71,16 @@ export function createCommand(input: {
     );
     if (!unsettled.length) return write(online);
     write(pendingHeader);
+    const names = await Promise.all(
+      unsettled.map(async (runtime) =>
+        terminalText(
+          (await resolve(runtime.workspaceId).catch(() => undefined))?.slug ?? runtime.workspaceId,
+        ),
+      ),
+    );
     const failed: string[] = [];
-    for (const runtime of unsettled) {
-      const name = terminalText(
-        (await resolve(runtime.workspaceId).catch(() => undefined))?.slug ?? runtime.workspaceId,
-      );
+    for (const [index, runtime] of unsettled.entries()) {
+      const name = names[index]!;
       if (runtime.cloudConnection === "connecting") {
         const under = operation === "start" ? "still starting" : "still restarting";
         write(`  ${name}: ${under}. Run 'coforge-computer status' to follow it.`);
@@ -86,7 +92,7 @@ export function createCommand(input: {
       );
     }
     if (!failed.length) return;
-    const restarts = failed.map((name) => `'coforge-computer restart --workspace ${name}'`);
+    const restarts = failed.map((name) => `'${workspaceHealthRecoveryCommand(name)}'`);
     throw new CliError(
       "WORKSPACE_NOT_CONNECTED",
       failed.length === 1

@@ -60,8 +60,7 @@ const UPGRADE_RECEIPT_POLL_MS = 2_000;
  * daemon must never be able to block a Computer upgrade or a restart.
  */
 const RUNNER_HOLD_WORKSPACE_TIMEOUT_MS = 5_000;
-/** How long a Workspace start waits for its process to answer, and an operator start then waits
- * for its first cloud connect to settle. */
+/** How long a Workspace start waits for its process to answer. */
 const WORKSPACE_READINESS_MS = 30_000;
 /** How long one post-start handshake read may take before it counts as not answering. */
 const CLOUD_CONNECTION_PROBE_MS = 2_000;

@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MessageBody } from "#src/features/conversations/message-body";
 import { mentionHandlesByToken } from "#src/features/conversations/message-markdown";
 import { ConversationIdProvider } from "#src/features/conversations/conversation-id";
-import { conversationTasksQuery } from "#src/features/tasks/use-conversation-tasks";
+import { conversationTasksFor } from "#src/features/tasks/use-conversation-tasks";
 import { taskView } from "./fixtures/task-view";
 
 const HUMAN_ID = "d9956ab1-9063-4182-8eab-861d1559c8ee";
@@ -50,10 +50,10 @@ test("an unresolvable token degrades to literal text, never a phantom chip", () 
   expect(markup).not.toContain("message-markdown-mention");
 });
 
-/** A body rendered inside a conversation whose cached Task list holds `tasks`. */
+/** A body rendered inside a conversation whose Tasks hold `tasks`. */
 function inConversation(node: ReactNode, tasks: TaskView[]) {
   const queryClient = new QueryClient();
-  queryClient.setQueryData(conversationTasksQuery("conversation-1").queryKey, tasks);
+  conversationTasksFor(queryClient, "conversation-1").apply([{ tasks, deleted: [] }]);
   return (
     <QueryClientProvider client={queryClient}>
       <ConversationIdProvider conversationId="conversation-1">{node}</ConversationIdProvider>

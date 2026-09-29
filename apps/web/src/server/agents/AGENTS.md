@@ -84,6 +84,9 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
   decided on the server. A message is seen when the Agent sent it, when it is at
   or below the reported `seenUpToSeq`, or when it is in `seenExactSeqs`, in
   either freshness mode; the mode only decides what a hold presents.
+- A key that already committed is answered from its request record before the
+  target or its freshness is read (`reason: "already_committed"`): no later
+  change may report a committed send as refused or held.
 - CoForge difference: when every pending message was already seen, the boundary
   that may advance over them is the larger of the Agent's report and the
   server's own read-through (Raft trusts only the client's boundaries). The

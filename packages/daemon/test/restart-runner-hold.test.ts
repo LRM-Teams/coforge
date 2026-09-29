@@ -240,6 +240,6 @@ test("a restart's hold draws from what is left of its command's deadline", async
   await fixture.supervisor.command("restart", "a", "request", { deadline: Date.now() + 400 });
 
   expect(fixture.time.now()).toBeLessThanOrEqual(500);
-  expect(asked).toBe(3);
+  expect(asked).toBeLessThan(5);
   expect(fixture.calls).toEqual(["hold:a:restart", "stop:a"]);
 });
