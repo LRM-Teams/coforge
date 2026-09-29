@@ -40,32 +40,40 @@ Rules for the machine Coordinator in `src/supervisor/`. They extend
   (`connecting`, `connected`, `not_connected` with why). A connection that is
   retrying, before or after it first connected, reports `connecting` with its
   latest failed attempt; an operator answer carries that reason.
-- An operator `start`, `restart`, or `stop` has one deadline for the whole
-  command (`OPERATOR_COMMAND_BUDGET_MS` in `workspace-start-outcome.ts`, below
-  the local lifecycle client's 35 s timeout). It bounds the answer, not the
-  work: `MachineSupervisor.command` answers by then even while still queued,
-  holding, stopping, or starting, and names those Workspaces `pending`; their
-  work finishes in the serialized queue afterwards, so the instance is still
-  adopted and a restart's result still recorded. A restart's runner hold keeps
-  its full `RUNNER_HOLD_MS`; the deadline never cuts the drain for busy Agents.
-  Finished Workspaces are answered with their first cloud connect
-  (`awaitCloudConnections`, side by side, each checked at least once); pending
-  ones as still connecting. A park refuses the command. Recovery passes no
-  deadline.
+- An operator `start`, `restart`, `stop`, and `configure` (setup) share one
+  deadline per command (`OPERATOR_COMMAND_BUDGET_MS` in
+  `workspace-start-outcome.ts`, below the local lifecycle client's 35 s
+  timeout). It bounds the answer, not the work: the command answers by then
+  even while still queued, holding, stopping, or starting, and names those
+  Workspaces `pending` (a configure answers `lifecycle_under_way`); their work
+  finishes in the serialized queue afterwards, so the instance is still adopted
+  and a restart's result still recorded. A restart's runner hold keeps its full
+  `RUNNER_HOLD_MS`; the deadline never cuts the drain for busy Agents. Finished
+  Workspaces are answered with their first cloud connect
+  (`awaitCloudConnections`, side by side, each checked at least once). A park
+  refuses the command. Recovery passes no deadline.
+- A `stop` persists its Workspaces as stopped before it answers; until its
+  turn, any save of them keeps them stopped. A Coordinator that dies first
+  comes back with them stopped.
 - A `stop` or `configure` of a Workspace supersedes every start or restart of
   it requested before (systemd's job replacement): the one under way aborts at
   its next step (hold poll, readiness poll, or before stop/start) and one still
-  queued never runs; a replaced restart is recorded `cancelled`. Its caller, if
-  still waiting, gets the superseded error with the command that starts it again.
+  queued never runs. Either way the restart is recorded `cancelled` with what
+  took it over (`by`), so a replay neither runs nor re-enables the Workspace and
+  names the real superseder. A superseded configure keeps the key it saved
+  (`local-rpc.ts`): the cloud registered it and revoked the one before; a failed
+  one rolls back only a key it wrote itself.
 - A command that fails after it answered is logged and recorded as the binding's
   `lastFailure` (operation, message, time), which `coforge-computer status`
   shows with the command to retry; the next successful step clears it. A park or
-  a supersede is not recorded.
+  a supersede is not recorded; a malformed one is dropped on load.
 - What an operator reads (`daemon:snapshot`, a command's answer) comes from
   `MachineSupervisor.view()`, which never waits behind a mutation, so neither
   `status` nor a command answer can end in a client timeout. A Workspace whose
-  start, restart, or configure is queued or running reads as still connecting;
-  an upgrade waits for those before it pauses the Coordinator. The
+  start, restart, or configure is queued or running carries
+  `lifecycle_under_way` (never a `cloud_connection` value). `pause` takes effect
+  at once (queued work is refused at its turn) and never waits behind the
+  queue; an upgrade then waits for the running work through the view. The
   Coordinator's own steps keep the serialized `snapshot()`.
 - The snapshot reports a parked Workspace's `park_reason`; an upgrade treats it
   as down on purpose, not as an unhealthy runtime set.
