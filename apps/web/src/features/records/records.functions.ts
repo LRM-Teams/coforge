@@ -590,6 +590,12 @@ export const loadWeeklyReportDashboard = createServerFn({ method: "GET" })
     });
   });
 
+export const loadLatestEditableMemberReport = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .handler(async ({ context: { user, db, workspaceId } }) =>
+    recordCatalog(db).loadLatestEditableMemberReport({ workspaceId, userId: user.id }),
+  );
+
 export const loadRecordComments = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .validator(
