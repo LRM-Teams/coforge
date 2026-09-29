@@ -131,8 +131,8 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   failed replay is retryable only while the draft still holds its key. A
   `MESSAGE_REQUEST_IN_PROGRESS` refusal is judged too: delivery unknown,
   retryable under the draft's key with `--expected-draft-key` while the draft
-  still holds it; once another send replaced the draft (or the draft cannot be
-  read), it is not retryable and names no resend command.
+  still holds it. In both, once another send replaced the draft, or the draft
+  cannot be read, the verdict is not retryable and names no resend command.
 - Agent Task operations use the Credential Proxy and the authenticated Agent
   HTTPS connection. Task parsing and wire contracts belong to the SDK and CLI;
   claim/review applies to complex, coordinated, or already-shared Tasks, not

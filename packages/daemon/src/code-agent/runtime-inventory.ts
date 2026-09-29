@@ -771,11 +771,19 @@ function definedEnvironment(environment: Readonly<Record<string, string | undefi
   );
 }
 
+/** How long each bounded wait of a catalog discovery (`within`) lasts. A discovery that waits on
+ * several requests grants each its own wait. */
+export const CATALOG_DISCOVERY_TIMEOUT_MS = 5_000;
+
 function within<T>(promise: Promise<T>): Promise<T> {
   return Promise.race([
     promise,
-    Bun.sleep(5_000).then(() =>
-      Promise.reject(new CatalogDiscoveryError("model catalog discovery timed out after 5000 ms")),
+    Bun.sleep(CATALOG_DISCOVERY_TIMEOUT_MS).then(() =>
+      Promise.reject(
+        new CatalogDiscoveryError(
+          `model catalog discovery timed out after ${CATALOG_DISCOVERY_TIMEOUT_MS} ms`,
+        ),
+      ),
     ),
   ]);
 }

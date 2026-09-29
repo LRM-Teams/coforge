@@ -32,7 +32,16 @@ test("inherits local host variables and overlays custom, adapter, then system va
 });
 
 test("makes the Agent-facing coforge binary available without Agent identity", () => {
-  const environment = agentEnvironment({ AGENT_SECRET: "declared" });
+  // This test asserts the daemon's own five Git config entries from a zero base. Passing no
+  // `inherited` would fall back to the host `process.env`, where an agent or git-hook shim may
+  // already have injected `GIT_CONFIG_*` (count > 0) and shift every index, so the host
+  // environment is carried over with the Git config keys stripped instead.
+  const environment = agentEnvironment(
+    { AGENT_SECRET: "declared" },
+    Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_CONFIG_")),
+    ),
+  );
 
   expect(environment.PATH?.split(":")).toContain(join(process.execPath, ".."));
   expect(environment.GIT_CONFIG_COUNT).toBe("5");

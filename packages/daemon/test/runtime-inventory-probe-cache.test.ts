@@ -9,6 +9,7 @@ import {
   type ExternalCodeAgentProbe,
 } from "#src/code-agent/runtime-inventory";
 import { fileStatCacheKey, writeInventoryCache } from "#src/code-agent/runtime-inventory-cache";
+import { OPENCODE_DISCOVERY_BUDGET_MS } from "./catalog-discovery-budget";
 
 const OPENCODE_FIXTURE = new URL("./fixtures/opencode-fixture.ts", import.meta.url).pathname;
 
@@ -193,40 +194,46 @@ describe("Code Agent probe cache", () => {
   });
 });
 
-test("the live refresh discovers the OpenCode catalog too, not just its runtime", async () => {
-  const stateDirectory = await mkdtemp(join(tmpdir(), "coforge-opencode-catalog-state-"));
-  // The refresh resolves the provider's executable through `probe.which`; point it at a path that
-  // exists (the injected `commands.opencode` is what actually runs) so the branch is taken.
-  const binDirectory = await mkdtemp(join(tmpdir(), "coforge-opencode-catalog-bin-"));
-  const opencodePath = join(binDirectory, "opencode");
-  await Bun.write(opencodePath, "#!/bin/sh\nexit 0\n");
-  try {
-    const probe: ExternalCodeAgentProbe = {
-      which: (name) => (name === "opencode" ? opencodePath : undefined),
-      spawn: () => ({
-        stdout: new Blob(["opencode v2.0.12"]).stream(),
-        exited: Promise.resolve(0),
-      }),
-    };
-    const catalogs = await discoverCodeAgentCatalogs(
-      [{ provider: "opencode" as const, version: "2.0.12", displayName: "OpenCode" }],
-      {
-        cwd: process.cwd(),
-        environment: { PATH: process.env.PATH, HOME: process.env.HOME },
-        commands: { opencode: [process.execPath, OPENCODE_FIXTURE, "models"] },
-        probe,
-        cacheDirectory: stateDirectory,
-      },
-    );
+test(
+  "the live refresh discovers the OpenCode catalog too, not just its runtime",
+  async () => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), "coforge-opencode-catalog-state-"));
+    // The refresh resolves the provider's executable through `probe.which`; point it at a path that
+    // exists (the injected `commands.opencode` is what actually runs) so the branch is taken.
+    const binDirectory = await mkdtemp(join(tmpdir(), "coforge-opencode-catalog-bin-"));
+    const opencodePath = join(binDirectory, "opencode");
+    await Bun.write(opencodePath, "#!/bin/sh\nexit 0\n");
+    try {
+      const probe: ExternalCodeAgentProbe = {
+        which: (name) => (name === "opencode" ? opencodePath : undefined),
+        spawn: () => ({
+          stdout: new Blob(["opencode v2.0.12"]).stream(),
+          exited: Promise.resolve(0),
+        }),
+      };
+      const catalogs = await discoverCodeAgentCatalogs(
+        [{ provider: "opencode" as const, version: "2.0.12", displayName: "OpenCode" }],
+        {
+          cwd: process.cwd(),
+          // A fixture home keeps the Pi catalog, discovered in the same pass, off the developer's
+          // real Pi configuration; that discovery has no deadline and was most of this test's time.
+          environment: { PATH: process.env.PATH, HOME: "/fixture/home" },
+          commands: { opencode: [process.execPath, OPENCODE_FIXTURE, "models"] },
+          probe,
+          cacheDirectory: stateDirectory,
+        },
+      );
 
-    const opencode = catalogs.find((catalog) => catalog.provider === "opencode");
-    expect(opencode?.models.map((model) => model.id)).toEqual([
-      "opencode/big-pickle",
-      "aiberm/gpt-5.6-luna",
-    ]);
-    expect(opencode?.models[0]?.reasoningEfforts).toEqual(["low", "medium", "high"]);
-  } finally {
-    await rm(stateDirectory, { recursive: true, force: true });
-    await rm(binDirectory, { recursive: true, force: true });
-  }
-});
+      const opencode = catalogs.find((catalog) => catalog.provider === "opencode");
+      expect(opencode?.models.map((model) => model.id)).toEqual([
+        "opencode/big-pickle",
+        "aiberm/gpt-5.6-luna",
+      ]);
+      expect(opencode?.models[0]?.reasoningEfforts).toEqual(["low", "medium", "high"]);
+    } finally {
+      await rm(stateDirectory, { recursive: true, force: true });
+      await rm(binDirectory, { recursive: true, force: true });
+    }
+  },
+  OPENCODE_DISCOVERY_BUDGET_MS,
+);

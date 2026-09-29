@@ -27,9 +27,10 @@ export type AgentSendSettlementPorts = {
  * whether this key committed: `committed` is the send's success; `not_found` replays the original
  * request once under the same key. A failed reconciliation leaves the original failure, whose
  * delivery state stays unknown. A failed replay is retryable only while the target's draft still
- * holds this key, since only then does the retry reuse it. A refusal because an earlier request
- * with this key is still being processed is unknown delivery too, retryable under the draft's key
- * for the same reason: once another send replaced the draft, that send cannot be retried safely.
+ * holds this key, since only then does the retry reuse it; a draft that cannot be checked does not.
+ * A refusal because an earlier request with this key is still being processed is unknown delivery
+ * too, retryable under the draft's key for the same reason: once another send replaced the draft,
+ * that send cannot be retried safely.
  */
 export async function settleAgentSend(
   send: AgentMessageRequest,
@@ -85,7 +86,7 @@ export async function settleAgentSend(
   try {
     return await ports.send(send);
   } catch (replayFailure) {
-    const draftHoldsKey = await ports.draftHoldsKey(send.target, send.idempotencyKey);
+    const draftHoldsKey = await draftStillHoldsKey(send, ports, options.logScope);
     throw new AgentSendVerdictError(
       "the send's same-key replay failed after reconciliation found no commit",
       replayFailure,

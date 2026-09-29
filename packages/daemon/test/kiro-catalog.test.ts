@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
-import { configure, reset, type LogRecord } from "@logtape/logtape";
 import { discoverKiroCatalog } from "#src/code-agent/kiro/catalog";
+import { captureDaemonLogs } from "./log-capture";
 
 test("Kiro catalog fails closed when model discovery never completes", async () => {
   expect(
@@ -20,20 +20,7 @@ test("Kiro catalog fails closed when model discovery never completes", async () 
 });
 
 test("catalog failure logs an error code and an honest message instead of asserting a login problem", async () => {
-  const records: LogRecord[] = [];
-  await configure({
-    reset: true,
-    sinks: {
-      capture: (record) => {
-        records.push(record);
-      },
-    },
-    loggers: [
-      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
-      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
-    ],
-  });
-  try {
+  const { records } = await captureDaemonLogs(async () => {
     expect(
       await discoverKiroCatalog(
         [
@@ -47,9 +34,7 @@ test("catalog failure logs an error code and an honest message instead of assert
         30,
       ),
     ).toBeUndefined();
-  } finally {
-    await reset();
-  }
+  });
   const failure = records.find((record) => record.properties.event === "kiro.catalog.unavailable");
   expect(failure?.message.join("")).toBe("Kiro v3 model discovery unavailable");
   expect(failure?.properties.error_code).toEqual(expect.any(String));

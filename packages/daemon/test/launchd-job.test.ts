@@ -1,25 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
-import { configure, reset, type LogRecord } from "@logtape/logtape";
 import { LaunchdJob } from "#src/platform/launchd-job";
-
-async function captureDaemonLogs<T>(operation: () => Promise<T>): Promise<LogRecord[]> {
-  const records: LogRecord[] = [];
-  await configure({
-    reset: true,
-    sinks: { capture: (record) => void records.push(record) },
-    loggers: [
-      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
-      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
-    ],
-  });
-  try {
-    await operation();
-  } finally {
-    await reset();
-  }
-  return records;
-}
+import { captureDaemonLogs } from "./log-capture";
 
 // Regression: the 09:17 coordinator crash reported only `exit_code: 125`, because
 // launchctl's own explanation was discarded before it could be logged.
@@ -38,7 +20,7 @@ test("a failed bootout reports what launchctl said and still fails the stop", as
       }),
     },
   });
-  const records = await captureDaemonLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     await expect(job.stop()).rejects.toThrow(
       /launchctl bootout failed \(125\): Boot-out failed: 125: Operation canceled/,
     );
