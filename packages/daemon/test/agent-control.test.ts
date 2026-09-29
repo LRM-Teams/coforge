@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { configure, reset, type LogRecord } from "@logtape/logtape";
 import { AgentControl } from "#src/agent-runtime/agent-control";
 import { AgentSessions } from "#src/agent-runtime/agent-session";
 import {
@@ -15,6 +14,7 @@ import type {
 } from "@lrm/coforge-sdk/internal";
 import { AgentSessionRecoveryError, AgentProcessCleanupError } from "#src/code-agent/contract";
 import type { LaunchRetryScheduler } from "#src/agent-runtime/agent-control";
+import { captureDaemonLogs } from "./log-capture";
 
 /** Every test in this file that can fail a launch asserts on the operation's own outcome, so it
  * arms no automatic retry; the retry behaviour has its own coverage in
@@ -23,26 +23,6 @@ const inertRetryScheduler: LaunchRetryScheduler = {
   schedule: () => undefined,
   cancel: () => {},
 };
-
-/** Runs `run()` with a logtape capture sink installed for `coforge.daemon.*`, then restores the
- * previous (unconfigured) logging state. Mirrors the pattern in runtime-inventory-diagnostics.test.ts. */
-async function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; records: LogRecord[] }> {
-  const records: LogRecord[] = [];
-  await configure({
-    reset: true,
-    sinks: { capture: (record) => records.push(record) },
-    loggers: [
-      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
-      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
-    ],
-  });
-  try {
-    const result = await run();
-    return { result, records };
-  } finally {
-    await reset();
-  }
-}
 
 /**
  * The exact legacy record shape from the s144 incident (2026-09-17): a fenced Stop at epoch 8
@@ -678,7 +658,7 @@ test("the phase invariant assertion logs instead of throwing when record and pro
   // it. Here the fake runtime reports the process NOT running while start() just wrote phase
   // "running": the assertion watches that boundary at error level and never becomes a second
   // failure path — start() completes, the disagreement is logged, no throw.
-  const { records: logs } = await captureLogs(async () => {
+  const { records: logs } = await captureDaemonLogs(async () => {
     const store: AgentRuntimeStateStore = {
       listAgentIds: async () => [],
       read: async () => undefined,
@@ -869,7 +849,7 @@ test("a stale stop-failed record from a gone daemon instance is repaired so a ne
   });
   // A Stop whose failure receipt was never retried leaves the record live with this same
   // writer; the next operation's lazy repair settles it before proceeding.
-  const { records: logs } = await captureLogs(async () => {
+  const { records: logs } = await captureDaemonLogs(async () => {
     await control.start({
       protocolMajor: 1,
       requestId: "start-9",
@@ -1103,7 +1083,7 @@ test("a workspace clear failure is non-fatal: it reports workspace-reset with a 
   // just absent to begin with.
   expect(record).toMatchObject({ identity: { sessionId: "old" } });
 
-  const { records: logs } = await captureLogs(() => control.resetWorkspace(scope));
+  const { records: logs } = await captureDaemonLogs(() => control.resetWorkspace(scope));
 
   // Non-fatal: the daemon-level outcome is plain "workspace-reset", never "failed" — matching
   // Raft 1.0.32, which only logs a clear failure and reports nothing on the wire for it.
@@ -1261,7 +1241,7 @@ test("a Start that meets an already-running process under an older, terminal ope
   expect(launches).toBe(1);
   expect(record).toMatchObject({ phase: "running", launchId: "launch-old" });
 
-  const { records: logs } = await captureLogs(() =>
+  const { records: logs } = await captureDaemonLogs(() =>
     control.start(
       rebindScope({
         requestId: "start-2",

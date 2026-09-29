@@ -10,6 +10,16 @@ import { daemonLogPath, prepareDaemonLogFile } from "#src/platform/daemon-log-fi
 // a linked ancestor, so resolve the root once and build state dirs under it.
 const tempRoot = realpathSync(tmpdir());
 
+/** How long a test waits for a spawned Daemon to open its socket, or for one that refuses to
+ * start to exit. This is the test's own bound, not a product constant; the runner's default 5 s is
+ * shorter than it, so a slow start would be ended by the runner instead of reported by the wait. */
+const DAEMON_STARTUP_DEADLINE_MS = 10_000;
+
+/** How long a Daemon gets to exit after SIGTERM: the test's own bound, set to the startup one. */
+const DAEMON_SHUTDOWN_DEADLINE_MS = DAEMON_STARTUP_DEADLINE_MS;
+
+const DAEMON_START_AND_STOP_TIMEOUT_MS = DAEMON_STARTUP_DEADLINE_MS + DAEMON_SHUTDOWN_DEADLINE_MS;
+
 test.each(["daemon", "coordinator"])(
   "%s writes child-category diagnostics with process metadata",
   async (role) => {
@@ -42,21 +52,26 @@ test.each(["daemon", "coordinator"])(
       await rm(directory, { recursive: true, force: true });
     }
   },
+  DAEMON_START_AND_STOP_TIMEOUT_MS,
 );
 
-test.skipIf(process.platform === "win32")("Daemon refuses a symlinked log root", async () => {
-  const directory = await mkdtemp(join(tempRoot, "coforge-daemon-logs-"));
-  const target = await mkdtemp(join(tempRoot, "coforge-daemon-log-target-"));
-  try {
-    const linkedRoot = join(directory, "linked-root");
-    await symlink(target, linkedRoot);
-    const child = spawnDaemon(join(directory, "daemon.sock"), linkedRoot);
-    expect(await child.exited).not.toBe(0);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-    await rm(target, { recursive: true, force: true });
-  }
-});
+test.skipIf(process.platform === "win32")(
+  "Daemon refuses a symlinked log root",
+  async () => {
+    const directory = await mkdtemp(join(tempRoot, "coforge-daemon-logs-"));
+    const target = await mkdtemp(join(tempRoot, "coforge-daemon-log-target-"));
+    try {
+      const linkedRoot = join(directory, "linked-root");
+      await symlink(target, linkedRoot);
+      const child = spawnDaemon(join(directory, "daemon.sock"), linkedRoot);
+      expect(await child.exited).not.toBe(0);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+      await rm(target, { recursive: true, force: true });
+    }
+  },
+  DAEMON_STARTUP_DEADLINE_MS,
+);
 
 test.skipIf(process.platform === "win32")(
   "Daemon tightens permissions on an existing rotated log",
@@ -92,6 +107,7 @@ test.skipIf(process.platform === "win32")(
       await rm(target, { recursive: true, force: true });
     }
   },
+  DAEMON_STARTUP_DEADLINE_MS,
 );
 
 test.skipIf(process.platform === "win32")(
@@ -110,6 +126,7 @@ test.skipIf(process.platform === "win32")(
       await rm(target, { recursive: true, force: true });
     }
   },
+  DAEMON_STARTUP_DEADLINE_MS,
 );
 
 function spawnDaemon(socketPath: string, stateDirectory: string, role = "daemon"): Bun.Subprocess {
@@ -150,7 +167,7 @@ async function sendInvalidFrame(socketPath: string): Promise<void> {
 }
 
 async function waitFor(condition: () => boolean | Promise<boolean>): Promise<void> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + DAEMON_STARTUP_DEADLINE_MS;
   while (!(await condition())) {
     if (Date.now() >= deadline) throw new Error("Timed out waiting for Daemon startup");
     await Bun.sleep(10);

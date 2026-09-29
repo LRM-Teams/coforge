@@ -1,6 +1,4 @@
 import { expect, test } from "bun:test";
-import type { LogRecord } from "@logtape/logtape";
-import { configure, reset } from "@logtape/logtape";
 import { AgentControl, type LaunchRetryScheduler } from "#src/agent-runtime/agent-control";
 import { AgentSessions } from "#src/agent-runtime/agent-session";
 import { AgentRuntimeState, type AgentRuntimeRecord } from "#src/agent-runtime/agent-runtime-state";
@@ -11,6 +9,7 @@ import type {
 } from "@lrm/coforge-sdk/internal";
 import { LAUNCH_FAILURE_MAX_ATTEMPTS } from "#src/agent-runtime/launch-failure-backoff";
 import { RuntimeModelNotFoundError } from "#src/code-agent/contract";
+import { captureDaemonLogs } from "./log-capture";
 
 /** A scheduler that only records what `AgentControl` asked for, so a test drives every retry
  * itself instead of sleeping through real cooldowns. */
@@ -46,24 +45,6 @@ function manualScheduler() {
  * few macrotask turns are enough). */
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-async function captureLogs<T>(run: () => Promise<T>): Promise<{ result: T; records: LogRecord[] }> {
-  const records: LogRecord[] = [];
-  await configure({
-    reset: true,
-    sinks: { capture: (record) => records.push(record) },
-    loggers: [
-      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
-      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
-    ],
-  });
-  try {
-    const result = await run();
-    return { result, records };
-  } finally {
-    await reset();
-  }
 }
 
 const startIntent: AgentStartIntent = {
@@ -175,7 +156,7 @@ test("the launch-failed warnings carry the typed reason, the cause, and the SDK 
   });
   const typed = new RuntimeModelNotFoundError("gpt-5", { cause: sdkError });
 
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     const h = harness(async () => {
       throw typed;
     });
@@ -215,7 +196,7 @@ test("the launch-failed warnings carry the typed reason, the cause, and the SDK 
 });
 
 test("a launch-failed warning logs the cause with credentials redacted", async () => {
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     const h = harness(async () => {
       throw new Error("spawn failed with api_key=sk-private-value");
     });
@@ -343,7 +324,7 @@ test("dispose drops armed retries and failure streaks", async () => {
 });
 
 test("the retry backoff and its recovery are logged with attempts and cooldown", async () => {
-  const { records } = await captureLogs(async () => {
+  const { records } = await captureDaemonLogs(async () => {
     const h = harness(async (attempt) => {
       if (attempt === 1) throw new Error("spawn blew up");
       return { sessionId: "fresh", state: "empty" };

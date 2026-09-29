@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { configure, reset, type LogRecord } from "@logtape/logtape";
 import {
   discoverCodeAgentInventory,
   discoverExternalCodeAgents,
   type ExternalCodeAgentProbe,
 } from "#src/code-agent/runtime-inventory";
 import { KIRO_MIN_CLI_VERSION } from "#src/code-agent/kiro/connection";
+import { captureDaemonLogs } from "./log-capture";
 
 function kiroProbe(versionOutput: string): ExternalCodeAgentProbe {
   return {
@@ -17,31 +17,9 @@ function kiroProbe(versionOutput: string): ExternalCodeAgentProbe {
   };
 }
 
-async function captureWarnings(run: () => Promise<unknown>) {
-  const records: LogRecord[] = [];
-  await configure({
-    reset: true,
-    sinks: {
-      capture: (record) => {
-        records.push(record);
-      },
-    },
-    loggers: [
-      { category: ["coforge", "daemon"], lowestLevel: "info", sinks: ["capture"] },
-      { category: ["logtape", "meta"], lowestLevel: "error", sinks: ["capture"] },
-    ],
-  });
-  try {
-    await run();
-  } finally {
-    await reset();
-  }
-  return records;
-}
-
 describe("Kiro minimum CLI version gate", () => {
   test("does not report Kiro and logs a warning when the CLI is below the compatibility baseline", async () => {
-    const records = await captureWarnings(async () => {
+    const { records } = await captureDaemonLogs(async () => {
       const runtimes = await discoverExternalCodeAgents(kiroProbe("kiro-cli 2.16.0\n"));
       expect(runtimes).toEqual([]);
     });
@@ -81,6 +59,9 @@ describe("Kiro minimum CLI version gate", () => {
     const marker = `${Bun.env.TMPDIR ?? "/tmp"}/coforge-kiro-catalog-should-not-spawn-${crypto.randomUUID()}`;
     try {
       const inventory = await discoverCodeAgentInventory({
+        // Pi's catalog is discovered in the same pass; a fixture home keeps that discovery off the
+        // developer's real Pi configuration, which also makes the pass take milliseconds.
+        environment: { HOME: "/fixture/home", PATH: "", PI_OFFLINE: "1" },
         probe: kiroProbe("kiro-cli 2.16.0\n"),
         commands: {
           kiro: [
