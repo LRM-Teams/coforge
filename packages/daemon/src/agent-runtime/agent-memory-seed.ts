@@ -19,7 +19,12 @@ const MEMORY_TARGET_KB = 3;
 
 const WORK_LOG_SEED = `# Work log
 
-Chronological history. Append only. Do not read this file every turn — follow the pointer in MEMORY.md Active Context.
+Chronological history. Append only. Do not read this file every turn — follow the pointer in notes/active-context.md.
+`;
+
+const ACTIVE_CONTEXT_SEED = `# Active Context
+
+Before a long task, replace this line with up to 5 lines: the current task, the next step, and pointers to details, so an interrupted task can resume.
 `;
 
 const GITIGNORE_SEED = `work/
@@ -28,8 +33,9 @@ const GITIGNORE_SEED = `work/
 
 /**
  * Builds the content of a freshly seeded MEMORY.md for one Agent: a title, a Role section, a
- * Rules slot, a five-line Active Context, and an Index pointing at notes/work-log.md — the
- * directory-card shape the Agent Manual's memory topic tells the Agent to keep for on-demand recovery.
+ * Rules slot, and an Index pointing at notes/active-context.md and notes/work-log.md — the
+ * directory-card shape the Agent Manual's memory topic tells the Agent to keep for on-demand
+ * recovery. MEMORY.md holds references only; the Active Context lives in notes/active-context.md.
  *
  * User-written identity text is sanitised the same way the standing prompt sanitises it: the
  * name is collapsed to a single line so it cannot break the `# <name>` heading, and the
@@ -49,10 +55,8 @@ ${role}
 ## Rules (never change)
 -
 
-## Active Context (≤5 lines)
--
-
 ## Index
+- notes/active-context.md   当前任务、下一步、指针（≤5 行）
 - notes/work-log.md   按时间的完整历史
 `;
 }
@@ -70,18 +74,6 @@ async function writeNewFile(path: string, content: string): Promise<void> {
   }
 }
 
-/**
- * Writes the seeded MEMORY.md into an Agent's workspace on its first launch, and creates the
- * `notes/` / `work/` layout plus a root `.gitignore`. Never overwrites an existing file — once
- * written, an Agent owns MEMORY.md and this seed step never touches it again (`flag: "wx"` fails
- * with `EEXIST`, which is swallowed here). After a Full Reset clears the Agent workspace (the
- * record store's `clearWorkspace`), MEMORY.md is gone along with every other workspace file, so
- * the next launch's call to this function seeds it again with no special-casing required.
- *
- * Missing directories (`notes/`, `work/`) are created even when MEMORY.md already exists, so an
- * older workspace still gets the layout. A seeding failure (anything other than the file already
- * existing) is logged and swallowed: it must never fail the Agent launch that is already under way.
- */
 /** Soft reminder copy when MEMORY.md has grown past the 8KB watch threshold. Daemon never edits the file. */
 export async function memoryIndexReminder(
   agentWorkspaceDirectory: string,
@@ -96,6 +88,21 @@ export async function memoryIndexReminder(
   }
 }
 
+/**
+ * Writes the seeded MEMORY.md and notes/active-context.md into an Agent's workspace on its first
+ * launch, and creates the `notes/` / `work/` layout plus notes/work-log.md and a root
+ * `.gitignore`. Never overwrites an existing file — once written, an Agent owns each of them and
+ * this seed step never touches it again (`flag: "wx"` fails with `EEXIST`, which is swallowed
+ * here). After a Full Reset clears the Agent workspace (the record store's `clearWorkspace`), the
+ * files are gone along with every other workspace file, so the next launch's call to this
+ * function seeds them again with no special-casing required.
+ *
+ * Missing directories and notes files are created even when MEMORY.md already exists, so an older
+ * workspace still gets the layout, including notes/active-context.md. An existing MEMORY.md is
+ * never rewritten, even one that still carries an Active Context section. A seeding failure
+ * (anything other than the file already existing) is logged and swallowed: it must never fail the
+ * Agent launch that is already under way.
+ */
 export async function seedAgentMemory(
   agentWorkspaceDirectory: string,
   identity: AgentMemorySeedIdentity,
@@ -109,6 +116,7 @@ export async function seedAgentMemory(
     await writeNewFile(memoryPath, buildInitialMemoryMd(identity));
     await mkdir(notesDirectory, { recursive: true });
     await mkdir(workDirectory, { recursive: true });
+    await writeNewFile(join(notesDirectory, "active-context.md"), ACTIVE_CONTEXT_SEED);
     await writeNewFile(join(notesDirectory, "work-log.md"), WORK_LOG_SEED);
     await writeNewFile(join(agentWorkspaceDirectory, ".gitignore"), GITIGNORE_SEED);
   } catch (error) {

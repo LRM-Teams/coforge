@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,7 +8,7 @@ import {
   seedAgentMemory,
 } from "#src/agent-runtime/agent-memory-seed";
 
-test("buildInitialMemoryMd renders the displayName, role, and an empty active context", () => {
+test("buildInitialMemoryMd renders the displayName, role, and an index of notes, with no active context", () => {
   const content = buildInitialMemoryMd({
     name: "scout",
     displayName: "Scout",
@@ -22,12 +22,11 @@ Reviews pull requests for the platform team.
 ## Rules (never change)
 -
 
-## Active Context (≤5 lines)
--
-
 ## Index
+- notes/active-context.md   当前任务、下一步、指针（≤5 行）
 - notes/work-log.md   按时间的完整历史
 `);
+  expect(content).not.toContain("Active Context");
   expect(content).not.toContain("First startup");
 });
 
@@ -62,9 +61,16 @@ test("seedAgentMemory writes MEMORY.md into the Agent workspace with owner-only 
     );
     const stats = await stat(memoryPath);
     expect(stats.mode & 0o777).toBe(0o600);
-    expect(await readFile(join(workspace, "notes", "work-log.md"), "utf8")).toContain(
-      "Chronological history",
-    );
+    const workLog = await readFile(join(workspace, "notes", "work-log.md"), "utf8");
+    expect(workLog).toContain("Chronological history");
+    expect(workLog).toContain("follow the pointer in notes/active-context.md");
+    expect(workLog).not.toContain("MEMORY.md Active Context");
+    const activeContextPath = join(workspace, "notes", "active-context.md");
+    const activeContext = await readFile(activeContextPath, "utf8");
+    expect(activeContext).toContain("# Active Context");
+    expect(activeContext).toContain("up to 5 lines");
+    expect(activeContext.trimEnd().split("\n").length).toBeLessThanOrEqual(5);
+    expect((await stat(activeContextPath)).mode & 0o777).toBe(0o600);
     expect(await readFile(join(workspace, ".gitignore"), "utf8")).toBe("work/\n.pi-sessions/\n");
     expect((await stat(join(workspace, "work"))).isDirectory()).toBe(true);
   } finally {
@@ -86,6 +92,28 @@ test("seedAgentMemory never overwrites an existing MEMORY.md, byte for byte", as
     expect((await stat(join(workspace, "work"))).isDirectory()).toBe(true);
     expect(await readFile(join(workspace, "notes", "work-log.md"), "utf8")).toContain(
       "Chronological history",
+    );
+    expect(await readFile(join(workspace, "notes", "active-context.md"), "utf8")).toContain(
+      "# Active Context",
+    );
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("seedAgentMemory never overwrites an existing notes/active-context.md, byte for byte", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "coforge-agent-memory-seed-active-context-"));
+  try {
+    await mkdir(join(workspace, "notes"));
+    const activeContextPath = join(workspace, "notes", "active-context.md");
+    const ownedContent = "- Doing: migrate the billing tables\n- Next: run the backfill\n";
+    await writeFile(activeContextPath, ownedContent, { encoding: "utf8", mode: 0o600 });
+
+    await seedAgentMemory(workspace, { name: "scout" });
+
+    expect(await readFile(activeContextPath, "utf8")).toBe(ownedContent);
+    expect(await readFile(join(workspace, "MEMORY.md"), "utf8")).toBe(
+      buildInitialMemoryMd({ name: "scout" }),
     );
   } finally {
     await rm(workspace, { recursive: true, force: true });

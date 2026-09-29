@@ -20,8 +20,14 @@ test("ordinary requests do not require task creation or per-turn memory bookkeep
   expect(instructions).toContain("If a claim fails, do not start conflicting execution");
   expect(instructions).toContain("when this request lacks context");
   expect(instructions).not.toContain("## Startup sequence");
-  expect(instructions).not.toContain("Before a long task");
   expect(instructions).not.toContain("before you finish that turn");
+});
+
+test("before a long task, progress goes to notes/active-context.md rather than MEMORY.md", () => {
+  expect(instructions).toContain(
+    "Before a long task, note where you are in notes/active-context.md to resume.",
+  );
+  expect(instructions).not.toContain("Active Context");
 });
 
 test("retains an executable reply example and thread addressing without provider tool names", () => {
