@@ -8,6 +8,7 @@ import {
   clearUnread,
   closedConversationLists,
   seedUnreadCounts,
+  unknownAgentOf,
   replaceUnreadCounts,
   latestTopLevelSequence,
   persistReadCursor,
@@ -366,6 +367,16 @@ test("a new top-level message in a chat the sidebar is not showing makes only th
     ),
   ).toEqual([]);
   expect(closedConversationLists({ ...message, threadRootId: "root-1" }, listed)).toEqual([]);
+});
+
+test("a DM signal from an Agent outside the viewer's roster names that Agent; anything else names none", () => {
+  const known = new Set(["agent-known"]);
+  const message = { conversationId: "dm-1", sequence: 1 };
+  // A new Agent (made from an action card, or in another tab) writing first: its row needs it.
+  expect(unknownAgentOf({ ...message, agentId: "agent-new" }, known)).toBe("agent-new");
+  expect(unknownAgentOf({ ...message, agentId: "agent-known" }, known)).toBeUndefined();
+  expect(unknownAgentOf({ ...message, peerUserId: "grace" }, known)).toBeUndefined();
+  expect(unknownAgentOf({ ...message, conversationId: "channel-1" }, known)).toBeUndefined();
 });
 
 describe("the viewer's own channel events", () => {

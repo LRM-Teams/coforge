@@ -26,7 +26,7 @@ import {
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { rememberConversation } from "./last-conversation";
-import { useChannelUnread } from "./conversation-unread";
+import { unknownAgentOf, useChannelUnread } from "./conversation-unread";
 import { useRefreshSidebar, useSidebarLists } from "./sidebar-lists";
 import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
@@ -124,6 +124,9 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     [visibleChannels, directs, agents],
   );
   const refreshSidebar = useRefreshSidebar();
+  const knownAgentIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents]);
+  // The Workspace layout's Agent roster only re-reads through the router: one re-read at a time.
+  const rosterRefresh = useRef<Promise<void> | undefined>(undefined);
   const unread = useChannelUnread({
     workspaceId,
     userId: viewerId,
@@ -133,7 +136,15 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     listedConversationIds,
     // A message brought a closed chat back, or a DM the list has not read yet: re-read that one
     // list, not the page (a burst is read once).
-    onClosedConversationActivity: (lists) => void refreshSidebar(lists),
+    onClosedConversationActivity: (lists, event) => {
+      void refreshSidebar(lists);
+      // A new Agent writing first: its DM row needs the Agent in the roster, which only the
+      // layout's loader reads.
+      if (unknownAgentOf(event, knownAgentIds) && !rosterRefresh.current)
+        rosterRefresh.current = router.invalidate().finally(() => {
+          rosterRefresh.current = undefined;
+        });
+    },
     // A channel changed, or the viewer joined, left, closed, muted or pinned a chat elsewhere:
     // only the lists named are stale.
     onSidebarListsChanged: (lists) => void refreshSidebar(lists),

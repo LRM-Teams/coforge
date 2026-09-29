@@ -84,6 +84,21 @@ export function applyUnreadEvent(
 }
 
 /**
+ * The Agent a DM signal names when the viewer's roster does not know it yet (one made from an
+ * action card or in another tab, writing first): its DM row only lists once the roster has it, so
+ * the page must re-read the roster too. Undefined for a known Agent, a DM between members, or a
+ * channel.
+ */
+export function unknownAgentOf(
+  event: UnreadEventInput,
+  knownAgentIds: ReadonlySet<string>,
+): string | undefined {
+  return event.agentId !== undefined && !knownAgentIds.has(event.agentId)
+    ? event.agentId
+    : undefined;
+}
+
+/**
  * Which list a new message makes stale when it landed in a chat the sidebar is not showing: one
  * the viewer closed, or a DM that started after the list was read. Such a message brings the chat
  * in, so the sidebar re-reads that one list: the DM list for a DM (its signal names the Agent or
@@ -269,7 +284,7 @@ export function useChannelUnread({
   listedConversationIds: ReadonlySet<string>;
   /** A new message arrived in a closed chat, or a DM the list has not read yet: these lists
    * bring it in. */
-  onClosedConversationActivity: (lists: readonly SidebarList[]) => void;
+  onClosedConversationActivity: (lists: readonly SidebarList[], event: UnreadEventInput) => void;
   /** These lists are stale: a channel was renamed, described, archived or unarchived
    * (`channel.updated.v1`), or the viewer's own place in a chat changed elsewhere (`ViewerEvent`). */
   onSidebarListsChanged: (lists: readonly SidebarList[]) => void;
@@ -310,7 +325,7 @@ export function useChannelUnread({
       } = refs.current;
       const conversations = new Set(channelRows.map((channel) => channel.id));
       const stale = closedConversationLists(event, listed);
-      if (stale.length > 0) reopenFromActivity(stale);
+      if (stale.length > 0) reopenFromActivity(stale, event);
       setCounts((current) =>
         applyUnreadEvent(current, event, {
           conversations,
