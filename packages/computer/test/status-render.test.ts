@@ -173,6 +173,27 @@ test("renderStatusHuman shows a Workspace's cloud connection and why it is not u
   expect(lines.find((line) => line.includes("ws-3"))).toContain("cloud=-");
 });
 
+test("renderStatusHuman shortens a long cloud connection reason", () => {
+  if (!REPORT.workspaces.readable) throw new Error("fixture has readable workspaces");
+  const workspace = REPORT.workspaces.workspaces[0]!;
+  const lines = renderStatusHuman({
+    ...REPORT,
+    workspaces: {
+      readable: true,
+      workspaces: [
+        {
+          ...workspace,
+          cloudConnection: { state: "connecting", error: `connect error 100: ${"x".repeat(500)}` },
+        },
+      ],
+    },
+  });
+
+  const reason = lines.find((line) => line.startsWith("    cloud: "))!;
+  expect(reason.length).toBeLessThanOrEqual("    cloud: retrying after ".length + 200);
+  expect(reason.endsWith("…")).toBe(true);
+});
+
 test("renderStatusHuman states a degraded Workspace's real reason and the recovery command", () => {
   const lines = renderStatusHuman({
     ...REPORT,

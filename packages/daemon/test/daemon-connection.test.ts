@@ -11,6 +11,7 @@ import {
 } from "#src/connection/daemon-connection";
 import { DaemonConnectionRefusedError } from "#src/connection/daemon-connection-refused-error";
 import { DaemonConnectionStoppedError } from "#src/connection/daemon-connection-stopped-error";
+import { HELD_NOTICE_CAP } from "#src/connection/held-publications";
 import type { AgentSendDecisionResponse } from "@lrm/coforge-sdk/agent";
 import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
 import {
@@ -1107,10 +1108,13 @@ test("waits for connected and does not send a business payload", async () => {
 function manualTiming() {
   const scheduled: { callback: () => void; delayMs: number }[] = [];
   const cancelled: unknown[] = [];
+  const clock = { now: 0 };
   return {
     scheduled,
     cancelled,
+    clock,
     timing: {
+      now: () => clock.now,
       schedule: (callback: () => void, delayMs: number) => {
         scheduled.push({ callback, delayMs });
         return scheduled.length;
@@ -1201,9 +1205,60 @@ test("a give-up disconnect after the connection was up is resumed with a doublin
 
   expect(scheduled.map(({ delayMs }) => delayMs)).toEqual([1_000, 2_000, 4_000]);
   expect(connectCalls).toBe(4);
-  // A connection that came back starts the next outage from the shortest delay again.
+  // Back up, but dropped again before it proved stable: the same outage goes on.
   fake.disconnect({ code: 3, reason: "message size limit exceeded" });
-  expect(scheduled[3]!.delayMs).toBe(1_000);
+  expect(scheduled[3]!.delayMs).toBe(8_000);
+});
+
+test("a connection dropped right after connecting backs off and escalates instead of starting over", async () => {
+  const fake = fakeClient();
+  // Every connect succeeds and is given up on at once, the way a 3503 or an oversized frame is.
+  fake.client.connect = () => {
+    fake.connect();
+    fake.disconnect({ code: 3503, reason: "connection limit" });
+  };
+  const { transport, scheduled } = manualConnection(fake);
+
+  const { records } = await captureLogs(async () => {
+    await transport.start("secret", config);
+    for (let round = 0; round < 9; round += 1) scheduled.at(-1)!.callback();
+  });
+
+  expect(scheduled.map(({ delayMs }) => delayMs)).toEqual([
+    1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000, 30_000, 30_000,
+  ]);
+  const retries = eventRecords(records, "daemon_connection:retry_scheduled");
+  expect(retries.map((record) => record.properties.attempt)).toEqual([
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+  ]);
+  expect(retries.filter((record) => record.level === "error")).toHaveLength(2);
+});
+
+test("a connection that stayed up a minute after ready starts its next outage afresh", async () => {
+  const fake = fakeClient();
+  let connectCalls = 0;
+  fake.client.connect = () => {
+    connectCalls += 1;
+    fake.connect();
+    if (connectCalls === 1) fake.disconnect({ code: 3503, reason: "connection limit" });
+  };
+  const { transport, scheduled, clock } = manualConnection(fake);
+  await transport.start("secret", config);
+  scheduled[0]!.callback();
+  await transport.ready(readyRequest);
+
+  clock.now += 59_000;
+  fake.disconnect({ code: 3503, reason: "connection limit" });
+  // Not stable yet: the outage that began with the first drop goes on.
+  expect(scheduled[1]!.delayMs).toBe(2_000);
+
+  const recovered = Promise.withResolvers<void>();
+  transport.onReconnect(() => recovered.resolve());
+  scheduled[1]!.callback();
+  await recovered.promise;
+  clock.now += 60_000;
+  fake.disconnect({ code: 3503, reason: "connection limit" });
+  expect(scheduled[2]!.delayMs).toBe(1_000);
 });
 
 test("a disconnect the daemon asked for itself is not resumed", async () => {
@@ -1238,15 +1293,14 @@ test("a run of failed connect attempts escalates to an error, then repeats it on
     for (let attempt = 0; attempt < 20; attempt += 1) fake.fail(transportError);
     fake.connect();
     await start;
-    // Connected again: the count starts over.
+    // Connected, but not yet proven stable: the next failure continues the same count.
     fake.fail(transportError);
   });
 
   const retries = eventRecords(records, "daemon_connection:retry_scheduled");
-  expect(retries.map((record) => record.properties.attempt)).toEqual([
-    ...Array.from({ length: 20 }, (_, index) => index + 1),
-    1,
-  ]);
+  expect(retries.map((record) => record.properties.attempt)).toEqual(
+    Array.from({ length: 21 }, (_, index) => index + 1),
+  );
   const errorAttempts = retries
     .filter((record) => record.level === "error")
     .map((record) => record.properties.attempt);
@@ -1440,6 +1494,93 @@ test("buffers reconnect publications until ready settles and preserves control a
   expect(dispatched).toEqual(["stop", "start"]);
 });
 
+/** A connection whose next ready waits until the test settles it. */
+async function heldReadyConnection() {
+  const fake = fakeClient();
+  const settle = Promise.withResolvers<void>();
+  fake.client.rpc = async (method) => {
+    if (method === DAEMON_RUNTIME_READY_METHOD) await settle.promise;
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  const publish = (data: Uint8Array) =>
+    fake.publish(`daemon:${config.workspaceId}:${config.computerId}`, data);
+  return { transport, publish, settle: () => settle.resolve() };
+}
+
+const startIntent = (requestId: string, agentId: string) =>
+  encodeAgentStartIntent({
+    protocolMajor: 1,
+    requestId,
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId,
+    provider: "pi",
+    model: "default",
+    reasoning: "balanced",
+  });
+const stopIntent = (requestId: string, agentId: string) =>
+  encodeAgentStopIntent({
+    protocolMajor: 1,
+    requestId,
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId,
+  });
+const deliveryNotice = (sequence: number) =>
+  encodeAgentMessageDelivery({
+    protocolMajor: 1,
+    requestId: `delivery-${sequence}`,
+    messageId: `message-${sequence}`,
+    deliveryId: `delivery-${sequence}`,
+    sequence,
+    workspaceId: config.workspaceId,
+    conversationId: "conversation-1",
+    agentId: "agent-1",
+    body: "hello",
+    method: "agent:v1:message:deliver",
+    target: "@alice",
+  });
+
+test("while ready waits, only the latest start and the latest stop per Agent are held, in arrival order", async () => {
+  const { transport, publish, settle } = await heldReadyConnection();
+  const dispatched: string[] = [];
+  transport.onAgentStart((intent) => dispatched.push(`${intent.requestId}@${intent.agentId}`));
+  transport.onAgentStop((intent) => dispatched.push(`${intent.requestId}@${intent.agentId}`));
+  const ready = transport.ready(readyRequest);
+
+  publish(startIntent("start-1", "agent-1"));
+  publish(stopIntent("stop-1", "agent-1"));
+  publish(startIntent("start-2", "agent-1"));
+  publish(startIntent("start-3", "agent-2"));
+  settle();
+  await ready;
+
+  // A restart (stop, then start) survives; the start it superseded does not.
+  expect(dispatched).toEqual(["stop-1@agent-1", "start-2@agent-1", "start-3@agent-2"]);
+});
+
+test("while ready waits, delivery notices past the cap are dropped and logged, not held", async () => {
+  const { transport, publish, settle } = await heldReadyConnection();
+  const sequences: number[] = [];
+  transport.onAgentMessage((message) => sequences.push(message.sequence));
+
+  const { records } = await captureLogs(async () => {
+    const ready = transport.ready(readyRequest);
+    for (let sequence = 1; sequence <= HELD_NOTICE_CAP + 2; sequence += 1)
+      publish(deliveryNotice(sequence));
+    settle();
+    await ready;
+  });
+
+  expect(sequences).toHaveLength(HELD_NOTICE_CAP);
+  expect(sequences.at(-1)).toBe(HELD_NOTICE_CAP);
+  expect(eventRecords(records, "daemon_ready:notices_dropped")[0]?.properties).toMatchObject({
+    dropped: 2,
+  });
+});
+
 test("retries reconnect ready on the same connection before releasing buffered publications", async () => {
   const fake = fakeClient();
   let rejectReady!: (error: Error) => void;
@@ -1571,6 +1712,42 @@ test("a failed first ready retries with the reconnect backoff until the cloud ac
   expect(readyCalls()).toBe(3);
   // The first ready is not a reconnect: the runtime's own start reports what follows it.
   expect(reconnects).toBe(0);
+});
+
+test("a ready that keeps failing is the connection's reported failure until the cloud accepts it", async () => {
+  const { transport, scheduled } = await failingReadyConnection(1);
+  const ready = transport.ready(readyRequest);
+  await scheduledRetries(scheduled, 1);
+
+  expect(transport.connectFailure()).toBe("ready failed: agent_recovery");
+  scheduled[0]!.callback();
+  await ready;
+  expect(transport.connectFailure()).toBeUndefined();
+});
+
+test("a dropped connection does not restart the ready retry count", async () => {
+  const fake = fakeClient();
+  fake.client.rpc = async (method) => {
+    if (method === DAEMON_RUNTIME_READY_METHOD)
+      throw Object.assign(new Error("daemon ready failed at agent_recovery"), { code: 503 });
+    return new Uint8Array();
+  };
+  const { transport, scheduled } = manualConnection(fake);
+  await transport.start("secret", config);
+
+  const { records } = await captureLogs(async () => {
+    void transport.ready(readyRequest).catch(() => {});
+    await scheduledRetries(scheduled, 1);
+    fake.disconnect({ code: 3503, reason: "connection limit" });
+    // The resumed connection comes back and its ready fails again.
+    scheduled[1]!.callback();
+    await scheduledRetries(scheduled, 3);
+  });
+
+  const retries = eventRecords(records, "daemon_ready:retry_scheduled");
+  expect(retries.map((record) => record.properties.attempt)).toEqual([1, 2]);
+  expect(retries.map((record) => record.properties.retry_delay_ms)).toEqual([1_000, 2_000]);
+  await transport.stop();
 });
 
 test("stop ends a first ready that keeps failing", async () => {

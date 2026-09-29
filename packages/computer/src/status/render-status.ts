@@ -1,4 +1,5 @@
 import { workspaceHealthRecoveryCommand, workspaceParkedMessage } from "@lrm/coforge-daemon";
+import { truncateCodePoints } from "@lrm/coforge-sdk/internal";
 import { terminalText } from "#src/terminal-output";
 import type {
   ComputerStatusReport,
@@ -106,10 +107,18 @@ function renderWorkspaces(report: ComputerStatusReport): string[] {
  * text, so it is made terminal-safe. */
 function renderCloudConnection(connection: WorkspaceCloudStatus | null): string | undefined {
   if (!connection?.error) return undefined;
-  const error = terminalText(connection.error);
+  const error = shortened(terminalText(connection.error), CLOUD_REASON_MAX_LENGTH);
   if (connection.state === "connecting") return `retrying after ${error}`;
   if (connection.state === "not_connected") return `not connected (${error})`;
   return undefined;
+}
+
+/** A cloud connection reason is remote text of any length; status keeps its line readable. */
+const CLOUD_REASON_MAX_LENGTH = 200;
+
+function shortened(text: string, maxLength: number): string {
+  if (truncateCodePoints(text, maxLength) === text) return text;
+  return `${truncateCodePoints(text, maxLength - 1)}…`;
 }
 
 /** Only printed when a Workspace is actually degraded, so a healthy Workspace's output stays as
