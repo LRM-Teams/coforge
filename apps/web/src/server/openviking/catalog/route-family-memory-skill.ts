@@ -13,6 +13,7 @@ import {
   type GatewayCapability,
   type RoutePolicyDecision,
   templateMatches,
+  toFamilyGatewayPolicies,
 } from "../route-policy";
 
 export const MEMORY_SKILL_FAMILY_KINDS = ["skill", "session", "compile", "evolution"] as const;
@@ -310,11 +311,7 @@ export const MEMORY_SKILL_FAMILY_ROUTES: readonly MemorySkillFamilyRoute[] = [
 export function toMemorySkillFamilyPolicies(
   routes: readonly MemorySkillFamilyRoute[] = MEMORY_SKILL_FAMILY_ROUTES,
 ): readonly GatewayRoutePolicy[] {
-  return routes.map((route) => ({
-    method: route.method,
-    path: route.path,
-    classification: route.classification,
-  }));
+  return toFamilyGatewayPolicies(routes);
 }
 
 export function lookupMemorySkillFamilyRoute(
