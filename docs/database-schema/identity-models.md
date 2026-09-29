@@ -10,7 +10,8 @@ User UUID. The username is not changed by later logins. `UserIdentity` maps
 an external provider and subject to that User; provider subjects are never
 business foreign keys. Membership, Agent ownership, and Computer ownership use
 the internal User UUID. Existing rows are backfilled by the migration before
-the legacy external column is removed.
+the legacy external column is removed. `User.email` is the latest email the
+identity provider reported at login, nullable, not unique, not an identity key.
 
 `User.displayName` stores the user's optional editable name override; when it
 is null, the application displays the current identity-provider name.
