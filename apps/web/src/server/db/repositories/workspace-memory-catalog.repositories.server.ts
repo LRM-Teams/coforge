@@ -10,6 +10,7 @@ import {
   DISPATCH_STATES,
   type AdmittedSegmentDispatchRecord,
 } from "../../workspace-memory/dispatch";
+import { readMemoryOfferMessageIds } from "./workspace-memory-citation.repositories.server";
 import { WorkspaceMemoryScopeError } from "./workspace-memory-errors.server";
 
 export class PrismaWorkspaceMemoryCatalog implements WorkspaceMemoryCatalog {
@@ -35,6 +36,10 @@ export class PrismaWorkspaceMemoryCatalog implements WorkspaceMemoryCatalog {
       where: { workspaceId, state: { in: ["pending", "retryable_failure"] } },
     });
     return rows.map(toDispatch);
+  }
+
+  async listMemoryOfferMessageIds(workspaceId: string): Promise<readonly string[]> {
+    return readMemoryOfferMessageIds(this.db, workspaceId);
   }
 
   async loadAdmissionWindow(
@@ -149,6 +154,7 @@ function toDispatch(row: {
   state: string;
   attemptCount: number;
   sanitizedError: string | null;
+  updatedAt: Date;
 }): AdmittedSegmentDispatchRecord {
   if (
     !(DISPATCH_SINK_PROFILES as readonly string[]).includes(row.sinkProfile) ||
@@ -164,6 +170,7 @@ function toDispatch(row: {
     profileGeneration: row.profileGeneration,
     state: row.state as AdmittedSegmentDispatchRecord["state"],
     attemptCount: row.attemptCount,
+    updatedAt: row.updatedAt.toISOString(),
     ...(row.sanitizedError ? { sanitizedError: row.sanitizedError } : {}),
   };
 }

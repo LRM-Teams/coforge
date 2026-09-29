@@ -8,11 +8,16 @@ import {
   type AdmissionTurn,
   type DetectedPublicChannelSegment,
 } from "./detect-segments";
-import type { AdmissionDispatcher, WorkspaceMemoryAdmissionPort } from "./dispatch";
+import type {
+  AdmissionDispatcher,
+  AdmittedSegmentDispatchRecord,
+  WorkspaceMemoryAdmissionPort,
+} from "./dispatch";
 import type { WorkspaceMemoryProfileReconciler } from "./reconciler";
 import type { WorkspaceMemoryProfileStore } from "./stores";
 
 export const WORKSPACE_MEMORY_QUIET_WINDOW_MS = 15 * 60 * 1000;
+export const WORKSPACE_MEMORY_PENDING_REDRAIN_AFTER_MS = 10 * 60 * 1000;
 
 export type WorkspaceMemorySweepLock = {
   acquire(instanceId: string): Promise<boolean>;
@@ -31,11 +36,13 @@ export function createWorkspaceMemoryAdmissionSweep(deps: {
   lock: WorkspaceMemorySweepLock;
   now?: () => Date;
   quietAfterMs?: number;
+  pendingRedrainAfterMs?: number;
   instanceId?: string;
   onError?: (event: string, extra: Record<string, unknown>) => void;
 }): WorkspaceMemoryAdmissionSweep {
   const now = deps.now ?? (() => new Date());
   const quietAfterMs = deps.quietAfterMs ?? WORKSPACE_MEMORY_QUIET_WINDOW_MS;
+  const pendingRedrainAfterMs = deps.pendingRedrainAfterMs ?? pendingRedrainAfterFromEnv();
   const instanceId = deps.instanceId ?? crypto.randomUUID();
   const onError =
     deps.onError ??
@@ -86,6 +93,7 @@ export function createWorkspaceMemoryAdmissionSweep(deps: {
     if (!profile) return;
     const after = profile.activationCursor ? new Date(profile.activationCursor.occurredAt) : null;
     const window = await deps.catalog.loadAdmissionWindow(workspaceId, after);
+    const offerMessageIds = new Set(await deps.catalog.listMemoryOfferMessageIds(workspaceId));
     const detected = detectAdmittedPublicChannelSegments({
       ...window,
       admittedMessageIds: await deps.catalog.listAdmittedMessageIds(workspaceId),
@@ -93,9 +101,10 @@ export function createWorkspaceMemoryAdmissionSweep(deps: {
       quietAfterMs,
     });
     for (const segment of detected) {
-      await deps.dispatcher.dispatch({ profile, detected: segment });
+      await deps.dispatcher.dispatch({ profile, detected: segment, offerMessageIds });
     }
     for (const record of await deps.catalog.listRetryableDispatches(workspaceId)) {
+      if (!shouldRedrainDispatch(record, now(), pendingRedrainAfterMs)) continue;
       if (detected.some((segment) => segment.segmentId === record.segmentId)) continue;
       const stored = await deps.admission.getSegment(workspaceId, record.segmentId);
       if (!stored) continue;
@@ -106,9 +115,31 @@ export function createWorkspaceMemoryAdmissionSweep(deps: {
         detected: toDetected(stored, messages),
         admitted: stored,
         sinkProfile: record.sinkProfile,
+        offerMessageIds,
       });
     }
   }
+}
+
+function pendingRedrainAfterFromEnv(): number {
+  const raw = Bun.env.WORKSPACE_MEMORY_PENDING_REDRAIN_AFTER_MS;
+  if (raw === undefined || raw.length === 0) return WORKSPACE_MEMORY_PENDING_REDRAIN_AFTER_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0
+    ? parsed
+    : WORKSPACE_MEMORY_PENDING_REDRAIN_AFTER_MS;
+}
+
+function shouldRedrainDispatch(
+  record: AdmittedSegmentDispatchRecord,
+  at: Date,
+  pendingAfterMs: number,
+): boolean {
+  if (record.state === "retryable_failure") return true;
+  if (record.state !== "pending" || !record.updatedAt) return false;
+  const updatedAt = Date.parse(record.updatedAt);
+  if (!Number.isFinite(updatedAt)) return false;
+  return at.getTime() - updatedAt >= pendingAfterMs;
 }
 
 function toDetected(

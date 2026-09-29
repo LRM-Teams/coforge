@@ -49,6 +49,7 @@ export type WorkspaceMemoryCitationStore = {
   ): Promise<OpenVikingCitationRecord | null>;
   putOffer(input: MemoryOfferRecord): Promise<PutOfferResult>;
   getOffer(workspaceId: string, operationId: string): Promise<MemoryOfferRecord | null>;
+  listMemoryOfferMessageIds(workspaceId: string): Promise<readonly string[]>;
 };
 
 type OpenVikingCitationRow = {
@@ -154,6 +155,10 @@ export class PrismaWorkspaceMemoryCitationStore implements WorkspaceMemoryCitati
     }
   }
 
+  async listMemoryOfferMessageIds(workspaceId: string): Promise<readonly string[]> {
+    return readMemoryOfferMessageIds(this.db, workspaceId);
+  }
+
   async getOffer(workspaceId: string, operationId: string): Promise<MemoryOfferRecord | null> {
     const row = await this.db.memoryOfferRecord.findUnique({
       where: { workspaceId_operationId: { workspaceId, operationId } },
@@ -177,6 +182,17 @@ export class PrismaWorkspaceMemoryCitationStore implements WorkspaceMemoryCitati
       if (!record) throw new WorkspaceMemoryCitationKindError();
     }
   }
+}
+
+export async function readMemoryOfferMessageIds(
+  db: PrismaClient,
+  workspaceId: string,
+): Promise<readonly string[]> {
+  const rows = await db.memoryOfferRecord.findMany({
+    where: { workspaceId },
+    select: { messageId: true },
+  });
+  return rows.map((row) => row.messageId);
 }
 
 function citationColumns(record: OpenVikingCitationRecord) {

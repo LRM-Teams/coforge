@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import type {
-  OpenVikingAdmittedSessionWrite,
-  OpenVikingTypedSessionExtract,
+import { createOpenVikingRuntimeClient } from "../openviking/runtime-client.server";
+import {
+  createOpenVikingTypedSessionExtract,
+  type OpenVikingAdmittedSessionWrite,
+  type OpenVikingTypedSessionExtract,
 } from "../openviking/typed-session-extract.server";
 import { detectAdmittedPublicChannelSegments } from "./detect-segments";
 import {
@@ -125,6 +127,97 @@ test("OV sink metadata keeps segment, source IDs, and workspace lineage without 
   expect(JSON.stringify({ lineage, write })).not.toMatch(
     /causal|cm_fact|cm_ver|provenance|audit_id|fact_id/,
   );
+});
+
+test("agent turns carry a coforge peer id and human turns do not", async () => {
+  const delivery = deliveryFrom(
+    detectAdmittedPublicChannelSegments({
+      conversations: [{ id: "ch-eng", workspaceId: "ws-a", channelName: "eng" }],
+      messages: [
+        {
+          id: "m-human",
+          conversationId: "ch-eng",
+          workspaceId: "ws-a",
+          sequence: 1,
+          createdAt: new Date("2026-09-21T12:05:00.000Z"),
+          body: "what shipped",
+          senderKind: "human",
+          senderHandle: "ada",
+        },
+        {
+          id: "m-agent",
+          conversationId: "ch-eng",
+          workspaceId: "ws-a",
+          sequence: 2,
+          createdAt: new Date("2026-09-21T12:06:00.000Z"),
+          body: "the patch landed",
+          senderKind: "agent",
+          senderHandle: "helper",
+        },
+      ],
+      tasks: [],
+      admittedMessageIds: new Set(),
+      now: new Date("2026-09-21T12:30:00.000Z"),
+      quietAfterMs: 15 * 60 * 1000,
+    })[0]!,
+  );
+  const write = admittedSessionWriteFromDelivery(delivery);
+  expect(write.messages).toEqual([
+    {
+      role: "user",
+      content: "what shipped",
+      createdAt: "2026-09-21T12:05:00.000Z",
+      sourceMessageIds: ["m-human"],
+    },
+    {
+      role: "assistant",
+      content: "the patch landed",
+      createdAt: "2026-09-21T12:06:00.000Z",
+      sourceMessageIds: ["m-agent"],
+      peerId: "coforge__helper",
+    },
+  ]);
+
+  const batches: unknown[] = [];
+  const sessions = createOpenVikingTypedSessionExtract({
+    runtime: createOpenVikingRuntimeClient({
+      baseUrl: "http://ov.internal:1933",
+      fetchImpl: async (input, init) => {
+        if (String(input).endsWith("/messages/batch") && typeof init?.body === "string") {
+          batches.push(JSON.parse(init.body));
+        }
+        return new Response(JSON.stringify({ status: "ok", result: {} }), { status: 200 });
+      },
+    }),
+    authorizedOwner: "sink-owner",
+    sinkIdentity: {
+      accountId: "acct-ws-a",
+      userId: "workspace-memory-sink",
+      role: "user",
+      authorization: "Bearer server-held-sink",
+    },
+  });
+  const sink = createOpenVikingAdmittedDeliverySink({ sessions, owner: "sink-owner" });
+  expect(await sink.deliver(delivery)).toEqual({ outcome: "delivered" });
+  expect(batches).toEqual([
+    {
+      messages: [
+        {
+          role: "user",
+          content: "what shipped",
+          created_at: "2026-09-21T12:05:00.000Z",
+          source_message_ids: ["m-human"],
+        },
+        {
+          role: "assistant",
+          content: "the patch landed",
+          created_at: "2026-09-21T12:06:00.000Z",
+          source_message_ids: ["m-agent"],
+          peer_id: "coforge__helper",
+        },
+      ],
+    },
+  ]);
 });
 
 test("OV sink delivers through the typed channel and retries as retryable_failure", async () => {

@@ -102,6 +102,87 @@ test("typed session extract refuses a non-owner without calling OpenViking", asy
   expect(called).toBe(false);
 });
 
+test("typed session extract reports append and commit phases in order around one commit", async () => {
+  const calls: string[] = [];
+  const phases: Array<{
+    phase: string;
+    segmentId: string;
+    sessionId: string;
+    messageCount: number;
+    elapsedMs: number;
+  }> = [];
+  const sessions = createOpenVikingTypedSessionExtract({
+    runtime: createOpenVikingRuntimeClient({
+      baseUrl: "http://ov.internal:1933",
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith("/commit")) {
+          return new Response(
+            JSON.stringify({ status: "ok", result: { task_id: "task-phase", archived: true } }),
+            { status: 200 },
+          );
+        }
+        if (url.endsWith("/tasks/task-phase")) {
+          return new Response(JSON.stringify({ status: "ok", result: { status: "completed" } }), {
+            status: 200,
+          });
+        }
+        return new Response(JSON.stringify({ status: "ok", result: {} }), { status: 200 });
+      },
+    }),
+    authorizedOwner: "sink-owner",
+    sinkIdentity: SINK_IDENTITY,
+    sleep: async () => undefined,
+    onPhase: (event) => {
+      phases.push(event);
+    },
+  });
+  expect(
+    await sessions.writeCommitAndExtract({
+      owner: "sink-owner",
+      write: SAMPLE_WRITE,
+    }),
+  ).toEqual({ ok: true, sessionId: SAMPLE_WRITE.sessionId });
+  const batchAt = calls.findIndex((line) => line.includes("/messages/batch"));
+  const commitAt = calls.findIndex((line) => line.endsWith("/commit"));
+  expect(batchAt).toBeGreaterThanOrEqual(0);
+  expect(commitAt).toBeGreaterThan(batchAt);
+  expect(calls.filter((line) => line.endsWith("/commit"))).toHaveLength(1);
+  expect(calls.filter((line) => line.includes("/extract"))).toEqual([]);
+  expect(phases).toEqual([
+    {
+      phase: "append_submitted",
+      segmentId: "quiet-ch-eng-m-live",
+      sessionId: SAMPLE_WRITE.sessionId,
+      messageCount: 1,
+      elapsedMs: expect.any(Number),
+    },
+    {
+      phase: "append_settled",
+      segmentId: "quiet-ch-eng-m-live",
+      sessionId: SAMPLE_WRITE.sessionId,
+      messageCount: 1,
+      elapsedMs: expect.any(Number),
+    },
+    {
+      phase: "commit_submitted",
+      segmentId: "quiet-ch-eng-m-live",
+      sessionId: SAMPLE_WRITE.sessionId,
+      messageCount: 1,
+      elapsedMs: expect.any(Number),
+    },
+    {
+      phase: "commit_settled",
+      segmentId: "quiet-ch-eng-m-live",
+      sessionId: SAMPLE_WRITE.sessionId,
+      messageCount: 1,
+      elapsedMs: expect.any(Number),
+    },
+  ]);
+  expect(phases.every((event) => event.elapsedMs >= 0)).toBe(true);
+});
+
 test("typed session extract writes the session then commits then extracts with server-held credentials", async () => {
   const captured: Array<{
     url: string;
@@ -131,6 +212,7 @@ test("typed session extract writes the session then commits then extracts with s
   ).toEqual({ ok: true, sessionId: SAMPLE_WRITE.sessionId });
   expect(captured.map((row) => [row.method, row.url])).toEqual([
     ["POST", "http://ov.internal:1933/api/v1/sessions"],
+    ["GET", "http://ov.internal:1933/api/v1/sessions/coforge-quiet-ch-eng-m-live"],
     ["POST", "http://ov.internal:1933/api/v1/sessions/coforge-quiet-ch-eng-m-live/messages/batch"],
     ["POST", "http://ov.internal:1933/api/v1/sessions/coforge-quiet-ch-eng-m-live/commit"],
     ["POST", "http://ov.internal:1933/api/v1/sessions/coforge-quiet-ch-eng-m-live/extract"],
@@ -147,7 +229,8 @@ test("typed session extract writes the session then commits then extracts with s
   expect(createBody.session_id).toBe(SAMPLE_WRITE.sessionId);
   expect(createBody.memory_extraction_config.events.tags).toEqual([...SAMPLE_WRITE.tags]);
   expect(JSON.stringify(createBody)).not.toMatch(/causal|cm_fact|provenance|audit_id/);
-  const batchBody = JSON.parse(captured[1]!.body) as {
+  const batch = captured.find((row) => row.url.endsWith("/messages/batch"));
+  const batchBody = JSON.parse(batch!.body) as {
     messages: Array<{ source_message_ids: string[] }>;
   };
   expect(batchBody.messages[0]?.source_message_ids).toEqual(["m-live"]);
@@ -181,6 +264,137 @@ test("typed session extract waits for the commit task and does not extract an ar
   expect(captured.filter((line) => line.includes("/extract"))).toEqual([]);
   expect(captured.filter((line) => line.includes("/tasks/task-1"))).toHaveLength(2);
 });
+
+test("a replay after the append lands and the commit crashes does not append those messages again", async () => {
+  const stored = new Map<string, string[]>();
+  const batchSizes: number[] = [];
+  let failCommit = true;
+  const sessions = createOpenVikingTypedSessionExtract({
+    runtime: createOpenVikingRuntimeClient({
+      baseUrl: "http://ov.internal:1933",
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        const sessionId = sessionIdFrom(url);
+        if (method === "GET" && sessionId && url.endsWith(`/sessions/${sessionId}`)) {
+          const ids = stored.get(sessionId) ?? [];
+          return new Response(
+            JSON.stringify({
+              status: "ok",
+              result: {
+                messages: ids.map((id) => ({ source_message_ids: [id] })),
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.endsWith("/messages/batch")) {
+          const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as {
+            messages?: Array<{ source_message_ids?: string[] }>;
+          };
+          const ids = (body.messages ?? []).flatMap((message) => message.source_message_ids ?? []);
+          batchSizes.push(ids.length);
+          if (sessionId) stored.set(sessionId, [...(stored.get(sessionId) ?? []), ...ids]);
+          return new Response(JSON.stringify({ status: "ok", result: {} }), { status: 200 });
+        }
+        if (url.endsWith("/commit")) {
+          if (failCommit) return new Response("commit crashed", { status: 500 });
+          return new Response(
+            JSON.stringify({ status: "ok", result: { task_id: "task-replay" } }),
+            {
+              status: 200,
+            },
+          );
+        }
+        if (url.endsWith("/tasks/task-replay")) {
+          return new Response(JSON.stringify({ status: "ok", result: { status: "completed" } }), {
+            status: 200,
+          });
+        }
+        return new Response(JSON.stringify({ status: "ok", result: {} }), { status: 200 });
+      },
+    }),
+    authorizedOwner: "sink-owner",
+    sinkIdentity: SINK_IDENTITY,
+    sleep: async () => undefined,
+    onPhase: () => undefined,
+  });
+  expect(
+    await sessions.writeCommitAndExtract({ owner: "sink-owner", write: SAMPLE_WRITE }),
+  ).toEqual({ ok: false, sanitizedError: "openviking session extract failed" });
+  failCommit = false;
+  expect(
+    await sessions.writeCommitAndExtract({ owner: "sink-owner", write: SAMPLE_WRITE }),
+  ).toEqual({ ok: true, sessionId: SAMPLE_WRITE.sessionId });
+  expect(batchSizes).toEqual([1]);
+  expect(stored.get(SAMPLE_WRITE.sessionId)).toEqual(["m-live"]);
+});
+
+test("a failed message batch falls back to one post per message and still commits", async () => {
+  const singles: Array<{ source_message_ids: string[]; peer_id?: string }> = [];
+  const write: OpenVikingAdmittedSessionWrite = {
+    ...SAMPLE_WRITE,
+    messages: [
+      SAMPLE_WRITE.messages[0]!,
+      {
+        role: "assistant",
+        content: "ack",
+        createdAt: "2026-09-21T12:06:00.000Z",
+        sourceMessageIds: ["m-ack"],
+        peerId: "coforge__helper",
+      },
+    ],
+  };
+  const sessions = createOpenVikingTypedSessionExtract({
+    runtime: createOpenVikingRuntimeClient({
+      baseUrl: "http://ov.internal:1933",
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/messages/batch")) {
+          return new Response("batch unavailable", { status: 500 });
+        }
+        if (url.endsWith("/messages")) {
+          singles.push(
+            JSON.parse(typeof init?.body === "string" ? init.body : "{}") as {
+              source_message_ids: string[];
+              peer_id?: string;
+            },
+          );
+          return new Response(JSON.stringify({ status: "ok", result: {} }), { status: 200 });
+        }
+        if (url.endsWith("/commit")) {
+          return new Response(
+            JSON.stringify({ status: "ok", result: { task_id: "task-single" } }),
+            {
+              status: 200,
+            },
+          );
+        }
+        if (url.endsWith("/tasks/task-single")) {
+          return new Response(JSON.stringify({ status: "ok", result: { status: "completed" } }), {
+            status: 200,
+          });
+        }
+        return new Response(JSON.stringify({ status: "ok", result: {} }), { status: 200 });
+      },
+    }),
+    authorizedOwner: "sink-owner",
+    sinkIdentity: SINK_IDENTITY,
+    sleep: async () => undefined,
+    onPhase: () => undefined,
+  });
+  expect(await sessions.writeCommitAndExtract({ owner: "sink-owner", write })).toEqual({
+    ok: true,
+    sessionId: write.sessionId,
+  });
+  expect(singles.map((row) => row.source_message_ids)).toEqual([["m-live"], ["m-ack"]]);
+  expect(singles[1]?.peer_id).toBe("coforge__helper");
+});
+
+function sessionIdFrom(url: string): string | undefined {
+  const matched = url.match(/\/sessions\/([^/]+)/);
+  return matched?.[1];
+}
 
 test("typed session extract fails closed when the commit task fails", async () => {
   const sessions = createOpenVikingTypedSessionExtract({

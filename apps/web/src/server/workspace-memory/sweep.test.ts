@@ -1,11 +1,17 @@
 import { expect, test } from "bun:test";
+import type {
+  OpenVikingAdmittedSessionWrite,
+  OpenVikingTypedSessionExtract,
+} from "../openviking/typed-session-extract.server";
 import { createInMemoryWorkspaceMemoryCatalog } from "./catalog";
+import { detectAdmittedPublicChannelSegments, ingestOperationId } from "./detect-segments";
 import {
   createAdmissionDispatcher,
   createInMemoryWorkspaceMemoryAdmissionStore,
   type AdmissionSink,
   type AdmissionSinkDelivery,
 } from "./dispatch";
+import { createOpenVikingAdmittedDeliverySink } from "./ov-sink.server";
 import { createDefaultWorkspaceMemoryProfile } from "./profile";
 import { createWorkspaceMemoryProfiles } from "./profiles";
 import {
@@ -42,9 +48,14 @@ function recordingSink() {
   return { sink, deliveries };
 }
 
-async function readyHarness(desired: "openviking" = "openviking") {
+async function readyHarness(
+  desired: "openviking" = "openviking",
+  options: { now?: () => Date } = {},
+) {
   const store = createInMemoryWorkspaceMemoryProfileStore();
-  const admission = createInMemoryWorkspaceMemoryAdmissionStore();
+  const admission = createInMemoryWorkspaceMemoryAdmissionStore(
+    options.now ? { now: options.now } : {},
+  );
   const catalog = createInMemoryWorkspaceMemoryCatalog(admission);
   const profiles = createWorkspaceMemoryProfiles({ store, gate: enabled });
   const provisioner = createFakeMemoryRuntimeProvisioner();
@@ -342,6 +353,174 @@ test("sweep tick swallows sink failures so the Message path can continue", async
   expect(await harness.admission.getDispatch("ws-a", "quiet-ch-eng-m-live")).toMatchObject({
     state: "retryable_failure",
   });
+});
+
+test("a pending dispatch older than ten minutes is redriven by the next sweep", async () => {
+  let now = new Date("2026-09-21T12:30:00.000Z");
+  const harness = await readyHarness("openviking", { now: () => now });
+  const createdAt = new Date("2026-09-21T12:05:00.000Z");
+  harness.catalog.seedConversation({ id: "ch-eng", workspaceId: "ws-a", channelName: "eng" });
+  harness.catalog.seedMessages([
+    {
+      id: "m-stuck",
+      conversationId: "ch-eng",
+      workspaceId: "ws-a",
+      sequence: 1,
+      createdAt,
+      body: "stuck pending",
+      senderKind: "human",
+      senderHandle: "ada",
+    },
+  ]);
+  const detected = detectAdmittedPublicChannelSegments({
+    conversations: [{ id: "ch-eng", workspaceId: "ws-a", channelName: "eng" }],
+    messages: [
+      {
+        id: "m-stuck",
+        conversationId: "ch-eng",
+        workspaceId: "ws-a",
+        sequence: 1,
+        createdAt,
+        body: "stuck pending",
+        senderKind: "human",
+        senderHandle: "ada",
+      },
+    ],
+    tasks: [],
+    admittedMessageIds: new Set(),
+    now,
+    quietAfterMs: 1,
+  })[0]!;
+  expect(
+    await harness.admission.putSegment({
+      segmentId: detected.segmentId,
+      sourceMessageIds: detected.sourceMessageIds,
+      workspace: detected.workspace,
+      kind: detected.kind,
+      conversationKind: detected.conversationKind,
+      sourcePayloadHash: detected.sourcePayloadHash,
+      profileGeneration: harness.profile.generation,
+      closedAt: detected.closedAt,
+    }),
+  ).toMatchObject({ outcome: "saved" });
+  expect(
+    await harness.admission.consumeDispatch({
+      workspaceId: "ws-a",
+      segmentId: detected.segmentId,
+      operationId: ingestOperationId(detected.segmentId),
+      sinkProfile: "openviking",
+      profileGeneration: harness.profile.generation,
+    }),
+  ).toMatchObject({ outcome: "accepted", dispatch: { state: "pending" } });
+
+  const sweep = createWorkspaceMemoryAdmissionSweep({
+    profiles: harness.store,
+    catalog: harness.catalog,
+    admission: harness.admission,
+    dispatcher: harness.dispatcher,
+    reconciler: harness.reconciler,
+    lock: {
+      async acquire() {
+        return true;
+      },
+    },
+    now: () => now,
+    quietAfterMs: 1,
+    pendingRedrainAfterMs: 10 * 60 * 1000,
+  });
+  await sweep.tick();
+  expect(harness.openviking.deliveries).toEqual([]);
+  expect(await harness.admission.getDispatch("ws-a", detected.segmentId)).toMatchObject({
+    state: "pending",
+  });
+
+  now = new Date(now.getTime() + 10 * 60 * 1000 + 1);
+  await sweep.tick();
+  expect(harness.openviking.deliveries.map((row) => row.segment.segmentId)).toEqual([
+    detected.segmentId,
+  ]);
+  expect(await harness.admission.getDispatch("ws-a", detected.segmentId)).toMatchObject({
+    state: "delivered",
+    sinkProfile: "openviking",
+  });
+});
+
+test("an offer message is written without its citation text and the human message stays verbatim", async () => {
+  const harness = await readyHarness();
+  const citation = "the last skip-tests deploy rolled back";
+  harness.catalog.seedConversation({ id: "ch-eng", workspaceId: "ws-a", channelName: "eng" });
+  harness.catalog.seedMessages([
+    {
+      id: "m-human",
+      conversationId: "ch-eng",
+      workspaceId: "ws-a",
+      sequence: 1,
+      createdAt: new Date("2026-09-21T12:05:00.000Z"),
+      body: "we skipped tests on the rollout",
+      senderKind: "human",
+      senderHandle: "ada",
+    },
+    {
+      id: "m-offer",
+      conversationId: "ch-eng",
+      workspaceId: "ws-a",
+      sequence: 2,
+      createdAt: new Date("2026-09-21T12:06:00.000Z"),
+      body: `Deploy rolled back after skipped tests.\n\nviking://resources/docs/deploy.md\n${citation}`,
+      senderKind: "agent",
+      senderHandle: "memory",
+    },
+  ]);
+  harness.catalog.seedOfferMessageIds("ws-a", ["m-offer"]);
+  const writes: OpenVikingAdmittedSessionWrite[] = [];
+  const sessions: OpenVikingTypedSessionExtract = {
+    async writeCommitAndExtract(input) {
+      writes.push(input.write);
+      return { ok: true, sessionId: input.write.sessionId };
+    },
+  };
+  const dispatcher = createAdmissionDispatcher({
+    admission: harness.admission,
+    sinks: {
+      openviking: createOpenVikingAdmittedDeliverySink({
+        sessions,
+        owner: "sink-owner",
+      }),
+    },
+  });
+  const sweep = createWorkspaceMemoryAdmissionSweep({
+    profiles: harness.store,
+    catalog: harness.catalog,
+    admission: harness.admission,
+    dispatcher,
+    reconciler: harness.reconciler,
+    lock: {
+      async acquire() {
+        return true;
+      },
+    },
+    now: () => sweepNow,
+    quietAfterMs: 1,
+  });
+  await sweep.tick();
+  expect(writes).toHaveLength(1);
+  expect(writes[0]?.messages).toEqual([
+    {
+      role: "user",
+      content: "we skipped tests on the rollout",
+      createdAt: "2026-09-21T12:05:00.000Z",
+      sourceMessageIds: ["m-human"],
+    },
+    {
+      role: "assistant",
+      content: "Deploy rolled back after skipped tests.",
+      createdAt: "2026-09-21T12:06:00.000Z",
+      sourceMessageIds: ["m-offer"],
+      peerId: "coforge__memory",
+      derived: true,
+    },
+  ]);
+  expect(JSON.stringify(writes[0]?.messages)).not.toContain(citation);
 });
 
 test("public channel and direct conversation writers do not import the memory dispatcher", async () => {

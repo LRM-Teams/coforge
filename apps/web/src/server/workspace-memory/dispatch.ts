@@ -29,6 +29,7 @@ export type AdmittedSegmentDispatchRecord = {
   state: DispatchState;
   attemptCount: number;
   sanitizedError?: string;
+  updatedAt?: string;
 };
 
 export type ConsumeDispatchInput = {
@@ -74,6 +75,7 @@ export type AdmissionSinkDelivery = {
   segment: AdmittedPublicChannelSegment;
   operationId: string;
   turns: readonly AdmissionTurn[];
+  offerMessageIds?: ReadonlySet<string>;
 };
 
 export type AdmissionSinkResult =
@@ -106,6 +108,7 @@ export type AdmissionDispatcher = {
     detected: DetectedPublicChannelSegment;
     admitted?: AdmittedPublicChannelSegment;
     sinkProfile?: DispatchSinkProfile;
+    offerMessageIds?: ReadonlySet<string>;
   }): Promise<DispatchOutcome>;
 };
 
@@ -163,6 +166,7 @@ export function createAdmissionDispatcher(deps: {
           segment: saved.segment,
           operationId: consumed.dispatch.operationId,
           turns: input.detected.turns,
+          ...(input.offerMessageIds ? { offerMessageIds: input.offerMessageIds } : {}),
         });
         if (result.outcome === "delivered") {
           await deps.admission.markDispatchState({
@@ -222,7 +226,10 @@ export type InMemoryWorkspaceMemoryAdmissionStore = WorkspaceMemoryAdmissionPort
   listRetryableDispatches(workspaceId: string): Promise<AdmittedSegmentDispatchRecord[]>;
 };
 
-export function createInMemoryWorkspaceMemoryAdmissionStore(): InMemoryWorkspaceMemoryAdmissionStore {
+export function createInMemoryWorkspaceMemoryAdmissionStore(deps?: {
+  now?: () => Date;
+}): InMemoryWorkspaceMemoryAdmissionStore {
+  const now = deps?.now ?? (() => new Date());
   const segments = new Map<string, AdmittedPublicChannelSegment>();
   const dispatches = new Map<string, AdmittedSegmentDispatchRecord>();
 
@@ -271,6 +278,7 @@ export function createInMemoryWorkspaceMemoryAdmissionStore(): InMemoryWorkspace
         profileGeneration: input.profileGeneration,
         state: "pending",
         attemptCount: 0,
+        updatedAt: now().toISOString(),
       };
       dispatches.set(segmentKey(input.workspaceId, input.segmentId), dispatch);
       return { outcome: "accepted", dispatch };
@@ -288,6 +296,7 @@ export function createInMemoryWorkspaceMemoryAdmissionStore(): InMemoryWorkspace
         state: input.state,
         attemptCount:
           input.state === "retryable_failure" ? existing.attemptCount + 1 : existing.attemptCount,
+        updatedAt: now().toISOString(),
         ...(input.sanitizedError ? { sanitizedError: input.sanitizedError } : {}),
       };
       dispatches.set(segmentKey(existing.workspaceId, existing.segmentId), next);

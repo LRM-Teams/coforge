@@ -15,6 +15,7 @@ export type WorkspaceMemoryCatalog = {
   listKnownWorkspaceIds(): Promise<string[]>;
   listAdmittedMessageIds(workspaceId: string): Promise<Set<string>>;
   listRetryableDispatches(workspaceId: string): Promise<AdmittedSegmentDispatchRecord[]>;
+  listMemoryOfferMessageIds(workspaceId: string): Promise<readonly string[]>;
   loadAdmissionWindow(workspaceId: string, after: Date | null): Promise<AdmissionWindow>;
   loadMessagesByIds(
     workspaceId: string,
@@ -27,6 +28,7 @@ export type InMemoryWorkspaceMemoryCatalog = WorkspaceMemoryCatalog & {
   seedConversation(conversation: AdmissionConversation): void;
   seedMessages(messages: readonly AdmissionMessage[]): void;
   seedTasks(tasks: readonly AdmissionTask[]): void;
+  seedOfferMessageIds(workspaceId: string, messageIds: readonly string[]): void;
 };
 
 export function createInMemoryWorkspaceMemoryCatalog(deps: {
@@ -37,6 +39,7 @@ export function createInMemoryWorkspaceMemoryCatalog(deps: {
   const conversations: AdmissionConversation[] = [];
   const messages: AdmissionMessage[] = [];
   const tasks: AdmissionTask[] = [];
+  const offerMessageIds = new Map<string, readonly string[]>();
 
   return {
     seedProfile(profile) {
@@ -51,11 +54,17 @@ export function createInMemoryWorkspaceMemoryCatalog(deps: {
     seedTasks(rows) {
       tasks.push(...rows);
     },
+    seedOfferMessageIds(workspaceId, messageIds) {
+      offerMessageIds.set(workspaceId, [...messageIds]);
+    },
     async listKnownWorkspaceIds() {
       return [...profiles.keys()];
     },
     listAdmittedMessageIds: deps.listAdmittedMessageIds,
     listRetryableDispatches: deps.listRetryableDispatches,
+    async listMemoryOfferMessageIds(workspaceId) {
+      return offerMessageIds.get(workspaceId) ?? [];
+    },
     async loadAdmissionWindow(workspaceId, after) {
       const afterMs = after?.getTime() ?? Number.NEGATIVE_INFINITY;
       return {
