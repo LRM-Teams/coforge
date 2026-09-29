@@ -6,6 +6,9 @@ import {
   createDaemonHost,
   holdRunnersUntilQuiescent,
   LocalDaemonLauncher,
+  WorkspaceHealthJournal,
+  workspaceHealthJournalPath,
+  workspaceStateDirectory,
 } from "@lrm/coforge-daemon";
 
 const logger = getLogger(["coforge", "computer", "upgrade"]);
@@ -169,10 +172,19 @@ export function createSupervisorUpgradeLifecycle(
         const bindings = (await file.exists())
           ? ((await file.json()) as { workspaceId: string; enabled: boolean }[])
           : [];
-        if (bindings.some((binding) => binding.enabled))
-          throw new Error(
-            "configured running bindings have no healthy supervisor; recover them before upgrading",
-          );
+        for (const binding of bindings) {
+          if (!binding.enabled) continue;
+          const health = await new WorkspaceHealthJournal(
+            workspaceHealthJournalPath(
+              workspaceStateDirectory(options.supervisorStatePath, binding.workspaceId),
+            ),
+          ).state();
+          // A parked Workspace is down on purpose (the cloud refused it for good).
+          if (health.status !== "parked")
+            throw new Error(
+              "configured running bindings have no healthy supervisor. Run 'coforge-computer start' to recover them, then upgrade again.",
+            );
+        }
         return {
           bindings: bindings.map((binding) => ({
             bindingId: binding.workspaceId,
@@ -183,8 +195,22 @@ export function createSupervisorUpgradeLifecycle(
         };
       }
       const identities = await local.control("snapshot");
-      if (identities.some((runtime) => runtime.enabled !== runtime.processId > 0))
-        throw new Error("Workspace runtime set is unhealthy; recover it before upgrading");
+      // A parked Workspace is enabled but down on purpose; it neither blocks the upgrade nor gets
+      // started again by it.
+      const unhealthy = identities.flatMap((runtime) => {
+        const id = runtime.workspaceId;
+        if (runtime.processId > 0 && !runtime.enabled)
+          return [
+            `Workspace ${id} is stopped but still running. Run 'coforge-computer stop --workspace ${id}', then upgrade again.`,
+          ];
+        if (runtime.processId === 0 && runtime.enabled && runtime.parkReason === undefined)
+          return [
+            `Workspace ${id} is enabled but not running. Run 'coforge-computer start --workspace ${id}' (or 'coforge-computer stop --workspace ${id}' to leave it stopped), then upgrade again.`,
+          ];
+        return [];
+      });
+      if (unhealthy.length)
+        throw new Error(`Workspace runtime set is unhealthy: ${unhealthy.join(" ")}`);
       previousSupervisorId = (await local.identity()).daemonId;
       return {
         bindings: identities.map((runtime) => ({

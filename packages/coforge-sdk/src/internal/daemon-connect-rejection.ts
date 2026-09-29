@@ -1,11 +1,9 @@
 /**
- * What a Daemon sends as Centrifugo connect data. The Web connect proxy authenticates the key;
- * the Workspace id lets it tell a key whose Workspace was deleted (the key went with it) from a
- * key it simply does not know.
+ * What a Daemon sends as Centrifugo connect data. The Web connect proxy authenticates the key,
+ * and answers why it stopped being valid only to the holder of that exact key.
  */
 export type DaemonConnectData = {
   daemonApiKey: string;
-  workspaceId: string;
 };
 
 /**

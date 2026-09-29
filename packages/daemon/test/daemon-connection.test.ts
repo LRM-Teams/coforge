@@ -138,7 +138,6 @@ test("sends the Daemon API key as Connect Proxy data instead of a JWT token", as
   expect(connection?.token).toBe("");
   expect(JSON.parse(new TextDecoder().decode(connection?.data))).toEqual({
     daemonApiKey: "daemon-api-key",
-    workspaceId: config.workspaceId,
   });
 });
 

@@ -375,7 +375,9 @@ test.skipIf(process.platform !== "darwin")(
           .split("\n")
           .filter((line) => line.includes('"daemon:workspace_parked"')).length;
       process.kill(before.gone!, "SIGKILL");
-      const deadline = Date.now() + 20_000;
+      // launchd throttles a KeepAlive relaunch (about 10 s), and more under a loaded machine; the
+      // parked log line is the observable condition, the bound only a generous backstop.
+      const deadline = Date.now() + 60_000;
       while ((await parkedExits()) === 0) {
         if (Date.now() >= deadline) throw new Error("Replacement Workspace never parked");
         await Bun.sleep(25);
@@ -409,6 +411,112 @@ test.skipIf(process.platform !== "darwin")(
       await configure("gone");
       expect((await processIds()).gone).toBeGreaterThan(0);
       expect(await journal.state()).toEqual({ status: "ok" });
+    } finally {
+      await client.control("stop").catch(() => {});
+      coordinator.kill("SIGTERM");
+      await coordinator.exited;
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  150_000,
+);
+
+test.skipIf(process.platform !== "darwin")(
+  "a refusal while connected stops the Workspace's Agent and parks it, and a start the cloud refuses reports the park",
+  async () => {
+    const root = await mkdtemp("/private/tmp/cf-mac-refused-");
+    const serverUrl = "http://127.0.0.1:1";
+    const executable = join(root, "computer");
+    const build = Bun.spawn(
+      [
+        process.execPath,
+        join(import.meta.dir, "fixtures/build-macos-computer.ts"),
+        executable,
+        serverUrl,
+      ],
+      { stdout: "inherit", stderr: "inherit" },
+    );
+    expect(await build.exited).toBe(0);
+    const socketPath = join(root, "daemon.sock");
+    const coordinator = Bun.spawn(
+      [executable, "__daemon", "--socket", socketPath, "--state-directory", root],
+      { stdout: "ignore", stderr: "inherit" },
+    );
+    const client = new LocalDaemonLauncher({
+      executablePath: executable,
+      socketPath,
+      stateDirectory: root,
+      serverUrl,
+    });
+    const configure = (workspaceId: string) =>
+      client.ensureStarted({
+        workspaceId,
+        computerId: "fixture-computer",
+        workspaceRoot: join(root, `data-${workspaceId}`),
+        daemonApiKey: "fixture-only",
+        serverHttpUrl: serverUrl,
+      });
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    try {
+      await client.ensureRunning();
+      await configure("gone");
+      await configure("live");
+      const goneDirectory = workspaceStateDirectory(root, "gone");
+      const ready = await waitForNativeReady(
+        join(goneDirectory, "native-ready.json"),
+        () => true,
+        Date.now() + 20_000,
+        "Workspace gone never connected",
+      );
+      const liveBefore = (await client.control("snapshot")).find(
+        (runtime) => runtime.workspaceId === "live",
+      )!;
+
+      // The cloud refuses the running connection for good.
+      await Bun.write(join(goneDirectory, "refuse-now"), "");
+      const journal = new WorkspaceHealthJournal(workspaceHealthJournalPath(goneDirectory));
+      const deadline = Date.now() + 20_000;
+      while (
+        (await journal.state()).status !== "parked" ||
+        alive(ready.workspacePid) ||
+        alive(ready.agentPid)
+      ) {
+        if (Date.now() >= deadline)
+          throw new Error("Workspace gone did not stop its Agent, park, and exit");
+        await Bun.sleep(25);
+      }
+
+      // Without a Coordinator restart, the snapshot already shows the parked Workspace as down and
+      // why, and the other Workspace untouched.
+      const snapshot = await client.control("snapshot");
+      expect(snapshot.find((runtime) => runtime.workspaceId === "gone")).toMatchObject({
+        processId: 0,
+        parkReason: "workspace_deleted",
+      });
+      expect(snapshot.find((runtime) => runtime.workspaceId === "live")).toEqual(liveBefore);
+
+      // The cloud refuses "live" on its next connect: the start that triggers it reports the park.
+      // A start the cloud accepts answers with the Workspace connected.
+      const restarted = await client.control("restart", "live", "restart-live");
+      expect(restarted.find((runtime) => runtime.workspaceId === "live")).toMatchObject({
+        cloudConnection: "connected",
+      });
+
+      await client.control("stop", "live");
+      await Bun.write(join(workspaceStateDirectory(root, "live"), "refuse-on-start"), "");
+      const refusal = await client.control("start", "live").then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(refusal).toBeInstanceOf(DaemonCommandRejectedError);
+      expect(refusal).toMatchObject({ code: "workspace_deleted", workspaceId: "live" });
     } finally {
       await client.control("stop").catch(() => {});
       coordinator.kill("SIGTERM");

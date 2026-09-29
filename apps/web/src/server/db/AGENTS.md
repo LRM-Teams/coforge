@@ -14,6 +14,10 @@ These rules apply to `src/server/db/`.
   is keyed and queried by the trusted `(workspaceId, computerId)` connection. A
   Computer shared with another Workspace must not share publication state or
   model-catalog rows.
+- `daemon-credential-revocation.repositories.server.ts` keeps revocations by
+  key hash only, with no relation to the Workspace, Computer, or key row, so
+  they outlive the cascade. Expired ones are ignored on read and pruned on the
+  next record.
 - `agent-deletion.repositories.server.ts` makes a deleted Agent inert in one
   transaction; keep every deletion write inside it.
 - `direct-conversation-preferences.repositories.server.ts` owns the viewer's

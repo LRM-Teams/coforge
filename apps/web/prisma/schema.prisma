@@ -525,6 +525,21 @@ model DaemonApiKey {
   @@map("daemon_api_keys")
 }
 
+/// A daemon credential that stopped being valid because its Workspace was deleted or its Computer
+/// was removed from the Workspace, keyed by the credential's hash. It has no relation to the
+/// Workspace, Computer, or key row, so it outlives their cascade: the connect proxy answers the
+/// reason only to a caller presenting that exact, formerly valid key. Kept for
+/// `DAEMON_CREDENTIAL_REVOCATION_RETENTION_MS`
+/// (src/server/db/repositories/daemon-credential-revocation.repositories.server.ts).
+model DaemonCredentialRevocation {
+  apiKeyHash String   @id @map("api_key_hash")
+  reason     String
+  revokedAt  DateTime @map("revoked_at")
+
+  @@index([revokedAt])
+  @@map("daemon_credential_revocations")
+}
+
 /// One in-flight RFC 8628 device authorization grant. This is deliberately durable rather than
 /// in-process state: the browser approving a grant and the Computer polling for it are different
 /// requests that need not reach the same web replica, and a deploy between `login` and the user

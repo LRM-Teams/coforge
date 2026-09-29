@@ -59,6 +59,8 @@ export class DaemonCommandRejectedError extends Error {
     readonly operation: string,
     message: string,
     readonly code?: string,
+    /** The Workspace the refusal is about, when it is about one (a parked Workspace). */
+    readonly workspaceId?: string,
   ) {
     super(message);
     this.name = "DaemonCommandRejectedError";
@@ -197,6 +199,7 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
           operation,
           commandResponse.error || `coforge-daemon did not accept ${operation}`,
           commandResponse.errorCode,
+          commandResponse.workspaceId,
         );
       }
       return commandResponse.runtimes ?? [];

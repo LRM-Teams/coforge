@@ -521,10 +521,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#token = _token;
     this.#serverHttpUrl = config.serverHttpUrl ?? "";
     if (this.#connected) return;
-    const connectData: DaemonConnectData = {
-      daemonApiKey: _token,
-      workspaceId: config.workspaceId,
-    };
+    const connectData: DaemonConnectData = { daemonApiKey: _token };
     const client = this.clientFactory(
       this.endpoint,
       "",
