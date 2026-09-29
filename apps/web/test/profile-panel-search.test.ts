@@ -69,9 +69,18 @@ describe("agentProfileSearchWithoutThread", () => {
 describe("visibleAgentProfileTabs", () => {
   test("shows reminders and activity to managers, workspace to the owner, profile to everyone", () => {
     expect(visibleAgentProfileTabs(false, false)).toEqual(["profile"]);
-    expect(visibleAgentProfileTabs(true, false)).toEqual(["profile", "reminders", "activity"]);
+    expect(visibleAgentProfileTabs(true, false)).toEqual(["profile", "activity", "reminders"]);
     expect(visibleAgentProfileTabs(false, true)).toEqual(["profile", "workspace"]);
     expect(visibleAgentProfileTabs(true, true)).toEqual([...AGENT_PROFILE_TABS]);
+  });
+
+  test("opens on Profile, then lists Activity, Reminders and Workspace by default", () => {
+    expect(visibleAgentProfileTabs(true, true)).toEqual([
+      "profile",
+      "activity",
+      "reminders",
+      "workspace",
+    ]);
   });
 });
 

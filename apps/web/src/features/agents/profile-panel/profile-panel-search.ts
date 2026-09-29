@@ -14,7 +14,7 @@ const UUID_SOURCE = UUID_LIKE_SOURCE;
 const UUID_PATTERN = new RegExp(`^${UUID_SOURCE}$`, "i");
 const AGENT_PROFILE_PATTERN = new RegExp(`^${AGENT_PROFILE_PREFIX}${UUID_SOURCE}$`, "i");
 
-export const AGENT_PROFILE_TABS = ["profile", "reminders", "activity", "workspace"] as const;
+export const AGENT_PROFILE_TABS = ["profile", "activity", "reminders", "workspace"] as const;
 export type AgentProfileTab = (typeof AGENT_PROFILE_TABS)[number];
 
 /** Validates the raw `profile` search param: `undefined` or `agent:<uuid>`. Malformed values fall

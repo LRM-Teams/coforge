@@ -9,7 +9,6 @@ import {
 
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { AgentDisplayAvatar } from "#src/features/agents/agent-activity-avatar";
-import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import type { AgentRuntimeControls } from "#src/features/agents/agent-runtime-controls";
 import { m } from "#src/paraglide/messages";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
@@ -32,7 +31,6 @@ export function AgentProfileHeader({
   agent: {
     id: string;
     displayName: string;
-    description?: string;
     avatarUrl?: string | null;
   };
   display?: AgentDisplaySnapshot;
@@ -45,13 +43,11 @@ export function AgentProfileHeader({
   back?: { label: string; onPress: () => void };
 }) {
   const openDirectConversation = useOpenDirectConversation();
-  // The live status line, from the same source the avatar's own label uses.
-  const statusLabel = agentDisplay(display).label;
   return (
     // Same 20px gutter as the panel body (px-5): the bordered utility buttons align by box edge,
     // while the borderless Close pulls -mr-1.5 so its glyph lands on the gutter
     // (docs/design/page-skeleton-and-density.md §8 optical alignment).
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-5 py-0">
+    <header className="flex h-12 shrink-0 items-center gap-2 px-5 py-0">
       {back && (
         <ButtonUtility
           icon={ArrowLeft}
@@ -64,19 +60,11 @@ export function AgentProfileHeader({
         />
       )}
       <AgentDisplayAvatar name={agent.displayName} src={agent.avatarUrl} display={display} />
-      <div className="min-w-0 flex-1 leading-tight">
-        <p className="truncate text-sm font-semibold text-primary">{agent.displayName}</p>
-        {/* What the Agent is doing, under its name — the line a direct message's header already
-            shows, from the same `agentDisplay` the avatar's label reads, so the two cannot
-            disagree. Nothing is shown when there is no live display: a deleted Agent has no
-            status to report and "Status unknown" is not news. */}
-        {display && (
-          <p role="status" className="truncate text-xs text-tertiary">
-            {statusLabel}
-          </p>
-        )}
-        {agent.description && <p className="truncate text-xs text-tertiary">{agent.description}</p>}
-      </div>
+      {/* The name alone: the avatar's dot carries the live status
+          and the Profile tab the description. */}
+      <p className="min-w-0 flex-1 truncate text-[1.0625rem] leading-tight font-medium tracking-tight text-secondary">
+        {agent.displayName}
+      </p>
       {canMessage && (
         <ButtonUtility
           icon={MessageSquare}

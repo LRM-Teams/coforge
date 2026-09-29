@@ -43,7 +43,6 @@ export function ConversationTaskTabs({
       active={active}
       onSelect={(tab) => handlers[tab]?.()}
       onReorder={reorder}
-      type="underline"
       size="md"
     />
   );

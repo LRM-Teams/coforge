@@ -25,7 +25,7 @@ export function useAgentProfileTabOrder(canSeeManagerTabs: boolean, canSeeWorksp
   );
 }
 
-/** The panel's second band (56px): the reorderable icon + label tab strip. */
+/** The panel's second band: the reorderable icon + label underline tab strip. */
 export function AgentProfileTabs({
   active,
   tabs,
@@ -45,6 +45,7 @@ export function AgentProfileTabs({
       active={active}
       onSelect={onSelect}
       onReorder={onReorder}
+      size="sm"
     />
   );
 }

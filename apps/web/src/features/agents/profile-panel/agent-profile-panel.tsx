@@ -331,7 +331,6 @@ export function AgentProfilePanel({
         agent={{
           id: agentId,
           displayName: knownName,
-          description: profile?.description ?? undefined,
           avatarUrl: profile?.avatarUrl,
         }}
         // `liveAgent` (the shared realtime roster) is blank for an Agent outside the
@@ -345,15 +344,18 @@ export function AgentProfilePanel({
         onClose={onClose}
         back={back}
       />
-      {/* The four tabs need ~465px, more than a phone is wide, so the band scrolls instead of
-          pushing the panel (and with it the whole page) past the viewport. */}
-      <div className="scrollbar-hide flex h-14 shrink-0 items-center overflow-x-auto border-b border-secondary px-5">
-        <AgentProfileTabs
-          active={tab}
-          tabs={tabOrder.tabs}
-          onSelect={onTabChange}
-          onReorder={tabOrder.reorder}
-        />
+      {/* Underline tabs on the band's bottom rule: the rule is the band's
+          own hairline, drawn under the strip, so the active tab's underline stands in for it. The strip
+          scrolls sideways on a narrow phone instead of pushing the panel wider; the rule stays put. */}
+      <div className="relative shrink-0 before:absolute before:inset-x-0 before:bottom-0 before:h-px before:bg-border-secondary">
+        <div className="scrollbar-hide flex items-end overflow-x-auto px-5 pt-1">
+          <AgentProfileTabs
+            active={tab}
+            tabs={tabOrder.tabs}
+            onSelect={onTabChange}
+            onReorder={tabOrder.reorder}
+          />
+        </div>
       </div>
       {/* Workspace is a split tree/file viewer: each pane scrolls on its own. A shared
           overflow here would grow with the file and drag the tree out of view. */}
