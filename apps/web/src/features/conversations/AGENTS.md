@@ -40,7 +40,10 @@ These rules apply to `src/features/conversations/`.
   with `useSidebarLists` and change them
   only through `useSidebarActions` (optimistic: the row changes at once, a
   saved change is written into the synced list, a failed save rolls it back);
-  never `router.invalidate` for a sidebar change. A change made
+  never `router.invalidate` for a sidebar change; a message that brings a
+  closed or unlisted chat in re-reads only its own list
+  (`closedConversationLists`), plus the Agent roster when the Agent is new to
+  it (`unknownAgentOf`). A change made
   outside the sidebar (a channel's creation, rename or archive, here or signalled by
   `channel.created.v1` or `channel.updated.v1`, or the viewer leaving, muting or pinning it from the
   settings panel) re-reads only the

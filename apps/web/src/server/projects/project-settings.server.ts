@@ -1,14 +1,16 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import type { GitHubConnection } from "#src/server/integrations/github-connection.server";
-import { getFileStorage, type FileStorage } from "#src/server/files/file-storage.server";
+import type { FileStorage } from "#src/server/files/file-storage.server";
+import { getPublicImageStorage } from "#src/server/files/public-image-storage.server";
 import { toPublicServerError } from "#src/server/errors/public-error.server";
 
 export class ProjectSettings {
   constructor(
     private readonly db: PrismaClient,
     private readonly github?: Pick<GitHubConnection, "accessibleRepositories">,
-    private readonly storage: () => Promise<FileStorage> = getFileStorage,
+    /** Where Project icons live, as `ProjectImages` stores them. */
+    private readonly images: () => Promise<FileStorage> = getPublicImageStorage,
   ) {}
 
   async update(
@@ -80,7 +82,7 @@ export class ProjectSettings {
     // Deletion has committed; report storage cleanup separately from the user operation.
     if (project.iconObjectKey) {
       try {
-        await (await this.storage()).remove(project.iconObjectKey);
+        await (await this.images()).remove(project.iconObjectKey);
       } catch (error) {
         toPublicServerError(error);
       }
