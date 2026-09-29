@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
+import { toggleUserMessageReaction } from "#src/server/conversations/user-message-reactions.server";
 import {
   PrismaDirectConversationRepository,
   allocateSequence,
@@ -10,7 +11,7 @@ import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile
 
 /**
  * The browser shape of a direct-conversation message, as `openForUser` (a page of roots with
- * their replies) and `updatesForUser` (the poll past a cursor) return it: every field, the field
+ * their replies) and `updatesSince` (the poll past a cursor) return it: every field, the field
  * order, and no `senderMemberId` (the pane then decides "own" by `senderKind`).
  */
 const BROWSER_MESSAGE_KEYS = [
@@ -83,7 +84,14 @@ test("a direct conversation's page and poll return the same browser message shap
     const root = await repo.sendMessage(conversationId, senderMemberId, user.id, "release plan", [
       attachment.id,
     ]);
-    await repo.setUserMessageReaction(workspace.id, user.id, agent.id, root.id, "👍", true);
+    await toggleUserMessageReaction(db, {
+      workspaceId: workspace.id,
+      conversationId,
+      userId: user.id,
+      messageId: root.id,
+      emoji: "👍",
+      active: true,
+    });
 
     // An Agent reply in the root's thread that mentions the user.
     const reply = await db.$transaction(async (tx) => {
@@ -178,7 +186,7 @@ test("a direct conversation's page and poll return the same browser message shap
     ];
 
     const opened = await repo.openForUser(workspace.id, user.id, agent.id);
-    const polled = await repo.updatesForUser(workspace.id, user.id, agent.id, 0);
+    const polled = await repo.updatesSince(workspace.id, conversationId, 0);
     for (const messages of [opened.messages, polled]) {
       expect(messages).toEqual(expected);
       for (const message of messages) expect(Object.keys(message)).toEqual(BROWSER_MESSAGE_KEYS);

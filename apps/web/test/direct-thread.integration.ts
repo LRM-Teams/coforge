@@ -139,7 +139,13 @@ test("thread send and unread ranges stay separate from the main conversation", a
     ).toBe(target);
     const beforeRead = await repo.openForUser(workspace.id, user.id, agent.id);
     expect(beforeRead.threadReadThrough[root.id] ?? 0).toBe(0);
-    await repo.markThreadReadForUser(workspace.id, user.id, agent.id, root.id, 999);
+    await repo.markThreadReadForUser(
+      workspace.id,
+      user.id,
+      beforeRead.conversationId,
+      root.id,
+      999,
+    );
     const afterRead = await repo.openForUser(workspace.id, user.id, agent.id);
     expect(afterRead.threadReadThrough[root.id]).toBe(7);
     expect(afterRead.threadReadThrough[other.id]).toBeUndefined();
