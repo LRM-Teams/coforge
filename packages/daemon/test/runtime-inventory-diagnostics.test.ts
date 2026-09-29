@@ -4,9 +4,9 @@ import { CATALOG_DISCOVERY_BUDGET_MS } from "./catalog-discovery-budget";
 import { captureDaemonLogs } from "./log-capture";
 
 /** These tests cover the Codex catalog's diagnostics, so they call its discovery directly. The
- * whole-inventory pass would add Pi's in-process catalog discovery, which is not under test and
- * has no deadline: it was most of each test's time. The inventory's use of the Codex catalog is
- * covered in runtime-inventory.test.ts. */
+ * whole-inventory pass would add Pi's in-process catalog discovery, which is not under test and,
+ * against a developer's real HOME, runs for seconds: it was most of each test's time. The
+ * inventory's use of the Codex catalog is covered in runtime-inventory.test.ts. */
 async function captureDiscovery(mode: string) {
   const { records } = await captureDaemonLogs(async () => {
     const catalog = await discoverCodexCatalog(

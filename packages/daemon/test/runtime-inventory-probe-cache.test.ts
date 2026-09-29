@@ -216,7 +216,8 @@ test(
         {
           cwd: process.cwd(),
           // A fixture home keeps the Pi catalog, discovered in the same pass, off the developer's
-          // real Pi configuration; that discovery has no deadline and was most of this test's time.
+          // real Pi configuration; that discovery can run for seconds and was most of this test's
+          // time.
           environment: { PATH: process.env.PATH, HOME: "/fixture/home" },
           commands: { opencode: [process.execPath, OPENCODE_FIXTURE, "models"] },
           probe,

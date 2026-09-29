@@ -32,6 +32,12 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   embedded SDK and version; never scan PATH for them.
 - Translate persisted model and reasoning selections into each provider's
   native startup configuration.
+- Bound every catalog discovery with `CATALOG_DISCOVERY_TIMEOUT_MS` per wait.
+  Pi's in-process SDK call gets two waits (`PI_CATALOG_DISCOVERY_TIMEOUT_MS`)
+  because the SDK's own network refresh is already capped at 5 s and its
+  resource loader runs after it. A discovery that fails or times out leaves its
+  provider out of that pass, is logged as `code_agent_catalog:discovery_failed`,
+  and is never cached.
 - Report the maintained Claude Code model catalog when Claude Code is
   installed. Never launch the CLI to infer a dynamic catalog; its
   machine-readable initialization does not give a dependable list.

@@ -14,6 +14,9 @@ import { CATALOG_DISCOVERY_TIMEOUT_MS } from "#src/code-agent/runtime-inventory"
  * A test that really spawns the provider fixture needs at least this. With less, the runner ends a
  * slow but healthy run before the product's deadline can, and the abandoned test keeps running
  * into the tests after it.
+ *
+ * Pi's in-process discovery has no process to clean up and is bounded by two of the same waits
+ * (`PI_CATALOG_DISCOVERY_TIMEOUT_MS`), so it never lengthens the pass.
  */
 export const CATALOG_DISCOVERY_BUDGET_MS =
   2 * CATALOG_DISCOVERY_TIMEOUT_MS + 2 * PROCESS_TREE_EXIT_GRACE_MS;
