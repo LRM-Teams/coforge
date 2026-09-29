@@ -27,7 +27,7 @@ import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { rememberConversation } from "./last-conversation";
 import { useChannelUnread } from "./conversation-unread";
-import { useRefreshSidebarChannels, useSidebarLists } from "./sidebar-lists";
+import { useRefreshSidebar, useRefreshSidebarChannels, useSidebarLists } from "./sidebar-lists";
 import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
 
@@ -125,6 +125,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   );
   const closedChatRefresh = useRef<"idle" | "running" | "queued">("idle");
   const refreshChannels = useRefreshSidebarChannels();
+  const refreshSidebar = useRefreshSidebar();
   const unread = useChannelUnread({
     workspaceId,
     userId: viewerId,
@@ -150,6 +151,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     },
     // A channel was renamed, described, archived or unarchived: only the channel list is stale.
     onChannelUpdated: () => void refreshChannels(),
+    // The viewer joined, left, closed, muted or pinned a chat elsewhere: only those lists are stale.
+    onSidebarListsChanged: (lists) => void refreshSidebar(lists),
   });
   // Every server read of the lists carries the persisted counts; local arithmetic restarts from
   // them (sequence boundaries survive, so no event double-counts). Channels and DMs alike are

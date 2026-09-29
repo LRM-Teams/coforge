@@ -18,7 +18,8 @@ export const workspaceConversationChannel = (workspaceId: string) =>
  * The viewer's own direct-message signal channel. A DM event is published here (and on its
  * conversation channel) instead of the workspace channel, so direct-message metadata never
  * reaches every Workspace member; each publication names who is on the other side, which is how
- * the sidebar tells a DM's event from a channel's.
+ * the sidebar tells a DM's event from a channel's. It also carries the viewer's own
+ * `ViewerEvent`s (their reads, joins, closes, mutes and pins, wherever they made them).
  */
 export const userConversationChannel = (userId: string) => `chat:user:${userId}`;
 
@@ -200,4 +201,74 @@ export function decodeChannelUpdatedEvent(value: unknown): ChannelUpdatedEvent {
   )
     throw new Error("invalid conversation event");
   return { type, conversationId, workspaceId };
+}
+
+/**
+ * Something about the viewer's own place in a channel changed, wherever they changed it (this tab,
+ * another tab, another device) or whoever changed it for them (added to or removed from a
+ * channel). Published only on the viewer's own `chat:user:<user_id>` channel, the way Slack sends
+ * `channel_marked`, `channel_joined`, `channel_left` and `pref_change` to every connection of one
+ * user. Like the other signals it names ids only, except that `channel.marked.v1` carries the
+ * channel's unread count after the move, as Slack's `channel_marked` does, so a read in the open
+ * channel updates the sidebar without a list re-read per message.
+ *
+ * - `channel.marked.v1`: the read cursor moved (read, marked unread, marked Done).
+ * - `channel.joined.v1` / `channel.left.v1`: the viewer joined, was added, created, left or was removed.
+ * - `channel.closed.v1` / `channel.opened.v1`: the viewer closed the chat in their list, or brought it back.
+ * - `pref.changed.v1`: the viewer's `muted` state of a channel, or their `pins` (pin, unpin, order).
+ */
+export type ViewerEvent =
+  | {
+      type: "channel.marked.v1";
+      workspaceId: string;
+      conversationId: string;
+      unreadCount: number;
+    }
+  | {
+      type: "channel.joined.v1" | "channel.left.v1" | "channel.closed.v1" | "channel.opened.v1";
+      workspaceId: string;
+      conversationId: string;
+    }
+  | { type: "pref.changed.v1"; workspaceId: string; name: "muted" | "pins" };
+
+const CHANNEL_VIEWER_EVENT_TYPES = new Set([
+  "channel.joined.v1",
+  "channel.left.v1",
+  "channel.closed.v1",
+  "channel.opened.v1",
+] as const);
+
+export function decodeViewerEvent(value: unknown): ViewerEvent {
+  if (value instanceof Uint8Array)
+    return decodeViewerEvent(JSON.parse(utf8Decoder.decode(value)) as unknown);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid conversation event");
+  const type = Reflect.get(value, "type");
+  const workspaceId = Reflect.get(value, "workspaceId");
+  if (typeof workspaceId !== "string" || !workspaceId)
+    throw new Error("invalid conversation event");
+  if (type === "pref.changed.v1") {
+    const name = Reflect.get(value, "name");
+    if (name !== "muted" && name !== "pins") throw new Error("invalid conversation event");
+    return { type, workspaceId, name };
+  }
+  const conversationId = Reflect.get(value, "conversationId");
+  if (typeof conversationId !== "string" || !conversationId)
+    throw new Error("invalid conversation event");
+  if (type === "channel.marked.v1") {
+    const unreadCount = Reflect.get(value, "unreadCount");
+    if (!Number.isSafeInteger(unreadCount) || (unreadCount as number) < 0)
+      throw new Error("invalid conversation event");
+    return { type, workspaceId, conversationId, unreadCount: unreadCount as number };
+  }
+  if (!CHANNEL_VIEWER_EVENT_TYPES.has(type as never)) throw new Error("invalid conversation event");
+  return {
+    type: type as
+      | "channel.joined.v1"
+      | "channel.left.v1"
+      | "channel.closed.v1"
+      | "channel.opened.v1",
+    workspaceId,
+    conversationId,
+  };
 }

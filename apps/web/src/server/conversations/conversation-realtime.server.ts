@@ -7,6 +7,7 @@ import {
   type ChannelUpdatedEvent,
   type MessageAvailableEvent,
   type MemberChangedEvent,
+  type ViewerEvent,
 } from "#src/features/conversations/conversation-realtime";
 import type { TaskChangedEvent } from "#src/features/tasks/task-realtime";
 import { isPeopleDirectKey, peopleDirectKeyPair } from "#src/features/conversations/direct-key";
@@ -135,6 +136,9 @@ export type ConversationRealtime = {
   /** A push telling one person's Activity inbox that it changed outside their conversations.
    * Optional: a port without it announces nothing. */
   activityChanged?(input: { workspaceId: string; userId: string }): Promise<void>;
+  /** A push telling each named person's own pages that their place in a conversation changed
+   * (`ViewerEvent`). Optional: a port without it announces nothing. */
+  viewerChanged?(input: { userIds: readonly string[]; event: ViewerEvent }): Promise<void>;
 };
 
 export class CentrifugoConversationRealtime implements ConversationRealtime {
@@ -181,6 +185,15 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
       workspaceId: input.workspaceId,
     };
     await this.centrifugo.publishJson(userConversationChannel(input.userId), event);
+  }
+
+  async viewerChanged(input: { userIds: readonly string[]; event: ViewerEvent }) {
+    const idempotencyKey = crypto.randomUUID();
+    await Promise.all(
+      input.userIds.map((userId) =>
+        this.centrifugo.publishJson(userConversationChannel(userId), input.event, idempotencyKey),
+      ),
+    );
   }
 
   async taskChanged(signal: TaskChangedSignal) {
@@ -311,6 +324,33 @@ export async function announceChannelUpdated(
       JSON.stringify({
         event: "conversation_realtime:channel_updated_failed",
         workspace_id: input.workspaceId,
+        error_type: error instanceof Error ? error.name : typeof error,
+      }),
+    );
+  }
+}
+
+/**
+ * Tells each named person's open pages, on their own channel only, that their place in a
+ * conversation changed (`ViewerEvent`): a read, a join or leave, a close, a mute or pin, the way
+ * Slack sends `channel_marked`, `channel_joined` or `pref_change` to every connection of that
+ * user. Sent once the write has committed. Best effort like `announceMemberChanged`: a page that
+ * misses it catches up on its next list read.
+ */
+export async function announceViewerEvent(
+  realtime: Pick<ConversationRealtime, "viewerChanged"> | undefined,
+  input: { userIds: readonly string[]; event: ViewerEvent },
+): Promise<void> {
+  if (input.userIds.length === 0) return;
+  try {
+    const port = realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi());
+    await port.viewerChanged?.(input);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "conversation_realtime:viewer_changed_failed",
+        workspace_id: input.event.workspaceId,
+        viewer_event: input.event.type,
         error_type: error instanceof Error ? error.name : typeof error,
       }),
     );

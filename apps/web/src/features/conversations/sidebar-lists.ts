@@ -14,6 +14,7 @@ import {
   type Sidebar,
 } from "./sidebar-collections";
 import { directListsOf, type DirectRow } from "./sidebar-rows";
+import type { SidebarList } from "./conversation-unread";
 
 // React access to the Chat sidebar's lists (`sidebar-collections.ts`).
 
@@ -113,6 +114,29 @@ export function useRefreshSidebarLists() {
         queryClient.invalidateQueries({ queryKey: sidebarChannelsQueryKey(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: sidebarDirectsQueryKey(workspaceId) }),
       ]).then(() => undefined),
+    [queryClient, workspaceId],
+  );
+}
+
+/**
+ * Re-reads the named lists, and only them, after the viewer's own place in a chat changed on
+ * another page, tab or device (a `ViewerEvent`). The collections follow the refetched Query data.
+ */
+export function useRefreshSidebar() {
+  const queryClient = useQueryClient();
+  const workspaceId = useCurrentWorkspaceId() ?? "";
+  return useMemo(
+    () => (lists: readonly SidebarList[]) =>
+      Promise.all(
+        lists.map((list) =>
+          queryClient.invalidateQueries({
+            queryKey:
+              list === "channels"
+                ? sidebarChannelsQueryKey(workspaceId)
+                : sidebarDirectsQueryKey(workspaceId),
+          }),
+        ),
+      ).then(() => undefined),
     [queryClient, workspaceId],
   );
 }

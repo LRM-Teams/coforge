@@ -4,6 +4,7 @@ import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { pinOrdersAfterArrange } from "#src/lib/pin-order";
 import { lockConversation } from "./conversation-lock.server";
+import { announceViewerEvent, type ConversationRealtime } from "./conversation-realtime.server";
 
 /**
  * Pins or unpins one conversation for one member. A member's pins form a single order across
@@ -66,6 +67,7 @@ export async function arrangeConversationPins(
   workspaceId: string,
   userId: string,
   arrangement: { pins: readonly ConversationPinRef[]; unpinned: readonly ConversationPinRef[] },
+  realtime?: Pick<ConversationRealtime, "viewerChanged">,
 ) {
   await db.$transaction(async (tx) => {
     await lockMemberPins(tx, workspaceId, userId);
@@ -139,6 +141,10 @@ export async function arrangeConversationPins(
           ${moved.map((pin) => pin.order)}::int[]
         ) AS v("conversationId", "memberId", "sortOrder")
         WHERE p."conversationId" = v."conversationId" AND p."memberId" = v."memberId"`;
+  });
+  await announceViewerEvent(realtime, {
+    userIds: [userId],
+    event: { type: "pref.changed.v1", workspaceId, name: "pins" },
   });
 }
 

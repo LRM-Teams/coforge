@@ -19,6 +19,22 @@ export const HUMAN_UNREAD_MESSAGE_SQL = Prisma.sql`m."sequence" > LEAST(cm."read
   AND m."senderMemberId" IS NOT NULL
   AND m."senderMemberId" <> cm."id"`;
 
+/** How many top-level messages of its conversation are unread for the member row `memberId`: one
+ * row's badge, by the same rule `PublicChannels.list` counts every row's with. */
+export async function humanUnreadCount(
+  tx: Pick<Prisma.TransactionClient, "$queryRaw">,
+  memberId: string,
+): Promise<number> {
+  const [row] = await tx.$queryRaw<{ count: number }[]>`
+    SELECT COUNT(*)::int AS "count"
+    FROM "conversation_members" cm
+    JOIN "messages" m ON m."conversationId" = cm."conversationId"
+    WHERE cm."id" = ${memberId}::uuid
+      AND m."threadRootId" IS NULL
+      AND ${HUMAN_UNREAD_MESSAGE_SQL}`;
+  return row?.count ?? 0;
+}
+
 /**
  * Where marking a conversation unread puts the marker for the member row `memberId`: the newest
  * top-level message someone else sent, so the badge it opens counts at least one. Null when there
