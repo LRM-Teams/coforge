@@ -1,6 +1,9 @@
 (async () => {
   const env = Bun.env;
-  const billing = JSON.parse(env.COFORGE_GROK_BILLING ?? '{"config":{"creditUsagePercent":42.5}}');
+  const billing = JSON.parse(
+    env.COFORGE_GROK_BILLING ??
+      '{"config":{"creditUsagePercent":42.5,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY"},"onDemandCap":{"val":0},"onDemandUsed":{"val":0},"isUnifiedBillingUser":true}}',
+  );
   for await (const chunk of Bun.stdin.stream()) {
     for (const line of new TextDecoder().decode(chunk).split("\n")) {
       if (!line.trim()) continue;

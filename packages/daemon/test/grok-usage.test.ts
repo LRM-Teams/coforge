@@ -35,6 +35,36 @@ test("derives usage and reports pay-as-you-go", async () => {
   expect(snapshot?.secondary).toMatchObject({ usedPercent: 25 });
 });
 
+test("reads the on-demand cap and usage out of Grok 1.0.41's `{ val }` wrapper", async () => {
+  const snapshot = await read(
+    billing({ used: 15, monthlyLimit: 20, onDemandCap: { val: 10 }, onDemandUsed: { val: 2.5 } }),
+  );
+  expect(snapshot?.primary?.usedPercent).toBe(75);
+  expect(snapshot?.secondary).toMatchObject({ usedPercent: 25 });
+});
+
+test("an account with no metered usage is unsupported, not a failed scan", async () => {
+  // The billing response Grok 1.0.41 actually sends for a unified-billing account: no
+  // `creditUsagePercent`, no `used`/`monthlyLimit`, a weekly period, and every number wrapped.
+  await expect(
+    read({
+      subscription_tier: "X Premium",
+      config: {
+        currentPeriod: {
+          type: "USAGE_PERIOD_TYPE_WEEKLY",
+          start: "2026-09-27T14:19:56.652919+00:00",
+          end: "2026-10-04T14:19:56.652919+00:00",
+        },
+        onDemandCap: { val: 0 },
+        onDemandUsed: { val: 0 },
+        prepaidBalance: { val: 0 },
+        isUnifiedBillingUser: true,
+        billingPeriodEnd: "2026-10-04T14:19:56.652919+00:00",
+      },
+    }),
+  ).rejects.toBeInstanceOf(UsageUnsupportedError);
+});
+
 test("marks exhausted account as rate limited and clamps percentages", async () => {
   const snapshot = await read(billing({ creditUsagePercent: 150 }));
   expect(snapshot).toMatchObject({
