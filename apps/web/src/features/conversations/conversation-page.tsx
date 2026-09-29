@@ -7,11 +7,11 @@ import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-boa
 import { markPublicChannelRead } from "./channels.functions";
 import { ChannelConversation, ChannelConversationHeader } from "./channel-conversation";
 import { ConversationFilesPanel } from "./conversation-files";
+import type { HeaderTabs } from "./conversation-header-tabs";
 import { useConversationReadRequiresScroll } from "./conversation-host";
 import { useMarkConversationSeen } from "./conversation-navigation";
 import type { ConversationPageTarget } from "./conversation-page-loader";
 import type { ConversationPageSearch } from "./conversation-page-search";
-import type { ConversationTab } from "./conversation-tabs";
 import type { DirectConversationView } from "./conversation-types";
 import { latestTopLevelSequence, persistReadCursor } from "./conversation-unread";
 import { markDirectConversationRead } from "./conversations.functions";
@@ -96,7 +96,7 @@ function DirectConversationPage({
 }
 
 function AgentDirectConversationPage({
-  data: { page, taskView, conversationProps },
+  data,
   conversation,
   ...props
 }: ConversationPageProps & {
@@ -104,23 +104,13 @@ function AgentDirectConversationPage({
   /** The page's conversation, known to be with an Agent. */
   conversation: DirectConversationView;
 }) {
-  const { conversationId } = conversation;
   const agentId = conversation.agent.id;
   const agentStatus = useLiveAgent(agentId)?.status.value;
-  const advanceReadCursor = useServerFn(markDirectConversationRead);
   return (
-    <ConversationPageBody
+    <DirectConversationPageBody
       {...props}
-      unreadKey={conversationId}
-      page={page}
-      taskView={taskView}
-      isMember
+      data={data}
       name={conversation.agent.displayName}
-      readCursor={{
-        key: `dm:${conversationId}`,
-        advance: (throughSequence) =>
-          advanceReadCursor({ data: { conversationId, throughSequence } }),
-      }}
       header={(tabs, openAgentProfile) => (
         <DirectConversationHeader
           conversation={conversation}
@@ -131,7 +121,7 @@ function AgentDirectConversationPage({
       conversation={(chat) => (
         <DirectConversation
           key={agentId}
-          {...conversationProps}
+          {...data.conversationProps}
           conversation={conversation}
           {...chat}
           agentStatus={agentStatus}
@@ -142,7 +132,7 @@ function AgentDirectConversationPage({
 }
 
 function PeopleDirectConversationPage({
-  data: { page, taskView, conversationProps },
+  data,
   conversation,
   ...props
 }: ConversationPageProps & {
@@ -150,26 +140,17 @@ function PeopleDirectConversationPage({
   /** The page's conversation, known to be between members. */
   conversation: PeopleDirectConversationView;
 }) {
-  const { conversationId } = conversation;
-  const advanceReadCursor = useServerFn(markDirectConversationRead);
   return (
-    <ConversationPageBody
+    <DirectConversationPageBody
       {...props}
-      unreadKey={conversationId}
-      page={page}
-      taskView={taskView}
-      isMember
+      data={data}
       name={conversation.peer.displayName}
-      readCursor={{
-        key: `dm:${conversationId}`,
-        advance: (throughSequence) =>
-          advanceReadCursor({ data: { conversationId, throughSequence } }),
-      }}
       header={(tabs) => <PeopleDirectConversationHeader conversation={conversation} {...tabs} />}
+      // No Agent profile here: a member DM has no Agent to open.
       conversation={({ jumpMessage, tasksPane, onShowTasks, onShowFiles, onReadLatest }) => (
         <PeopleDirectConversation
-          key={conversationId}
-          {...conversationProps}
+          key={conversation.conversationId}
+          {...data.conversationProps}
           conversation={conversation}
           jumpMessage={jumpMessage}
           tasksPane={tasksPane}
@@ -182,36 +163,44 @@ function PeopleDirectConversationPage({
   );
 }
 
-/** What a header gets from the page: the tab it is on and the ways to the other tabs. */
-type HeaderTabs = {
-  active: ConversationTab;
-  onShowChat?: () => void;
-  onShowTasks?: () => void;
-  onShowFiles?: () => void;
-};
+/**
+ * What every direct message's page shares, whichever kind it is: the viewer is always a member, and
+ * the sidebar badge and read cursor go by the conversation id. Each kind supplies its name, header
+ * and conversation.
+ */
+function DirectConversationPageBody({
+  data: { page, taskView },
+  ...props
+}: ConversationPageProps &
+  Pick<ConversationPageBodyProps, "name" | "header" | "conversation"> & {
+    data: ReturnType<typeof useDirectConversation>;
+  }) {
+  const { conversationId } = page.conversation;
+  const advanceReadCursor = useServerFn(markDirectConversationRead);
+  return (
+    <ConversationPageBody
+      {...props}
+      unreadKey={conversationId}
+      page={page}
+      taskView={taskView}
+      isMember
+      readCursor={{
+        key: `dm:${conversationId}`,
+        advance: (throughSequence) =>
+          advanceReadCursor({ data: { conversationId, throughSequence } }),
+      }}
+    />
+  );
+}
 
 type ConversationPageData =
   | ReturnType<typeof useChannelConversation>
   | ReturnType<typeof useDirectConversation>;
 
-/**
- * The page both kinds share: the tab in view, reading the conversation, the Files and Tasks tabs,
- * and the chat with its thread, Task popup and Agent profile. Each kind supplies its data, header,
- * conversation and read cursor.
- */
-function ConversationPageBody({
-  search: pageSearch,
-  jumpMessage,
-  unreadKey,
-  page,
-  taskView,
-  isMember,
-  name,
-  readCursor,
-  header,
-  conversation: renderConversation,
-}: ConversationPageProps & {
-  /** The key the sidebar's unread badge is kept under: the channel or the Agent id. */
+/** What a conversation kind gives the shared page. */
+type ConversationPageBodyProps = {
+  /** The key the sidebar's unread badge is kept under: the channel id, or the direct
+   * conversation's id. */
   unreadKey: string;
   page: ConversationPageData["page"];
   taskView: ConversationPageData["taskView"];
@@ -231,7 +220,25 @@ function ConversationPageBody({
       onReadLatest: (throughSequence: number) => void;
     } & ReturnType<typeof useConversationAgentProfile>,
   ) => ReactNode;
-}) {
+};
+
+/**
+ * The page both kinds share: the tab in view, reading the conversation, the Files and Tasks tabs,
+ * and the chat with its thread, Task popup and Agent profile. Each kind supplies its data, header,
+ * conversation and read cursor.
+ */
+function ConversationPageBody({
+  search: pageSearch,
+  jumpMessage,
+  unreadKey,
+  page,
+  taskView,
+  isMember,
+  name,
+  readCursor,
+  header,
+  conversation: renderConversation,
+}: ConversationPageProps & ConversationPageBodyProps) {
   const { view: requestedView, profile, agentTab, ...search } = pageSearch;
   const view = useShownConversationTab(requestedView);
   const agentProfile = useConversationAgentProfile({ profile, agentTab });

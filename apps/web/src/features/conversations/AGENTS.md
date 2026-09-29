@@ -58,15 +58,20 @@ These rules apply to `src/features/conversations/`.
   per-`QueryClient` factory after hydration, never at module scope, and keep
   the chat pages server-rendered.
 - Direct and channel views share the empty-state layout and compact thread
-  prompt in `direct-conversation.tsx`. Each supplies its own identity, media,
-  and copy, and keeps its composer or join action.
+  prompt in `conversation-pane.tsx`. Each supplies its own identity and copy
+  and keeps its composer or join action; both kinds of DM take their
+  empty-state avatar and `@name` thread context from
+  `direct-threaded-conversation.tsx`.
 - DM and channel headers fill the shared `components/layout/tabbed-header.tsx`
   row (identity, centered Chat/Tasks/Files tabs, actions); give it slots rather
-  than laying out a second tab row.
+  than laying out a second tab row. Its tabs come from
+  `conversationHeaderTabs` (`conversation-header-tabs.tsx`).
 - The main stream's side room (and its "Full-width messages" device setting)
   is `MESSAGE_COLUMN_CLASS` in `features/settings/message-width.ts`; history
   and composer both use it so they line up. Do not add a second width rule.
-- `direct-conversation.tsx` is the Agent DM wrapper and header;
+- `direct-threaded-conversation.tsx` is what both kinds of DM share around the
+  stream (named `@<name>`, the other side's avatar on the empty state);
+  `direct-conversation.tsx` is the Agent DM wrapper and header;
   `people-direct-conversation.tsx` is the DM between members (a member's DM with
   themself included): always writable, no Agent in it, and its composer offers no
   @-completion because the server keeps a mention there as plain text. `threaded-conversation.tsx`
@@ -95,8 +100,9 @@ These rules apply to `src/features/conversations/`.
 - `conversation-page.tsx` (`ConversationPage`) is a conversation as Chat
   opens it (tabs, Task board, files, reading), one page for channels and
   direct messages: each kind supplies only its data, header, conversation and
-  read cursor. The Chat routes and the search preview both render it, so the
-  two never differ;
+  read cursor, and both kinds of DM share one read cursor (`dm:<conversationId>`),
+  so a DM kind supplies only its name, header and conversation. The Chat
+  routes and the search preview both render it, so the two never differ;
   a host only reads its params and loads through `loadConversationPage`
   (`conversation-page-loader.ts`). Their address state is
   `conversationPageSearchShape`, which every host's `validateSearch` spreads.

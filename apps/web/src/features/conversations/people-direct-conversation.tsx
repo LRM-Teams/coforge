@@ -1,17 +1,15 @@
 import { useMemo } from "react";
 import { getRouteApi } from "@tanstack/react-router";
 
-import { Avatar } from "#src/components/base/avatar/avatar";
 import { TabbedHeader } from "#src/components/layout/tabbed-header";
-import { ConversationTaskTabs } from "#src/features/tasks/conversation-task-tabs";
 import { MemberAvatar } from "#src/features/workspaces/member-avatar";
 import { useMemberOnline } from "#src/features/workspaces/member-presence";
-import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
-import type { ConversationTab } from "./conversation-tabs";
+import { conversationHeaderTabs, type HeaderTabs } from "./conversation-header-tabs";
 import { ConversationListButton } from "./conversation-navigation";
 import type { ThreadedConversationProps } from "./conversation-types";
-import { ThreadedConversation } from "./threaded-conversation";
+import { DirectThreadedConversation } from "./direct-threaded-conversation";
+import { plainMentionsByHandle } from "./message-markdown";
 import type { useDirectConversation } from "./use-conversation-data";
 
 /** A direct conversation between Workspace members, as its page loads it. */
@@ -33,17 +31,8 @@ function useIsSelfConversation(conversation: PeopleDirectConversationView) {
  */
 export function PeopleDirectConversationHeader({
   conversation,
-  active,
-  onShowChat,
-  onShowTasks,
-  onShowFiles,
-}: {
-  conversation: PeopleDirectConversationView;
-  active: ConversationTab;
-  onShowChat?: () => void;
-  onShowTasks?: () => void;
-  onShowFiles?: () => void;
-}) {
+  ...tabs
+}: HeaderTabs & { conversation: PeopleDirectConversationView }) {
   const { peer } = conversation;
   const online = useMemberOnline(peer.id);
   const self = useIsSelfConversation(conversation);
@@ -66,16 +55,7 @@ export function PeopleDirectConversationHeader({
           </h1>
         </>
       }
-      tabs={
-        (onShowChat || onShowTasks || onShowFiles) && (
-          <ConversationTaskTabs
-            active={active}
-            onShowChat={onShowChat}
-            onShowTasks={onShowTasks}
-            onShowFiles={onShowFiles}
-          />
-        )
-      }
+      tabs={conversationHeaderTabs(tabs)}
     />
   );
 }
@@ -95,25 +75,13 @@ export function PeopleDirectConversation({
   const { peer } = conversation;
   const self = useIsSelfConversation(conversation);
   const { mentionables } = conversation;
-  const plainMentions = useMemo(
-    () =>
-      mentionables?.length
-        ? new Map(
-            mentionables.map((mentionable) => [
-              mentionable.handle,
-              { handle: mentionable.handle, label: mentionable.label },
-            ]),
-          )
-        : undefined,
-    [mentionables],
-  );
+  const plainMentions = useMemo(() => plainMentionsByHandle(mentionables), [mentionables]);
   return (
-    <ThreadedConversation
+    <DirectThreadedConversation
       {...props}
       conversation={conversation}
       mentionCompletion={false}
-      conversationName={peer.displayName}
-      threadContext={`@${peer.displayName}`}
+      name={peer.displayName}
       plainMentions={plainMentions}
       header={
         <PeopleDirectConversationHeader
@@ -130,16 +98,7 @@ export function PeopleDirectConversation({
         description: self
           ? m.people_dm_self_empty_description()
           : m.people_dm_empty_description({ name: peer.displayName }),
-        media: (
-          <Avatar
-            size="2xl"
-            alt={peer.displayName}
-            src={peer.avatarUrl ?? undefined}
-            initials={avatarInitial(peer.displayName)}
-            contentClassName={avatarToneClassName(peer.displayName)}
-            className="ring-1 ring-secondary"
-          />
-        ),
+        avatar: { name: peer.displayName, src: peer.avatarUrl },
       }}
     />
   );
