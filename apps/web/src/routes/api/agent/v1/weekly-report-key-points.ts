@@ -7,8 +7,8 @@ import { agentRouteDomainErrorResponse } from "#src/server/agents/agent-http-rou
 import { applyKeyPointExtractionWriteBack } from "#src/server/records/weekly-report-key-points.server";
 
 const bodySchema = z.object({
-  idempotencyKey: z.string().uuid(),
-  reportId: z.string().uuid(),
+  idempotencyKey: z.uuid(),
+  reportId: z.uuid(),
   markdown: z.string().min(1).max(WEEKLY_REPORT_MARKDOWN_MAX_CHARS),
 });
 

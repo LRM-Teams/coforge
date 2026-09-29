@@ -10,8 +10,8 @@ import {
 } from "#src/server/records/weekly-report-collect-orchestrate.server";
 
 const slotReportSchema = z.object({
-  idempotencyKey: z.string().uuid(),
-  runId: z.string().uuid(),
+  idempotencyKey: z.uuid(),
+  runId: z.uuid(),
   outcome: z.enum(["ready", "empty", "failed"]),
   packMarkdown: z.string().max(WEEKLY_REPORT_MARKDOWN_MAX_CHARS).optional(),
   failureReason: z.string().max(2000).optional(),
@@ -19,7 +19,7 @@ const slotReportSchema = z.object({
 
 /** Daemon turn-fail path: mark every still-running slot for this Agent failed. */
 const failRunningSchema = z.object({
-  idempotencyKey: z.string().uuid(),
+  idempotencyKey: z.uuid(),
   failRunningSlots: z.literal(true),
   failureReason: z.string().min(1).max(2000),
 });

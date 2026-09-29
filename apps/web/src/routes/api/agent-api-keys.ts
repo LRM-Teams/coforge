@@ -32,7 +32,7 @@ const createAgentApiKeyInputSchema = z.object({
   agentId: z.string().min(1),
   workspaceId: z.string().min(1),
   controlEpoch: z.number().int().positive().optional(),
-  requestId: z.string().uuid().optional(),
+  requestId: z.uuid().optional(),
   launchId: z
     .string()
     .min(1)
