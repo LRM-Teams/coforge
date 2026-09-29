@@ -7,9 +7,11 @@ import {
 import type { Logger } from "@logtape/logtape";
 import {
   isDaemonConnectRejectionReason,
+  type DaemonConnectRejectionReason,
   type ManagedRuntimeIdentity,
 } from "@lrm/coforge-sdk/internal";
 import { CliError } from "#src/errors";
+import { terminalText } from "#src/terminal-output";
 
 /** A locally registered Workspace a `--workspace <slug-or-id>` selector names. */
 export type LocalWorkspace = { id: string; slug: string };
@@ -40,17 +42,56 @@ export function createCommand(input: {
     try {
       return await input.daemon.command(operation, local?.id ?? workspace);
     } catch (error) {
-      throw parkedWorkspaceError(error, local) ?? error;
+      if (
+        !(error instanceof DaemonCommandRejectedError) ||
+        !isDaemonConnectRejectionReason(error.code)
+      )
+        throw error;
+      // The refusal names the parked Workspace, which an unscoped command did not.
+      const id = error.workspaceId;
+      const refused = !id || id === local?.id ? local : await resolve(id).catch(() => undefined);
+      throw parkedWorkspaceError(error, error.code, refused);
     }
+  };
+  /** One line per Workspace the command started that has not connected, with the next step. */
+  const notConnected = async (runtimes: readonly ManagedRuntimeIdentity[]) =>
+    Promise.all(
+      runtimes
+        .filter((runtime) => runtime.cloudConnection && runtime.cloudConnection !== "connected")
+        .map(async (runtime) => {
+          const name = terminalText(
+            (await resolve(runtime.workspaceId).catch(() => undefined))?.slug ??
+              runtime.workspaceId,
+          );
+          return runtime.cloudConnection === "connecting"
+            ? `  ${name}: still connecting. Run 'coforge-computer status' to follow it.`
+            : `  ${name}: not connected (${terminalText(runtime.cloudConnectionError ?? "unknown error")}). Run 'coforge-computer status' to check it.`;
+        }),
+    );
+  /** "Online" only when every started Workspace connected; otherwise the header and one line per
+   * Workspace that did not. */
+  const report = async (
+    runtimes: readonly ManagedRuntimeIdentity[],
+    online: string,
+    pendingHeader: string,
+  ) => {
+    const pending = await notConnected(runtimes);
+    if (!pending.length) return write(online);
+    write(pendingHeader);
+    for (const line of pending) write(line);
   };
   return {
     async start(workspace) {
       input.logger?.info("Computer start requested", { event: "computer:starting" });
       write("Starting CoForge...");
       await input.daemon.ensureRunning();
-      await run("start", workspace);
+      const runtimes = await run("start", workspace);
       input.logger?.info("Computer start completed", { event: "computer:started" });
-      write("CoForge Computer is online.");
+      await report(
+        runtimes,
+        "CoForge Computer is online.",
+        "CoForge Computer started, but not every Workspace is connected yet:",
+      );
     },
     async stop(workspace) {
       input.logger?.info("Computer stop requested", { event: "computer:stopping" });
@@ -64,23 +105,28 @@ export function createCommand(input: {
       await input.daemon.ensureRunning();
       const runtimes = await run("restart", workspace);
       input.logger?.info("Computer restart completed", { event: "computer:restarted" });
-      write(
+      await report(
+        runtimes,
         workspace
           ? `Workspace ${workspace} restarted and is back online.`
           : "CoForge Computer is back online.",
+        workspace
+          ? `Workspace ${workspace} restarted, but is not connected yet:`
+          : "CoForge Computer restarted, but not every Workspace is connected yet:",
       );
       return runtimes;
     },
   };
 }
 
-/** The daemon refused because the cloud refused this Workspace for good. A scoped command knows
- * the Workspace's slug and so the exact setup command; an unscoped one keeps the daemon's
- * sentence, which names the Workspace id, and points at `status`. */
-function parkedWorkspaceError(error: unknown, local: LocalWorkspace | undefined) {
-  if (!(error instanceof DaemonCommandRejectedError)) return undefined;
-  const reason = error.code;
-  if (!isDaemonConnectRejectionReason(reason)) return undefined;
+/** The daemon refused because the cloud refused this Workspace for good. With the Workspace's
+ * local registration the error carries its slug and the exact commands; without one (no local
+ * registration found) it keeps the daemon's sentence and points at `status`. */
+function parkedWorkspaceError(
+  error: DaemonCommandRejectedError,
+  reason: DaemonConnectRejectionReason,
+  local: LocalWorkspace | undefined,
+): CliError {
   const code = reason.toUpperCase();
   if (!local)
     return new CliError(

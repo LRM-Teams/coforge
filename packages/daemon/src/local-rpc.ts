@@ -25,6 +25,7 @@ import {
   type LocalInboxRequest,
   type DaemonCommandRequest,
   type ManagedRuntimeIdentity,
+  type WorkspaceCloudConnection,
 } from "@lrm/coforge-sdk/internal";
 import type { DaemonConfig } from "#src/daemon-runtime/runtime";
 import type { DaemonCredentialStore } from "#src/credentials/credential-store";
@@ -55,6 +56,8 @@ type DaemonRuntimePort = Partial<{
   command(method: string, request: DaemonCommandRequest): Promise<ManagedRuntimeIdentity[]>;
   hold(reason: string): Promise<DaemonHoldReport>;
   release(): Promise<DaemonHoldReport>;
+  /** Where a Workspace daemon's latest cloud connect stands; see `WorkspaceParking`. */
+  cloudConnection(): { state: WorkspaceCloudConnection; error?: string };
 }>;
 
 type LocalRpcConfigStore = Pick<DaemonConfigStore, "load" | "save" | "clear"> &
@@ -197,6 +200,7 @@ class LocalRpcDispatcher {
       serverUrl: this.#serverUrl,
       version: this.input.version,
       processId: process.pid,
+      ...handshakeConnection(this.input.runtime.cloudConnection?.()),
     });
   }
 
@@ -271,10 +275,9 @@ class LocalRpcDispatcher {
       // normal outcome the caller must be able to act on, not a transport failure - closing the
       // socket here (the outer `receive()` catch's default) would leave the caller with nothing
       // but a dropped connection, exactly the swallow this carries a reason instead of.
-      const code =
-        typeof (error as { code?: unknown })?.code === "string"
-          ? (error as { code: string }).code
-          : undefined;
+      const code = stringField(error, "code");
+      // A parked Workspace's refusal names it, so the caller can say which one and how to recover.
+      const workspaceId = stringField(error, "workspaceId");
       logger.warn("Local lifecycle command was refused", {
         event: "daemon.local_rpc.lifecycle_refused",
         method,
@@ -287,6 +290,7 @@ class LocalRpcDispatcher {
         accepted: false,
         error: error instanceof Error ? error.message : String(error),
         ...(code ? { errorCode: code } : {}),
+        ...(workspaceId ? { workspaceId } : {}),
       });
     }
   }
@@ -363,4 +367,17 @@ class LocalRpcDispatcher {
       throw error;
     }
   }
+}
+
+function stringField(error: unknown, key: "code" | "workspaceId"): string | undefined {
+  const value = (error as Record<string, unknown> | null | undefined)?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function handshakeConnection(connection?: { state: WorkspaceCloudConnection; error?: string }) {
+  if (!connection) return {};
+  return {
+    cloudConnection: connection.state,
+    ...(connection.error ? { cloudConnectionError: connection.error } : {}),
+  };
 }

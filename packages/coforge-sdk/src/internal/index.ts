@@ -829,6 +829,7 @@ export interface WorkspaceQueryTransport {
 
 export {
   DAEMON_HANDSHAKE_METHOD,
+  WORKSPACE_CLOUD_CONNECTION_STATES,
   decodeDaemonHandshakeRequest,
   decodeDaemonHandshakeResponse,
   encodeDaemonHandshakeRequest,
@@ -885,6 +886,7 @@ export type {
   DaemonCommandRequest,
   DaemonCommandResponse,
   ManagedRuntimeIdentity,
+  WorkspaceCloudConnection,
   LocalAgentMessageRequest,
   AgentMessageResponse,
   LocalInboxRequest,

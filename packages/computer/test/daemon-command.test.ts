@@ -209,7 +209,8 @@ test("starting a Workspace the cloud removed this Computer from names the setup 
   });
 });
 
-test("an unscoped restart refused for a deleted Workspace keeps the daemon's sentence and points at status", async () => {
+test("an unscoped restart refused for a deleted Workspace names that Workspace and the commands that move on", async () => {
+  const resolved: string[] = [];
   const command = createCommand({
     daemon: {
       ensureRunning: async () => {},
@@ -218,17 +219,62 @@ test("an unscoped restart refused for a deleted Workspace keeps the daemon's sen
           "restart",
           "Workspace ws-gone was deleted in CoForge (workspace_deleted).",
           "workspace_deleted",
+          "ws-gone",
         );
       },
+    },
+    resolveWorkspace: async (selector) => {
+      resolved.push(selector);
+      return { id: "ws-gone", slug: "old-team" };
     },
   });
 
   const failure = await command.restart().catch((error: unknown) => error);
 
+  expect(resolved).toEqual(["ws-gone"]);
   expect(failure).toBeInstanceOf(CliError);
   expect(failure).toMatchObject({
     code: "WORKSPACE_DELETED",
-    message: "Workspace ws-gone was deleted in CoForge (workspace_deleted).",
-    hint: "Run 'coforge-computer status' to see which Workspace binding is parked and the command that moves on.",
+    message:
+      "Workspace ws-gone was deleted in CoForge (workspace_deleted). This Computer stopped connecting to it and stopped its Agents; local files are kept.",
+    hint: "Run 'coforge-computer setup --workspace <workspace-slug>' to attach this Computer to another Workspace, or 'coforge-computer stop --workspace old-team' to stop this binding.",
   });
+});
+
+test("start names each Workspace that is not connected yet and why, instead of saying online", async () => {
+  const progress = output();
+  const runtime = (workspaceId: string, extra: object) => ({
+    workspaceId,
+    computerId: "c",
+    enabled: true,
+    processId: 7,
+    instanceId: "i",
+    version: "v",
+    ...extra,
+  });
+  const command = createCommand({
+    daemon: {
+      ensureRunning: async () => {},
+      command: async () => [
+        runtime("ws-a", { cloudConnection: "connected" }),
+        runtime("ws-b", { cloudConnection: "connecting" }),
+        runtime("ws-c", {
+          cloudConnection: "not_connected",
+          cloudConnectionError: "transport closed (2)",
+        }),
+        runtime("ws-d", {}),
+      ],
+    },
+    resolveWorkspace: async (selector) => ({ id: selector, slug: `slug-${selector}` }),
+    write: progress.write,
+  });
+
+  await command.start();
+
+  expect(progress.lines).toEqual([
+    "Starting CoForge...",
+    "CoForge Computer started, but not every Workspace is connected yet:",
+    "  slug-ws-b: still connecting. Run 'coforge-computer status' to follow it.",
+    "  slug-ws-c: not connected (transport closed (2)). Run 'coforge-computer status' to check it.",
+  ]);
 });

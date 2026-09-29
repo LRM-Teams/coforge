@@ -29,6 +29,13 @@ import {
   workspaceHealthJournalPath,
 } from "./workspace-health-journal";
 import { answeredWithin } from "./runner-hold";
+import {
+  awaitCloudConnections,
+  OPERATOR_COMMAND_BUDGET_MS,
+  throwIfParked,
+  WorkspaceStillStartingError,
+  type WorkspaceStartPorts,
+} from "./workspace-start-outcome";
 import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
 import { launchComputerUpgrade } from "#src/platform/computer-upgrade-launcher";
 import { sweepLeftoverComputerUpgradeJobs } from "#src/platform/computer-upgrade-sweep";
@@ -54,6 +61,9 @@ const UPGRADE_RECEIPT_POLL_MS = 2_000;
  * daemon must never be able to block a Computer upgrade or a restart.
  */
 const RUNNER_HOLD_WORKSPACE_TIMEOUT_MS = 5_000;
+/** How long a Workspace start waits for its process to answer, and an operator start then waits
+ * for its first cloud connect to settle. */
+const WORKSPACE_READINESS_MS = 30_000;
 
 export async function runMachineSupervisor(
   args: string[],
@@ -162,6 +172,23 @@ async function runWithSupervisorLock(
   const workspaceDirectory = (id: string) => workspaceStateDirectory(stateDirectory, id);
   const workspaceHealth = (id: string) =>
     new WorkspaceHealthJournal(workspaceHealthJournalPath(workspaceDirectory(id)));
+  const startPorts: WorkspaceStartPorts = {
+    async parkReason(id) {
+      const health = await workspaceHealth(id).state();
+      return health.status === "parked" ? health.reason : undefined;
+    },
+    async cloudConnection(id) {
+      const reported = await childClient(id)
+        .identity()
+        .catch(() => null);
+      return reported?.cloudConnection
+        ? {
+            state: reported.cloudConnection,
+            ...(reported.cloudConnectionError ? { error: reported.cloudConnectionError } : {}),
+          }
+        : null;
+    },
+  };
   const children = new Map<
     string,
     { instance: WorkspaceInstance; identity: ManagedRuntimeIdentity; osInstanceId: string }
@@ -327,7 +354,7 @@ async function runWithSupervisorLock(
   const supervisor = new MachineSupervisor(
     bindings,
     {
-      async start(binding) {
+      async start(binding, options = {}) {
         const directory = workspaceDirectory(binding.workspaceId);
         // A degraded Workspace must fail fast, not spend up to 30s discovering the OS unit will
         // never open local RPC: the replacement child would itself observe the same latch and
@@ -370,20 +397,28 @@ async function runWithSupervisorLock(
           osInstanceId: observed.invocationId,
         });
         const client = childClient(binding.workspaceId);
-        const deadline = Date.now() + 30_000;
+        // An operator command's own deadline caps readiness: past it, the Workspace is reported
+        // still starting instead of the command outlasting its caller.
+        const commandDeadline = options.deadline ?? Number.POSITIVE_INFINITY;
+        const deadline = Math.min(Date.now() + WORKSPACE_READINESS_MS, commandDeadline);
         try {
           while (Date.now() < deadline) {
             const reported = await client.identity().catch(() => null);
             if (reported?.processId === processId && reported.version === COFORGE_DAEMON_VERSION) {
               const current = await instance.identity();
-              if (!current?.active || current.invocationId !== observed.invocationId)
+              if (!current?.active || current.invocationId !== observed.invocationId) {
+                await throwIfParked(startPorts, binding.workspaceId);
                 throw new Error("Workspace OS identity changed during handshake");
+              }
               identity.instanceId = reported.daemonId;
               identity.version = reported.version;
               return observed.invocationId;
             }
+            if (!reported) await throwIfParked(startPorts, binding.workspaceId);
             await Bun.sleep(50);
           }
+          if (deadline === commandDeadline)
+            throw new WorkspaceStillStartingError(binding.workspaceId);
           throw new Error(`Workspace ${binding.workspaceId} failed process readiness`);
         } catch (error) {
           // A failed handshake is not permission to kill an adopted live unit.
@@ -402,7 +437,10 @@ async function runWithSupervisorLock(
         const observed = await workspaceInstance(binding.workspaceId).identity();
         // Require `active`: a durable Windows record can keep mainPid after death; treating that
         // as the live instance would skip ensureStarted and leave the Workspace down.
-        return observed?.active ? observed.invocationId : null;
+        if (observed?.active) return observed.invocationId;
+        // A child that exited on its own (a parked Workspace does) is reaped here.
+        children.delete(binding.workspaceId);
+        return null;
       },
       // Per-Workspace, so a restart never reaches past its own target: an unscoped restart holds
       // each enabled binding in turn as the loop gets to it, not the whole machine at once. The
@@ -412,10 +450,7 @@ async function runWithSupervisorLock(
       release: (binding, reason) =>
         holdWorkspaceRunners(binding.workspaceId, "release", reason, "restart"),
       clearHealth: (binding) => workspaceHealth(binding.workspaceId).clear(),
-      async parkedReason(binding) {
-        const health = await workspaceHealth(binding.workspaceId).state();
-        return health.status === "parked" ? health.reason : undefined;
-      },
+      parkedReason: (binding) => startPorts.parkReason(binding.workspaceId),
       clearParked: (binding) => workspaceHealth(binding.workspaceId).clearParked(),
     },
     Date.now,
@@ -426,20 +461,62 @@ async function runWithSupervisorLock(
   let heldRecovery: HeldUpgradeRecovery | undefined;
   const scopedCredentials = (workspaceId: string) =>
     new FileDaemonCredentialStore(workspaceDirectory(workspaceId));
-  const snapshot = async () =>
-    (await supervisor.snapshot()).map((binding) => {
-      const child = children.get(binding.workspaceId);
-      return child && binding.instanceId === child.osInstanceId
-        ? { ...child.identity, enabled: binding.enabled }
-        : {
-            workspaceId: binding.workspaceId,
-            computerId: binding.computerId,
-            enabled: binding.enabled,
-            processId: 0,
-            instanceId: "",
-            version: "",
-          };
+  /**
+   * An operator start or restart under one deadline for the whole command: every Workspace it
+   * started is answered with where its first cloud connect stands, and one the cloud refused for
+   * good refuses the command with its park.
+   */
+  const startForOperator = async (
+    operation: "start" | "restart",
+    workspaceId: string | undefined,
+    requestId: string,
+  ) => {
+    const deadline = Date.now() + OPERATOR_COMMAND_BUDGET_MS;
+    const { started, stillStarting } = await supervisor.command(
+      operation,
+      workspaceId,
+      operation === "restart" ? requestId : undefined,
+      { deadline },
+    );
+    // A Workspace still starting past the deadline is checked once more and answers "connecting".
+    const outcomes = await awaitCloudConnections(
+      startPorts,
+      [...started, ...stillStarting],
+      deadline,
+    );
+    const answered = new Map(outcomes.map((outcome) => [outcome.workspaceId, outcome]));
+    return (await snapshot()).map((runtime) => {
+      const outcome = answered.get(runtime.workspaceId);
+      if (!outcome) return runtime;
+      return {
+        ...runtime,
+        cloudConnection: outcome.cloudConnection,
+        ...(outcome.error ? { cloudConnectionError: outcome.error } : {}),
+      };
     });
+  };
+  /** Each binding's live identity, or processId 0 once its OS instance is gone (a child that
+   * exited, e.g. after parking, is reaped here), plus why it is parked, when it is. */
+  const snapshot = async () =>
+    Promise.all(
+      (await supervisor.snapshot()).map(async (binding) => {
+        const child = children.get(binding.workspaceId);
+        if (child && binding.instanceId === child.osInstanceId)
+          return { ...child.identity, enabled: binding.enabled };
+        // Only a Workspace that is down can be parked.
+        const reason = await startPorts.parkReason(binding.workspaceId);
+        const parked = reason ? { parkReason: reason } : {};
+        return {
+          workspaceId: binding.workspaceId,
+          computerId: binding.computerId,
+          enabled: binding.enabled,
+          processId: 0,
+          instanceId: "",
+          version: "",
+          ...parked,
+        };
+      }),
+    );
   const completeUpgrade = async (
     workspaceId: string,
     requestId: string,
@@ -685,11 +762,11 @@ async function runWithSupervisorLock(
               const operation = method.slice("daemon:".length);
               if (operation !== "start" && operation !== "stop" && operation !== "restart")
                 throw new Error("unknown lifecycle operation");
-              await supervisor.command(
-                operation,
-                request.workspaceId,
-                operation === "restart" ? request.requestId : undefined,
-              );
+              if (operation === "stop") {
+                await supervisor.command(operation, request.workspaceId);
+                return snapshot();
+              }
+              return startForOperator(operation, request.workspaceId, request.requestId);
             }
             return snapshot();
           },

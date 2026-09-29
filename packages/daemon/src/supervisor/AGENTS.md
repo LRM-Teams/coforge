@@ -34,6 +34,18 @@ Rules for the machine Coordinator in `src/supervisor/`. They extend
   bindings and then refuses with the stable reason as `error_code`. Only
   `configure` (setup attaching it again) lifts the park. Parking never deletes
   local config or uninstalls the service.
+- `workspace-parking.ts` owns the Workspace process's side: every runtime start
+  goes through it, a refusal records the park before the process shuts down
+  and exits 0, and its handshake reports where the latest cloud connect stands
+  (`connecting`, `connected`, `not_connected` with why).
+- `workspace-start-outcome.ts` owns an operator `start`/`restart`: one
+  deadline for the whole command (`OPERATOR_COMMAND_BUDGET_MS`, below the local
+  lifecycle client's 35 s timeout) covers process readiness and each started
+  Workspace's first cloud connect. Past it, a Workspace is answered as still
+  starting or connecting, never a client timeout; every started Workspace is
+  checked at least once; a park refuses the command. Recovery never waits.
+- The snapshot reports a parked Workspace's `park_reason`; an upgrade treats it
+  as down on purpose, not as an unhealthy runtime set.
 - systemd Workspace units restart on failure after cgroup cleanup.
 - On macOS, `launchd-workspace-instance.ts` implements the instance seam on top
   of `platform/launchd-job.ts`. Workspace startup reconciles only its own Agent

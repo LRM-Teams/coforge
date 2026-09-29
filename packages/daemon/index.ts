@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { DaemonConnectRejectionReason, LocalInboxRequest } from "@lrm/coforge-sdk/internal";
+import type { LocalInboxRequest } from "@lrm/coforge-sdk/internal";
 import { dispose, getLogger, withContext } from "@logtape/logtape";
 import { startDaemonLocalRpcServer } from "#src/local-rpc";
 import { startAgentProxy, type AgentProxyRuntime } from "#src/agent-proxy";
@@ -18,7 +18,6 @@ import {
   DaemonConnection,
   defaultCentrifugeWorkspaceClientFactory,
 } from "#src/connection/daemon-connection";
-import { DaemonConnectionRefusedError } from "#src/connection/daemon-connection-refused-error";
 import { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "#src/connection/built-server";
 import { COFORGE_DAEMON_VERSION } from "#src/version";
 import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
@@ -29,8 +28,8 @@ import {
   WorkspaceHealthJournal,
   workspaceDegradedMessage,
   workspaceHealthJournalPath,
-  workspaceParkedMessage,
 } from "#src/supervisor/workspace-health-journal";
+import { WorkspaceParking } from "#src/supervisor/workspace-parking";
 import { guardWorkspaceRunnerStart } from "#src/supervisor/workspace-runner-guard";
 export { launchdJobs } from "#src/platform/launchd-job";
 export { stopWorkspaceAgentProcesses } from "#src/platform/linux-agent-processes";
@@ -212,13 +211,9 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       // Before any real work (Agent proxy, Workspace connection): let the health journal say
       // whether the previous run(s) died unexpectedly often enough to stop this restart loop.
       const guard = await guardWorkspaceRunnerStart(healthJournal);
-      const logParked = (reason: DaemonConnectRejectionReason) =>
-        logger.error(workspaceParkedMessage(reason, { workspaceId: config?.workspaceId ?? "" }), {
-          event: "daemon:workspace_parked",
-          reason,
-        });
+      const parking = new WorkspaceParking(healthJournal, () => config?.workspaceId);
       if (guard.action === "parked") {
-        logParked(guard.reason);
+        parking.logParked(guard.reason);
         await dispose();
         process.exitCode = 0;
         return;
@@ -309,19 +304,6 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           socketPath: supervisorSocket!,
           spawn: () => {},
         }).control(...request);
-      // Assigned once `shutdown` exists, before `daemon.start()`; a refusal can only arrive
-      // from a started runtime.
-      let park: (reason: DaemonConnectRejectionReason) => Promise<void> = async () => {};
-      /** Every runtime start goes through here, so a refusal parks whichever caller started it:
-       * boot recovery or a local configure/start/restart request. */
-      const startRuntime = async (next: DaemonRuntime, connection: DaemonConfig) => {
-        try {
-          await next.start(connection);
-        } catch (error) {
-          if (error instanceof DaemonConnectionRefusedError) void park(error.reason);
-          throw error;
-        }
-      };
       const createRuntime = (connection: DaemonConfig) =>
         new DaemonRuntime(
           connection,
@@ -360,7 +342,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
                   await supervisorControl("restart", config.workspaceId, requestId);
                 }
               : undefined,
-            connectionRefused: (reason) => void park(reason),
+            connectionRefused: (reason) => void parking.park(reason),
             requestUpgrade: async (requestId: string, expectedVersion?: string) => {
               if (!config) throw new Error("Workspace is not configured");
               if (!expectedVersion) throw new Error("upgrade expected version is unavailable");
@@ -376,14 +358,17 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           // the old connection and all children before adopting the new identity.
           await runtime?.stop();
           config = nextConfig;
-          runtime = createRuntime(config);
-          await startRuntime(runtime, config);
+          const next = createRuntime(nextConfig);
+          runtime = next;
+          await parking.start(() => next.start(nextConfig));
         },
         async start() {
-          if (!config) return;
-          runtime ??= createRuntime(config);
-          await startRuntime(runtime, config);
+          if (!config) return parking.unconfigured();
+          const current = config;
+          const next = (runtime ??= createRuntime(current));
+          await parking.start(() => next.start(current));
         },
+        cloudConnection: () => parking.cloudConnection,
         async stopAll() {
           await runtime?.stop();
           runtime = undefined;
@@ -439,25 +424,19 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       });
       process.once("SIGINT", () => void shutdown());
       process.once("SIGTERM", () => void shutdown());
-      // The cloud refused this Workspace for good: park it before stopping, so neither this
-      // process's clean exit (0 ends both OS supervisors' restarts) nor a later boot retries it.
-      park = async (reason) => {
-        await healthJournal.markParked(reason);
-        logParked(reason);
-        await shutdown();
-      };
+      const parked = parking.bindShutdown(shutdown);
       try {
         await daemon.start();
       } catch (error) {
-        // A refusal is already parking the Workspace; see `startRuntime`.
-        if (!(error instanceof DaemonConnectionRefusedError))
+        // A refusal for good is parking the Workspace instead (`WorkspaceParking`).
+        if (parking.cloudConnection.state === "not_connected")
           logger.error("Daemon failed to recover configured Workspace", {
             event: "daemon:workspace_recovery_failed",
             error_code: diagnosticErrorCode(error),
             outcome: "failed",
           });
       }
-      await shutdownRequested;
+      await Promise.all([parked, shutdownRequested]);
     },
   );
 }

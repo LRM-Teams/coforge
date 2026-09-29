@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 
 import { authenticateCentrifugoConnect } from "#src/server/centrifugo/connect-proxy.server";
 import {
   createDaemonApiKeyFactory,
+  hashDaemonApiKey,
   type DaemonApiKeyRepository,
 } from "#src/server/auth/daemon-api-key.server";
 
@@ -20,8 +21,7 @@ const repository = (): DaemonApiKeyRepository & { token?: string } => {
   };
 };
 
-const WORKSPACE_ID = "0f3c2b8e-5d6a-4c1e-9b7f-2a4d6e8f0a1b";
-const UNKNOWN_KEY = `dk_${"a".repeat(43)}`;
+const REVOKED_KEY = `dk_${"a".repeat(43)}`;
 
 function connectRequest(data: unknown): Request {
   return new Request("http://backend", { method: "POST", body: JSON.stringify({ data }) });
@@ -43,7 +43,7 @@ describe("Centrifugo Connect Proxy", () => {
       {
         daemonApiKeys: keys,
         computerBelongsToWorkspace: async () => true,
-        workspaceExists: async () => true,
+        revocationReason: async () => undefined,
       },
     );
     expect(response.status).toBe(200);
@@ -60,15 +60,15 @@ describe("Centrifugo Connect Proxy", () => {
     const keys = repository();
     keys.token = await createDaemonApiKeyFactory(keys).create({
       principal: { userId: "user-1" },
-      workspaceId: WORKSPACE_ID,
+      workspaceId: "workspace-1",
       computerId: "computer-1",
     });
     const response = await authenticateCentrifugoConnect(
-      connectRequest({ daemonApiKey: keys.token, workspaceId: WORKSPACE_ID }),
+      connectRequest({ daemonApiKey: keys.token }),
       {
         daemonApiKeys: keys,
         computerBelongsToWorkspace: async () => false,
-        workspaceExists: async () => true,
+        revocationReason: async () => undefined,
       },
     );
     expect(response.status).toBe(200);
@@ -77,52 +77,99 @@ describe("Centrifugo Connect Proxy", () => {
     });
   });
 
-  test("refuses an unknown key for a Workspace that no longer exists for good", async () => {
-    const checked: string[] = [];
+  test("refuses a formerly valid key whose Workspace was deleted for good, by its recorded revocation", async () => {
+    const asked: string[] = [];
     const response = await authenticateCentrifugoConnect(
-      connectRequest({ daemonApiKey: UNKNOWN_KEY, workspaceId: WORKSPACE_ID }),
+      connectRequest({ daemonApiKey: REVOKED_KEY }),
       {
         daemonApiKeys: repository(),
         computerBelongsToWorkspace: async () => true,
-        workspaceExists: async (workspaceId) => {
-          checked.push(workspaceId);
-          return false;
+        revocationReason: async (apiKeyHash) => {
+          asked.push(apiKeyHash);
+          return "workspace_deleted";
         },
       },
     );
-    expect(checked).toEqual([WORKSPACE_ID]);
+    expect(asked).toEqual([hashDaemonApiKey(REVOKED_KEY)]);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       disconnect: { code: 4501, reason: "workspace_deleted" },
     });
   });
 
-  test("keeps an unknown key for an existing Workspace a retryable authentication failure", async () => {
+  test("keeps a key with no recorded revocation a retryable authentication failure", async () => {
     const response = await authenticateCentrifugoConnect(
-      connectRequest({ daemonApiKey: UNKNOWN_KEY, workspaceId: WORKSPACE_ID }),
+      connectRequest({ daemonApiKey: REVOKED_KEY }),
       {
         daemonApiKeys: repository(),
         computerBelongsToWorkspace: async () => true,
-        workspaceExists: async () => true,
+        revocationReason: async () => undefined,
       },
     );
     expect(response.status).toBe(401);
   });
 
-  test("never looks up a Workspace id that is not a UUID", async () => {
+  test("never looks up a revocation for a value that is not a daemon key", async () => {
     let looked = false;
     const response = await authenticateCentrifugoConnect(
-      connectRequest({ daemonApiKey: UNKNOWN_KEY, workspaceId: "not-a-uuid" }),
+      connectRequest({ daemonApiKey: "not-a-key" }),
       {
         daemonApiKeys: repository(),
         computerBelongsToWorkspace: async () => true,
-        workspaceExists: async () => {
+        revocationReason: async () => {
           looked = true;
-          return false;
+          return "workspace_deleted";
         },
       },
     );
     expect(looked).toBe(false);
     expect(response.status).toBe(401);
+  });
+
+  describe("logs every refusal for good with its reason", () => {
+    const warnings: unknown[] = [];
+    let warn: ReturnType<typeof spyOn>;
+    beforeAll(() => {
+      warn = spyOn(console, "warn").mockImplementation((line: unknown) => {
+        warnings.push(JSON.parse(String(line)));
+      });
+    });
+    afterEach(() => {
+      warnings.length = 0;
+    });
+    afterAll(() => {
+      warn.mockRestore();
+    });
+
+    test("an unlinked Computer names the principal", async () => {
+      const keys = repository();
+      keys.token = await createDaemonApiKeyFactory(keys).create({
+        principal: { userId: "user-1" },
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+      });
+      await authenticateCentrifugoConnect(connectRequest({ daemonApiKey: keys.token }), {
+        daemonApiKeys: keys,
+        computerBelongsToWorkspace: async () => false,
+        revocationReason: async () => undefined,
+      });
+      expect(warnings).toEqual([
+        {
+          event: "daemon_connect:refused",
+          reason: "computer_unlinked",
+          workspace_id: "workspace-1",
+          computer_id: "computer-1",
+        },
+      ]);
+    });
+
+    test("a revoked key names only the reason", async () => {
+      await authenticateCentrifugoConnect(connectRequest({ daemonApiKey: REVOKED_KEY }), {
+        daemonApiKeys: repository(),
+        computerBelongsToWorkspace: async () => true,
+        revocationReason: async () => "workspace_deleted",
+      });
+      expect(warnings).toEqual([{ event: "daemon_connect:refused", reason: "workspace_deleted" }]);
+    });
   });
 });

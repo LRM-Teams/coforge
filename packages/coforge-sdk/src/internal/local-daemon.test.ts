@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  decodeDaemonCommandResponse,
   decodeDaemonHandshakeRequest,
   decodeDaemonHandshakeResponse,
   decodeDaemonRuntimeConfigureRequest,
+  encodeDaemonCommandResponse,
   encodeDaemonHandshakeRequest,
   encodeDaemonHandshakeResponse,
   encodeDaemonRuntimeConfigureRequest,
@@ -33,6 +35,53 @@ describe("local daemon RPC", () => {
     expect(decodeDaemonHandshakeResponse(encodeDaemonHandshakeResponse(response))).toEqual(
       response,
     );
+  });
+
+  test("round trips where a Workspace daemon's cloud connection stands", () => {
+    const response = {
+      protocolMajor: 1,
+      requestId: "request-1",
+      daemonId: "daemon-1",
+      accepted: true,
+      serverUrl: "https://coforge.example",
+      cloudConnection: "not_connected",
+      cloudConnectionError: "ECONNREFUSED",
+    } as const;
+    expect(decodeDaemonHandshakeResponse(encodeDaemonHandshakeResponse(response))).toEqual(
+      response,
+    );
+  });
+
+  test("round trips a parked runtime and the Workspace a lifecycle refusal names", () => {
+    const response = {
+      protocolMajor: 1,
+      requestId: "request-1",
+      accepted: false,
+      runtimes: [
+        {
+          workspaceId: "workspace-1",
+          computerId: "computer-1",
+          enabled: true,
+          processId: 0,
+          instanceId: "",
+          version: "",
+          parkReason: "workspace_deleted",
+        },
+        {
+          workspaceId: "workspace-2",
+          computerId: "computer-1",
+          enabled: true,
+          processId: 42,
+          instanceId: "i",
+          version: "v",
+          cloudConnection: "connecting" as const,
+        },
+      ],
+      error: "Workspace workspace-1 was deleted in CoForge (workspace_deleted).",
+      errorCode: "workspace_deleted",
+      workspaceId: "workspace-1",
+    };
+    expect(decodeDaemonCommandResponse(encodeDaemonCommandResponse(response))).toEqual(response);
   });
 
   test("round trips the Computer identity in a worker configure request", () => {

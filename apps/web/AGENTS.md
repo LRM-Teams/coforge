@@ -167,6 +167,7 @@ responsibility.
 - Rules for `src/server/projects/` → [`src/server/projects/AGENTS.md`](src/server/projects/AGENTS.md)
 - Rules for `src/server/reminders/` → [`src/server/reminders/AGENTS.md`](src/server/reminders/AGENTS.md)
 - Rules for `src/server/tasks/` → [`src/server/tasks/AGENTS.md`](src/server/tasks/AGENTS.md)
+- Rules for `src/server/workspaces/` → [`src/server/workspaces/AGENTS.md`](src/server/workspaces/AGENTS.md)
 - Rules for Records (`src/features/records/`, `src/server/records/`) → [`src/features/records/AGENTS.md`](src/features/records/AGENTS.md)
 
 ## Workspace memory modules
