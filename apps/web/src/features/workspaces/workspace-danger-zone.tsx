@@ -97,8 +97,14 @@ function LeaveWorkspaceDialog({
         return;
       }
     }
-    if (next) await navigate({ to: "/w/$workspaceSlug", params: { workspaceSlug: next } });
-    else await navigate({ to: "/" });
+    try {
+      if (next) await navigate({ to: "/w/$workspaceSlug", params: { workspaceSlug: next } });
+      else await navigate({ to: "/" });
+    } finally {
+      // Still here when the navigation failed: pressing Leave again finds them already out
+      // (NOT_FOUND) and goes to `/`.
+      setBusy(false);
+    }
   }
 
   return (
