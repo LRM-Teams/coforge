@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { utf8Encoder, utf8Decoder } from "@lrm/coforge-sdk/internal";
 
 import { safeReturnTo } from "#src/features/auth/return-to";
@@ -60,6 +62,13 @@ type SignedSession = BrowserUser & { exp: number; idToken?: string };
 
 type SignedLogoutReturn = { returnTo: string; exp: number };
 
+/**
+ * What a signed cookie is for. It is part of what the signature covers, so one cookie's value
+ * never reads as another's: all three are signed with the same session secret, and without it a
+ * sign-in state cookie replayed as `coforge_session` would pass as a session.
+ */
+type SignedPurpose = "session" | "login-state" | "logout-return";
+
 /** What a `state` looks like when this module made it (base64url of random bytes): the only
  * strings that are safe in a cookie name, and the only ones a callback's query can name. */
 const STATE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -83,7 +92,11 @@ function readPendingState(input: {
 }): SignedState | null {
   const name = stateCookieName(input.state);
   if (!name) return null;
-  const signed = readSigned<SignedState>(readCookie(input.cookieHeader, name), input.sessionSecret);
+  const signed = readSigned<SignedState>(
+    "login-state",
+    readCookie(input.cookieHeader, name),
+    input.sessionSecret,
+  );
   return signed?.state === input.state ? signed : null;
 }
 
@@ -118,7 +131,7 @@ export function startBrowserLogin(input: {
     authorizationUrl: url.toString(),
     stateCookie: serializeCookie(
       `${STATE_COOKIE_PREFIX}${state}`,
-      sign(payload, input.sessionSecret),
+      sign("login-state", payload, input.sessionSecret),
       STATE_TTL_SECONDS,
       input.config.redirectUri,
     ),
@@ -183,7 +196,7 @@ export async function completeBrowserLogin(input: {
     user,
     sessionCookie: serializeCookie(
       SESSION_COOKIE,
-      sign(session, input.sessionSecret),
+      sign("session", session, input.sessionSecret),
       SESSION_TTL_SECONDS,
       input.config.redirectUri,
     ),
@@ -243,10 +256,11 @@ export function readBrowserSession(input: {
 }): BrowserUser | null {
   const now = input.now ?? Date.now;
   const session = readSigned<SignedSession>(
+    "session",
     readCookie(input.cookieHeader, SESSION_COOKIE),
     input.sessionSecret,
   );
-  if (!session || session.exp * 1000 <= now()) return null;
+  if (!isSignedSession(session) || session.exp * 1000 <= now()) return null;
   return {
     id: session.id,
     email: session.email,
@@ -288,6 +302,7 @@ export function endBrowserLogin(input: {
 } {
   const now = input.now ?? Date.now;
   const session = readSigned<SignedSession>(
+    "session",
     readCookie(input.cookieHeader, SESSION_COOKIE),
     input.sessionSecret,
   );
@@ -306,7 +321,7 @@ export function endBrowserLogin(input: {
       ? {
           returnCookie: serializeCookie(
             LOGOUT_RETURN_COOKIE,
-            sign(remembered, input.sessionSecret),
+            sign("logout-return", remembered, input.sessionSecret),
             LOGOUT_RETURN_TTL_SECONDS,
             input.config.redirectUri,
           ),
@@ -331,7 +346,7 @@ export function consumeLogoutReturnTo(input: {
   const now = input.now ?? Date.now;
   const value = readCookie(input.cookieHeader, LOGOUT_RETURN_COOKIE);
   if (value === null) return undefined;
-  const signed = readSigned<SignedLogoutReturn>(value, input.sessionSecret);
+  const signed = readSigned<SignedLogoutReturn>("logout-return", value, input.sessionSecret);
   const returnTo = signed && signed.exp * 1000 > now() ? safeReturnTo(signed.returnTo) : undefined;
   return {
     ...(returnTo ? { returnTo } : {}),
@@ -383,20 +398,36 @@ export function createAuthingExchanger(config: AuthingConfig): TokenExchanger {
   };
 }
 
-function sign(payload: object, secret: string): string {
+function sign(purpose: SignedPurpose, payload: object, secret: string): string {
   const body = toBase64Url(utf8Encoder.encode(JSON.stringify(payload)));
-  return `${body}.${hmacSha256(secret, body)}`;
+  return `${body}.${hmacSha256(secret, `${purpose}.${body}`)}`;
 }
 
-function readSigned<T>(value: string | null, secret: string): T | null {
+function readSigned<T>(purpose: SignedPurpose, value: string | null, secret: string): T | null {
   if (!value) return null;
-  const [body, signature] = value.split(".");
-  if (!body || !signature || hmacSha256(secret, body) !== signature) return null;
+  const [body, signature, ...rest] = value.split(".");
+  if (!body || !signature || rest.length > 0) return null;
+  const expected = utf8Encoder.encode(hmacSha256(secret, `${purpose}.${body}`));
+  const given = utf8Encoder.encode(signature);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
   try {
     return JSON.parse(utf8Decoder.decode(fromBase64Url(body))) as T;
   } catch {
     return null;
   }
+}
+
+/** Whether a signed session carries every field a `BrowserUser` needs; `id` goes straight into
+ * queries, where `undefined` would match every row. */
+function isSignedSession(value: SignedSession | null): value is SignedSession {
+  return (
+    value !== null &&
+    typeof value.exp === "number" &&
+    [value.id, value.email, value.name, value.authingSub, value.username].every(
+      (field) => typeof field === "string",
+    ) &&
+    value.id !== ""
+  );
 }
 
 function readCookie(header: string, name: string): string | null {
