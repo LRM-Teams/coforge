@@ -139,14 +139,7 @@ function normalizeSuggestion(value: unknown): WeeklyReportAssistantSuggestion | 
       return null;
     if (typeof row.allMembers !== "boolean" || !Array.isArray(row.recipientUserIds)) return null;
     if (!Array.isArray(row.sections) || row.sections.length === 0) return null;
-    const sections = (row.sections as unknown[]).filter(
-      (section: unknown): section is TemplateOutlineSection =>
-        Boolean(section) &&
-        typeof section === "object" &&
-        typeof section.title === "string" &&
-        Array.isArray(section.children) &&
-        section.children.every((child: unknown) => typeof child === "string"),
-    );
+    const sections = (row.sections as unknown[]).filter(isTemplateOutlineSection);
     if (sections.length !== row.sections.length) return null;
     return {
       type: "template-create",
@@ -184,6 +177,16 @@ function normalizeSuggestion(value: unknown): WeeklyReportAssistantSuggestion | 
     };
   }
   return null;
+}
+
+function isTemplateOutlineSection(section: unknown): section is TemplateOutlineSection {
+  if (!section || typeof section !== "object") return false;
+  const row = section as { title?: unknown; children?: unknown };
+  return (
+    typeof row.title === "string" &&
+    Array.isArray(row.children) &&
+    row.children.every((child) => typeof child === "string")
+  );
 }
 
 function asReportContent(value: unknown): ReportContent | null {
