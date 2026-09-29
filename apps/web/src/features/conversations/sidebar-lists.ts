@@ -18,6 +18,7 @@ import {
   type Sidebar,
 } from "./sidebar-collections";
 import { directListsOf, type DirectRow } from "./sidebar-rows";
+import { savedMessagesQueryKey } from "./saved-messages-collection";
 import { sidebarRefreshQueue, type ChatList } from "./conversation-unread";
 
 // React access to the Chat sidebar's lists (`sidebar-collections.ts`).
@@ -95,14 +96,15 @@ const listQueryKey: Record<ChatList, (workspaceId: string) => readonly unknown[]
   channels: sidebarChannelsQueryKey,
   dms: sidebarDirectsQueryKey,
   channelNames: channelNamesQueryKey,
+  saved: savedMessagesQueryKey,
 };
 
 /**
  * Re-reads the named lists, and only them, after something outside the sidebar changed them: a
  * channel's creation, rename, description or archive (here, or `channel.created.v1` /
  * `channel.updated.v1`), a message that brings a closed or unlisted chat in, the Activity page
- * moving badges, or the viewer's own place in a chat changed on another page, tab or device (a
- * `ViewerEvent`). A burst is read once (`sidebarRefreshQueue`). The collections follow the
+ * moving badges, or the viewer's own place in a chat or their Saved list changed on another page,
+ * tab or device (a `ViewerEvent`). A burst is read once (`sidebarRefreshQueue`). The collections follow the
  * refetched Query data.
  */
 export function useRefreshSidebar() {

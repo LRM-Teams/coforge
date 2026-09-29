@@ -390,9 +390,9 @@ export async function announceChannelCreated(
 
 /**
  * Tells each named person's open pages, on their own channel only, that their place in a
- * conversation changed (`ViewerEvent`): a read, a join or leave, a close, a mute or pin, the way
- * Slack sends `channel_marked`, `channel_joined` or `pref_change` to every connection of that
- * user. Sent once the write has committed. Best effort like `announceMemberChanged`: a page that
+ * conversation or their Saved list changed (`ViewerEvent`): a read, a join or leave, a close, a
+ * mute or pin, a save, the way Slack sends `channel_marked`, `channel_joined`, `pref_change` or
+ * `star_added` to every connection of that user. Sent once the write has committed. Best effort like `announceMemberChanged`: a page that
  * misses it catches up on its next list read.
  */
 export async function announceViewerEvent(

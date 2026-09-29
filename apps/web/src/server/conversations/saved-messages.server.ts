@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import { browserMessageFields, mapBrowserMessage } from "./conversation-history.server";
+import { announceViewerEvent, type ConversationRealtime } from "./conversation-realtime.server";
 
 /**
  * A signed-in user's own Saved list (#120), one `SavedMessage` row per saved message. The row
@@ -18,6 +19,9 @@ import { browserMessageFields, mapBrowserMessage } from "./conversation-history.
  *
  * Conversation-scope ownership for DMs/channels beyond membership stays with the caller, next
  * to its send paths, exactly as the reaction repository documents.
+ *
+ * A save or unsave that changed the list tells the person's other pages (`saved.added.v1` /
+ * `saved.removed.v1`, Slack's `star_added` / `star_removed`) once it has committed.
  */
 export async function saveUserMessage(
   db: PrismaClient,
@@ -27,6 +31,7 @@ export async function saveUserMessage(
     userId: string;
     messageId: string;
   },
+  realtime?: Pick<ConversationRealtime, "viewerChanged">,
 ): Promise<void> {
   const { workspaceId, conversationId, userId, messageId } = input;
   const message = await db.message.findFirst({
@@ -39,17 +44,16 @@ export async function saveUserMessage(
     select: { id: true },
   });
   if (!member) throw new AppError("ACCESS_DENIED");
-  // Saving twice is a no-op: the PK is (messageId, memberId), and an empty update keeps the
-  // original savedAt instead of bumping it.
-  await db.savedMessage.upsert({
-    where: { messageId_memberId: { messageId: message.id, memberId: member.id } },
-    create: {
-      messageId: message.id,
-      conversationId,
-      workspaceId,
-      memberId: member.id,
-    },
-    update: {},
+  // Saving twice is a no-op: the PK is (messageId, memberId), and a skipped duplicate keeps the
+  // original savedAt instead of bumping it (and announces nothing).
+  const { count } = await db.savedMessage.createMany({
+    data: [{ messageId: message.id, conversationId, workspaceId, memberId: member.id }],
+    skipDuplicates: true,
+  });
+  if (count === 0) return;
+  await announceViewerEvent(realtime, {
+    userIds: [userId],
+    event: { type: "saved.added.v1", workspaceId, conversationId, messageId: message.id },
   });
 }
 
@@ -66,6 +70,7 @@ export async function unsaveUserMessage(
     userId: string;
     messageId: string;
   },
+  realtime?: Pick<ConversationRealtime, "viewerChanged">,
 ): Promise<void> {
   const { workspaceId, conversationId, userId, messageId } = input;
   const message = await db.message.findFirst({
@@ -78,8 +83,13 @@ export async function unsaveUserMessage(
     select: { id: true },
   });
   if (!member) throw new AppError("ACCESS_DENIED");
-  await db.savedMessage.deleteMany({
+  const { count } = await db.savedMessage.deleteMany({
     where: { messageId: message.id, memberId: member.id },
+  });
+  if (count === 0) return;
+  await announceViewerEvent(realtime, {
+    userIds: [userId],
+    event: { type: "saved.removed.v1", workspaceId, conversationId, messageId: message.id },
   });
 }
 

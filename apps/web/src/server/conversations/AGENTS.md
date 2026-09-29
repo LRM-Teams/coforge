@@ -77,7 +77,7 @@ These rules apply to `src/server/conversations/`.
   its own Agent-membership rule in the direct-conversation repository.
 - A thread uses its root Message identity, never a separate conversation or
   Agent runtime.
-- A write that changes a person's own place in a channel or DM (read cursor, membership, start, close, mute, pins) announces a `ViewerEvent` to that person through `announceViewerEvent` after it commits; a write that changed nothing announces nothing. A read cursor moves only through `human-unread.server.ts` (`markHumanRead`, the Activity Done and read-all SQL), and every move announces the count it left; closing a chat always restamps `hiddenAt`, since a newer message may have brought it back.
+- A write that changes a person's own place in a channel or DM (read cursor, membership, start, close, mute, pins) or their Saved list announces a `ViewerEvent` to that person through `announceViewerEvent` after it commits; a write that changed nothing announces nothing. A read cursor moves only through `human-unread.server.ts` (`markHumanRead`, the Activity Done and read-all SQL), and every move announces the count it left; closing a chat always restamps `hiddenAt`, since a newer message may have brought it back.
 - A member's pins share one order across all their channels and DMs in the
   Workspace. Change pins only through `conversation-pins.server.ts`; find a
   user's pins with `member: { userId }`, never by `memberId` (a

@@ -69,6 +69,16 @@ describe("conversation realtime", () => {
     expect(decodeViewerEvent({ type: "dm.joined.v1", ...ids })).toBeUndefined();
   });
 
+  test("decodes the viewer's own saved events, which name the message only", () => {
+    const ids = { workspaceId: "workspace-a", conversationId: "conversation-a", messageId: "m-1" };
+    for (const type of ["saved.added.v1", "saved.removed.v1"] as const)
+      expect(decodeViewerEvent({ type, ...ids })).toEqual({ type, ...ids });
+    expect(decodeViewerEvent({ type: "saved.added.v1", ...ids, messageId: "" })).toBeUndefined();
+    expect(
+      decodeViewerEvent({ type: "saved.added.v1", workspaceId: "w", conversationId: "c" }),
+    ).toBeUndefined();
+  });
+
   test("decodes only the versioned message-available contract", () => {
     const event = {
       type: "message.available.v1" as const,
