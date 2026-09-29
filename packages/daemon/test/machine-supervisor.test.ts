@@ -979,6 +979,8 @@ test("a start that outlived its command's deadline still finishes and is adopted
   fixture.open();
   // Serialized behind the start still under way: resolves once it has finished.
   expect((await fixture.supervisor.snapshot())[0]?.instanceId).toBe("new-1");
+  // What `status` and the upgrade check read.
+  expect((await fixture.supervisor.view())[0]?.instanceId).toBe("new-1");
   await fixture.supervisor.command("start", "slow");
   expect(fixture.starts).toEqual(["slow"]);
 });

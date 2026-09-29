@@ -1,7 +1,12 @@
 import { getLogger } from "@logtape/logtape";
 import type { DaemonConnectRejectionReason } from "@lrm/coforge-sdk/internal";
 import type { DaemonConfig } from "#src/daemon-runtime/runtime";
-import { holdRunnersUntilQuiescent, RUNNER_HOLD_MS, type RunnerHoldSnapshot } from "./runner-hold";
+import {
+  answeredWithin,
+  holdRunnersUntilQuiescent,
+  RUNNER_HOLD_MS,
+  type RunnerHoldSnapshot,
+} from "./runner-hold";
 import { UpgradeLaunchesPausedError, UpgradeOperationPendingError } from "./upgrade-error";
 import { WorkspaceParkedError } from "./workspace-health-journal";
 
@@ -94,10 +99,11 @@ export type CommandOptions = { deadline?: number };
  * way (queued, holding, stopping, or starting) when its deadline came. */
 export type CommandAnswer = { started: string[]; pending: string[] };
 
-/** What one command has got through so far, read when its deadline answers before it finishes. */
+/** What one command has got through so far, read when its deadline answers before it finishes:
+ * its targets are handled in order, so the first `done` of them are finished. */
 type CommandProgress = {
   targets?: string[];
-  settled: Set<string>;
+  done: number;
   started: string[];
   refused?: WorkspaceParkedError;
 };
@@ -206,18 +212,16 @@ export class MachineSupervisor {
     requestId?: string,
     options: CommandOptions = {},
   ): Promise<CommandAnswer> {
-    const progress: CommandProgress = { settled: new Set(), started: [] };
+    const progress: CommandProgress = { done: 0, started: [] };
     const work = this.#serialize(() =>
       this.#command(operation, workspaceId, requestId, options, progress),
     );
     if (options.deadline === undefined) return work;
-    return this.#answerBy(options.deadline, work, () => {
+    const scope = { operation, ...(workspaceId ? { workspace_id: workspaceId } : {}) };
+    return this.#answerBy(options.deadline, work, scope, () => {
       if (progress.refused) throw progress.refused;
-      const targets = progress.targets ?? this.#targets(operation, workspaceId);
-      return {
-        started: [...progress.started],
-        pending: targets.filter((id) => !progress.settled.has(id)),
-      };
+      const targets = progress.targets ?? this.#targets(operation, workspaceId).map(workspaceIdOf);
+      return { started: [...progress.started], pending: targets.slice(progress.done) };
     });
   }
 
@@ -236,11 +240,12 @@ export class MachineSupervisor {
   }
 
   /** The Workspaces a command acts on: an unscoped restart leaves disabled bindings alone. */
-  #targets(operation: "start" | "stop" | "restart", workspaceId?: string): string[] {
-    return this.#bindings
-      .filter((binding) => !workspaceId || binding.workspaceId === workspaceId)
-      .filter((binding) => !(operation === "restart" && !workspaceId && !binding.enabled))
-      .map((binding) => binding.workspaceId);
+  #targets(operation: "start" | "stop" | "restart", workspaceId?: string): ManagedBinding[] {
+    return this.#bindings.filter(
+      (binding) =>
+        (!workspaceId || binding.workspaceId === workspaceId) &&
+        !(operation === "restart" && !workspaceId && !binding.enabled),
+    );
   }
 
   async #command(
@@ -254,9 +259,10 @@ export class MachineSupervisor {
     await this.#refresh();
     if (workspaceId && !this.#bindings.some((binding) => binding.workspaceId === workspaceId))
       throw new Error("Workspace is not registered locally");
-    progress.targets = this.#targets(operation, workspaceId);
-    for (const id of progress.targets) {
-      let binding = this.#bindings.find((entry) => entry.workspaceId === id)!;
+    const targets = this.#targets(operation, workspaceId);
+    progress.targets = targets.map(workspaceIdOf);
+    for (let binding of targets) {
+      const id = binding.workspaceId;
       if (operation === "stop") {
         binding = await this.#saveBinding({
           ...binding,
@@ -270,27 +276,25 @@ export class MachineSupervisor {
             : binding.restartResults,
         });
         await this.#stop(binding);
-        progress.settled.add(id);
-        continue;
+      } else {
+        // The other targets still start; the refusal names the parked one once they have.
+        const reason = await this.processes.parkedReason?.(binding);
+        if (reason) {
+          // A parked binding the operator stopped stays out of an unscoped start.
+          if (workspaceId || binding.enabled)
+            progress.refused ??= new WorkspaceParkedError(id, reason);
+        } else {
+          try {
+            if (await this.#startForOperator(operation, binding, requestId, options))
+              progress.started.push(id);
+          } catch (error) {
+            // It parked as it started (the cloud refused it at once): the rest still start.
+            if (!(error instanceof WorkspaceParkedError)) throw error;
+            progress.refused ??= error;
+          }
+        }
       }
-      // The other targets still start; the refusal names the parked one once they have.
-      const reason = await this.processes.parkedReason?.(binding);
-      // A parked binding the operator stopped stays out of an unscoped start.
-      if (reason && (workspaceId || binding.enabled))
-        progress.refused ??= new WorkspaceParkedError(id, reason);
-      if (reason) {
-        progress.settled.add(id);
-        continue;
-      }
-      try {
-        if (await this.#startForOperator(operation, binding, requestId, options))
-          progress.started.push(id);
-      } catch (error) {
-        // It parked as it started (the cloud refused it at once): the rest still start.
-        if (!(error instanceof WorkspaceParkedError)) throw error;
-        progress.refused ??= error;
-      }
-      progress.settled.add(id);
+      progress.done += 1;
     }
     if (progress.refused) throw progress.refused;
     return { started: progress.started, pending: [] };
@@ -299,26 +303,34 @@ export class MachineSupervisor {
   /**
    * Settles with `work` if it finishes by `deadline`, otherwise with `early()`. Work that outlives
    * the answer keeps running; a later failure is logged, since nobody is waiting for it any more.
-   * The timer is always cleared (see `answeredWithin` for why a leftover one matters).
    */
-  async #answerBy<T>(deadline: number, work: Promise<T>, early: () => T): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<"expired">((resolve) => {
-      timer = setTimeout(() => resolve("expired"), Math.max(0, deadline - this.now()));
-    });
-    try {
-      const first = await Promise.race([work.then(() => "finished" as const), expired]);
-      if (first === "finished") return work;
-    } finally {
-      clearTimeout(timer);
-    }
+  async #answerBy<T>(
+    deadline: number,
+    work: Promise<T>,
+    scope: Record<string, string>,
+    early: () => T,
+  ): Promise<T> {
+    const finished = await answeredWithin(
+      work.then(
+        () => true,
+        () => true,
+      ),
+      this.#remaining(deadline),
+      "lifecycle command deadline",
+    ).catch(() => false);
+    if (finished) return work;
     work.catch((error: unknown) => {
       logger.warn("A lifecycle command failed after it had already answered", {
         event: "lifecycle:command_failed_after_answer",
+        ...scope,
         error_message: error instanceof Error ? error.message : String(error),
       });
     });
     return early();
+  }
+
+  #remaining(deadline: number): number {
+    return Math.max(0, deadline - this.now());
   }
 
   /** Resolves false for a restart this request already completed (nothing started). */
@@ -467,12 +479,7 @@ export class MachineSupervisor {
   snapshot() {
     return this.#serialize(async () => {
       await this.#refresh();
-      return Promise.all(
-        this.#bindings.map(async (binding) => ({
-          ...binding,
-          instanceId: await this.processes.instance(binding),
-        })),
-      );
+      return this.view();
     });
   }
 
@@ -574,8 +581,7 @@ export class MachineSupervisor {
     const outcome = await holdRunnersUntilQuiescent({
       hold: () => this.processes.hold!(binding, "restart"),
       ...this.restartHold,
-      holdMs:
-        deadline === undefined ? holdMs : Math.min(holdMs, Math.max(0, deadline - this.now())),
+      holdMs: deadline === undefined ? holdMs : Math.min(holdMs, this.#remaining(deadline)),
     });
     logger.info("Runner hold completed before a Workspace restart", {
       event: outcome.quiescent ? "restart:runner_hold_quiescent" : "restart:runner_hold_expired",
@@ -633,3 +639,5 @@ export class MachineSupervisor {
     return result;
   }
 }
+
+const workspaceIdOf = (binding: ManagedBinding) => binding.workspaceId;
