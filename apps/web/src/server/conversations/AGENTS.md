@@ -63,12 +63,12 @@ These rules apply to `src/server/conversations/`.
 - `human-unread.server.ts` owns a person's unread rule and their read and Done
   cursor SQL. The sidebar badges and the Activity inbox (`server/inbox/`) both
   use it; do not write another unread predicate or cursor update.
-- `conversation-history.server.ts` owns browser message index and around-window
-  reads. They are scoped by `conversationId` for both direct conversations and
-  public channels; this module owns Conversation-type visibility checks and
-  bounded history mapping. Its `browserMessageFields` and `mapBrowserMessage`
-  are the one browser-facing message shape: channel pages and updates, saved
-  messages, search, and the Activity inbox all select and render through them.
+- `conversation-history.server.ts` owns browser message index, around-window and
+  thread reads, scoped by `conversationId` for channels and direct conversations
+  alike, with their visibility checks. Its `browserMessageFields` and
+  `mapBrowserMessage` are the one browser-facing message shape (pages, updates,
+  saved messages, search, the Activity inbox). A window read returns top-level
+  messages only, each thread a summary (`thread-summaries.server.ts`).
 - `message-search.server.ts` owns human message search: a Workspace member
   searches every channel (joined or not, archived too, never one hidden from the
   Workspace) and only their own direct conversations, the same rule as `ConversationHistory.authorize`. Its SQL lives in

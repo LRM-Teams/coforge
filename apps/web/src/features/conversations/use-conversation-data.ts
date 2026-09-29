@@ -54,13 +54,6 @@ export function useChannelConversation(channelId: string) {
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
 
-  const followThread = (threadRootId: string) =>
-    page.patch((current) => ({
-      ...current,
-      followedThreadRootIds: current.followedThreadRootIds.includes(threadRootId)
-        ? current.followedThreadRootIds
-        : [...current.followedThreadRootIds, threadRootId],
-    }));
   // The settings panel writes the channel (name, description, archive), the viewer's own
   // membership (leave) or mute itself; this re-reads the page and the sidebar's channel list.
   const refreshSidebarChannels = useRefreshSidebarChannels();
@@ -88,7 +81,7 @@ export function useChannelConversation(channelId: string) {
           data: { channelId, requestId, body, attachmentIds, threadRootId },
         });
         page.mergeUpdates([message]);
-        if (threadRootId) followThread(threadRootId);
+        if (threadRootId) page.setThreadFollowed(threadRootId, true);
         void page.reconciliation.reconcile().catch(() => {});
         return message;
       },
@@ -110,18 +103,13 @@ export function useChannelConversation(channelId: string) {
         ]);
       },
       onChanged: refreshChannelAndSidebar,
-      onReadThread: (threadRootId: string, throughSequence: number) =>
-        markRead({ data: { channelId, threadRootId, throughSequence } }),
+      onReadThread: async (threadRootId: string, throughSequence: number) => {
+        await markRead({ data: { channelId, threadRootId, throughSequence } });
+        page.applyThreadRead(threadRootId, throughSequence);
+      },
       onThreadFollowedChange: async (threadRootId: string, followed: boolean) => {
         await setThreadFollowed({ data: { channelId, threadRootId, followed } });
-        if (followed) followThread(threadRootId);
-        else
-          page.patch((current) => ({
-            ...current,
-            followedThreadRootIds: current.followedThreadRootIds.filter(
-              (id) => id !== threadRootId,
-            ),
-          }));
+        page.setThreadFollowed(threadRootId, followed);
       },
       onLoadOwnMessages: (beforeSequence?: number) =>
         loadOwnMessages({
@@ -183,8 +171,10 @@ export function useDirectConversation(conversationId: string) {
           active,
           () => toggleReaction({ data: { conversationId, messageId, emoji, active } }),
         ),
-      onReadThread: (threadRootId: string, throughSequence: number) =>
-        markRead({ data: { conversationId, threadRootId, throughSequence } }),
+      onReadThread: async (threadRootId: string, throughSequence: number) => {
+        await markRead({ data: { conversationId, threadRootId, throughSequence } });
+        page.applyThreadRead(threadRootId, throughSequence);
+      },
       onLoadOwnMessages: (beforeSequence?: number) =>
         loadOwnMessages({ data: { conversationId, beforeSequence } }),
       onLoadMessageAround: page.loadMessageAround,

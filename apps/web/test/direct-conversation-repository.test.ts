@@ -192,9 +192,9 @@ describe("PrismaDirectConversationRepository", () => {
     ]);
   });
 
-  test("pages browser history by thread roots and keeps each loaded thread intact", async () => {
+  test("pages browser history by thread roots, each thread as a summary and never its replies", async () => {
     const queries: object[] = [];
-    const message = (id: string, sequence: number, replies: object[] = []) => ({
+    const message = (id: string, sequence: number) => ({
       id,
       sequence,
       threadRootId: null,
@@ -203,15 +203,10 @@ describe("PrismaDirectConversationRepository", () => {
       attachments: [],
       mentions: [],
       sender: { userId: "user-1", user: { username: "alice" }, agent: null },
-      replies,
-    });
-    const reply = (id: string, sequence: number, threadRootId: string) => ({
-      ...message(id, sequence),
-      threadRootId,
-      replies: undefined,
     });
     const db = {
       threadRead: { findMany: async () => [] },
+      $queryRaw: async () => [],
       conversation: {
         findUnique: async () => ({
           members: [
@@ -235,11 +230,7 @@ describe("PrismaDirectConversationRepository", () => {
       message: {
         findMany: async (input: object) => {
           queries.push(input);
-          return [
-            message("root-5", 5),
-            message("root-3", 3, [reply("reply-4", 4, "root-3")]),
-            message("root-1", 1, [reply("reply-2", 2, "root-1")]),
-          ];
+          return [message("root-5", 5), message("root-3", 3), message("root-1", 1)];
         },
       },
     } as unknown as PrismaClient;
@@ -267,14 +258,15 @@ describe("PrismaDirectConversationRepository", () => {
     expect(page.hasNewer).toBe(true);
     expect(page.messages.map(({ id, sequence }) => [id, sequence])).toEqual([
       ["root-3", 3],
-      ["reply-4", 4],
       ["root-5", 5],
     ]);
+    // The page's messages are read without their replies.
+    expect(JSON.stringify(queries[0])).not.toContain("replies");
   });
 
   test("pages towards the live end from a retained page, and reports the tail it reaches", async () => {
     const queries: object[] = [];
-    const message = (id: string, sequence: number, replies: object[] = []) => ({
+    const message = (id: string, sequence: number) => ({
       id,
       sequence,
       threadRootId: null,
@@ -283,16 +275,11 @@ describe("PrismaDirectConversationRepository", () => {
       attachments: [],
       mentions: [],
       sender: { userId: "user-1", user: { username: "alice" }, agent: null },
-      replies,
-    });
-    const reply = (id: string, sequence: number, threadRootId: string) => ({
-      ...message(id, sequence),
-      threadRootId,
-      replies: undefined,
     });
     const rowsFor = (messages: object[]) =>
       ({
         threadRead: { findMany: async () => [] },
+        $queryRaw: async () => [],
         conversation: {
           findUnique: async () => {
             return {
@@ -342,7 +329,7 @@ describe("PrismaDirectConversationRepository", () => {
 
     // One row more than the limit: the fetch did not reach the tail.
     const midWindow = await new TestConversationRepository(
-      rowsFor([message("root-5", 5, [reply("reply-6", 6, "root-5")]), message("root-7", 7)]),
+      rowsFor([message("root-5", 5), message("root-7", 7)]),
     ).openForUser("workspace-1", "user-1", "agent-1", { afterSequence: 4, limit: 1 });
     expect(queries[0]).toMatchObject({
       where: { conversationId: "conversation-1", threadRootId: null, sequence: { gt: 4 } },
@@ -351,12 +338,9 @@ describe("PrismaDirectConversationRepository", () => {
     });
     expect(midWindow.hasOlder).toBe(true);
     expect(midWindow.hasNewer).toBe(true);
-    // The page itself is the first `limit` top-level rows with their replies, oldest first — the
-    // overflow row that only proved there was more is dropped from the reader's side.
-    expect(midWindow.messages.map(({ id, sequence }) => [id, sequence])).toEqual([
-      ["root-5", 5],
-      ["reply-6", 6],
-    ]);
+    // The page itself is the first `limit` top-level rows, oldest first — the overflow row that
+    // only proved there was more is dropped from the reader's side.
+    expect(midWindow.messages.map(({ id, sequence }) => [id, sequence])).toEqual([["root-5", 5]]);
     // The viewer's own row is in the list — that is what makes a mention *of the viewer*
     // resolvable, and what the pane's formatter and the composer both read.
     expect(midWindow.viewerHandle).toBe("alice");
@@ -392,7 +376,6 @@ describe("PrismaDirectConversationRepository", () => {
 
   test("the initial page is the live tail with nothing newer to fetch", async () => {
     const db = {
-      threadRead: { findMany: async () => [] },
       conversation: {
         findUnique: async () => ({
           members: [
@@ -1688,7 +1671,6 @@ describe("PrismaDirectConversationRepository", () => {
   describe("openForUser reports dmWritable", () => {
     function fixture(options: { visibility: string; ownerId: string; viewerId: string }) {
       const db = {
-        threadRead: { findMany: async () => [] },
         conversation: {
           findUnique: async () => ({
             id: "conversation-1",

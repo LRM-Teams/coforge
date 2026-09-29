@@ -172,8 +172,8 @@ describe("conversation realtime", () => {
     const cursors: number[] = [];
     const merged: typeof messages = [];
     const reconciler = createConversationReconciler(
-      0,
-      async (afterSequence) => {
+      { afterSequence: 0 },
+      async ({ afterSequence }) => {
         cursors.push(afterSequence);
         return messages.filter((message) => message.sequence > afterSequence).slice(0, 100);
       },
@@ -186,6 +186,50 @@ describe("conversation realtime", () => {
     expect(merged).toEqual(messages);
   });
 
+  test("starts from a cursor for roots and a later one for replies, and continues from one", async () => {
+    // Roots 1 and 5 are loaded, and so are the replies to them through 40; what arrived after is a
+    // root at 41 and a reply at 42, then more of both.
+    const cursors: unknown[] = [];
+    const arrived = [
+      { id: "root-41", sequence: 41 },
+      { id: "reply-42", sequence: 42 },
+    ];
+    const reconciler = createConversationReconciler(
+      { afterSequence: 5, afterReplySequence: 40 },
+      async (cursor) => {
+        cursors.push(cursor);
+        return cursors.length === 1 ? arrived : [];
+      },
+      () => {},
+    );
+
+    await reconciler.reconcile();
+    await reconciler.reconcile();
+
+    // Nothing more than the first read needed the reply cursor: what it returned settles both.
+    expect(cursors).toEqual([{ afterSequence: 5, afterReplySequence: 40 }, { afterSequence: 42 }]);
+  });
+
+  test("keeps both cursors while nothing has arrived", async () => {
+    const cursors: unknown[] = [];
+    const reconciler = createConversationReconciler(
+      { afterSequence: 5, afterReplySequence: 40 },
+      async (cursor) => {
+        cursors.push(cursor);
+        return [];
+      },
+      () => {},
+    );
+
+    await reconciler.reconcile();
+    await reconciler.reconcile();
+
+    expect(cursors).toEqual([
+      { afterSequence: 5, afterReplySequence: 40 },
+      { afterSequence: 5, afterReplySequence: 40 },
+    ]);
+  });
+
   test("coalesces a signal received while reconciliation is in flight", async () => {
     let releaseFirstPage = () => {};
     let calls = 0;
@@ -193,7 +237,7 @@ describe("conversation realtime", () => {
       releaseFirstPage = () => resolve([{ id: "message-1", sequence: 1 }]);
     });
     const reconciler = createConversationReconciler(
-      0,
+      { afterSequence: 0 },
       async () => (++calls === 1 ? firstPage : []),
       () => {},
     );

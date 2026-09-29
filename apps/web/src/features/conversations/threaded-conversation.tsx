@@ -22,7 +22,9 @@ import {
   useOpenConversationThread,
 } from "./open-conversation-thread";
 import { makeReferenceBodyFormatter } from "./mention-text";
-import { groupRepliesByRoot } from "./conversation-messages";
+import { ThreadPane } from "./thread-pane";
+import { NO_THREADS } from "./thread-summary-model";
+import { useThreadTailSequence } from "./thread-queries";
 import { ThreadRootState, type ThreadRootLoad } from "./thread-root-state";
 import { usePanelLayoutStorage } from "./panel-layouts";
 import { ConversationPending } from "./conversation-pending";
@@ -76,47 +78,11 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   // The Saved view's `?message=` position jump reads its search state here, next to the
   // thread's — the wrapper owns the router so `ConversationPane` below stays hook-free.
   const { jumpMessageId, clearJumpMessage } = useConversationPositionJump();
-  const mainMessages = useMemo(
-    () => conversation.messages.filter((message) => !message.threadRootId),
-    [conversation.messages],
-  );
-  // Replies grouped once per message list, instead of a filter per rendered root; the grouping
-  // keeps its identity while the replies are unchanged, so the thread entry and preview below
-  // (and every memoized row that takes them) survive a new top-level message.
-  const previousRepliesByRoot =
-    useRef<ReturnType<typeof groupRepliesByRoot<DirectConversationView["messages"][number]>>>(
-      undefined,
-    );
-  const repliesByRoot = useMemo(
-    () => groupRepliesByRoot(conversation.messages, previousRepliesByRoot.current),
-    [conversation.messages],
-  );
-  previousRepliesByRoot.current = repliesByRoot;
-  // An open thread keeps its last-seen root and replies. The bounded window drops a root's page
-  // (and with it the root's replies, which ride on the same page) when the main stream is scrolled
-  // far enough; the thread pane then keeps showing the thread as it was, plus any reply that has
-  // arrived since, rather than going blank or reloading the stream around the root.
-  const threadSnapshots = useRef(
-    new Map<
-      string,
-      {
-        root: DirectConversationView["messages"][number];
-        replies: DirectConversationView["messages"];
-      }
-    >(),
-  );
-  const mainMessageIds = useMemo(
-    () => new Set(mainMessages.map((message) => message.id)),
-    [mainMessages],
-  );
-  /** A thread's replies: as loaded, and, while its root is not, those last seen before it went. */
-  const repliesOf = (rootId: string) => {
-    const loaded = repliesByRoot.get(rootId) ?? [];
-    const snapshot = mainMessageIds.has(rootId) ? undefined : threadSnapshots.current.get(rootId);
-    if (!snapshot) return loaded;
-    const seen = new Set(snapshot.replies.map((reply) => reply.id));
-    return [...snapshot.replies, ...loaded.filter((reply) => !seen.has(reply.id))];
-  };
+  // An open thread keeps its last-seen root. The bounded window drops a root's page when the main
+  // stream is scrolled far enough; the thread pane then keeps showing the thread's root as it was
+  // (its replies are the thread's own Query, which the window does not bound) rather than going
+  // blank or reloading the stream around the root.
+  const threadRoots = useRef(new Map<string, DirectConversationView["messages"][number]>());
   // A stored channel reference links to its channel, under its current name, only when the
   // Workspace has that channel: every channel by id, closed ones included, from the hosting page.
   const hostChannels = useConversationHostChannels();
@@ -139,7 +105,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   } = taskPopup ?? conversationTaskPopup;
   const openTask = useNumberedTask(conversation.conversationId, openTaskNumber) ?? taskPopup?.task;
   const openTaskRoot =
-    openTask && mainMessages.find((message) => message.id === openTask.messageId);
+    openTask && conversation.messages.find((message) => message.id === openTask.messageId);
   // What every thread pane shares: the side pane and the thread under the task popup.
   const threadPaneProps = (root: DirectConversationView["messages"][number]) => ({
     ...conversationProps,
@@ -149,11 +115,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     channels: channelList,
     onLoadMessageAround,
     root,
-    conversation: {
-      ...conversation,
-      messages: repliesOf(root.id),
-      readThroughSequence: threadCursor(root.id),
-    },
+    conversation: { ...conversation, readThroughSequence: threadCursor(root.id) },
     onSend: (...[body, requestId, attachmentIds]: Parameters<typeof conversationProps.onSend>) =>
       conversationProps.onSend(body, requestId, attachmentIds, root.id),
   });
@@ -172,7 +134,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       thread={
         openTaskRoot &&
         ((taskSection) => (
-          <ConversationPane
+          <ThreadPane
             {...threadPaneProps(openTaskRoot)}
             rootSlot={taskSection}
             openAtTop
@@ -195,11 +157,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
         <ConversationTaskDemand
           conversationId={conversation.conversationId}
           messages={
-            !taskPopup
-              ? conversation.messages
-              : openTaskRoot
-                ? [openTaskRoot, ...repliesOf(openTaskRoot.id)]
-                : NO_MESSAGES
+            !taskPopup ? conversation.messages : openTaskRoot ? [openTaskRoot] : NO_MESSAGES
           }
           hasNewer={conversation.hasNewer ?? false}
           readWindow={!taskPopup}
@@ -243,8 +201,8 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
   const wideViewport = useBreakpoint("md");
   // The thread in view is marked read: the task popup's when it is open, else the side pane's.
   const threadInView = openTaskRoot?.id ?? (detailVisible ? selected : undefined);
-  const threadInViewSequence = threadInView ? (repliesOf(threadInView).at(-1)?.sequence ?? 0) : 0;
-  const { visited, windowRead, readThrough, threadCursor, threadRootFailure, loadThreadRoot } =
+  const threadInViewSequence = useThreadTailSequence(conversation.conversationId, threadInView);
+  const { visited, windowRead, threadCursor, threadRootFailure, loadThreadRoot } =
     useConversationSync({
       conversation,
       searchThreadRootId,
@@ -257,10 +215,10 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       openThreadFromHash,
       closeThread,
     });
-  /** A thread's root: as loaded, else as last seen while it was open (its replies: `repliesOf`). */
+  /** A thread's root: as loaded, else as last seen while it was open. */
   const threadRootOf = (rootId: string) =>
-    mainMessages.find((message) => message.id === rootId) ??
-    threadSnapshots.current.get(rootId)?.root;
+    conversation.messages.find((message) => message.id === rootId) ??
+    threadRoots.current.get(rootId);
   const selectedThreadKnown = selected !== undefined && threadRootOf(selected) !== undefined;
   const attemptedRootLoad = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -284,24 +242,19 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       : undefined;
   // What the stream's thread summaries read, each by its own root (`thread-summary.tsx`).
   const threadState = useMemo(
-    () => ({
-      replies: repliesByRoot,
-      persistedReads: conversation.threadReadThrough,
-      localReads: readThrough,
-      formatBody: formatPreviewBody,
-    }),
-    [repliesByRoot, conversation.threadReadThrough, readThrough, formatPreviewBody],
+    () => ({ summaries: conversation.threads ?? NO_THREADS, formatBody: formatPreviewBody }),
+    [conversation.threads, formatPreviewBody],
   );
   const threads = useConversationThreadStore(threadState);
-  // Records each open thread's root and replies while they are loaded (see `threadSnapshots`).
+  // Records each open thread's root while it is loaded (see `threadRoots`).
   useEffect(() => {
-    const snapshots = threadSnapshots.current;
-    for (const rootId of snapshots.keys()) if (!visited.includes(rootId)) snapshots.delete(rootId);
+    const roots = threadRoots.current;
+    for (const rootId of roots.keys()) if (!visited.includes(rootId)) roots.delete(rootId);
     for (const rootId of visited) {
-      const root = mainMessages.find((message) => message.id === rootId);
-      if (root) snapshots.set(rootId, { root, replies: repliesByRoot.get(rootId) ?? [] });
+      const root = conversation.messages.find((message) => message.id === rootId);
+      if (root) roots.set(rootId, root);
     }
-  }, [visited, mainMessages, repliesByRoot]);
+  }, [visited, conversation.messages]);
   // Outside the conversation's page only its Task popup shows; the panes stay unmounted.
   if (taskPopup) return taskLayer;
   const conversationMainPane = (
@@ -317,7 +270,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
         onLoadMessageAround={onLoadMessageAround}
         onReadLatest={onReadLatest}
         header={header}
-        conversation={{ ...conversation, messages: mainMessages }}
+        conversation={conversation}
         onOpenThread={openThread}
       />
     </ThreadStoreProvider>
@@ -353,7 +306,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
               threadPaneVisible(rootId) ? "flex" : "hidden",
             )}
           >
-            <ConversationPane
+            <ThreadPane
               {...threadPaneProps(root)}
               onClose={closeThread}
               threadContext={threadContext}

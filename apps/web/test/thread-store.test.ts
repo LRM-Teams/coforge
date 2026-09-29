@@ -1,88 +1,76 @@
 import { expect, test } from "bun:test";
 import { createStore } from "@tanstack/react-store";
 
-import {
-  threadReadThrough,
-  threadReplies,
-  unreadAgentReplies,
-  type ThreadMessage,
-  type ThreadState,
-} from "#src/features/conversations/thread-store";
+import type { ThreadState } from "#src/features/conversations/thread-store";
+import type { ThreadSummary } from "#src/features/conversations/thread-summary-model";
 
 /**
  * A thread's summary under its root — the reply preview, the unread count — is read from the
  * conversation's thread store by root id, so a change to one thread leaves every other thread's
  * reads as they were and their rows are not re-rendered.
  */
-const reply = (
-  id: string,
-  sequence: number,
-  senderKind: ThreadMessage["senderKind"] = "agent",
-): ThreadMessage => ({
-  id,
-  sequence,
-  threadRootId: "root",
-  senderKind,
-  senderName: senderKind === "agent" ? "Nova" : "Frank",
-  body: `reply ${id}`,
-  createdAt: "2026-09-28T00:00:00.000Z",
-  attachments: [],
+const summary = (fields: Partial<ThreadSummary> = {}): ThreadSummary => ({
+  replyCount: 1,
+  lastReplySequence: 2,
+  lastReplyAt: "2026-09-28T00:00:00.000Z",
+  unread: 1,
+  latestReplies: [],
+  ...fields,
 });
 
 const threads = (fields: Partial<ThreadState> = {}): ThreadState => ({
-  replies: new Map(),
-  persistedReads: {},
-  localReads: {},
+  summaries: {},
   formatBody: (body) => body,
   ...fields,
 });
 
-test("a thread's read cursor is the later of the stored one and this visit's", () => {
-  const state = threads({ persistedReads: { a: 4, b: 9 }, localReads: { a: 7 } });
-  expect(threadReadThrough(state, "a")).toBe(7);
-  expect(threadReadThrough(state, "b")).toBe(9);
-  expect(threadReadThrough(state, "never-read")).toBeUndefined();
-});
+/** The selections `useThreadSummary` and `useThreadUnread` subscribe to, as derived stores over the
+ * thread store. */
+function readersOf(store: ReturnType<typeof createStore<ThreadState>>, rootId: string) {
+  const told = { summary: 0, unread: 0 };
+  const summaryStore = createStore(() => store.state.summaries[rootId]);
+  const unreadStore = createStore(() => store.state.summaries[rootId]?.unread ?? 0);
+  const subscriptions = [
+    summaryStore.subscribe(() => told.summary++),
+    unreadStore.subscribe(() => told.unread++),
+  ];
+  return { told, stop: () => subscriptions.forEach((subscription) => subscription.unsubscribe()) };
+}
 
-test("unread replies are the Agents' replies past the cursor; a thread never read counts them all", () => {
-  const replies = [reply("1", 2), reply("2", 3, "user"), reply("3", 5), reply("4", 6, "system")];
-  expect(unreadAgentReplies(replies, 2)).toBe(1);
-  expect(unreadAgentReplies(replies, undefined)).toBe(2);
-  expect(unreadAgentReplies(replies, 9)).toBe(0);
-});
-
-test("reading one thread notifies only that thread's readers", () => {
-  // The same selections `useThreadUnread` subscribes to, as derived stores over the thread store.
-  const store = createStore(
-    threads({
-      replies: new Map([
-        ["a", [reply("a1", 2)]],
-        ["b", [reply("b1", 3)]],
-      ]),
-    }),
-  );
-  const unreadOf = (rootId: string) =>
-    createStore(() =>
-      unreadAgentReplies(
-        threadReplies(store.state, rootId),
-        threadReadThrough(store.state, rootId),
-      ),
-    );
-  const told = { a: 0, b: 0 };
-  const a = unreadOf("a").subscribe(() => told.a++);
-  const b = unreadOf("b").subscribe(() => told.b++);
+test("a reply in one thread notifies only that thread's readers", () => {
+  const a = summary({ replyCount: 1 });
+  const b = summary({ replyCount: 4 });
+  const store = createStore(threads({ summaries: { a, b } }));
+  const readA = readersOf(store, "a");
+  const readB = readersOf(store, "b");
   try {
-    store.setState((state) => ({ ...state, localReads: { ...state.localReads, a: 2 } }));
-    expect(told).toEqual({ a: 1, b: 0 });
+    store.setState((state) => ({
+      ...state,
+      summaries: { ...state.summaries, a: { ...a, replyCount: 2, unread: 2 } },
+    }));
+    expect(readA.told).toEqual({ summary: 1, unread: 1 });
+    expect(readB.told).toEqual({ summary: 0, unread: 0 });
   } finally {
-    a.unsubscribe();
-    b.unsubscribe();
+    readA.stop();
+    readB.stop();
   }
 });
 
-test("a root with no replies reads as an empty thread", () => {
-  const state = threads();
-  expect(threadReplies(state, "none")).toEqual([]);
-  // One empty list for every such root, so a selection of it never changes.
-  expect(threadReplies(state, "none")).toBe(threadReplies(state, "other"));
+test("reading a thread notifies its unread readers, and no other thread's", () => {
+  const a = summary();
+  const b = summary();
+  const store = createStore(threads({ summaries: { a, b } }));
+  const readA = readersOf(store, "a");
+  const readB = readersOf(store, "b");
+  try {
+    store.setState((state) => ({
+      ...state,
+      summaries: { ...state.summaries, a: { ...a, unread: 0 } },
+    }));
+    expect(readA.told.unread).toBe(1);
+    expect(readB.told).toEqual({ summary: 0, unread: 0 });
+  } finally {
+    readA.stop();
+    readB.stop();
+  }
 });

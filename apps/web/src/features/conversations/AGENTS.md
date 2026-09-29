@@ -70,6 +70,9 @@ These rules apply to `src/features/conversations/`.
   `ThreadStoreProvider`.
   Never pass rows a render callback or a value built from the conversation's
   Tasks, threads or live Agents: a change to one would re-render every row.
+- A window holds top-level messages, each thread as a summary (`threads`); a thread's replies
+  are read when its pane opens (`thread-queries.ts`), and what arrives later goes through
+  `thread-cache.ts`. Index, around-window and thread reads share one Server Function seam.
 - A message a server function returns holds JSON-compatible values only (a time
   is an ISO string, as `mapBrowserMessage` gives it): TanStack Query's structural
   sharing then keeps each unchanged message's object across a re-read (focus,
@@ -160,9 +163,6 @@ These rules apply to `src/features/conversations/`.
 - `mentionOutsiders` (the channel's people and public Agents outside it) is for
   @-completion only. Never merge it into `mentionables`, which also resolves
   plain `@handle` labels and stored mention tokens.
-- Message index and around-window reads go through this feature's shared
-  Server Function seam, scoped by `conversationId` for both direct
-  conversations and channels.
 - The live Agent activity strip shows one notable display (working, thinking,
   or error; newest cloud revision). Idle and offline stay in the directory.
 - A channel's members are a page of its settings panel

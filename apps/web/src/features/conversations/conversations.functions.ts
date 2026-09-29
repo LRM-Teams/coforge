@@ -3,6 +3,7 @@ import { z } from "zod";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import {
   conversationAroundInputSchema,
+  conversationThreadInputSchema,
   directConversationInputSchema,
   directConversationPageInputSchema,
   directConversationUpdatesInputSchema,
@@ -54,6 +55,7 @@ export const loadDirectConversationUpdates = createServerFn({ method: "GET" })
       user.id,
       data.conversationId,
       data.afterSequence,
+      data.afterReplySequence,
     );
     return attachActionCardViews(db, workspaceId, user.id, messages);
   });
@@ -82,6 +84,24 @@ export const loadConversationAround = createServerFn({ method: "GET" })
       ...page,
       messages: await attachActionCardViews(db, workspaceId, user.id, page.messages),
     };
+  });
+
+/**
+ * Every reply of one thread, for a channel or a direct conversation alike: what its pane shows
+ * when it opens (the window carries only each thread's summary). Read under the conversation's own
+ * rule, so whoever may read the window may read its threads.
+ */
+export const loadConversationThread = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(conversationThreadInputSchema)
+  .handler(async ({ context: { user, db, workspaceId }, data }) => {
+    const { replies } = await new ConversationHistory(db).loadThread(
+      workspaceId,
+      user.id,
+      data.conversationId,
+      data.threadRootId,
+    );
+    return { replies: await attachActionCardViews(db, workspaceId, user.id, replies) };
   });
 
 export const markDirectThreadRead = createServerFn({ method: "POST" })

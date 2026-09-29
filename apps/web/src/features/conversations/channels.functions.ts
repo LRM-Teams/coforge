@@ -13,7 +13,11 @@ import { getComputerStatusCache } from "#src/server/centrifugo/computer-status.s
 import { userAgentControl } from "#src/server/agents/user-agent-control.server";
 import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
-import { attachmentIdsSchema, conversationPageInputSchema } from "./conversation.schemas";
+import {
+  attachmentIdsSchema,
+  conversationPageInputSchema,
+  conversationUpdatesCursorSchema,
+} from "./conversation.schemas";
 import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
@@ -22,9 +26,7 @@ import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile
 
 const channelInput = z.object({ channelId: z.uuid() });
 const channelPageInput = channelInput.extend(conversationPageInputSchema);
-const channelUpdatesInput = channelInput.extend({
-  afterSequence: z.number().int().nonnegative(),
-});
+const channelUpdatesInput = channelInput.extend(conversationUpdatesCursorSchema.shape);
 const channelThreadReadInput = channelInput.extend({
   threadRootId: z.uuid(),
   throughSequence: z.number().int().positive(),
@@ -116,6 +118,7 @@ export const loadPublicChannelUpdates = createServerFn({ method: "GET" })
       userId,
       data.channelId,
       data.afterSequence,
+      data.afterReplySequence,
     );
     return attachActionCardViews(db, workspaceId, userId, messages);
   });

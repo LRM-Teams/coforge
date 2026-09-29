@@ -10,14 +10,16 @@ import {
 
 import { isAppError } from "#src/lib/app-error";
 import { mergeMessages } from "./conversation-messages";
-import { createConversationReconciler } from "./conversation-reconciliation";
+import {
+  createConversationReconciler,
+  type ConversationUpdatesCursor,
+} from "./conversation-reconciliation";
 import { useConversationRealtime } from "./conversation-realtime-client";
 import {
   CONVERSATION_WINDOW_MAX_PAGES,
   CONVERSATION_WINDOW_PAGE_SIZE,
   flushWindowUpdates,
   foldWindowUpdates,
-  newestRootSequence,
   nextPageCursor,
   previousPageCursor,
   type ConversationWindowCursor,
@@ -38,18 +40,34 @@ import { savedMessagesQueryKey } from "./saved-messages-collection";
 import { listSavedMessages } from "./saved-messages.functions";
 import type { ActionCardView } from "./action-card";
 import { createReactionToggler, type ReactionSummary } from "./message-reactions";
+import {
+  applyThreadRead,
+  conversationThreadsQueryKey,
+  foldThreadReplies,
+  loadedThreadReplies,
+  setThreadFollowed,
+  updateLoadedReply,
+} from "./thread-cache";
+import {
+  mergeWindowThreads,
+  newestReflectedSequence,
+  type ThreadReplyInput,
+  type WindowThreadsPage,
+} from "./thread-summary-model";
 
-type PageMessage = {
-  id: string;
-  sequence: number;
+type PageMessage = ThreadReplyInput & {
   threadRootId?: string;
   actionCard?: ActionCardView;
   reactions?: ReactionSummary[];
 };
-type ConversationPage<M extends PageMessage> = {
+type ConversationPage<M extends PageMessage> = WindowThreadsPage & {
   conversationId: string;
+  /** The viewer's member row in the conversation; empty for someone who never joined or left. */
+  senderMemberId?: string;
   hasOlder: boolean;
   hasNewer?: boolean;
+  /** Top-level messages only: a thread's replies are read when its pane opens
+   * (`conversationThreadQuery`), and the page holds its summary (`threads`). */
   messages: M[];
 };
 
@@ -60,16 +78,12 @@ type PageRequest = {
   limit?: number;
 };
 
-/** The oldest loaded top-level message bounds the next page of history. */
-const beforeFirstRoot = (messages: PageMessage[]) =>
-  messages.find((message) => !message.threadRootId)?.sequence;
-/** Channels page from the oldest loaded message of any kind. */
+/** The oldest loaded message bounds the next page of history (a page holds top-level messages). */
 const beforeFirstMessage = (messages: PageMessage[]) => messages[0]?.sequence;
 
 function conversationPages<M extends PageMessage, T extends ConversationPage<M>>(
   queryKey: readonly unknown[],
   loadPage: (page: PageRequest) => Promise<T>,
-  olderBefore: (messages: M[]) => number | undefined,
 ) {
   // The bounded window: `maxPages` keeps the loaded pages from growing with every page of history
   // read, dropping the page at the far end from the fetch (see `lib/conversation-window.ts`).
@@ -88,8 +102,9 @@ function conversationPages<M extends PageMessage, T extends ConversationPage<M>>
     // Pages[0] is the oldest loaded window, the latest is the live end. Each direction derives its
     // cursor from the boundary page, and an honest `hasNewer` tells whether the newest retained page
     // is still the tail.
-    getPreviousPageParam: (oldest: T) => previousPageCursor(oldest, olderBefore(oldest.messages)),
-    getNextPageParam: (newest: T) => nextPageCursor(newest, newestRootSequence(newest.messages)),
+    getPreviousPageParam: (oldest: T) =>
+      previousPageCursor(oldest, beforeFirstMessage(oldest.messages)),
+    getNextPageParam: (newest: T) => nextPageCursor(newest, newest.messages.at(-1)?.sequence),
   });
   /** The newest page on its own, for returning to the live end after the window slid up into
    * history and evicted the tail. */
@@ -98,18 +113,23 @@ function conversationPages<M extends PageMessage, T extends ConversationPage<M>>
 }
 
 export const directConversationQuery = (conversationId: string) =>
-  conversationPages(
-    ["conversation", "direct", conversationId],
-    (page) => loadDirectConversation({ data: { conversationId, ...page } }),
-    beforeFirstRoot,
+  conversationPages(["conversation", "direct", conversationId], (page) =>
+    loadDirectConversation({ data: { conversationId, ...page } }),
   );
 
 export const publicChannelQuery = (channelId: string) =>
-  conversationPages(
-    ["conversation", "channel", channelId],
-    (page) => loadPublicChannel({ data: { channelId, ...page } }),
-    beforeFirstMessage,
+  conversationPages(["conversation", "channel", channelId], (page) =>
+    loadPublicChannel({ data: { channelId, ...page } }),
   );
+
+/** The window an around read answers, without `anchorThreadRootId`, which only its caller needs:
+ * the root of the thread a reply anchor belongs to. */
+function aroundWindow<A extends { anchorThreadRootId?: string }>({
+  anchorThreadRootId: _anchorThreadRootId,
+  ...window
+}: A) {
+  return window;
+}
 
 /** A bounded window around one message, kept in the same Query cache as the stream. */
 export const conversationAroundQuery = (conversationId: string, messageId: string) =>
@@ -138,11 +158,12 @@ export const channelNamesQuery = (workspaceId: string) =>
     staleTime: 60_000,
   });
 
-export const directConversationUpdates = (conversationId: string) => (afterSequence: number) =>
-  loadDirectConversationUpdates({ data: { conversationId, afterSequence } });
+export const directConversationUpdates =
+  (conversationId: string) => (cursor: ConversationUpdatesCursor) =>
+    loadDirectConversationUpdates({ data: { conversationId, ...cursor } });
 
-export const publicChannelUpdates = (channelId: string) => (afterSequence: number) =>
-  loadPublicChannelUpdates({ data: { channelId, afterSequence } });
+export const publicChannelUpdates = (channelId: string) => (cursor: ConversationUpdatesCursor) =>
+  loadPublicChannelUpdates({ data: { channelId, ...cursor } });
 
 type Pages<T> = InfiniteData<T, ConversationWindowCursor>;
 
@@ -174,7 +195,7 @@ export async function ensureConversationWindow<
       conversationAroundQuery(latest.conversationId, targetMessageId),
     );
     const window: InfiniteData<T, ConversationWindowCursor> = {
-      pages: [{ ...latest, ...around }],
+      pages: [{ ...latest, ...aroundWindow(around) }],
       pageParams: [undefined],
     };
     queryClient.setQueryData(query.queryKey, window);
@@ -208,7 +229,7 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
   query: ReturnType<typeof conversationPages<M, T>>["query"];
   /** The newest page on its own: how "back to latest" recovers a tail the window evicted. */
   loadInitialPage: () => Promise<T>;
-  loadUpdates: (afterSequence: number) => Promise<M[]>;
+  loadUpdates: (cursor: ConversationUpdatesCursor) => Promise<M[]>;
   /** Extra work per realtime event, run alongside reconciliation. */
   onRealtime?: () => Promise<unknown>;
 }) {
@@ -231,6 +252,8 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
       hasOlder: hasPreviousPage,
       hasNewer: latestPage.hasNewer ?? false,
       messages: data.pages.reduce<M[]>((all, page) => mergeMessages(all, page.messages), []),
+      // Each page holds the threads, reads and follows of its own roots: the window's are all of them.
+      ...mergeWindowThreads(data.pages),
     }),
     [data, hasPreviousPage, latestPage],
   );
@@ -240,26 +263,37 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
 
   /**
    * Messages the retained window cannot hold yet. While the newest retained page is not the live
-   * tail (`hasNewer`), a realtime update must not be folded into it — but dropping it would lose a
-   * reply to a root that *is* still retained, because the forward page loader only fetches roots
-   * after its cursor and would never fetch that reply. Keep them (deduped by id) and merge them once
-   * the tail is back.
+   * tail (`hasNewer`), a top-level message must not be folded into it: it waits (deduped by id) and
+   * is merged once the tail is back. A thread's replies never wait: they go to their root's summary
+   * and open thread wherever the root is loaded (`foldThreadReplies`).
    */
   const pendingUpdatesRef = useRef<M[]>([]);
 
-  /** Fold freshly received messages into the latest window, unless pinned to an older one. */
-  const mergeUpdates = (updates: M[]) =>
-    setPages((pages) => {
-      const latest = pages.pages.at(-1);
-      const fold = foldWindowUpdates(latest, pendingUpdatesRef.current, updates, mergeMessages);
-      if (!fold || !latest) return pages;
-      pendingUpdatesRef.current = fold.pending;
-      if (!fold.messages) return pages;
-      return {
-        ...pages,
-        pages: [...pages.pages.slice(0, -1), { ...latest, messages: fold.messages }],
-      };
+  /** Fold freshly received messages into the loaded conversation: top-level ones into the latest
+   * window, unless pinned to an older one; replies into their threads. Roots go first, so a reply
+   * that arrives with its own root finds the root loaded. */
+  const mergeUpdates = (updates: M[]) => {
+    const roots = updates.filter((message) => !message.threadRootId);
+    if (roots.length)
+      setPages((pages) => {
+        const latest = pages.pages.at(-1);
+        const fold = foldWindowUpdates(latest, pendingUpdatesRef.current, roots, mergeMessages);
+        if (!fold || !latest) return pages;
+        pendingUpdatesRef.current = fold.pending;
+        if (!fold.messages) return pages;
+        return {
+          ...pages,
+          pages: [...pages.pages.slice(0, -1), { ...latest, messages: fold.messages }],
+        };
+      });
+    foldThreadReplies<M, T>(queryClient, {
+      pagesKey: query.queryKey,
+      conversationId,
+      replies: updates,
+      // Nothing is unread for someone who is not a member.
+      viewerIsMember: Boolean(latestPage.senderMemberId),
     });
+  };
 
   /** Merge anything buffered while the tail was evicted into the newest page, once it is the tail
    * again. Leaves the buffer intact if it is still not (more forward pages remain). */
@@ -285,34 +319,34 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
   const reconciliation = useMemo(
     () =>
       createConversationReconciler(
-        latestPage.messages.at(-1)?.sequence ?? 0,
-        (afterSequence) => loadUpdatesRef.current(afterSequence),
+        {
+          afterSequence: latestPage.messages.at(-1)?.sequence ?? 0,
+          afterReplySequence: newestReflectedSequence(latestPage),
+        },
+        (cursor) => loadUpdatesRef.current(cursor),
         (updates) => mergeUpdatesRef.current(updates),
       ),
     // A new conversation starts a new reconciler; later pages of the same one keep it.
     [conversationId],
   );
-  /** Refreshes just the pending action cards currently shown,
+  /** Refreshes just the pending action cards currently shown, in the window and the open threads,
    * without re-fetching the whole page; reads the live message list at call time via the closure
    * captured into `reconcileRef` by `useConversationRealtime`. */
   const refreshActionCards = async () => {
-    const pendingIds = conversation.messages
+    const pendingIds = [
+      ...conversation.messages,
+      ...loadedThreadReplies<M>(queryClient, conversationId),
+    ]
       .filter((message) => message.actionCard?.state === "pending")
       .map((message) => message.id);
     if (!pendingIds.length) return;
     const states = await loadActionCardStates({ data: { messageIds: pendingIds } });
-    setPages((pages) => ({
-      ...pages,
-      pages: pages.pages.map((page) => ({
-        ...page,
-        messages: page.messages.map((message) =>
-          states[message.id] ? { ...message, actionCard: states[message.id] } : message,
-        ),
-      })),
-    }));
+    for (const [messageId, state] of Object.entries(states))
+      updateMessageRef.current(messageId, (message) => ({ ...message, actionCard: state }));
   };
-  /** Replace one loaded message, keeping every other page and message object as it is. */
-  const updateMessage = (messageId: string, update: (message: M) => M) =>
+  /** Replace one loaded message, in the window or in the open thread that holds it, keeping every
+   * other page, thread and message object as it is. */
+  const updateMessage = (messageId: string, update: (message: M) => M) => {
     setPages((pages) => ({
       ...pages,
       pages: pages.pages.map((page) =>
@@ -326,13 +360,23 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
           : page,
       ),
     }));
+    updateLoadedReply<M>(queryClient, conversationId, messageId, update);
+  };
   const updateMessageRef = useRef(updateMessage);
   updateMessageRef.current = updateMessage;
   const toggleReaction = useMemo(
     () =>
       createReactionToggler<M>({
         update: (messageId, update) => updateMessageRef.current(messageId, update),
-        resync: () => queryClient.invalidateQueries({ queryKey: query.queryKey }),
+        // A reaction that failed may sit on a reply, which the window does not hold: the open
+        // threads are read again with it.
+        resync: () =>
+          Promise.all([
+            queryClient.invalidateQueries({ queryKey: query.queryKey }),
+            queryClient.invalidateQueries({
+              queryKey: conversationThreadsQueryKey(conversationId),
+            }),
+          ]),
       }),
     // A new conversation starts a new toggler, like the reconciler above.
     [conversationId],
@@ -368,7 +412,7 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
   const loadMessageAround = async (messageId: string) => {
     const around = await queryClient.fetchQuery(conversationAroundQuery(conversationId, messageId));
     setPages((pages) => ({
-      pages: [{ ...pages.pages.at(-1)!, ...around }],
+      pages: [{ ...pages.pages.at(-1)!, ...aroundWindow(around) }],
       pageParams: [undefined],
     }));
   };
@@ -377,14 +421,13 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
     conversation,
     reconciliation,
     mergeUpdates,
-    /** Adjust the conversation's own fields (membership flags, follows) without a refetch. */
-    patch: (update: (page: T) => T) =>
-      setPages((pages) => ({
-        ...pages,
-        pages: pages.pages.map((page, index) =>
-          index === pages.pages.length - 1 ? update(page) : page,
-        ),
-      })),
+    /** The viewer read a thread through a reply: its summary and cursor follow, on whichever page
+     * holds its root, without a refetch. */
+    applyThreadRead: (rootId: string, throughSequence: number) =>
+      applyThreadRead<T>(queryClient, { pagesKey: query.queryKey, rootId, throughSequence }),
+    /** The viewer followed or unfollowed a thread, on whichever page holds its root. */
+    setThreadFollowed: (rootId: string, followed: boolean) =>
+      setThreadFollowed<T>(queryClient, { pagesKey: query.queryKey, rootId, followed }),
     loadMessageAround,
     /** Make sure a message is loaded before navigating to it. */
     ensureLoaded: async (messageId: string) => {

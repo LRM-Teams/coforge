@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import type { StreamRead } from "./stream-state";
 import { messageIdFromHash, threadRootFromMessageAnchor } from "./conversation-thread-search";
 import { isAppError } from "#src/lib/app-error";
+import { conversationAroundQuery } from "./conversation-queries";
 import type { ThreadRootLoad } from "./thread-root-state";
 import type { DirectConversationView } from "./conversation-types";
-import { threadReadThrough } from "./thread-store";
+import { threadReadThrough } from "./thread-summary-model";
 
 type ConversationSyncView = Pick<
   DirectConversationView,
@@ -44,6 +46,7 @@ export function useConversationSync({
   openThreadFromHash: (rootMessageId: string) => void;
   closeThread: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [visited, setVisited] = useState<string[]>([]);
   // Replacing the window with an "around" read leaves the stream with no messages until its answer
   // lands; the stream must show loading, not "empty", while that is happening (stream-state.ts).
@@ -169,10 +172,26 @@ export function useConversationSync({
     const messageId = messageIdFromHash(hash);
     if (!messageId || attemptedHashLoad.current === hash) return;
     attemptedHashLoad.current = hash;
-    // A failed read leaves the stream where it was, as a hash for a message that is gone does;
-    // the rejection is not left unhandled.
-    loadWindowAround(messageId).catch(() => {});
-  }, [conversation.messages, searchThreadRootId, loadWindowAround]);
+    // The window holds top-level messages only, so a reply's hash is never found in it: the read
+    // around it answers with the thread it belongs to, which opens. A failed read leaves the
+    // stream where it was, as a hash for a message that is gone does; the rejection is not left
+    // unhandled.
+    loadWindowAround(messageId)
+      .then(() => {
+        const around = queryClient.getQueryData(
+          conversationAroundQuery(conversation.conversationId, messageId).queryKey,
+        );
+        if (around?.anchorThreadRootId) openThreadFromHash(around.anchorThreadRootId);
+      })
+      .catch(() => {});
+  }, [
+    conversation.messages,
+    conversation.conversationId,
+    searchThreadRootId,
+    loadWindowAround,
+    openThreadFromHash,
+    queryClient,
+  ]);
 
-  return { visited, windowRead, readThrough, threadCursor, threadRootFailure, loadThreadRoot };
+  return { visited, windowRead, threadCursor, threadRootFailure, loadThreadRoot };
 }

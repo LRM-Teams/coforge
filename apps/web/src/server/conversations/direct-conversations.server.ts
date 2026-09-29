@@ -235,15 +235,22 @@ export class DirectConversations {
     );
   }
 
-  /** What arrived after `afterSequence`. */
+  /** What arrived after `afterSequence`, and of the replies only those after `afterReplySequence`
+   * when it is given. */
   async updates(
     workspaceId: string,
     viewerId: string,
     conversationId: string,
     afterSequence: number,
+    afterReplySequence?: number,
   ) {
     await this.authorize(workspaceId, viewerId, conversationId);
-    return this.conversations.updatesSince(workspaceId, conversationId, afterSequence);
+    return this.conversations.updatesSince(
+      workspaceId,
+      conversationId,
+      afterSequence,
+      afterReplySequence,
+    );
   }
 
   /** Advances the viewer's read cursor; monotone and clamped. */

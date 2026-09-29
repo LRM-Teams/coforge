@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
+import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
 import { toggleUserMessageReaction } from "#src/server/conversations/user-message-reactions.server";
 import {
   PrismaDirectConversationRepository,
@@ -10,9 +11,9 @@ import {
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 
 /**
- * The browser shape of a direct-conversation message, as `openForUser` (a page of roots with
- * their replies) and `updatesSince` (the poll past a cursor) return it: every field, the field
- * order, and no `senderMemberId` (the pane then decides "own" by `senderKind`).
+ * The browser shape of a direct-conversation message, as `openForUser` (a page of roots),
+ * `updatesSince` (the poll past a cursor) and `loadThread` (a thread's replies) return it: every
+ * field, the field order, and no `senderMemberId` (the pane then decides "own" by `senderKind`).
  */
 const BROWSER_MESSAGE_KEYS = [
   "id",
@@ -185,10 +186,23 @@ test("a direct conversation's page and poll return the same browser message shap
       },
     ];
 
+    // The page holds the roots, the poll every message past its cursor, and a thread's replies
+    // come with the thread read: one shape for all three.
     const opened = await repo.openForUser(workspace.id, user.id, agent.id);
     const polled = await repo.updatesSince(workspace.id, conversationId, 0);
-    for (const messages of [opened.messages, polled]) {
-      expect(messages).toEqual(expected);
+    const thread = await new ConversationHistory(db).loadThread(
+      workspace.id,
+      user.id,
+      conversationId,
+      root.id,
+    );
+    const roots = expected.filter((message) => message.threadRootId === undefined);
+    for (const [messages, shown] of [
+      [opened.messages, roots],
+      [polled, expected],
+      [thread.replies, expected.filter((message) => message.threadRootId === root.id)],
+    ] as const) {
+      expect(messages).toEqual(shown);
       for (const message of messages) expect(Object.keys(message)).toEqual(BROWSER_MESSAGE_KEYS);
     }
   } finally {

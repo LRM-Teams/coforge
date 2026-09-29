@@ -215,7 +215,7 @@ describe("ConversationHistory", () => {
     expect(messageQueries).toHaveLength(0);
   });
 
-  test("loads an around window for any root message in the requested conversation", async () => {
+  test("loads an around window for any message in the requested conversation", async () => {
     const messageQueries: object[] = [];
     const message = (id: string, sequence: number) => ({
       id,
@@ -244,7 +244,6 @@ describe("ConversationHistory", () => {
               },
               agent: null,
             },
-      replies: [],
     });
     const db = {
       workspaceMembership: { findUnique: async () => membership },
@@ -255,10 +254,11 @@ describe("ConversationHistory", () => {
           members: [],
         }),
       },
+      $queryRaw: async () => [],
       message: {
         findFirst: async (input: object) => {
           messageQueries.push(input);
-          return { sequence: 10 };
+          return { id: "message-10", sequence: 10, threadRoot: null };
         },
         findMany: async (input: { orderBy: { sequence: string } }) => {
           messageQueries.push(input);
@@ -278,11 +278,7 @@ describe("ConversationHistory", () => {
     );
 
     expect(messageQueries[0]).toMatchObject({
-      where: {
-        id: "message-10",
-        conversationId: "channel-conversation-1",
-        threadRootId: null,
-      },
+      where: { id: "message-10", conversationId: "channel-conversation-1" },
     });
     // No sender filter on the anchor: a saved jump (#127) lands on other members' and Agent
     // messages too, so the where clause must not require the viewer to be the sender.
@@ -291,6 +287,10 @@ describe("ConversationHistory", () => {
       conversationId: "channel-conversation-1",
       hasOlder: true,
       hasNewer: true,
+      anchorThreadRootId: undefined,
+      threads: {},
+      threadReadThrough: {},
+      followedThreadRootIds: [],
     });
     expect(
       page.messages.map(({ id, sequence, senderMemberId }) => [id, sequence, senderMemberId]),
@@ -319,5 +319,37 @@ describe("ConversationHistory", () => {
       "/api/workspaces/workspace-1/users/user-1/avatar?v=avatar-1",
       null,
     ]);
+  });
+  test("an around read anchored on a reply centres on its thread's root and names it", async () => {
+    const queries: { where?: { sequence?: object } }[] = [];
+    const db = {
+      workspaceMembership: { findUnique: async () => membership },
+      conversation: {
+        findFirst: async () => ({ directKey: null, channelName: "engineering", members: [] }),
+      },
+      $queryRaw: async () => [],
+      message: {
+        // The reply at 12 answers the root at 10.
+        findFirst: async () => ({
+          id: "reply-12",
+          sequence: 12,
+          threadRoot: { id: "root-10", sequence: 10 },
+        }),
+        findMany: async (input: { where: { sequence: object } }) => {
+          queries.push(input);
+          return [];
+        },
+      },
+    } as unknown as PrismaClient;
+
+    const page = await new ConversationHistory(db).loadAround(
+      "workspace-1",
+      "user-1",
+      "channel-conversation-1",
+      "reply-12",
+    );
+
+    expect(queries.map((query) => query.where?.sequence)).toEqual([{ lte: 10 }, { gt: 10 }]);
+    expect(page.anchorThreadRootId).toBe("root-10");
   });
 });

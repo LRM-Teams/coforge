@@ -5,7 +5,6 @@ import {
   CONVERSATION_WINDOW_PAGE_SIZE,
   flushWindowUpdates,
   foldWindowUpdates,
-  newestRootSequence,
   nextPageCursor,
   previousPageCursor,
   windowPageFlags,
@@ -43,34 +42,6 @@ describe("nextPageCursor", () => {
   });
 });
 
-describe("newestRootSequence", () => {
-  test("is the last top-level message's sequence when the page ends in a reply", () => {
-    // Root 20 was fetched and answered twice; root 30 is the next root the page did not fetch.
-    // Using the last message (reply 32) as the cursor would skip root 30 entirely.
-    expect(
-      newestRootSequence([
-        { sequence: 20 },
-        { sequence: 25, threadRootId: "root-20" },
-        { sequence: 32, threadRootId: "root-20" },
-      ]),
-    ).toBe(20);
-  });
-
-  test("is the newest root, not the newest reply, when roots follow one another", () => {
-    expect(
-      newestRootSequence([
-        { sequence: 10 },
-        { sequence: 12, threadRootId: "root-10" },
-        { sequence: 20 },
-      ]),
-    ).toBe(20);
-  });
-
-  test("is undefined for an empty page", () => {
-    expect(newestRootSequence([])).toBeUndefined();
-  });
-});
-
 describe("windowPageFlags", () => {
   test("the initial page is the live tail", () => {
     expect(windowPageFlags("initial", true)).toEqual({ hasOlder: true, hasNewer: false });
@@ -94,7 +65,7 @@ describe("window size", () => {
   });
 });
 
-type TestMessage = { id: string; sequence: number; threadRootId?: string };
+type TestMessage = { id: string; sequence: number };
 
 const bySequence = (base: readonly TestMessage[], incoming: readonly TestMessage[]) => {
   const byId = new Map(base.map((message) => [message.id, message]));
@@ -115,18 +86,18 @@ describe("foldWindowUpdates", () => {
     expect(fold).toEqual({ messages: [message("a", 1), message("b", 2)], pending: [] });
   });
 
-  test("shows a late reply to a retained root while buffering unrelated updates", () => {
-    // A reply to a still-retained root must be visible in its open thread immediately; the forward
-    // page loader can never fetch it. Unrelated top-level updates still wait for the tail.
+  test("buffers every update while the newest page is not the live tail", () => {
+    // Folding a message into a page that is not the end would leave a hole once the tail is
+    // fetched back, so it waits, in order and without duplicates, until then.
     const fold = foldWindowUpdates(
       { hasNewer: true, messages: [message("a", 1)] },
-      [],
-      [{ ...message("reply", 50), threadRootId: "a" }, message("new-root", 51)],
+      [message("waiting", 52)],
+      [message("new-root", 51), message("waiting", 52)],
       bySequence,
     );
     expect(fold).toEqual({
-      messages: [message("a", 1), { ...message("reply", 50), threadRootId: "a" }],
-      pending: [message("new-root", 51)],
+      messages: undefined,
+      pending: [message("new-root", 51), message("waiting", 52)],
     });
   });
 
@@ -140,17 +111,17 @@ describe("flushWindowUpdates", () => {
     expect(
       flushWindowUpdates(
         { hasNewer: false, messages: [message("a", 1)] },
-        [message("reply", 50)],
+        [message("buffered", 50)],
         bySequence,
       ),
-    ).toEqual([message("a", 1), message("reply", 50)]);
+    ).toEqual([message("a", 1), message("buffered", 50)]);
   });
 
   test("waits while the tail is still missing", () => {
     expect(
       flushWindowUpdates(
         { hasNewer: true, messages: [message("a", 1)] },
-        [message("reply", 50)],
+        [message("buffered", 50)],
         bySequence,
       ),
     ).toBeUndefined();
