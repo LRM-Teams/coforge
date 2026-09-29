@@ -8,6 +8,10 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   assignment, card amendments and history, resource receipts, and status
   writes. Agent Task RPC adapters under `server/agents/` call the same
   TaskBoard and never duplicate its business rules.
+- `task-command-validation.server.ts` (`validateTaskCommand`) owns the shape
+  a `TaskCommand` must have, which `execute` checks before it reads anything:
+  a malformed one is `INVALID_INPUT`. It reads no database and decides no
+  authorization; who may act on which conversation stays in TaskBoard.
 - `task-view.server.ts` owns how a stored Task reads: its selection, its
   `TaskView`, and its stored status. `task-history.server.ts` owns which
   history events a Task write records and how they read back. TaskBoard and
