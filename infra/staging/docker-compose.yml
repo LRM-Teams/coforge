@@ -82,6 +82,9 @@ services:
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT_FILE: /run/secrets/otel_traces_endpoint
       OTEL_SERVICE_NAME: coforge-web
       OTEL_DEPLOYMENT_ENVIRONMENT: staging
+      # Server-Timing (total and db milliseconds) on SSR documents and Server Function
+      # responses, for staging performance work: docs/observability/server-timing.md.
+      COFORGE_SERVER_TIMING: "1"
       # Which release feed this deployment's `curl .../computer/install.sh | sh` installs
       # from. Not a secret, and deployment-specific by design:
       # docs/release/local-feed-hosting.md requires a staging entry point to install the staging

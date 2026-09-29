@@ -1,6 +1,12 @@
 import { createCsrfMiddleware, createMiddleware, createStart } from "@tanstack/react-start";
 
 import { toPublicServerError } from "#src/server/errors/public-error.server";
+import { withServerTiming } from "#src/server/observability/server-timing.server";
+
+// After the CSRF check (a header comparison), so `total` times only requests that run.
+const serverTiming = createMiddleware().server(({ next, handlerType }) =>
+  withServerTiming(handlerType, next),
+);
 
 const csrfMiddleware = createCsrfMiddleware({
   filter: ({ handlerType }) => handlerType === "serverFn",
@@ -55,6 +61,6 @@ const agentRequestLogger = createMiddleware().server(async ({ next, request }) =
 });
 
 export const startInstance = createStart(() => ({
-  requestMiddleware: [csrfMiddleware, agentRequestLogger],
+  requestMiddleware: [csrfMiddleware, serverTiming, agentRequestLogger],
   functionMiddleware: [publicServerFunctionErrors],
 }));
