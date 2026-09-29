@@ -227,9 +227,11 @@ test("a failed replay whose draft another send took over cannot be confirmed and
   expect(error.verdict).toMatchObject({ retryable: false, draftSaved: false });
   expect(error.verdict.suggestedNextAction).toContain("CANNOT_CONFIRM");
   expect(error.verdict.suggestedNextAction).toContain("do not resend");
+  expect(error.verdict.suggestedNextAction).toContain("belongs to a different send");
+  expect(error.verdict.suggestedNextAction).not.toContain("could not be checked");
 });
 
-test("a failed replay whose draft cannot be checked is answered as a draft that does not hold the key", async () => {
+test("a failed replay whose draft cannot be checked says so, and is not retryable", async () => {
   const replayFailure = lostBeforeResponse();
   const settlement = ports({
     sends: [
@@ -253,6 +255,9 @@ test("a failed replay whose draft cannot be checked is answered as a draft that 
   expect(verdict.verdict.suggestedNextAction).toContain("CANNOT_CONFIRM");
   expect(verdict.verdict.suggestedNextAction).not.toContain("--send-draft");
   expect(settlement.heldKeys).toEqual([["@ada", "key-1"]]);
+  expect(verdict.verdict.suggestedNextAction).toContain("could not be checked");
+  expect(verdict.verdict.suggestedNextAction).toContain("treated as not holding it");
+  expect(verdict.verdict.suggestedNextAction).not.toContain("belongs to a different send");
 });
 
 test("when reconciliation itself fails, the original failure stands", async () => {
@@ -338,9 +343,11 @@ test("a send whose key is still being processed, its draft replaced by another s
   expect((error as AgentSendVerdictError).cause).toBeInstanceOf(AgentExplainedRefusalError);
   expect(settlement.calls.map(({ port }) => port)).toEqual(["send"]);
   expect(settlement.heldKeys).toEqual([["@ada", "key-1"]]);
+  expect(verdict.suggestedNextAction).toContain("belongs to a different send");
+  expect(verdict.suggestedNextAction).not.toContain("could not be checked");
 });
 
-test("a draft check that fails is answered as a draft that does not hold the key", async () => {
+test("a draft check that fails says so, and is not retryable", async () => {
   const settlement = ports({
     sends: [async () => Promise.reject(stillProcessing())],
     draftHoldsKey: new Error("draft store unreadable"),
@@ -355,6 +362,9 @@ test("a draft check that fails is answered as a draft that does not hold the key
   expect(verdict.suggestedNextAction).not.toContain("--send-draft");
   expect((error as AgentSendVerdictError).cause).toBeInstanceOf(AgentExplainedRefusalError);
   expect(settlement.heldKeys).toEqual([["@ada", "key-1"]]);
+  expect(verdict.suggestedNextAction).toContain("could not be checked");
+  expect(verdict.suggestedNextAction).toContain("treated as not holding it");
+  expect(verdict.suggestedNextAction).not.toContain("belongs to a different send");
 });
 
 test("under reviewer isolation the resend command keeps the flag", async () => {

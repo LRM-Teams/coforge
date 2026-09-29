@@ -48,7 +48,7 @@ export async function settleAgentSend(
         stillProcessingVerdict({
           idempotencyKey: send.idempotencyKey,
           target: send.target,
-          draftHoldsKey: await draftStillHoldsKey(send, ports, options.logScope),
+          draftCheck: await checkDraftKey(send, ports, options.logScope),
           reviewerIsolation: options.reviewerIsolation,
         }),
       );
@@ -86,14 +86,14 @@ export async function settleAgentSend(
   try {
     return await ports.send(send);
   } catch (replayFailure) {
-    const draftHoldsKey = await draftStillHoldsKey(send, ports, options.logScope);
+    const draftCheck = await checkDraftKey(send, ports, options.logScope);
     throw new AgentSendVerdictError(
       "the send's same-key replay failed after reconciliation found no commit",
       replayFailure,
       replayVerdict({
         idempotencyKey: send.idempotencyKey,
         target: send.target,
-        draftHoldsKey,
+        draftCheck,
         reviewerIsolation: options.reviewerIsolation,
       }),
     );
@@ -119,15 +119,19 @@ function isStillProcessing(error: unknown): error is AgentExplainedRefusalError 
   );
 }
 
-/** Whether the target's draft still holds the send's key. A draft that cannot be checked is
- * answered as not holding it, the safe answer: only a draft holding the key can be sent again. */
-async function draftStillHoldsKey(
+/** What the target's draft says about the send's key. `unchecked` is the port throwing: answered as
+ * not holding the key — the safe action, since only a draft holding it can be sent again — but kept
+ * apart from a check that answered no, because the Agent is told which of the two it is. */
+type DraftKeyCheck = "holds" | "replaced" | "unchecked";
+
+/** Whether the target's draft still holds the send's key, or why that could not be established. */
+async function checkDraftKey(
   send: { idempotencyKey: string; target: string },
   ports: AgentSendSettlementPorts,
   logScope: Record<string, unknown>,
-): Promise<boolean> {
+): Promise<DraftKeyCheck> {
   try {
-    return await ports.draftHoldsKey(send.target, send.idempotencyKey);
+    return (await ports.draftHoldsKey(send.target, send.idempotencyKey)) ? "holds" : "replaced";
   } catch (error) {
     logger.warn("Agent send draft could not be checked", {
       event: "agent.message.send_draft_unchecked",
@@ -135,8 +139,18 @@ async function draftStillHoldsKey(
       target: send.target,
       error_code: diagnosticErrorCode(error),
     });
-    return false;
+    return "unchecked";
   }
+}
+
+/** Why this send cannot be retried, as the Agent reads it: a draft check that answered no, or one
+ * that could not run at all. The two are not the same fact about the draft. */
+function notRetryableReason(draftCheck: Exclude<DraftKeyCheck, "holds">): string {
+  return draftCheck === "replaced"
+    ? "The target's draft no longer holds this send's key — any draft there now belongs to a " +
+        "different send — so this send cannot be retried safely."
+    : "The target's draft could not be checked, so whether a retry would reuse this send's key is " +
+        "unknown — it is treated as not holding it, and this send cannot be retried safely.";
 }
 
 /** An earlier request with this key may still commit, so delivery is unknown. While the saved draft
@@ -145,21 +159,21 @@ async function draftStillHoldsKey(
 function stillProcessingVerdict(details: {
   idempotencyKey: string;
   target: string;
-  draftHoldsKey: boolean;
+  draftCheck: DraftKeyCheck;
   reviewerIsolation: boolean;
 }): AgentSendVerdict {
-  if (!details.draftHoldsKey)
+  if (details.draftCheck !== "holds")
     return {
       retryable: false,
       draftSaved: false,
       suggestedNextAction:
         "Delivery is UNKNOWN: an earlier request with this send's idempotency key is still being " +
-        "processed, so this message may still be delivered. The target's draft no longer holds " +
-        "this send's key — any draft there now belongs to a different send — so this send cannot " +
-        "be retried safely. The state is CANNOT_CONFIRM and not retryable: do not resend, and do " +
-        "not write it again as a new send. To look for it, run `coforge message read --target " +
-        `${JSON.stringify(details.target)}\`: a matching message is not proof that this send ` +
-        "committed, and not seeing it proves nothing yet. Wait, or ask a person.",
+        "processed, so this message may still be delivered. " +
+        `${notRetryableReason(details.draftCheck)} The state is CANNOT_CONFIRM and not retryable: ` +
+        "do not resend, and do not write it again as a new send. To look for it, run " +
+        `\`coforge message read --target ${JSON.stringify(details.target)}\`: a matching message ` +
+        "is not proof that this send committed, and not seeing it proves nothing yet. Wait, or " +
+        "ask a person.",
     };
   const isolation = details.reviewerIsolation ? " --reviewer-isolation" : "";
   return {
@@ -178,18 +192,17 @@ function stillProcessingVerdict(details: {
 function replayVerdict(details: {
   idempotencyKey: string;
   target: string;
-  draftHoldsKey: boolean;
+  draftCheck: DraftKeyCheck;
   reviewerIsolation: boolean;
 }): AgentSendVerdict {
-  if (!details.draftHoldsKey)
+  if (details.draftCheck !== "holds")
     return {
       retryable: false,
       draftSaved: false,
       suggestedNextAction:
         "Delivery is still UNKNOWN: the server reported this send's idempotency key absent, and " +
-        "the same-key replay then failed. The target's draft no longer holds this send's key — " +
-        "any draft there now belongs to a different send — so this send cannot be retried " +
-        "safely. The state is CANNOT_CONFIRM and not retryable: do not resend on this evidence.",
+        `the same-key replay then failed. ${notRetryableReason(details.draftCheck)} The state is ` +
+        "CANNOT_CONFIRM and not retryable: do not resend on this evidence.",
     };
   const isolation = details.reviewerIsolation ? " --reviewer-isolation" : "";
   return {
