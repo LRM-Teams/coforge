@@ -20,3 +20,41 @@ export function isReservedAgentEnvironmentName(name: string): boolean {
   const upper = name.toUpperCase();
   return upper === "PATH" || upper.startsWith("COFORGE_");
 }
+
+/** The rule an environment breaks, named so an edge can refuse it with a reason instead of a guess. */
+export type AgentEnvironmentViolation =
+  | "too-many"
+  | "invalid-name"
+  | "reserved-name"
+  | "invalid-value"
+  | "too-large";
+
+export function agentEnvironmentNameViolation(
+  name: string,
+): Extract<AgentEnvironmentViolation, "invalid-name" | "reserved-name"> | undefined {
+  if (!AGENT_ENVIRONMENT_NAME_PATTERN.test(name) || name.length > AGENT_ENVIRONMENT_MAX_NAME_LENGTH)
+    return "invalid-name";
+  if (isReservedAgentEnvironmentName(name)) return "reserved-name";
+  return undefined;
+}
+
+/** The first rule `environment` breaks, in the order count, each name and value, then total size. */
+export function agentEnvironmentViolation(
+  environment: Readonly<Record<string, unknown>>,
+): AgentEnvironmentViolation | undefined {
+  const entries = Object.entries(environment);
+  if (entries.length > AGENT_ENVIRONMENT_MAX_VARIABLES) return "too-many";
+  for (const [name, value] of entries) {
+    const nameViolation = agentEnvironmentNameViolation(name);
+    if (nameViolation) return nameViolation;
+    if (
+      typeof value !== "string" ||
+      value.includes("\0") ||
+      value.length > AGENT_ENVIRONMENT_MAX_VALUE_LENGTH
+    )
+      return "invalid-value";
+  }
+  if (JSON.stringify(environment).length > AGENT_ENVIRONMENT_MAX_SERIALIZED_LENGTH)
+    return "too-large";
+  return undefined;
+}

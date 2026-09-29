@@ -10,7 +10,7 @@ import { StatusDot } from "#src/components/ui/status-dot";
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { DialogHeader } from "#src/components/application/modals/dialog-header";
 import { m } from "#src/paraglide/messages";
-import { agentEnvironmentRowsChanged } from "./agent-form";
+import { agentEnvironmentNameError, agentEnvironmentRowsChanged } from "./agent-form";
 import {
   AgentRuntimeFields,
   type RuntimeOptions,
@@ -90,6 +90,7 @@ export function AgentRuntimeConfigForm({
   }, [environment]);
 
   const envDirty = agentEnvironmentRowsChanged(envRows, environment?.values ?? {});
+  const envKeyErrors = envRows.map((row) => agentEnvironmentNameError(row.key));
   const computerDirty = Boolean(computers) && selectedComputerId !== (computerId || "");
   const dirty = runtimeDirty || envDirty || computerDirty;
   const envPending = environment !== undefined && !environment.loaded;
@@ -191,12 +192,14 @@ export function AgentRuntimeConfigForm({
                     <p className="text-sm text-tertiary">{m.agent_env_description()}</p>
                   </div>
                   {envRows.map((row, index) => (
-                    <div key={index} className="flex min-w-0 items-center gap-2">
+                    <div key={index} className="flex min-w-0 items-start gap-2">
                       <Input
                         name="envKey"
                         size="sm"
                         className="min-w-0 flex-1"
                         placeholder={m.agent_env_key_placeholder()}
+                        isInvalid={Boolean(envKeyErrors[index])}
+                        hint={envKeyErrors[index]}
                         value={row.key}
                         onChange={(value) =>
                           setEnvRows(
@@ -204,7 +207,9 @@ export function AgentRuntimeConfigForm({
                           )
                         }
                       />
-                      <span aria-hidden="true" className="text-tertiary">
+                      {/* Top-aligned so a name's error line grows the row downward; `h-9` is the sm
+                          input's height, keeping "=" and the remove button level with the inputs. */}
+                      <span aria-hidden="true" className="flex h-9 items-center text-tertiary">
                         =
                       </span>
                       <Input
@@ -217,14 +222,16 @@ export function AgentRuntimeConfigForm({
                           setEnvRows(envRows.map((r, i) => (i === index ? { ...r, value } : r)))
                         }
                       />
-                      <ButtonUtility
-                        type="button"
-                        size="xs"
-                        color="tertiary"
-                        icon={Trash01}
-                        aria-label={m.agent_env_remove_label({ index: index + 1 })}
-                        onClick={() => setEnvRows(envRows.filter((_, i) => i !== index))}
-                      />
+                      <div className="flex h-9 items-center">
+                        <ButtonUtility
+                          type="button"
+                          size="xs"
+                          color="tertiary"
+                          icon={Trash01}
+                          aria-label={m.agent_env_remove_label({ index: index + 1 })}
+                          onClick={() => setEnvRows(envRows.filter((_, i) => i !== index))}
+                        />
+                      </div>
                     </div>
                   ))}
                   <Button
@@ -251,7 +258,12 @@ export function AgentRuntimeConfigForm({
       {/* Raft's footer is the save action alone; the dialog is dismissed by its header X, Esc or the
           overlay (all already wired, and already blocked while saving). */}
       <div className="flex justify-end gap-3 border-t border-secondary px-6 py-4">
-        <Button type="submit" isDisabled={saving || !dirty || envPending || !selectedComputerId}>
+        <Button
+          type="submit"
+          isDisabled={
+            saving || !dirty || envPending || envKeyErrors.some(Boolean) || !selectedComputerId
+          }
+        >
           {saving ? m.agent_profile_saving() : m.agent_profile_save_runtime_config()}
         </Button>
       </div>

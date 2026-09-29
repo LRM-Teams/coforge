@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test";
+import { AppError } from "#src/lib/app-error";
 import {
+  agentEnvironmentNameError,
+  agentUpdateErrorMessage,
   agentEnvironmentRowsChanged,
   parseAgentEnvironmentFromForm,
 } from "#src/features/agents/agent-form";
+import { m } from "#src/paraglide/messages";
 
 function formWithEnvRows(rows: { key: string; value: string }[]) {
   const form = new FormData();
@@ -69,4 +73,27 @@ test("agentEnvironmentRowsChanged reports true for an added, removed, or changed
   ).toBe(true);
   expect(agentEnvironmentRowsChanged([], initial)).toBe(true);
   expect(agentEnvironmentRowsChanged([{ key: "A", value: "different" }], initial)).toBe(true);
+});
+
+test("agentEnvironmentNameError flags a name the server would refuse, before Save sends it", () => {
+  const invalidName = m.agent_env_invalid_name({ max: 128 });
+  expect(agentEnvironmentNameError("11")).toBe(invalidName);
+  expect(agentEnvironmentNameError("BAD-NAME")).toBe(invalidName);
+  expect(agentEnvironmentNameError("A".repeat(129))).toBe(invalidName);
+  expect(agentEnvironmentNameError("path")).toBe(m.agent_env_reserved_name());
+  expect(agentEnvironmentNameError("COFORGE_TOKEN")).toBe(m.agent_env_reserved_name());
+  expect(agentEnvironmentNameError(" MY_VAR ")).toBeUndefined();
+  expect(agentEnvironmentNameError("_x1")).toBeUndefined();
+  // A blank row is dropped on save (`parseAgentEnvironmentFromForm`), so it is not an error.
+  expect(agentEnvironmentNameError("  ")).toBeUndefined();
+});
+
+test("a refused environment save shows the broken rule instead of asking to try again", () => {
+  const refusal = (errorId: string) =>
+    agentUpdateErrorMessage(new AppError("INVALID_INPUT", { errorId }));
+  expect(refusal("agent-environment-invalid-name")).toBe(m.agent_env_invalid_name({ max: 128 }));
+  expect(refusal("agent-environment-reserved-name")).toBe(m.agent_env_reserved_name());
+  expect(refusal("agent-environment-invalid-value")).toBe(m.agent_env_invalid_value());
+  expect(refusal("agent-environment-too-many")).toBe(m.agent_env_too_many({ max: 64 }));
+  expect(refusal("agent-environment-too-large")).toBe(m.agent_env_too_large());
 });
