@@ -26,7 +26,7 @@ import {
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { rememberConversation } from "./last-conversation";
-import { useChannelUnread } from "./conversation-unread";
+import { unknownAgentOf, useChannelUnread } from "./conversation-unread";
 import { useRefreshSidebar, useSidebarLists } from "./sidebar-lists";
 import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
@@ -123,8 +123,10 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     () => new Set([...visibleChannels.map((row) => row.id), ...listedDirectIds(directs, agents)]),
     [visibleChannels, directs, agents],
   );
-  const closedChatRefresh = useRef<"idle" | "running" | "queued">("idle");
   const refreshSidebar = useRefreshSidebar();
+  const knownAgentIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents]);
+  // The Workspace layout's Agent roster only re-reads through the router: one re-read at a time.
+  const rosterRefresh = useRef<Promise<void> | undefined>(undefined);
   const unread = useChannelUnread({
     workspaceId,
     userId: viewerId,
@@ -132,21 +134,16 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     // The open channel's or DM's own events must not bump its badge: they are being read now.
     openConversationId: channel?.channelId ?? openDm?.dmId,
     listedConversationIds,
-    onClosedConversationActivity: () => {
-      // One refresh at a time: a burst of messages needs a single re-read of the list. A message
-      // that lands mid-refresh may have missed that read, so it queues exactly one more.
-      if (closedChatRefresh.current !== "idle") {
-        closedChatRefresh.current = "queued";
-        return;
-      }
-      const refresh = () => {
-        closedChatRefresh.current = "running";
-        void router.invalidate().finally(() => {
-          if (closedChatRefresh.current === "queued") refresh();
-          else closedChatRefresh.current = "idle";
+    // A message brought a closed chat back, or a DM the list has not read yet: re-read that one
+    // list, not the page (a burst is read once).
+    onClosedConversationActivity: (lists, event) => {
+      void refreshSidebar(lists);
+      // A new Agent writing first: its DM row needs the Agent in the roster, which only the
+      // layout's loader reads.
+      if (unknownAgentOf(event, knownAgentIds) && !rosterRefresh.current)
+        rosterRefresh.current = router.invalidate().finally(() => {
+          rosterRefresh.current = undefined;
         });
-      };
-      refresh();
     },
     // A channel changed, or the viewer joined, left, closed, muted or pinned a chat elsewhere:
     // only the lists named are stale.

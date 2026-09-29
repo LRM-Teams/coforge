@@ -85,15 +85,32 @@ export function applyUnreadEvent(
 }
 
 /**
- * Whether a new message landed in a chat the sidebar is not showing: one the viewer closed, or a DM
- * that started after the list was read. Such a message brings the chat in, so the sidebar re-reads
- * its list. Thread replies never do.
+ * The Agent a DM signal names when the viewer's roster does not know it yet (one made from an
+ * action card or in another tab, writing first): its DM row only lists once the roster has it, so
+ * the page must re-read the roster too. Undefined for a known Agent, a DM between members, or a
+ * channel.
  */
-export function activityInClosedConversation(
+export function unknownAgentOf(
+  event: UnreadEventInput,
+  knownAgentIds: ReadonlySet<string>,
+): string | undefined {
+  return event.agentId !== undefined && !knownAgentIds.has(event.agentId)
+    ? event.agentId
+    : undefined;
+}
+
+/**
+ * Which list a new message makes stale when it landed in a chat the sidebar is not showing: one
+ * the viewer closed, or a DM that started after the list was read. Such a message brings the chat
+ * in, so the sidebar re-reads that one list: the DM list for a DM (its signal names the Agent or
+ * member on the other side), else the channel list. Thread replies and listed chats never do.
+ */
+export function closedConversationLists(
   event: UnreadEventInput,
   listed: ReadonlySet<string>,
-): boolean {
-  return !event.threadRootId && !listed.has(event.conversationId);
+): readonly SidebarList[] {
+  if (event.threadRootId || listed.has(event.conversationId)) return [];
+  return event.agentId !== undefined || event.peerUserId !== undefined ? ["dms"] : ["channels"];
 }
 
 /** A conversation was read: clear its badge and remember the boundary it was read to. */
@@ -281,8 +298,9 @@ export function useChannelUnread({
   openConversationId?: string;
   /** Every chat the sidebar lists, channels and DMs, by conversation id. */
   listedConversationIds: ReadonlySet<string>;
-  /** A new message arrived in a closed chat: the sidebar re-reads its list to bring it back. */
-  onClosedConversationActivity: () => void;
+  /** A new message arrived in a closed chat, or a DM the list has not read yet: these lists
+   * bring it in. */
+  onClosedConversationActivity: (lists: readonly SidebarList[], event: UnreadEventInput) => void;
   /** These lists are stale: a channel was created, renamed, described, archived or unarchived
    * (`channel.created.v1`, `channel.updated.v1`), or the viewer's own place in a chat changed
    * elsewhere (`ViewerEvent`). */
@@ -321,7 +339,8 @@ export function useChannelUnread({
         onClosedConversationActivity: reopenFromActivity,
       } = refs.current;
       const conversations = new Set(channelRows.map((channel) => channel.id));
-      if (activityInClosedConversation(event, listed)) reopenFromActivity();
+      const stale = closedConversationLists(event, listed);
+      if (stale.length > 0) reopenFromActivity(stale, event);
       setCounts((current) =>
         applyUnreadEvent(current, event, {
           conversations,

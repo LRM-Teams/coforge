@@ -95,7 +95,7 @@ const listQueryKey: Record<SidebarList, (workspaceId: string) => readonly unknow
 /**
  * Re-reads the named lists, and only them, after something outside the sidebar changed them: a
  * channel's creation, rename, description or archive (here, or `channel.created.v1` /
- * `channel.updated.v1`), the Activity page
+ * `channel.updated.v1`), a message that brings a closed or unlisted chat in, the Activity page
  * moving badges, or the viewer's own place in a chat changed on another page, tab or device (a
  * `ViewerEvent`). A burst is read once (`sidebarRefreshQueue`). The collections follow the
  * refetched Query data.
