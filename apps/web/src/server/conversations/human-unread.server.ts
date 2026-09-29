@@ -1,9 +1,9 @@
 import { Prisma } from "#src/generated/prisma/client";
 
 /**
- * A person's unread rule and their read and Done cursor writes, as SQL shared by the Chat sidebar
- * badges (`PublicChannels.list`, the direct-conversation repository) and the Activity inbox, so
- * the surfaces cannot drift apart.
+ * A person's unread rule, their read and Done cursor writes, and where marking unread anchors,
+ * shared by the Chat sidebar badges (`PublicChannels.list`, the direct-conversation repository),
+ * the mark-as-unread writers and the Activity inbox, so the surfaces cannot drift apart.
  *
  * Unread means someone else's message past the person's cursor: their own messages and system
  * notices (no sender member) never count. Every cursor write only moves forward.
@@ -18,6 +18,29 @@ import { Prisma } from "#src/generated/prisma/client";
 export const HUMAN_UNREAD_MESSAGE_SQL = Prisma.sql`m."sequence" > LEAST(cm."readThroughSequence", cm."unreadFromSequence" - 1)
   AND m."senderMemberId" IS NOT NULL
   AND m."senderMemberId" <> cm."id"`;
+
+/**
+ * Where marking a conversation unread puts the marker for the member row `memberId`: the newest
+ * top-level message someone else sent, so the badge it opens counts at least one. Null when there
+ * is none, since the person's own messages and system notices never count (the same sender rule
+ * as `HUMAN_UNREAD_MESSAGE_SQL`).
+ */
+export async function markUnreadAnchor(
+  tx: Prisma.TransactionClient,
+  conversationId: string,
+  memberId: string,
+) {
+  const newest = await tx.message.findFirst({
+    where: {
+      conversationId,
+      threadRootId: null,
+      NOT: [{ senderMemberId: null }, { senderMemberId: memberId }],
+    },
+    orderBy: { sequence: "desc" },
+    select: { sequence: true },
+  });
+  return newest?.sequence ?? null;
+}
 
 /** A thread reply `m` unread for `memberId`, whose thread cursor is `readThrough` (null when
  * the thread was never read). */

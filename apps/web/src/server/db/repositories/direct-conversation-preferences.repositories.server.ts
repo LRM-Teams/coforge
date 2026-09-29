@@ -3,7 +3,10 @@ import {
   lockMemberPins,
   setConversationPin,
 } from "#src/server/conversations/conversation-pins.server";
-import { HUMAN_UNREAD_MESSAGE_SQL } from "#src/server/conversations/human-unread.server";
+import {
+  HUMAN_UNREAD_MESSAGE_SQL,
+  markUnreadAnchor,
+} from "#src/server/conversations/human-unread.server";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { viewerDirectConversationWhere } from "#src/server/conversations/viewer-direct-conversations.server";
 import { peopleDirectPeerId } from "#src/features/conversations/direct-key";
@@ -41,20 +44,13 @@ export class PrismaDirectConversationPreferences {
     return { pinned };
   }
 
-  /** Marks the viewer's DM unread, anchored on its newest top-level message, or clears the marker.
-   * A DM with no messages has nothing to mark. */
+  /** Marks the viewer's DM unread, anchored on the newest top-level message someone else sent, or
+   * clears the marker. A DM where only the viewer has spoken has nothing to mark. */
   async setUnread({ conversationId, memberId }: ViewerDirectMembership, unread: boolean) {
     let marker: number | null = null;
     await this.db.$transaction(async (tx) => {
       await lockConversation(tx, conversationId);
-      if (unread) {
-        const newest = await tx.message.findFirst({
-          where: { conversationId, threadRootId: null },
-          orderBy: { sequence: "desc" },
-          select: { sequence: true },
-        });
-        marker = newest?.sequence ?? null;
-      }
+      if (unread) marker = await markUnreadAnchor(tx, conversationId, memberId);
       await tx.conversationMember.update({
         where: { id: memberId },
         data: { unreadFromSequence: marker },

@@ -3843,7 +3843,7 @@ test("channel unread: list counts other-authored top-level messages past the cur
   }
 });
 
-test("channel unread: a mark-as-unread marker below the read cursor counts from the marker, and a read past it clears it", async () => {
+test("channel unread: marking unread counts from the newest message someone else sent, and a read past it clears it", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -3901,6 +3901,27 @@ test("channel unread: a mark-as-unread marker below the read cursor counts from 
     await channels.setUserUnread(workspace.id, bob.id, channel.id, true);
     await channels.setUserUnread(workspace.id, bob.id, channel.id, false);
     expect(await unreadFor(bob.id)).toBe(0);
+
+    // With the viewer's own message newest, marking reopens the newest message someone else sent.
+    await send(bob.id, "bob again");
+    expect(await channels.setUserUnread(workspace.id, bob.id, channel.id, true)).toEqual({
+      unread: true,
+    });
+    expect(await unreadFor(bob.id)).toBe(1);
+
+    // A channel where only the viewer has spoken has nothing to mark.
+    const solo = await channels.create(workspace.id, bob.id, "unread-marker-solo");
+    await channels.join(workspace.id, bob.id, solo.id);
+    await channels.send({
+      workspaceId: workspace.id,
+      userId: bob.id,
+      channelId: solo.id,
+      body: "only bob",
+      requestId: crypto.randomUUID(),
+    });
+    expect(await channels.setUserUnread(workspace.id, bob.id, solo.id, true)).toEqual({
+      unread: false,
+    });
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
