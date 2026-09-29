@@ -1,12 +1,7 @@
 import { getLogger } from "@logtape/logtape";
 import type { DaemonConnectRejectionReason } from "@lrm/coforge-sdk/internal";
 import type { DaemonConfig } from "#src/daemon-runtime/runtime";
-import {
-  answeredWithin,
-  holdRunnersUntilQuiescent,
-  RUNNER_HOLD_MS,
-  type RunnerHoldSnapshot,
-} from "./runner-hold";
+import { answeredWithin, holdRunnersUntilQuiescent, type RunnerHoldSnapshot } from "./runner-hold";
 import { UpgradeLaunchesPausedError, UpgradeOperationPendingError } from "./upgrade-error";
 import { WorkspaceParkedError } from "./workspace-health-journal";
 
@@ -315,7 +310,7 @@ export class MachineSupervisor {
         () => true,
         () => true,
       ),
-      this.#remaining(deadline),
+      Math.max(0, deadline - this.now()),
       "lifecycle command deadline",
     ).catch(() => false);
     if (finished) return work;
@@ -327,10 +322,6 @@ export class MachineSupervisor {
       });
     });
     return early();
-  }
-
-  #remaining(deadline: number): number {
-    return Math.max(0, deadline - this.now());
   }
 
   /** Resolves false for a restart this request already completed (nothing started). */
@@ -527,7 +518,7 @@ export class MachineSupervisor {
       // start below still validates the replacement through its scoped handshake.
       if (current === null || current === restart.previousInstanceId) {
         // Only a live instance is worth holding; a dead one has no Agents left to drain.
-        if (current !== null) await this.#holdRunners(binding, options.deadline);
+        if (current !== null) await this.#holdRunners(binding);
         try {
           await this.#stop(binding);
         } catch (error) {
@@ -569,19 +560,18 @@ export class MachineSupervisor {
    * The wait runs inside the serialized mutation, so other lifecycle commands queue behind it for
    * up to `RUNNER_HOLD_MS`. That is accepted: an upgrade's `pauseLaunches` already blocks the same
    * queue for as long, and a restart that raced ahead of the drain would defeat the point. An
-   * operator restart's hold draws from what is left of its command's deadline instead.
+   * operator restart keeps the full bound too: its answer is bounded by its deadline
+   * (`#answerBy`), not by cutting the drain short for Agents mid tool call.
    *
    * Every failure resolves towards proceeding: `holdRunnersUntilQuiescent` reports quiescent when
    * the hold cannot be asked at all, and a Workspace that answers `accepted: false` or times out
    * is counted as idle. A restart is never failed because of the hold.
    */
-  async #holdRunners(binding: ManagedBinding, deadline?: number): Promise<void> {
+  async #holdRunners(binding: ManagedBinding): Promise<void> {
     if (!this.processes.hold) return;
-    const holdMs = this.restartHold.holdMs ?? RUNNER_HOLD_MS;
     const outcome = await holdRunnersUntilQuiescent({
       hold: () => this.processes.hold!(binding, "restart"),
       ...this.restartHold,
-      holdMs: deadline === undefined ? holdMs : Math.min(holdMs, this.#remaining(deadline)),
     });
     logger.info("Runner hold completed before a Workspace restart", {
       event: outcome.quiescent ? "restart:runner_hold_quiescent" : "restart:runner_hold_expired",

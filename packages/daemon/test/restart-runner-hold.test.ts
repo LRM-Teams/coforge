@@ -81,7 +81,7 @@ function holdFixture(options: {
           }
         : {}),
     },
-    undefined,
+    time.now,
     // A short bound on a virtual clock; the real 30s budget is covered by the quiescence tests.
     { holdMs: 1_000, pollMs: 250, ...time },
   );
@@ -226,7 +226,7 @@ test("a stop that fails after the hold releases the surviving daemon before reth
   expect(fixture.calls).toEqual(["hold:a:restart", "stop:a", "release:a:restart"]);
 });
 
-test("a restart's hold draws from what is left of its command's deadline", async () => {
+test("a restart's hold keeps its full bound whatever is left of its command's deadline", async () => {
   let asked = 0;
   const fixture = holdFixture({
     hold: async () => {
@@ -236,10 +236,13 @@ test("a restart's hold draws from what is left of its command's deadline", async
   });
   await fixture.supervisor.recover();
 
-  // 400 ms left of the command, against the fixture's 1 s hold bound.
-  await fixture.supervisor.command("restart", "a", "request", { deadline: Date.now() + 400 });
+  // 400 ms left of the command, against the fixture's 1 s hold bound: the answer is bounded by
+  // the deadline elsewhere, so the drain for busy Agents is not cut short.
+  await fixture.supervisor.command("restart", "a", "request", {
+    deadline: fixture.time.now() + 400,
+  });
 
-  expect(fixture.time.now()).toBeLessThanOrEqual(500);
-  expect(asked).toBeLessThan(5);
+  expect(asked).toBe(5);
+  expect(fixture.time.now()).toBe(1_000);
   expect(fixture.calls).toEqual(["hold:a:restart", "stop:a"]);
 });

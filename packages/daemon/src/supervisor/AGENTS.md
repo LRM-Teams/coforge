@@ -46,8 +46,9 @@ Rules for the machine Coordinator in `src/supervisor/`. They extend
   `MachineSupervisor.command` answers by then even while still queued, holding,
   stopping, or starting, and names those Workspaces `pending`; their work
   finishes in the serialized queue afterwards, so the instance is still adopted
-  and a restart's result still recorded. A restart's runner hold draws from
-  what is left of the deadline. Finished Workspaces are answered with their
+  and a restart's result still recorded. A restart's runner hold keeps its
+  full `RUNNER_HOLD_MS`; the deadline bounds the answer, never the drain for
+  busy Agents. Finished Workspaces are answered with their
   first cloud connect (`awaitCloudConnections`, watched side by side, each
   checked at least once); pending ones as still connecting. A park refuses the
   command. Recovery passes no deadline.
