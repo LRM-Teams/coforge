@@ -1504,6 +1504,7 @@ export class RecordCatalog {
         id: input.subjectId,
       });
       if (subject.type !== "report") throw new AppError("NOT_FOUND");
+      const templateFormats = await this.listAssistantTemplateFormats(input.workspaceId);
       return {
         subjectType: input.subjectType,
         subjectId: input.subjectId,
@@ -1517,6 +1518,7 @@ export class RecordCatalog {
           "visible_member_reports",
           "favorites",
         ],
+        templateFormats,
         contextVersion: subject.report.updatedAt,
       } as const;
     }
@@ -1533,15 +1535,42 @@ export class RecordCatalog {
       },
     });
     if (!cycle) throw new AppError("NOT_FOUND");
+    const templateFormats = await this.listAssistantTemplateFormats(input.workspaceId);
     return {
       subjectType: input.subjectType,
       subjectId: input.subjectId,
       cycle: { id: cycle.id, year: cycle.year, week: cycle.week, title: cycle.title },
       structure: [],
       availableData: ["cycle", "visible_member_reports", "submission_status"],
+      templateFormats,
       reportCount: cycle._count.reports,
       contextVersion: cycle.createdAt.toISOString(),
     } as const;
+  }
+
+  /** Compact workspace template catalog used by the weekly assistant for natural-language matching. */
+  private async listAssistantTemplateFormats(workspaceId: string) {
+    const templates = await this.db.weeklyReportTemplate.findMany({
+      where: { workspaceId },
+      orderBy: [{ applied: "desc" }, { updatedAt: "desc" }],
+      take: 50,
+      select: {
+        id: true,
+        name: true,
+        dimensions: true,
+        applied: true,
+        updatedAt: true,
+        owner: { select: { displayName: true, username: true } },
+      },
+    });
+    return templates.map((template) => ({
+      id: template.id,
+      name: template.name,
+      sections: parseTemplateSections(template.dimensions),
+      active: template.applied,
+      owner: template.owner.displayName ?? template.owner.username,
+      updatedAt: template.updatedAt.toISOString(),
+    }));
   }
 
   async listAssistantVisibleReports(input: {

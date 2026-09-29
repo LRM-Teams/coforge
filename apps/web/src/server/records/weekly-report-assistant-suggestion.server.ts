@@ -1,5 +1,6 @@
 import { UUID_LIKE_PATTERN } from "@lrm/coforge-sdk/internal";
 import type { ReportContent } from "#src/features/records/records-content";
+import type { TemplateOutlineSection } from "#src/features/records/template-outline-sections";
 
 const OPEN = "[weekly-report-suggestion]";
 const CLOSE = "[/weekly-report-suggestion]";
@@ -40,10 +41,23 @@ export type WeeklyReportSendPromptSuggestion = {
   reportId: string;
 };
 
+export type WeeklyReportTemplateCreateSuggestion = {
+  type: "template-create";
+  summary: string;
+  name: string;
+  sendTime: string;
+  sendWeekday: number;
+  scheduleEnabled: boolean;
+  allMembers: boolean;
+  recipientUserIds: string[];
+  sections: TemplateOutlineSection[];
+};
+
 export type WeeklyReportAssistantSuggestion =
   | WeeklyReportBodyEditSuggestion
   | WeeklyReportKeyPointEditSuggestion
-  | WeeklyReportSendPromptSuggestion;
+  | WeeklyReportSendPromptSuggestion
+  | WeeklyReportTemplateCreateSuggestion;
 
 /** Builds an Agent→User DM body that carries a confirmable write suggestion. */
 export function buildWeeklyReportAssistantSuggestionBody(input: {
@@ -118,6 +132,27 @@ function normalizeSuggestion(value: unknown): WeeklyReportAssistantSuggestion | 
       ? { type: "send-prompt", reportId: row.reportId }
       : null;
   }
+  if (row.type === "template-create") {
+    if (typeof row.summary !== "string" || row.summary.trim().length === 0) return null;
+    if (typeof row.name !== "string" || typeof row.sendTime !== "string") return null;
+    if (typeof row.sendWeekday !== "number" || typeof row.scheduleEnabled !== "boolean")
+      return null;
+    if (typeof row.allMembers !== "boolean" || !Array.isArray(row.recipientUserIds)) return null;
+    if (!Array.isArray(row.sections) || row.sections.length === 0) return null;
+    const sections = (row.sections as unknown[]).filter(isTemplateOutlineSection);
+    if (sections.length !== row.sections.length) return null;
+    return {
+      type: "template-create",
+      summary: row.summary.trim(),
+      name: row.name.trim(),
+      sendTime: row.sendTime,
+      sendWeekday: row.sendWeekday,
+      scheduleEnabled: row.scheduleEnabled,
+      allMembers: row.allMembers,
+      recipientUserIds: row.recipientUserIds.filter((id): id is string => typeof id === "string"),
+      sections,
+    };
+  }
   if (row.type === "key-point-edit") {
     if (typeof row.reportId !== "string" || !UUID_RE.test(row.reportId)) return null;
     if (typeof row.summary !== "string" || row.summary.trim().length === 0) return null;
@@ -142,6 +177,16 @@ function normalizeSuggestion(value: unknown): WeeklyReportAssistantSuggestion | 
     };
   }
   return null;
+}
+
+function isTemplateOutlineSection(section: unknown): section is TemplateOutlineSection {
+  if (!section || typeof section !== "object") return false;
+  const row = section as { title?: unknown; children?: unknown };
+  return (
+    typeof row.title === "string" &&
+    Array.isArray(row.children) &&
+    row.children.every((child) => typeof child === "string")
+  );
 }
 
 function asReportContent(value: unknown): ReportContent | null {
