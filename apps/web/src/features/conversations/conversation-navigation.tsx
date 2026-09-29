@@ -27,7 +27,7 @@ import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { CreateChannelDialog } from "./create-channel-dialog";
 import { rememberConversation } from "./last-conversation";
 import { useChannelUnread } from "./conversation-unread";
-import { useRefreshSidebar, useRefreshSidebarChannels, useSidebarLists } from "./sidebar-lists";
+import { useRefreshSidebar, useSidebarLists } from "./sidebar-lists";
 import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
 
@@ -124,7 +124,6 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     [visibleChannels, directs, agents],
   );
   const closedChatRefresh = useRef<"idle" | "running" | "queued">("idle");
-  const refreshChannels = useRefreshSidebarChannels();
   const refreshSidebar = useRefreshSidebar();
   const unread = useChannelUnread({
     workspaceId,
@@ -149,9 +148,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
       };
       refresh();
     },
-    // A channel was renamed, described, archived or unarchived: only the channel list is stale.
-    onChannelUpdated: () => void refreshChannels(),
-    // The viewer joined, left, closed, muted or pinned a chat elsewhere: only those lists are stale.
+    // A channel changed, or the viewer joined, left, closed, muted or pinned a chat elsewhere:
+    // only the lists named are stale.
     onSidebarListsChanged: (lists) => void refreshSidebar(lists),
   });
   // Every server read of the lists carries the persisted counts; local arithmetic restarts from

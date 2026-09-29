@@ -15,7 +15,7 @@ import {
 import { PublicChannels } from "./public-channels.server";
 import {
   announceMemberChanged,
-  announceViewerEvent,
+  announceMembershipChanged,
   type ConversationRealtime,
 } from "./conversation-realtime.server";
 import {
@@ -398,7 +398,7 @@ export class AgentChannelManagement {
       throw new AgentChannelManagementError(400, "cannot remove a member from #general");
     let wasMember: boolean;
     let removedAgentId: string | undefined;
-    let removedUserId: string | undefined;
+    let removedUserIds: string[] = [];
     if (kind === "agent") {
       const agentRow = await this.db.agent.findFirst({
         where: { workspaceId, name: handle },
@@ -439,16 +439,15 @@ export class AgentChannelManagement {
         data: { leftAt: new Date() },
       });
       wasMember = result.count > 0;
-      if (wasMember) removedUserId = user.id;
+      if (wasMember) removedUserIds = [user.id];
     }
     if (wasMember)
-      await Promise.all([
-        announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] }),
-        announceViewerEvent(this.realtime, {
-          userIds: removedUserId ? [removedUserId] : [],
-          event: { type: "channel.left.v1", workspaceId, conversationId: channel.id },
-        }),
-      ]);
+      await announceMembershipChanged(this.realtime, {
+        workspaceId,
+        conversationId: channel.id,
+        change: "left",
+        userIds: removedUserIds,
+      });
     if (removedAgentId)
       await this.inboxPurge.purge({
         workspaceId,

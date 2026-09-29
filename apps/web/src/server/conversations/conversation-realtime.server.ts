@@ -188,11 +188,10 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
   }
 
   async viewerChanged(input: { userIds: readonly string[]; event: ViewerEvent }) {
-    const idempotencyKey = crypto.randomUUID();
-    await Promise.all(
-      input.userIds.map((userId) =>
-        this.centrifugo.publishJson(userConversationChannel(userId), input.event, idempotencyKey),
-      ),
+    await this.centrifugo.broadcast(
+      input.userIds.map(userConversationChannel),
+      input.event,
+      crypto.randomUUID(),
     );
   }
 
@@ -274,35 +273,74 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
 }
 
 /**
+ * Runs one best-effort announcement once a write has committed: without an injected port it uses
+ * the production Centrifugo one, so no write path can skip its signal by leaving it unwired, and a
+ * failed publish is logged as `conversation_realtime:<name>_failed` instead of failing the write.
+ */
+async function announceBestEffort<Port>(
+  realtime: Port | undefined,
+  publish: (port: Port | CentrifugoConversationRealtime) => Promise<void> | undefined,
+  log: { name: string; workspace_id: string } & Record<string, string | number>,
+): Promise<void> {
+  try {
+    await publish(realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi()));
+  } catch (error) {
+    const { name, ...fields } = log;
+    console.warn(
+      JSON.stringify({
+        event: `conversation_realtime:${name}_failed`,
+        ...fields,
+        error_type: error instanceof Error ? error.name : typeof error,
+      }),
+    );
+  }
+}
+
+/**
  * Tells the open pages of these channels that their member list changed — the composer's @-list
  * and plain-@handle labels — once the membership write has committed. Every write that changes
  * who is in a channel calls this, the way Slack sends `member_joined_channel` and Discord sends
  * `GUILD_MEMBER_ADD`, so a page never polls or waits for a refresh.
  *
  * Best effort: the write already happened, and a page that misses the signal refetches whenever
- * it (re)subscribes without replaying what it missed, or regains focus. Without an injected
- * publisher it uses the production Centrifugo one, so no write path can skip the signal by
- * leaving it unwired; that client's own deadline bounds how long the write waits.
+ * it (re)subscribes without replaying what it missed, or regains focus. That client's own
+ * deadline bounds how long the write waits.
  */
 export async function announceMemberChanged(
   realtime: Pick<ConversationRealtime, "memberChanged"> | undefined,
   input: { workspaceId: string; conversationIds: readonly string[] },
 ): Promise<void> {
   if (input.conversationIds.length === 0) return;
-  try {
-    await (
-      realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi())
-    ).memberChanged(input);
-  } catch (error) {
-    console.warn(
-      JSON.stringify({
-        event: "conversation_realtime:member_changed_failed",
-        workspace_id: input.workspaceId,
-        conversation_count: input.conversationIds.length,
-        error_type: error instanceof Error ? error.name : typeof error,
-      }),
-    );
-  }
+  await announceBestEffort(realtime, (port) => port.memberChanged(input), {
+    name: "member_changed",
+    workspace_id: input.workspaceId,
+    conversation_count: input.conversationIds.length,
+  });
+}
+
+/**
+ * A channel's membership changed for these people: its open pages hear their member list is stale
+ * (`announceMemberChanged`), and each person who joined or left hears it on their own channel
+ * (`channel.joined.v1` / `channel.left.v1`), as Slack sends both `member_joined_channel` and
+ * `channel_joined`. An Agent-only change names nobody.
+ */
+export async function announceMembershipChanged(
+  realtime: Pick<ConversationRealtime, "memberChanged" | "viewerChanged"> | undefined,
+  input: {
+    workspaceId: string;
+    conversationId: string;
+    change: "joined" | "left";
+    userIds: readonly string[];
+  },
+): Promise<void> {
+  const { workspaceId, conversationId } = input;
+  await Promise.all([
+    announceMemberChanged(realtime, { workspaceId, conversationIds: [conversationId] }),
+    announceViewerEvent(realtime, {
+      userIds: input.userIds,
+      event: { type: `channel.${input.change}.v1`, workspaceId, conversationId },
+    }),
+  ]);
 }
 
 /**
@@ -316,18 +354,10 @@ export async function announceChannelUpdated(
   realtime: Pick<ConversationRealtime, "channelUpdated"> | undefined,
   input: { workspaceId: string; conversationId: string },
 ): Promise<void> {
-  try {
-    const port = realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi());
-    await port.channelUpdated?.(input);
-  } catch (error) {
-    console.warn(
-      JSON.stringify({
-        event: "conversation_realtime:channel_updated_failed",
-        workspace_id: input.workspaceId,
-        error_type: error instanceof Error ? error.name : typeof error,
-      }),
-    );
-  }
+  await announceBestEffort(realtime, (port) => port.channelUpdated?.(input), {
+    name: "channel_updated",
+    workspace_id: input.workspaceId,
+  });
 }
 
 /**
@@ -342,19 +372,11 @@ export async function announceViewerEvent(
   input: { userIds: readonly string[]; event: ViewerEvent },
 ): Promise<void> {
   if (input.userIds.length === 0) return;
-  try {
-    const port = realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi());
-    await port.viewerChanged?.(input);
-  } catch (error) {
-    console.warn(
-      JSON.stringify({
-        event: "conversation_realtime:viewer_changed_failed",
-        workspace_id: input.event.workspaceId,
-        viewer_event: input.event.type,
-        error_type: error instanceof Error ? error.name : typeof error,
-      }),
-    );
-  }
+  await announceBestEffort(realtime, (port) => port.viewerChanged?.(input), {
+    name: "viewer_changed",
+    workspace_id: input.event.workspaceId,
+    viewer_event: input.event.type,
+  });
 }
 
 /**
@@ -367,20 +389,14 @@ export async function announceChannelTasksDeleted(
   input: { workspaceId: string; conversationId: string; deleted: string[] },
 ): Promise<void> {
   if (input.deleted.length === 0) return;
-  try {
-    const port = realtime ?? new CentrifugoConversationRealtime(createCentrifugoServerApi());
-    await port.taskChanged?.({
-      ...input,
-      tasks: [],
-      publicationId: `${input.conversationId}:channel-deleted`,
-    });
-  } catch (error) {
-    console.warn(
-      JSON.stringify({
-        event: "conversation_realtime:channel_tasks_deleted_failed",
-        workspace_id: input.workspaceId,
-        error_type: error instanceof Error ? error.name : typeof error,
+  await announceBestEffort(
+    realtime,
+    (port) =>
+      port.taskChanged?.({
+        ...input,
+        tasks: [],
+        publicationId: `${input.conversationId}:channel-deleted`,
       }),
-    );
-  }
+    { name: "channel_tasks_deleted", workspace_id: input.workspaceId },
+  );
 }

@@ -227,7 +227,6 @@ export function useChannelUnread({
   openConversationId,
   listedConversationIds,
   onClosedConversationActivity,
-  onChannelUpdated,
   onSidebarListsChanged,
 }: {
   workspaceId?: string;
@@ -241,9 +240,8 @@ export function useChannelUnread({
   listedConversationIds: ReadonlySet<string>;
   /** A new message arrived in a closed chat: the sidebar re-reads its list to bring it back. */
   onClosedConversationActivity: () => void;
-  /** A channel was renamed, described, archived or unarchived: the sidebar re-reads its list. */
-  onChannelUpdated: () => void;
-  /** The viewer's own place in a chat changed elsewhere (`ViewerEvent`): these lists are stale. */
+  /** These lists are stale: a channel was renamed, described, archived or unarchived
+   * (`channel.updated.v1`), or the viewer's own place in a chat changed elsewhere (`ViewerEvent`). */
   onSidebarListsChanged: (lists: readonly SidebarList[]) => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
@@ -254,7 +252,6 @@ export function useChannelUnread({
     openConversationId,
     listedConversationIds,
     onClosedConversationActivity,
-    onChannelUpdated,
     onSidebarListsChanged,
   });
   refs.current = {
@@ -262,28 +259,13 @@ export function useChannelUnread({
     openConversationId,
     listedConversationIds,
     onClosedConversationActivity,
-    onChannelUpdated,
     onSidebarListsChanged,
   };
 
   const onPublication = useCallback((publication: { data: unknown }) => {
     try {
-      const event = decodeViewerEvent(publication.data);
-      if (event.type === "channel.marked.v1")
-        setCounts((current) =>
-          applyChannelMarked(current, event, {
-            openConversationId: refs.current.openConversationId,
-          }),
-        );
-      const lists = sidebarListsChangedBy(event);
-      if (lists.length > 0) refs.current.onSidebarListsChanged(lists);
-      return;
-    } catch {
-      // Not the viewer's own event.
-    }
-    try {
       decodeChannelUpdatedEvent(publication.data);
-      refs.current.onChannelUpdated();
+      refs.current.onSidebarListsChanged(["channels"]);
       return;
     } catch {
       // Not a channel update; the other payload is a message signal.
@@ -314,10 +296,26 @@ export function useChannelUnread({
     getToken: workspaceId ? getWorkspaceToken : undefined,
     onPublication,
   });
+  // The viewer's own channel also carries their `ViewerEvent`s; the Workspace channel never does.
+  const onUserPublication = useCallback(
+    (publication: { data: unknown }) => {
+      const event = decodeViewerEvent(publication.data);
+      if (!event) return onPublication(publication);
+      if (event.type === "channel.marked.v1")
+        setCounts((current) =>
+          applyChannelMarked(current, event, {
+            openConversationId: refs.current.openConversationId,
+          }),
+        );
+      const lists = sidebarListsChangedBy(event);
+      if (lists.length > 0) refs.current.onSidebarListsChanged(lists);
+    },
+    [onPublication],
+  );
   useRealtimeSubscription({
     channel: userId ? userConversationChannel(userId) : undefined,
     getToken: userId ? getUserToken : undefined,
-    onPublication,
+    onPublication: onUserPublication,
   });
 
   const clear = useCallback(

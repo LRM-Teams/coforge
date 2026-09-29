@@ -74,13 +74,19 @@ async function setup() {
     });
   };
   announced.length = 0;
-  return { db, workspace, ada, bob, team, channels, realtime, announced, post };
+  /** Removes the Workspace and every person this test made (all named with its suffix). */
+  const teardown = async () => {
+    await db.workspace.delete({ where: { id: workspace.id } }).catch(() => {});
+    await db.user.deleteMany({ where: { username: { endsWith: suffix } } }).catch(() => {});
+    await db.$disconnect();
+  };
+  return { db, suffix, workspace, ada, bob, team, channels, realtime, announced, post, teardown };
 }
 
 test.skipIf(!connectionString)(
   "reading a channel tells the reader's pages its unread count, and a read that moves nothing says nothing",
   async () => {
-    const { db, workspace, ada, bob, team, channels, announced, post } = await setup();
+    const { teardown, workspace, ada, bob, team, channels, announced, post } = await setup();
     try {
       await post(ada.id);
       const second = await post(ada.id);
@@ -114,7 +120,7 @@ test.skipIf(!connectionString)(
         },
       ]);
     } finally {
-      await db.$disconnect();
+      await teardown();
     }
   },
 );
@@ -122,7 +128,7 @@ test.skipIf(!connectionString)(
 test.skipIf(!connectionString)(
   "marking a channel unread tells the member's pages the badge it opens",
   async () => {
-    const { db, workspace, ada, bob, team, channels, announced, post } = await setup();
+    const { teardown, workspace, ada, bob, team, channels, announced, post } = await setup();
     try {
       const last = await post(ada.id);
       await channels.markRead(workspace.id, bob.id, team.id, last.sequence);
@@ -141,7 +147,7 @@ test.skipIf(!connectionString)(
         },
       ]);
     } finally {
-      await db.$disconnect();
+      await teardown();
     }
   },
 );
@@ -149,10 +155,10 @@ test.skipIf(!connectionString)(
 test.skipIf(!connectionString)(
   "joining, creating or being added tells only the people now in the channel",
   async () => {
-    const { db, workspace, ada, bob, team, channels, announced } = await setup();
+    const { db, teardown, suffix, workspace, ada, bob, team, channels, announced } = await setup();
     try {
       const carol = await db.user.create({
-        data: { username: `ve-carol-${crypto.randomUUID().slice(0, 8)}` },
+        data: { username: `ve-carol-${suffix}` },
       });
       await db.workspaceMembership.create({
         data: { workspaceId: workspace.id, userId: carol.id, role: "member" },
@@ -182,7 +188,7 @@ test.skipIf(!connectionString)(
       // Bob was already in the channel: only Carol's place changed.
       expect(announced).toEqual([{ userIds: [carol.id], event: joined(team.id) }]);
     } finally {
-      await db.$disconnect();
+      await teardown();
     }
   },
 );
@@ -190,7 +196,8 @@ test.skipIf(!connectionString)(
 test.skipIf(!connectionString)(
   "leaving, or being removed by a person or an Agent, tells the person who is out",
   async () => {
-    const { db, workspace, ada, bob, team, channels, realtime, announced } = await setup();
+    const { db, teardown, workspace, ada, bob, team, channels, realtime, announced } =
+      await setup();
     try {
       const left = {
         type: "channel.left.v1" as const,
@@ -239,7 +246,7 @@ test.skipIf(!connectionString)(
       await channels.removeMember(workspace.id, ada.id, team.id, { userId: bob.id });
       expect(announced).toEqual([]);
     } finally {
-      await db.$disconnect();
+      await teardown();
     }
   },
 );
@@ -247,7 +254,7 @@ test.skipIf(!connectionString)(
 test.skipIf(!connectionString)(
   "closing a channel in the list, or bringing it back, tells the member's pages",
   async () => {
-    const { db, workspace, bob, team, channels, announced } = await setup();
+    const { teardown, workspace, bob, team, channels, announced } = await setup();
     try {
       const ids = { workspaceId: workspace.id, conversationId: team.id };
       await channels.setUserHidden(workspace.id, bob.id, team.id, true);
@@ -257,7 +264,7 @@ test.skipIf(!connectionString)(
         { userIds: [bob.id], event: { type: "channel.opened.v1", ...ids } },
       ]);
     } finally {
-      await db.$disconnect();
+      await teardown();
     }
   },
 );
@@ -265,7 +272,7 @@ test.skipIf(!connectionString)(
 test.skipIf(!connectionString)(
   "muting, pinning or reordering pins tells the member's pages which preference changed",
   async () => {
-    const { db, workspace, bob, team, channels, realtime, announced } = await setup();
+    const { db, teardown, workspace, bob, team, channels, realtime, announced } = await setup();
     try {
       const pref = (name: "muted" | "pins") => ({
         userIds: [bob.id],
@@ -282,7 +289,7 @@ test.skipIf(!connectionString)(
       );
       expect(announced).toEqual([pref("muted"), pref("pins"), pref("pins")]);
     } finally {
-      await db.$disconnect();
+      await teardown();
     }
   },
 );

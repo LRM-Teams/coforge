@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { utf8Decoder } from "@lrm/coforge-sdk/internal";
 export const conversationRealtimeChannel = (conversationId: string) => `chat:${conversationId}`;
 
@@ -217,58 +218,41 @@ export function decodeChannelUpdatedEvent(value: unknown): ChannelUpdatedEvent {
  * - `channel.closed.v1` / `channel.opened.v1`: the viewer closed the chat in their list, or brought it back.
  * - `pref.changed.v1`: the viewer's `muted` state of a channel, or their `pins` (pin, unpin, order).
  */
-export type ViewerEvent =
-  | {
-      type: "channel.marked.v1";
-      workspaceId: string;
-      conversationId: string;
-      unreadCount: number;
-    }
-  | {
-      type: "channel.joined.v1" | "channel.left.v1" | "channel.closed.v1" | "channel.opened.v1";
-      workspaceId: string;
-      conversationId: string;
-    }
-  | { type: "pref.changed.v1"; workspaceId: string; name: "muted" | "pins" };
+const viewerEventIds = { workspaceId: z.string().min(1), conversationId: z.string().min(1) };
+const viewerEvent = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("channel.marked.v1"),
+    ...viewerEventIds,
+    unreadCount: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.enum([
+      "channel.joined.v1",
+      "channel.left.v1",
+      "channel.closed.v1",
+      "channel.opened.v1",
+    ]),
+    ...viewerEventIds,
+  }),
+  z.object({
+    type: z.literal("pref.changed.v1"),
+    workspaceId: z.string().min(1),
+    name: z.enum(["muted", "pins"]),
+  }),
+]);
 
-const CHANNEL_VIEWER_EVENT_TYPES = new Set([
-  "channel.joined.v1",
-  "channel.left.v1",
-  "channel.closed.v1",
-  "channel.opened.v1",
-] as const);
+export type ViewerEvent = z.infer<typeof viewerEvent>;
 
-export function decodeViewerEvent(value: unknown): ViewerEvent {
-  if (value instanceof Uint8Array)
-    return decodeViewerEvent(JSON.parse(utf8Decoder.decode(value)) as unknown);
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("invalid conversation event");
-  const type = Reflect.get(value, "type");
-  const workspaceId = Reflect.get(value, "workspaceId");
-  if (typeof workspaceId !== "string" || !workspaceId)
-    throw new Error("invalid conversation event");
-  if (type === "pref.changed.v1") {
-    const name = Reflect.get(value, "name");
-    if (name !== "muted" && name !== "pins") throw new Error("invalid conversation event");
-    return { type, workspaceId, name };
+/** The event, or undefined for any other publication on the viewer's channel (most are messages). */
+export function decodeViewerEvent(value: unknown): ViewerEvent | undefined {
+  let data = value;
+  if (value instanceof Uint8Array) {
+    try {
+      data = JSON.parse(utf8Decoder.decode(value)) as unknown;
+    } catch {
+      return undefined;
+    }
   }
-  const conversationId = Reflect.get(value, "conversationId");
-  if (typeof conversationId !== "string" || !conversationId)
-    throw new Error("invalid conversation event");
-  if (type === "channel.marked.v1") {
-    const unreadCount = Reflect.get(value, "unreadCount");
-    if (!Number.isSafeInteger(unreadCount) || (unreadCount as number) < 0)
-      throw new Error("invalid conversation event");
-    return { type, workspaceId, conversationId, unreadCount: unreadCount as number };
-  }
-  if (!CHANNEL_VIEWER_EVENT_TYPES.has(type as never)) throw new Error("invalid conversation event");
-  return {
-    type: type as
-      | "channel.joined.v1"
-      | "channel.left.v1"
-      | "channel.closed.v1"
-      | "channel.opened.v1",
-    workspaceId,
-    conversationId,
-  };
+  const parsed = viewerEvent.safeParse(data);
+  return parsed.success ? parsed.data : undefined;
 }

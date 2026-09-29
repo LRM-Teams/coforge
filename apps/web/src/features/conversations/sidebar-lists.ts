@@ -87,58 +87,54 @@ export function useSidebarLists() {
   };
 }
 
-/**
- * Re-reads the channel list, and only it, after something outside the sidebar changed a channel:
- * a rename, description or archive (here or signalled from another page), or the viewer's own
- * leave or mute. The collection follows the refetched Query data.
- */
-export function useRefreshSidebarChannels() {
-  const queryClient = useQueryClient();
-  const workspaceId = useCurrentWorkspaceId() ?? "";
-  return useMemo(
-    () => () => queryClient.invalidateQueries({ queryKey: sidebarChannelsQueryKey(workspaceId) }),
-    [queryClient, workspaceId],
-  );
-}
+const listQueryKey: Record<SidebarList, (workspaceId: string) => readonly unknown[]> = {
+  channels: sidebarChannelsQueryKey,
+  dms: sidebarDirectsQueryKey,
+};
 
 /**
- * Re-reads both sidebar lists after a change made on another page moved their unread badges (the
- * Activity page reading or marking Done).
- */
-export function useRefreshSidebarLists() {
-  const queryClient = useQueryClient();
-  const workspaceId = useCurrentWorkspaceId() ?? "";
-  return useMemo(
-    () => () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: sidebarChannelsQueryKey(workspaceId) }),
-        queryClient.invalidateQueries({ queryKey: sidebarDirectsQueryKey(workspaceId) }),
-      ]).then(() => undefined),
-    [queryClient, workspaceId],
-  );
-}
-
-/**
- * Re-reads the named lists, and only them, after the viewer's own place in a chat changed on
- * another page, tab or device (a `ViewerEvent`). The collections follow the refetched Query data.
+ * Re-reads the named lists, and only them, after something outside the sidebar changed them: a
+ * channel's rename, description or archive (here or `channel.updated.v1`), the Activity page
+ * moving badges, or the viewer's own place in a chat changed on another page, tab or device (a
+ * `ViewerEvent`). Lists named again before the re-read starts are read once. The collections
+ * follow the refetched Query data.
  */
 export function useRefreshSidebar() {
   const queryClient = useQueryClient();
   const workspaceId = useCurrentWorkspaceId() ?? "";
-  return useMemo(
-    () => (lists: readonly SidebarList[]) =>
-      Promise.all(
-        lists.map((list) =>
-          queryClient.invalidateQueries({
-            queryKey:
-              list === "channels"
-                ? sidebarChannelsQueryKey(workspaceId)
-                : sidebarDirectsQueryKey(workspaceId),
-          }),
-        ),
-      ).then(() => undefined),
-    [queryClient, workspaceId],
-  );
+  return useMemo(() => {
+    let pending: Set<SidebarList> | undefined;
+    let flushed: Promise<void> = Promise.resolve();
+    return (lists: readonly SidebarList[]) => {
+      if (!pending) {
+        const batch = (pending = new Set());
+        flushed = Promise.resolve().then(() => {
+          pending = undefined;
+          return Promise.all(
+            [...batch].map((list) =>
+              queryClient.invalidateQueries({ queryKey: listQueryKey[list](workspaceId) }),
+            ),
+          ).then(() => undefined);
+        });
+      }
+      for (const list of lists) pending.add(list);
+      return flushed;
+    };
+  }, [queryClient, workspaceId]);
+}
+
+/** Re-reads the channel list alone: a channel changed outside the sidebar (a rename, description or
+ * archive here, or the viewer's own leave or mute from the settings panel). */
+export function useRefreshSidebarChannels() {
+  const refresh = useRefreshSidebar();
+  return useMemo(() => () => refresh(["channels"]), [refresh]);
+}
+
+/** Re-reads both lists after a change made on another page moved their unread badges (the Activity
+ * page reading or marking Done). */
+export function useRefreshSidebarLists() {
+  const refresh = useRefreshSidebar();
+  return useMemo(() => () => refresh(["channels", "dms"]), [refresh]);
 }
 
 /** The sidebar's changes (pin, mark unread, close, drag); `undefined` before hydration, when

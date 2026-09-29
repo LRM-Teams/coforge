@@ -61,7 +61,7 @@ import { toggleUserMessageReaction } from "./user-message-reactions.server";
 import {
   announceChannelTasksDeleted,
   announceChannelUpdated,
-  announceMemberChanged,
+  announceMembershipChanged,
   announceViewerEvent,
   type ConversationRealtime,
 } from "./conversation-realtime.server";
@@ -472,7 +472,7 @@ export class PublicChannels {
   async setUserUnread(workspaceId: string, userId: string, channelId: string, unread: boolean) {
     const channel = await this.channel(workspaceId, userId, channelId);
     let marker: number | null = null;
-    const unreadCount = await this.db.$transaction(async (tx) => {
+    await this.db.$transaction(async (tx) => {
       await lockConversation(tx, channel.id);
       const member = await tx.conversationMember.findFirst({
         where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
@@ -486,8 +486,8 @@ export class PublicChannels {
         data: { unreadFromSequence: marker },
       });
       if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
-      return humanUnreadCount(tx, member.id);
     });
+    const unreadCount = await humanUnreadCount(this.db, channel.id, userId);
     await announceViewerEvent(this.realtime, {
       userIds: [userId],
       event: { type: "channel.marked.v1", workspaceId, conversationId: channel.id, unreadCount },
@@ -1166,13 +1166,12 @@ export class PublicChannels {
         data: { readThroughSequence: latest?.sequence ?? 0 },
       });
     });
-    await Promise.all([
-      announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channelId] }),
-      announceViewerEvent(this.realtime, {
-        userIds: [userId],
-        event: { type: "channel.joined.v1", workspaceId, conversationId: channelId },
-      }),
-    ]);
+    await announceMembershipChanged(this.realtime, {
+      workspaceId,
+      conversationId: channelId,
+      change: "joined",
+      userIds: [userId],
+    });
   }
 
   /**
@@ -1185,7 +1184,7 @@ export class PublicChannels {
     await this.channel(workspaceId, userId, channelId);
     if (!Number.isSafeInteger(throughSequence) || throughSequence < 1)
       throw new AppError("INVALID_INPUT");
-    const unreadCount = await this.db.$transaction(async (tx) => {
+    const moved = await this.db.$transaction(async (tx) => {
       const latest = await tx.message.findFirst({
         where: { conversationId: channelId },
         orderBy: { sequence: "desc" },
@@ -1214,20 +1213,20 @@ export class PublicChannels {
         data: { unreadFromSequence: null },
       });
       if (advanced.count === 0 && consumed.count === 0) return undefined;
-      const member = await tx.conversationMember.findFirst({
-        where: { conversationId: channelId, userId, ...ACTIVE_MEMBER_WHERE },
-        select: { id: true },
-      });
-      return member ? humanUnreadCount(tx, member.id) : undefined;
+      return { throughLatest: boundary === latest?.sequence };
     });
     // A read that moved the cursor tells the reader's other pages the badge it leaves (Slack's
     // `channel_marked`); one that moved nothing says nothing, so an open channel reading along
-    // with new messages announces only real moves.
-    if (unreadCount !== undefined)
-      await announceViewerEvent(this.realtime, {
-        userIds: [userId],
-        event: { type: "channel.marked.v1", workspaceId, conversationId: channelId, unreadCount },
-      });
+    // with new messages announces only real moves. Read through the newest message, nothing is
+    // left; otherwise the count is read after the commit, outside the write.
+    if (!moved) return;
+    const unreadCount = moved.throughLatest
+      ? 0
+      : await humanUnreadCount(this.db, channelId, userId);
+    await announceViewerEvent(this.realtime, {
+      userIds: [userId],
+      event: { type: "channel.marked.v1", workspaceId, conversationId: channelId, unreadCount },
+    });
   }
 
   /**
@@ -1242,13 +1241,12 @@ export class PublicChannels {
     if (channel.channelName === "general") throw new AppError("CONFLICT");
     const wasMember = await softLeaveMember(this.db, channel.id, { userId });
     if (!wasMember) throw new AppError("ACCESS_DENIED");
-    await Promise.all([
-      announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] }),
-      announceViewerEvent(this.realtime, {
-        userIds: [userId],
-        event: { type: "channel.left.v1", workspaceId, conversationId: channel.id },
-      }),
-    ]);
+    await announceMembershipChanged(this.realtime, {
+      workspaceId,
+      conversationId: channel.id,
+      change: "left",
+      userIds: [userId],
+    });
     return { left: true };
   }
 
@@ -1289,13 +1287,12 @@ export class PublicChannels {
     if (!authority.capabilities.remove_member) throw new AppError("ACCESS_DENIED");
     const wasMember = await softLeaveMember(this.db, channel.id, target);
     if (wasMember)
-      await Promise.all([
-        announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] }),
-        announceViewerEvent(this.realtime, {
-          userIds: "userId" in target ? [target.userId] : [],
-          event: { type: "channel.left.v1", workspaceId, conversationId: channel.id },
-        }),
-      ]);
+      await announceMembershipChanged(this.realtime, {
+        workspaceId,
+        conversationId: channel.id,
+        change: "left",
+        userIds: "userId" in target ? [target.userId] : [],
+      });
     if (wasMember && "agentId" in target)
       await this.inboxPurge.purge({
         workspaceId,
@@ -1574,13 +1571,12 @@ export class PublicChannels {
     const added =
       userIds.length - alreadyMemberUserIds.length + agentIds.length - alreadyMemberAgentIds.length;
     if (added > 0)
-      await Promise.all([
-        announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channelId] }),
-        announceViewerEvent(this.realtime, {
-          userIds: userIds.filter((userId) => !alreadyActiveUserIds.has(userId)),
-          event: { type: "channel.joined.v1", workspaceId, conversationId: channelId },
-        }),
-      ]);
+      await announceMembershipChanged(this.realtime, {
+        workspaceId,
+        conversationId: channelId,
+        change: "joined",
+        userIds: userIds.filter((userId) => !alreadyActiveUserIds.has(userId)),
+      });
 
     const result = await this.members(workspaceId, actor, channelId);
     return { ...result, alreadyMemberUserIds, alreadyMemberAgentIds };

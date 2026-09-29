@@ -156,9 +156,9 @@ test.skipIf(!connectionString)(
             },
           },
           {
-            method: "publish",
+            method: "broadcast",
             params: {
-              channel: userConversationChannel(bob.id),
+              channels: [userConversationChannel(bob.id)],
               data: {
                 type: "channel.joined.v1",
                 workspaceId: workspace.id,

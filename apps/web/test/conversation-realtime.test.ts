@@ -40,23 +40,23 @@ describe("conversation realtime", () => {
         decodeViewerEvent({ type: "pref.changed.v1", workspaceId: "workspace-a", name }),
       ).toEqual({ type: "pref.changed.v1", workspaceId: "workspace-a", name });
 
-    expect(() => decodeViewerEvent({ ...marked, unreadCount: -1 })).toThrow();
-    expect(() => decodeViewerEvent({ ...marked, unreadCount: 1.5 })).toThrow();
-    expect(() => decodeViewerEvent({ ...marked, conversationId: "" })).toThrow();
-    expect(() => decodeViewerEvent({ type: "channel.joined.v1", workspaceId: "w" })).toThrow();
-    expect(() =>
+    expect(decodeViewerEvent({ ...marked, unreadCount: -1 })).toBeUndefined();
+    expect(decodeViewerEvent({ ...marked, unreadCount: 1.5 })).toBeUndefined();
+    expect(decodeViewerEvent({ ...marked, conversationId: "" })).toBeUndefined();
+    expect(decodeViewerEvent({ type: "channel.joined.v1", workspaceId: "w" })).toBeUndefined();
+    expect(
       decodeViewerEvent({ type: "pref.changed.v1", workspaceId: "w", name: "theme" }),
-    ).toThrow();
+    ).toBeUndefined();
     // The same `chat:user:` channel carries message and notification signals; the viewer decoder
-    // rejects them so the sidebar can try each decoder in turn.
-    expect(() =>
+    // passes them by.
+    expect(
       decodeViewerEvent({
         type: "message.available.v1",
         conversationId: "conversation-a",
         messageId: "message-a",
         sequence: 1,
       }),
-    ).toThrow();
+    ).toBeUndefined();
   });
 
   test("decodes only the versioned message-available contract", () => {
