@@ -13,15 +13,6 @@ import {
 import { emptyKeyPointPrompts } from "#src/features/records/records-content";
 import { AppError } from "#src/lib/app-error";
 import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
-import { looksLikeTeamKeyPointReorganizeRequest } from "#src/features/records/weekly-highlight-extract";
-
-test("looksLikeTeamKeyPointReorganizeRequest matches overview side-chat phrases", () => {
-  expect(looksLikeTeamKeyPointReorganizeRequest("重新整理")).toBe(true);
-  expect(looksLikeTeamKeyPointReorganizeRequest("再整理一次")).toBe(true);
-  expect(looksLikeTeamKeyPointReorganizeRequest("帮我整理一下全员周报")).toBe(true);
-  expect(looksLikeTeamKeyPointReorganizeRequest("整理全员周报")).toBe(true);
-  expect(looksLikeTeamKeyPointReorganizeRequest("hi")).toBe(false);
-});
 
 test("isWeeklyReportAssistantReady requires a Computer and CoForge apiKey when runtime is coforge", () => {
   expect(

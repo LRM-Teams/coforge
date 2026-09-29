@@ -7,8 +7,8 @@ These rules also cover `src/server/records/`.
   `server/records/record-catalog.server.ts` (cycles, reports,
   templates, favorites, notes, and comments). Persistence is Prisma under
   Workspace membership. Report bodies use lightweight outline JSON keyed by
-  template-dimension tabs. MVP writes only human `user` comments; `assistant`
-  authorType and comment `payload` are reserved for later AI side panels.
+  template-dimension tabs. Side panels retain platform comments and Collect cards alongside the private
+  assistant conversation.
   The weekly-report assistant's on-demand reads reuse `RecordCatalog` through
   Agent HTTPS `POST /api/agent/v1/weekly-reports`, authorized as the assistant owner User.
   Multi-Computer collect belongs to
@@ -45,3 +45,18 @@ These rules also cover `src/server/records/`.
   (Leader report, dashboard summary, PPT) keep the last sent copy in
   `content.delivered` until the author sends again. Do not add a column for
   this snapshot.
+
+- `server/records/weekly-report-workflow.server.ts` owns owner-scoped DM actions
+  (discover, configure, send, save, submit, summarize); `weekly-report-distribution.server.ts`
+  owns atomic per-settings/per-week distribution, and `weekly-report-notification.server.ts`
+  posts invitations in the recipient's own assistant DM. Agent operations reuse
+  the existing HTTPS weekly-reports endpoint; no generic job or mailbox is added.
+- The Records tools menu has dashboard, stats and settings; the private assistant
+  DM is the conversational entry point. Do not restore a duplicate assistant page.
+- Agent template discovery does not require a cycle or submitted member reports.
+  DM and page-scoped explicit requests use the same workflow operations. Do not
+  intercept send or summarize phrases with side-panel keyword rules. Previews
+  and Collect handoffs retain Insert; legacy pending cards must stay usable.
+- Template discovery shares the workspace format catalog across DM/page context;
+  only owner entries expose delivery settings and can be configured or sent.
+  Other entries are reusable outlines, not grants to another owner's settings.

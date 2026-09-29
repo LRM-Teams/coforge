@@ -1,3 +1,4 @@
+import { weeklyReportWorkflowSchema } from "@lrm/coforge-sdk/internal";
 import {
   DEFAULT_REMINDER_TIMEZONE,
   decodeLocalReminderRequest,
@@ -189,10 +190,12 @@ export type WorkspaceInfoInvocation = { command: "workspace.info" } & WorkspaceI
 export type WorkspaceInfoResult = WorkspaceInfoResponse & {
   computers?: unknown[];
 };
-export type WeeklyReportInvocation = {
-  command: "weekly-report";
-  weeklyReport: WeeklyReportCommand;
-};
+export type WeeklyReportInvocation =
+  | {
+      command: "weekly-report";
+      weeklyReport: WeeklyReportCommand;
+    }
+  | { command: "weekly-report"; inputPath: string };
 export type WeeklyReportCollectCommand = {
   idempotencyKey: string;
   runId: string;
@@ -659,7 +662,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft [--expected-draft-key <key>]] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create --target <target> --title <title>... [--assignee @handle] [--creates-resource] | coforge task claim --target <target> (--number <n> | --message-id <id>)... [--reviewer-isolation] | coforge task convert|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --idempotency-key <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json] | coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft [--expected-draft-key <key>]] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create --target <target> --title <title>... [--assignee @handle] [--creates-resource] | coforge task claim --target <target> (--number <n> | --message-id <id>)... [--reviewer-isolation] | coforge task convert|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report templates|inbox|members | coforge weekly-report workflow --input <json-file> | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --idempotency-key <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json] | coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]",
   );
 }
 
@@ -1256,6 +1259,10 @@ export async function run(args: readonly string[], transport: MessageTransport):
   }
   if (invocation.command === "weekly-report") {
     if (!transport.weeklyReport) throw new Error("Weekly report transport is unavailable");
+    if ("inputPath" in invocation) {
+      const action = weeklyReportWorkflowSchema.parse(await Bun.file(invocation.inputPath).json());
+      return transport.weeklyReport({ operation: "workflow", action });
+    }
     return transport.weeklyReport(invocation.weeklyReport);
   }
   if (invocation.command === "weekly-report-collect") {
@@ -2247,6 +2254,18 @@ function parseWeeklyReportKeyPointsArgs(args: readonly string[]): WeeklyReportKe
 
 function parseWeeklyReportArgs(args: readonly string[]): WeeklyReportInvocation {
   const operation = args[0];
+  if (operation === "templates" || operation === "inbox" || operation === "members") {
+    if (args.length !== 1) throw new Error("Usage:");
+    return {
+      command: "weekly-report",
+      weeklyReport: { operation: "workflow", action: { type: operation } },
+    };
+  }
+  if (operation === "workflow") {
+    if (args.length !== 3 || args[1] !== "--input" || !args[2] || args[2].startsWith("--"))
+      throw new Error("Usage:");
+    return { command: "weekly-report", inputPath: args[2] };
+  }
   if (operation !== "context" && operation !== "list" && operation !== "read")
     throw new Error("Usage:");
   const values = new Map<string, string>();

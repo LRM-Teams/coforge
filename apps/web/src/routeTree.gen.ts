@@ -75,7 +75,6 @@ import { Route as WWorkspaceSlugProjectsIndexRouteImport } from './routes/w.$wor
 import { Route as WWorkspaceSlugProjectsProjectSlugRouteImport } from './routes/w.$workspaceSlug/projects.$projectSlug'
 import { Route as WWorkspaceSlugRecordsIndexRouteImport } from './routes/w.$workspaceSlug/records.index'
 import { Route as WWorkspaceSlugRecordsRecordIdRouteImport } from './routes/w.$workspaceSlug/records.$recordId'
-import { Route as WWorkspaceSlugRecordsAssistantRouteImport } from './routes/w.$workspaceSlug/records.assistant'
 import { Route as WWorkspaceSlugRecordsDashboardRouteImport } from './routes/w.$workspaceSlug/records.dashboard'
 import { Route as WWorkspaceSlugRecordsSettingsRouteImport } from './routes/w.$workspaceSlug/records.settings'
 import { Route as WWorkspaceSlugRecordsStatsRouteImport } from './routes/w.$workspaceSlug/records.stats'
@@ -462,12 +461,6 @@ const WWorkspaceSlugRecordsRecordIdRoute =
     path: '/$recordId',
     getParentRoute: () => WWorkspaceSlugRecordsRoute,
   } as any)
-const WWorkspaceSlugRecordsAssistantRoute =
-  WWorkspaceSlugRecordsAssistantRouteImport.update({
-    id: '/assistant',
-    path: '/assistant',
-    getParentRoute: () => WWorkspaceSlugRecordsRoute,
-  } as any)
 const WWorkspaceSlugRecordsDashboardRoute =
   WWorkspaceSlugRecordsDashboardRouteImport.update({
     id: '/dashboard',
@@ -747,7 +740,6 @@ export interface FileRoutesByFullPath {
   '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugRoute
   '/w/$workspaceSlug/records/$recordId': typeof WWorkspaceSlugRecordsRecordIdRoute
-  '/w/$workspaceSlug/records/assistant': typeof WWorkspaceSlugRecordsAssistantRoute
   '/w/$workspaceSlug/records/dashboard': typeof WWorkspaceSlugRecordsDashboardRoute
   '/w/$workspaceSlug/records/settings': typeof WWorkspaceSlugRecordsSettingsRoute
   '/w/$workspaceSlug/records/stats': typeof WWorkspaceSlugRecordsStatsRoute
@@ -849,7 +841,6 @@ export interface FileRoutesByTo {
   '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugRoute
   '/w/$workspaceSlug/records/$recordId': typeof WWorkspaceSlugRecordsRecordIdRoute
-  '/w/$workspaceSlug/records/assistant': typeof WWorkspaceSlugRecordsAssistantRoute
   '/w/$workspaceSlug/records/dashboard': typeof WWorkspaceSlugRecordsDashboardRoute
   '/w/$workspaceSlug/records/settings': typeof WWorkspaceSlugRecordsSettingsRoute
   '/w/$workspaceSlug/records/stats': typeof WWorkspaceSlugRecordsStatsRoute
@@ -954,7 +945,6 @@ export interface FileRoutesById {
   '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugRoute
   '/w/$workspaceSlug/records/$recordId': typeof WWorkspaceSlugRecordsRecordIdRoute
-  '/w/$workspaceSlug/records/assistant': typeof WWorkspaceSlugRecordsAssistantRoute
   '/w/$workspaceSlug/records/dashboard': typeof WWorkspaceSlugRecordsDashboardRoute
   '/w/$workspaceSlug/records/settings': typeof WWorkspaceSlugRecordsSettingsRoute
   '/w/$workspaceSlug/records/stats': typeof WWorkspaceSlugRecordsStatsRoute
@@ -1059,7 +1049,6 @@ export interface FileRouteTypes {
     | '/w/$workspaceSlug/agent/$agentId'
     | '/w/$workspaceSlug/projects/$projectSlug'
     | '/w/$workspaceSlug/records/$recordId'
-    | '/w/$workspaceSlug/records/assistant'
     | '/w/$workspaceSlug/records/dashboard'
     | '/w/$workspaceSlug/records/settings'
     | '/w/$workspaceSlug/records/stats'
@@ -1161,7 +1150,6 @@ export interface FileRouteTypes {
     | '/w/$workspaceSlug/agent/$agentId'
     | '/w/$workspaceSlug/projects/$projectSlug'
     | '/w/$workspaceSlug/records/$recordId'
-    | '/w/$workspaceSlug/records/assistant'
     | '/w/$workspaceSlug/records/dashboard'
     | '/w/$workspaceSlug/records/settings'
     | '/w/$workspaceSlug/records/stats'
@@ -1265,7 +1253,6 @@ export interface FileRouteTypes {
     | '/w/$workspaceSlug/agent/$agentId'
     | '/w/$workspaceSlug/projects/$projectSlug'
     | '/w/$workspaceSlug/records/$recordId'
-    | '/w/$workspaceSlug/records/assistant'
     | '/w/$workspaceSlug/records/dashboard'
     | '/w/$workspaceSlug/records/settings'
     | '/w/$workspaceSlug/records/stats'
@@ -1841,13 +1828,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceSlugRecordsRecordIdRouteImport
       parentRoute: typeof WWorkspaceSlugRecordsRoute
     }
-    '/w/$workspaceSlug/records/assistant': {
-      id: '/w/$workspaceSlug/records/assistant'
-      path: '/assistant'
-      fullPath: '/w/$workspaceSlug/records/assistant'
-      preLoaderRoute: typeof WWorkspaceSlugRecordsAssistantRouteImport
-      parentRoute: typeof WWorkspaceSlugRecordsRoute
-    }
     '/w/$workspaceSlug/records/dashboard': {
       id: '/w/$workspaceSlug/records/dashboard'
       path: '/dashboard'
@@ -2163,7 +2143,6 @@ const WWorkspaceSlugComputersRouteWithChildren =
 
 interface WWorkspaceSlugRecordsRouteChildren {
   WWorkspaceSlugRecordsRecordIdRoute: typeof WWorkspaceSlugRecordsRecordIdRoute
-  WWorkspaceSlugRecordsAssistantRoute: typeof WWorkspaceSlugRecordsAssistantRoute
   WWorkspaceSlugRecordsDashboardRoute: typeof WWorkspaceSlugRecordsDashboardRoute
   WWorkspaceSlugRecordsSettingsRoute: typeof WWorkspaceSlugRecordsSettingsRoute
   WWorkspaceSlugRecordsStatsRoute: typeof WWorkspaceSlugRecordsStatsRoute
@@ -2173,7 +2152,6 @@ interface WWorkspaceSlugRecordsRouteChildren {
 
 const WWorkspaceSlugRecordsRouteChildren: WWorkspaceSlugRecordsRouteChildren = {
   WWorkspaceSlugRecordsRecordIdRoute: WWorkspaceSlugRecordsRecordIdRoute,
-  WWorkspaceSlugRecordsAssistantRoute: WWorkspaceSlugRecordsAssistantRoute,
   WWorkspaceSlugRecordsDashboardRoute: WWorkspaceSlugRecordsDashboardRoute,
   WWorkspaceSlugRecordsSettingsRoute: WWorkspaceSlugRecordsSettingsRoute,
   WWorkspaceSlugRecordsStatsRoute: WWorkspaceSlugRecordsStatsRoute,

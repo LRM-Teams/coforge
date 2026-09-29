@@ -187,7 +187,7 @@ export async function startPersonalKeyPointExtraction(
   }
 
   const leaderUserId = report.sourceTemplate.authorId;
-  const promptState = await loadPromptForLeader(db, {
+  const promptState = await loadKeyPointPromptForLeader(db, {
     workspaceId: input.workspaceId,
     leaderUserId,
     settingsId: report.sourceTemplate.settingsId,
@@ -270,12 +270,6 @@ export async function startTeamKeyPointExtraction(
     workspaceId: string;
     overviewReportId: string;
     force?: boolean;
-    /**
-     * `side-chat-confirm`: Agent submit parks markdown for side-chat Insert
-     * instead of writing `ready` immediately. Requires confirmSessionId.
-     */
-    delivery?: "side-chat-confirm";
-    confirmSessionId?: string;
     wake?: (args: {
       workspaceId: string;
       leaderUserId: string;
@@ -351,7 +345,7 @@ export async function startTeamKeyPointExtraction(
   }
 
   const leaderUserId = overview.authorId;
-  const promptState = await loadPromptForLeader(db, {
+  const promptState = await loadKeyPointPromptForLeader(db, {
     workspaceId: input.workspaceId,
     leaderUserId,
     settingsId: overview.settingsId,
@@ -386,14 +380,8 @@ export async function startTeamKeyPointExtraction(
     extraction: {
       status: "generating",
       promptSnapshot,
-      // Keep the last confirmed body on the page until Insert replaces it.
+      // Keep the previous summary visible while regenerating.
       ...(existing?.markdown ? { markdown: existing.markdown } : {}),
-      ...(input.delivery === "side-chat-confirm" && input.confirmSessionId
-        ? {
-            delivery: "side-chat-confirm" as const,
-            confirmSessionId: input.confirmSessionId,
-          }
-        : {}),
     },
   });
 
@@ -415,10 +403,7 @@ export async function startTeamKeyPointExtraction(
     subjectType: "report",
     subjectId: overview.id,
   });
-  const sessionId =
-    input.delivery === "side-chat-confirm" && input.confirmSessionId
-      ? input.confirmSessionId
-      : ensured.activeSessionId;
+  const sessionId = ensured.activeSessionId;
 
   if (input.wake) {
     await input.wake({
@@ -441,7 +426,7 @@ export async function startTeamKeyPointExtraction(
   return { started: true, status: "generating" };
 }
 
-async function loadPromptForLeader(
+export async function loadKeyPointPromptForLeader(
   db: PrismaClient,
   input: {
     workspaceId: string;
@@ -610,6 +595,7 @@ export async function applyTeamKeyPointExtraction(
   const content = normalizeReportContent(report.content);
   const promptSnapshot =
     content.keyPointExtraction?.promptSnapshot ?? DEFAULT_TEAM_KEY_POINT_PROMPT;
+  // Complete already-persisted pre-workflow preview runs without losing their drafts.
   const confirmSessionId = content.keyPointExtraction?.confirmSessionId;
   if (content.keyPointExtraction?.delivery === "side-chat-confirm" && confirmSessionId) {
     const publishedMarkdown = content.keyPointExtraction.markdown;

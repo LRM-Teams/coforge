@@ -67,12 +67,9 @@ import {
   loadWeeklyReportAssistantStatus,
   postWeeklyReportAssistantRequest,
   renameWeeklyReportAssistantChatSessionFn,
-  startTeamKeyPointExtractionFromSideChat,
 } from "./records.functions";
 import {
   looksLikeMemberGenerateOfferAccept,
-  looksLikeTeamKeyPointReorganizeRequest,
-  shouldUseFormatTemplateSendPath,
   shouldUseMemberReportRulePath,
   looksLikeSynthesizeWeeklyReportRequest,
   parseRecordAssistantPayload,
@@ -211,7 +208,6 @@ export function RecordSidePanel({
   const loadAssistantStatus = useServerFn(loadWeeklyReportAssistantStatus);
   const loadAssistantMessages = useServerFn(loadWeeklyReportAssistantMessages);
   const postAssistantRequest = useServerFn(postWeeklyReportAssistantRequest);
-  const startTeamFromSideChat = useServerFn(startTeamKeyPointExtractionFromSideChat);
   const applyBody = useServerFn(applyConfirmedWeeklyReportBody);
   const applyKeyPoints = useServerFn(applyConfirmedKeyPointMarkdown);
   const dismissKeyPointsDraft = useServerFn(dismissKeyPointConfirmDraft);
@@ -754,33 +750,6 @@ export function RecordSidePanel({
     setError(null);
     session.error = null;
     try {
-      if (
-        surface === "plain" &&
-        subjectType === "report" &&
-        looksLikeTeamKeyPointReorganizeRequest(body)
-      ) {
-        const outcome = await startTeamFromSideChat({
-          data: {
-            overviewReportId: subjectId,
-            sessionId: activeSessionId,
-            body,
-            requestId: crypto.randomUUID(),
-          },
-        });
-        session.draft = "";
-        setDraft("");
-        if (outcome.error === "no_submitted_member_reports") {
-          setError(m.records_key_points_team_none_submitted());
-          await loadThread(activeSessionId, legacySessionId);
-          return;
-        }
-        synthesisStartedAtRef.current = Date.now();
-        setAwaitingSynthesis(true);
-        await loadThread(activeSessionId, legacySessionId);
-        await router.invalidate({ sync: true });
-        return;
-      }
-
       const useRulePath =
         shouldUseMemberReportRulePath(surface, body) || !assistantReady(assistantStatus);
       if (useRulePath) {
@@ -794,9 +763,6 @@ export function RecordSidePanel({
         session.draft = "";
         setDraft("");
         setComments(rows);
-        if (shouldUseFormatTemplateSendPath(surface, body)) {
-          await router.invalidate({ sync: true });
-        }
         if (looksLikeSynthesizeWeeklyReportRequest(body)) {
           void loadThread(activeSessionId, legacySessionId);
         }
@@ -826,9 +792,6 @@ export function RecordSidePanel({
         setComments(result.comments);
         const ensured = await ensureSessions({ data: { subjectType, subjectId } });
         setChatSessions(ensured.sessions);
-        if (shouldUseFormatTemplateSendPath(surface, body)) {
-          await router.invalidate({ sync: true });
-        }
         return;
       }
 

@@ -30,9 +30,9 @@ test("resolves the ISO week for a fixed calendar day", () => {
 
 test("validates template name budget", () => {
   expect(isValidTemplateName("设计周报")).toBe(true);
-  expect(isValidTemplateName("这是一个超过十个汉字的名字啊")).toBe(false);
+  expect(isValidTemplateName("周".repeat(101))).toBe(false);
   expect(isValidTemplateName("WeeklyReportTemplate")).toBe(true);
-  expect(isValidTemplateName("WeeklyReportTemplates")).toBe(false);
+  expect(isValidTemplateName("W".repeat(101))).toBe(false);
   expect(isValidTemplateName("")).toBe(false);
   expect(isValidIsoWeekNumber(1)).toBe(true);
   expect(isValidIsoWeekNumber(53)).toBe(true);
@@ -62,4 +62,9 @@ test("report body is split into named display pages", () => {
   const content = normalizeReportContent({ markdown: "done item" });
   expect(content.tabs?.Summary?.markdown).toBe("done item");
   expect(clearReportContent(content)).toEqual({ tabs: { Summary: { markdown: "" } } });
+});
+
+test("template names accept the Foundation Models Weekly format name", () => {
+  expect(isValidTemplateName("Foundation Models Weekly")).toBe(true);
+  expect(isValidTemplateName("x".repeat(101))).toBe(false);
 });

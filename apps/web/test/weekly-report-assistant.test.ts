@@ -65,6 +65,7 @@ test("assistant context manifests expose structure without report bodies", async
     subjectType: "report",
     subjectId: "report-1",
     cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38" },
+    kind: "member",
     status: "submitted",
     structure: ["Progress", "Plans"],
     availableData: [
@@ -75,6 +76,7 @@ test("assistant context manifests expose structure without report bodies", async
       "favorites",
     ],
     templateFormats: [],
+    templateFormatsNextCursor: null,
     contextVersion: "2026-09-18T00:00:00.000Z",
   });
   expect(JSON.stringify(manifest)).not.toContain("private body");

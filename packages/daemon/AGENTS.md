@@ -107,7 +107,7 @@ Read the matching file before changing code in that directory:
 
 - Weekly-report assistant reads use the same Credential Proxy and Agent HTTPS
   connection (`POST /api/agent/v1/weekly-reports`). Daemon forwards `coforge weekly-report`
-  context/list/read without interpreting report bodies or widening authorization.
+  context/list/read and workflow actions without interpreting report bodies or widening authorization.
   Web/backend re-checks the assistant owner User's existing Records visibility.
 
 - Weekly-report Collect Run pack submit uses Credential Proxy + Agent HTTPS

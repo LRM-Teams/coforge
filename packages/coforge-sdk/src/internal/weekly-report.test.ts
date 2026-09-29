@@ -75,3 +75,29 @@ test("weekly-report responses keep request correlation", () => {
     result: { reports: [], nextCursor: null },
   });
 });
+
+test("weekly-report workflow discovers templates without a cycle and validates writes", () => {
+  expect(
+    decodeWeeklyReportRequest(
+      encodeWeeklyReportRequest({
+        ...identity,
+        operation: "workflow",
+        action: { type: "templates" },
+      }),
+    ),
+  ).toMatchObject({ operation: "workflow", action: { type: "templates" } });
+  expect(() =>
+    encodeWeeklyReportRequest({
+      ...identity,
+      operation: "workflow",
+      action: { type: "send", templateId: "wrong" },
+    }),
+  ).toThrow();
+  expect(() =>
+    encodeWeeklyReportRequest({
+      ...identity,
+      operation: "workflow",
+      action: { type: "summary", reportId: "11111111-1111-4111-8111-111111111111", markdown: "" },
+    }),
+  ).toThrow();
+});

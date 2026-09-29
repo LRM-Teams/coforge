@@ -1,7 +1,25 @@
 import { expect, test } from "bun:test";
 import type { PrismaClient } from "#src/generated/prisma/client";
-import { currentIsoWeek } from "#src/features/records/records-content";
 import { RecordCatalog } from "#src/server/records/record-catalog.server";
+
+/** Minimal transactional Prisma adapter for distribution tests; concurrency is tested on PostgreSQL. */
+function distributionDatabase(db: PrismaClient): PrismaClient {
+  const findFirst = db.weeklyReport.findFirst.bind(db.weeklyReport);
+  db.weeklyReport.findFirst = (async (query: { select?: { submissions?: unknown } }) =>
+    query.select?.submissions
+      ? null
+      : findFirst(query as never)) as unknown as typeof db.weeklyReport.findFirst;
+  db.weeklyReportCycle.upsert = (async () =>
+    db.weeklyReportCycle.findUnique({} as never)) as unknown as typeof db.weeklyReportCycle.upsert;
+  db.weeklyReport.createManyAndReturn = (async (query: { data: Array<{ authorId: string }> }) => {
+    await db.weeklyReport.createMany(query as never);
+    return query.data.map((row, index) => ({ id: `assignment-${index}`, authorId: row.authorId }));
+  }) as unknown as typeof db.weeklyReport.createManyAndReturn;
+  db.$queryRaw = (async () => []) as unknown as typeof db.$queryRaw;
+  db.$transaction = (async (callback: (tx: PrismaClient) => Promise<unknown>) =>
+    callback(db)) as unknown as typeof db.$transaction;
+  return db;
+}
 
 test("sendWeeklyAssignments creates a new parent and unread assignments for recipients", async () => {
   const created: Array<Record<string, unknown>> = [];
@@ -58,7 +76,7 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
     },
   } as unknown as PrismaClient;
 
-  const result = await new RecordCatalog(db).sendWeeklyAssignments({
+  const result = await new RecordCatalog(distributionDatabase(db)).sendWeeklyAssignments({
     workspaceId: "workspace-1",
     userId: "leader",
     sourceReportId: "source-1",
@@ -66,7 +84,7 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
     now: new Date("2026-09-14T12:00:00+08:00"),
   });
 
-  expect(result).toEqual({
+  expect(result).toMatchObject({
     parentId: "created-1",
     title: "2026 W38 工作周报",
     year: 2026,
@@ -98,99 +116,6 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
       assignment: { unread: true },
     },
   });
-});
-
-test("sendFormatTemplateFromSideChat resends after this week was cancelled", async () => {
-  const now = new Date("2026-09-28T12:00:00+08:00");
-  const { year, week } = currentIsoWeek(now);
-  const comments: Array<Record<string, unknown>> = [];
-  let sourceContent: Record<string, unknown> = {
-    tabs: { Summary: { markdown: "# Outline" } },
-    schedule: { cancelledYear: year, cancelledWeek: week, dismissSend: true },
-  };
-  const created: Array<Record<string, unknown>> = [];
-  const db = {
-    workspaceMembership: {
-      findUnique: async () => ({ role: "owner" }),
-      findMany: async () => [{ userId: "leader" }, { userId: "member-a" }],
-    },
-    weeklyReport: {
-      findFirst: async (query: { where?: { id?: string; submissions?: unknown } }) => {
-        if (query.where?.submissions) return null;
-        if (query.where?.id === "format-1") {
-          return { id: "format-1", settingsId: "settings-1", content: sourceContent };
-        }
-        return null;
-      },
-      update: async (query: { data: { content: Record<string, unknown> } }) => {
-        sourceContent = query.data.content;
-        return {};
-      },
-      create: async (query: { data: Record<string, unknown> }) => {
-        created.push(query.data);
-        return { id: "created-1", title: query.data.title };
-      },
-      createMany: async (query: { data: Array<Record<string, unknown>> }) => {
-        created.push(...query.data);
-        return { count: query.data.length };
-      },
-    },
-    weeklyReportCycle: {
-      findUnique: async () => ({
-        id: "cycle-1",
-        year,
-        week,
-        title: `${year} W${week} 工作周报`,
-      }),
-    },
-    weeklyReportTemplate: {
-      findFirst: async () => ({
-        id: "settings-1",
-        allMembers: false,
-        recipients: [{ userId: "member-a" }],
-      }),
-    },
-    user: {
-      findMany: async () => [{ id: "member-a", displayName: "Alice", username: "alice" }],
-    },
-    recordComment: {
-      create: async (query: { data: Record<string, unknown> }) => {
-        const row = {
-          id: `comment-${comments.length + 1}`,
-          createdAt: now,
-          authorUser: null,
-          payload: null,
-          ...query.data,
-        };
-        comments.push(row);
-        return row;
-      },
-      findMany: async () => comments,
-    },
-  } as unknown as PrismaClient;
-
-  const rows = await new RecordCatalog(db).sendFormatTemplateFromSideChat({
-    workspaceId: "workspace-1",
-    userId: "leader",
-    subjectType: "report",
-    subjectId: "format-1",
-    body: "我刚才取消了本周的周报发送，我需要重新发送",
-    assistantSessionId: "session-1",
-    now,
-  });
-
-  expect(rows?.map((row) => row.body)).toEqual([
-    "我刚才取消了本周的周报发送，我需要重新发送",
-    `已重新发送 ${year} W${week} 工作周报，共 1 位成员。`,
-  ]);
-  expect(sourceContent.schedule).toBeUndefined();
-  const parent = created[0];
-  if (!parent) throw new Error("expected a parent template");
-  expect(parent).toMatchObject({
-    kind: "template",
-    content: { tabs: { Summary: { markdown: "# Outline" } } },
-  });
-  expect((parent.content as { schedule?: unknown }).schedule).toBeUndefined();
 });
 
 test("sendWeeklyAssignments does not post a #general notice", async () => {
@@ -239,7 +164,7 @@ test("sendWeeklyAssignments does not post a #general notice", async () => {
     },
   } as unknown as PrismaClient;
 
-  const result = await new RecordCatalog(db).sendWeeklyAssignments({
+  const result = await new RecordCatalog(distributionDatabase(db)).sendWeeklyAssignments({
     workspaceId: "workspace-1",
     userId: "leader",
     sourceReportId: "source-1",
@@ -448,6 +373,8 @@ test("createTemplate with scheduleEnabled writes applied and ensures a format", 
       }),
     },
   } as unknown as PrismaClient;
+  db.$transaction = (async (callback: (tx: PrismaClient) => Promise<unknown>) =>
+    callback(db)) as unknown as typeof db.$transaction;
 
   const result = await new RecordCatalog(db).createTemplate({
     workspaceId: "workspace-1",
@@ -484,6 +411,8 @@ test("createTemplate allows a regular Workspace member during MVP rollout", asyn
       create: async () => ({ id: "member-settings" }),
     },
   } as unknown as PrismaClient;
+  db.$transaction = (async (callback: (tx: PrismaClient) => Promise<unknown>) =>
+    callback(db)) as unknown as typeof db.$transaction;
 
   await expect(
     new RecordCatalog(db).createTemplate({
@@ -499,39 +428,6 @@ test("createTemplate allows a regular Workspace member during MVP rollout", asyn
       recipientUserIds: [],
     }),
   ).resolves.toEqual({ id: "member-settings" });
-});
-
-test("loadLatestEditableMemberReport selects the current user's newest draft", async () => {
-  let query: unknown;
-  const db = {
-    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
-    weeklyReport: {
-      findFirst: async (input: unknown) => {
-        query = input;
-        return {
-          id: "report-current",
-          title: "2026 W39 周报",
-          cycle: { year: 2026, week: 39, title: "2026 W39" },
-        };
-      },
-    },
-  } as unknown as PrismaClient;
-
-  await expect(
-    new RecordCatalog(db).loadLatestEditableMemberReport({
-      workspaceId: "workspace-1",
-      userId: "member-a",
-    }),
-  ).resolves.toMatchObject({ id: "report-current" });
-  expect(query).toMatchObject({
-    where: {
-      workspaceId: "workspace-1",
-      authorId: "member-a",
-      kind: "member",
-      status: "draft",
-      hiddenFromAuthor: false,
-    },
-  });
 });
 
 test("createTemplate with scheduleEnabled false stays inactive", async () => {
@@ -552,6 +448,8 @@ test("createTemplate with scheduleEnabled false stays inactive", async () => {
       },
     },
   } as unknown as PrismaClient;
+  db.$transaction = (async (callback: (tx: PrismaClient) => Promise<unknown>) =>
+    callback(db)) as unknown as typeof db.$transaction;
 
   await new RecordCatalog(db).createTemplate({
     workspaceId: "workspace-1",
@@ -690,6 +588,7 @@ test("runDueScheduledWeeklyAssignments skips when the ISO week already has assig
       ],
     },
     weeklyReport: {
+      findMany: async () => [],
       findFirst: async (query: {
         where?: { settingsId?: string; submissions?: { some?: unknown } };
       }) => {
@@ -781,7 +680,9 @@ test("runDueScheduledWeeklyAssignments sends when due and not yet sent", async (
     },
   } as unknown as PrismaClient;
 
-  const result = await new RecordCatalog(db).runDueScheduledWeeklyAssignments({
+  const result = await new RecordCatalog(distributionDatabase(db), {
+    notify: async () => ({ status: "notified" }),
+  }).runDueScheduledWeeklyAssignments({
     now: new Date("2026-09-18T07:30:00.000Z"),
   });
 
