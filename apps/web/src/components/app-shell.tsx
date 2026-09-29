@@ -32,6 +32,7 @@ import {
   WorkspaceSwitcher,
   type WorkspaceOption,
 } from "#src/features/workspaces/workspace-switcher";
+import type { CreateWorkspaceInput } from "#src/features/workspaces/create-workspace-form";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
 import { localizeHref } from "#src/paraglide/runtime";
@@ -157,7 +158,7 @@ export function AppShell({
   /** The Workspace the page URL names. */
   currentWorkspace: WorkspaceOption;
   onSelectWorkspace?: (slug: string) => Promise<void> | void;
-  onCreateWorkspace?: (input: { name: string; slug: string }) => Promise<void>;
+  onCreateWorkspace?: (input: CreateWorkspaceInput) => Promise<void>;
   onSignOut?: () => Promise<void> | void;
   /** Purple dot on 记录 for a Leader preview hour or an unread member assignment. */
   recordsPreview?: boolean;

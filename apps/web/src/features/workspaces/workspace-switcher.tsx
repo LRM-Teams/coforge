@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Building07 as Building, Check, ChevronSelectorVertical, Plus } from "@untitledui/icons";
 import {
   Button as AriaButton,
@@ -9,15 +9,12 @@ import {
 import { Dialog, Modal, ModalOverlay } from "#src/components/application/modals/modal";
 import { Button } from "#src/components/base/buttons/button";
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
-import { Input } from "#src/components/base/input/input";
 import { useAppToast } from "#src/components/ui/toast";
-import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
 import {
-  isReservedWorkspaceSlug,
-  isValidWorkspaceSlug,
-  nameToWorkspaceSlug,
-} from "#src/features/workspaces/workspace-slug";
+  CreateWorkspaceForm,
+  type CreateWorkspaceInput,
+} from "#src/features/workspaces/create-workspace-form";
 import { cx } from "#src/utils/cx";
 import { DialogHeader } from "#src/components/application/modals/dialog-header";
 import { WorkspaceIcon } from "#src/features/workspaces/workspace-icon";
@@ -34,7 +31,7 @@ export function WorkspaceSwitcher({
   workspaces: WorkspaceOption[];
   current: WorkspaceOption | null;
   onSelect?: (slug: string) => Promise<void> | void;
-  onCreate?: (input: { name: string; slug: string }) => Promise<void>;
+  onCreate?: (input: CreateWorkspaceInput) => Promise<void>;
   /** Icon-only trigger for the collapsed sidebar rail. */
   compact?: boolean;
 }) {
@@ -165,107 +162,34 @@ function CreateWorkspaceDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (input: { name: string; slug: string }) => Promise<void>;
+  onCreate: (input: CreateWorkspaceInput) => Promise<void>;
 }) {
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const slugTouched = useRef(false);
-
-  const slugError =
-    slug.length > 0 && !isValidWorkspaceSlug(slug)
-      ? m.workspace_slug_invalid()
-      : slug.length > 0 && isReservedWorkspaceSlug(slug)
-        ? m.workspace_slug_reserved()
-        : "";
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!name.trim() || !slug.trim() || slugError) return;
-    setError("");
-    setSubmitting(true);
-    try {
-      await onCreate({ name: name.trim(), slug: slug.trim() });
-      close();
-    } catch (cause) {
-      if (isAppError(cause) && cause.code === "CONFLICT") setError(m.workspace_slug_taken());
-      else if (isAppError(cause) && cause.code === "INVALID_INPUT")
-        setError(m.workspace_slug_invalid());
-      else setError(m.workspace_create_error());
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  function close() {
-    setName("");
-    setSlug("");
-    setError("");
-    slugTouched.current = false;
-    onOpenChange(false);
-  }
-
+  const close = () => onOpenChange(false);
   return (
-    <ModalOverlay
-      isOpen={open}
-      onOpenChange={(next) => {
-        if (next) onOpenChange(true);
-        else close();
-      }}
-    >
+    <ModalOverlay isOpen={open} onOpenChange={onOpenChange}>
       <Modal className="w-[min(480px,calc(100vw-2rem))]">
         <Dialog>
-          <form onSubmit={submit}>
-            <DialogHeader
-              title={m.workspace_create_title()}
-              description={m.workspace_create_description()}
-              onClose={close}
-            />
-            <div className="grid gap-4 px-6 py-6">
-              <Input
-                label={m.workspace_name_label()}
-                name="name"
-                isRequired
-                value={name}
-                placeholder={m.workspace_name_placeholder()}
-                onChange={(value) => {
-                  setName(value);
-                  if (!slugTouched.current) setSlug(nameToWorkspaceSlug(value));
-                }}
-              />
-              <Input
-                label={m.workspace_slug_label()}
-                name="slug"
-                isRequired
-                value={slug}
-                placeholder={m.workspace_slug_placeholder()}
-                isInvalid={Boolean(slugError)}
-                onChange={(value) => {
-                  slugTouched.current = true;
-                  setSlug(value);
-                }}
-              />
-              {(slugError || error) && (
-                <p role="alert" className="text-sm text-error-primary">
-                  {error || slugError}
-                </p>
-              )}
-            </div>
-            <div className="flex justify-end gap-3 border-t border-secondary px-6 py-4">
-              <Button type="button" color="secondary" onPress={close}>
-                {m.controls_cancel()}
-              </Button>
-              <Button
-                type="submit"
-                isDisabled={Boolean(slugError)}
-                isLoading={submitting}
-                showTextWhileLoading
-              >
-                {submitting ? m.workspace_create_submitting() : m.workspace_create_submit()}
-              </Button>
-            </div>
-          </form>
+          <DialogHeader
+            title={m.workspace_create_title()}
+            description={m.workspace_create_description()}
+            onClose={close}
+          />
+          {/* The form lives inside the modal, so closing it starts the next one empty. */}
+          <CreateWorkspaceForm
+            onCreate={async (input) => {
+              await onCreate(input);
+              close();
+            }}
+            fieldsClassName="grid gap-4 px-6 py-6"
+            actions={(submit) => (
+              <div className="flex justify-end gap-3 border-t border-secondary px-6 py-4">
+                <Button type="button" color="secondary" onPress={close}>
+                  {m.controls_cancel()}
+                </Button>
+                <Button {...submit} />
+              </div>
+            )}
+          />
         </Dialog>
       </Modal>
     </ModalOverlay>
