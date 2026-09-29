@@ -203,7 +203,12 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
       join(alphaRoot, ".e2e-mention-first.json"),
     );
     expect(first[0]).toMatchObject({ accepted: true, messageId: expect.any(String) });
-    const mentionMessageId = first[0]!.messageId;
+    // Pin the send's message id from the result file's own bytes: the in-memory object's field
+    // can degrade to an empty object when read back later in this same turn (Bun 1.4's lazy JSON
+    // values), which the CLI below would then receive as --message {}.
+    const mentionMessageId = /"messageId":"([0-9a-f-]{36})"/.exec(
+      await Bun.file(join(alphaRoot, ".e2e-mention-first.json")).text(),
+    )![1]!;
 
     // Beta is running and tracked: the envelope reaches its session, and the fixture provider
     // settles the turn on its own, which drains the delivery and ACKs it with the envelope
@@ -371,7 +376,7 @@ async function waitForFiles(...paths: string[]) {
 
 async function waitForJson<T>(path: string): Promise<T> {
   await waitFor(async () => Bun.file(path).exists());
-  return (await Bun.file(path).json()) as T;
+  return JSON.parse(await Bun.file(path).text()) as T;
 }
 
 async function waitFor(check: () => boolean | Promise<boolean>) {
