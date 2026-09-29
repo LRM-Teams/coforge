@@ -145,7 +145,11 @@ test("maps ACCESS_DENIED and INVALID_INPUT target resolution failures to 403 and
     },
   );
   expect(deniedResponse.status).toBe(403);
-  expect(await deniedResponse.json()).toEqual({ error: "target is not accessible" });
+  expect(await deniedResponse.json()).toEqual({
+    error: "target is not accessible",
+    code: "TARGET_NOT_ACCESSIBLE",
+    retryable: false,
+  });
 
   const invalidResponse = await handleAgentAttachmentUpload(
     uploadRequest({ file: new Blob(["hello"]), target: "#Not Valid" }),

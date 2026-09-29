@@ -114,6 +114,26 @@ function summaryFor(action: ActionCardAction): string {
 }
 
 /**
+ * An action card's own validity, which needs nothing but the action: its schema, its cross-field
+ * rules, and the kinds not supported yet. Throws `ActionCardError("INVALID_ACTION")`.
+ */
+export function parseActionCardAction(value: unknown) {
+  const parsed = actionCardActionSchema.safeParse(value);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map(
+      (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
+    );
+    throw new ActionCardError(422, "INVALID_ACTION", "Action failed validation", { issues });
+  }
+  const action = parsed.data;
+  const crossFieldError = validateActionCardAction(action);
+  if (crossFieldError) throw new ActionCardError(422, "INVALID_ACTION", crossFieldError);
+  if (action.type === "channel:create" && action.visibility === "private")
+    throw new ActionCardError(422, "INVALID_ACTION", "private channels are not supported yet");
+  return action;
+}
+
+/**
  * Resolves an Agent-prepared action card (`coforge action prepare`) into a posted Message plus an
  * `ActionCard` record, mirroring Raft Computer 1.0.32's `prepare-action` route (see
  * `docs/agents/reference-cli-research.md` and `packages/coforge-sdk/src/agent/action-cards.ts`).
@@ -132,19 +152,7 @@ export class ActionCards {
     principal: { workspaceId: string; agentId: string },
     input: { target: string; action: unknown },
   ): Promise<ActionCardPrepareResult> {
-    const parsed = actionCardActionSchema.safeParse(input.action);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map(
-        (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
-      );
-      throw new ActionCardError(422, "INVALID_ACTION", "Action failed validation", { issues });
-    }
-    const action = parsed.data;
-    const crossFieldError = validateActionCardAction(action);
-    if (crossFieldError) throw new ActionCardError(422, "INVALID_ACTION", crossFieldError);
-    if (action.type === "channel:create" && action.visibility === "private")
-      throw new ActionCardError(422, "INVALID_ACTION", "private channels are not supported yet");
-
+    const action = parseActionCardAction(input.action);
     const target = await this.resolveTarget(principal.workspaceId, principal.agentId, input.target);
     const payload = await this.resolvePayload(principal.workspaceId, action);
     const body = action.draftHint

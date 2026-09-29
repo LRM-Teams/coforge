@@ -699,6 +699,8 @@ describe("reconcileOnly: whether an idempotency key already committed, without s
     expect(result.status).toBe(409);
     expect(await result.json()).toEqual({
       error: "message request is already processing; retry later",
+      code: "MESSAGE_REQUEST_IN_PROGRESS",
+      retryable: true,
     });
     expect(sent).toEqual([]);
   });
@@ -759,5 +761,7 @@ test("a send whose key is still processing answers 409 instead of failing the re
   expect(result.status).toBe(409);
   expect(await result.json()).toEqual({
     error: "message request is already processing; retry later",
+    code: "MESSAGE_REQUEST_IN_PROGRESS",
+    retryable: true,
   });
 });

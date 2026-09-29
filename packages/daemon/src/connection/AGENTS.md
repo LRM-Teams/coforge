@@ -20,6 +20,15 @@ Rules for the Workspace cloud connection in `src/connection/`. They extend
   and the current running Agent ID snapshot from the runtime. Never reuse a
   cached one.
 
+## Agent HTTPS refusals
+
+- A 4xx (not 401) whose body is exactly the SDK's `AgentApiRefusal`
+  (`{ error, code?, retryable? }`) is an `AgentExplainedRefusalError`, relayed
+  to the Agent with its reason and code. Decode that shape; do not add
+  another text allowlist (`AGENT_MESSAGE_VALIDATION_MESSAGES` covers only
+  bare-text 400 bodies). A 5xx is never a refusal: a send must still be
+  reconciled.
+
 ## Fire-and-forget messages
 
 Session invalidate (`sendSessionInvalidate`) and Agent context usage

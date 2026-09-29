@@ -763,14 +763,18 @@ export const defaultAgentChannelHttpClient: AgentChannelHttpClient = {
 
 export const defaultAgentActionPrepareHttpClient: AgentActionPrepareHttpClient = {
   async execute({ url, request, ...keys }) {
-    const response = await fetch(url, {
-      method: "POST",
-      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
-      headers: agentHeaders(keys, true),
-      body: JSON.stringify(request),
-    });
-    if (!response.ok)
-      throw new Error(`server Agent action-prepare request failed (${response.status})`);
+    const response = await fetchAgentResponse(
+      fetch,
+      url,
+      {
+        method: "POST",
+        signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
+        headers: agentHeaders(keys, true),
+        body: JSON.stringify(request),
+      },
+      "agent action prepare",
+    );
+    await assertAgentResponseOk(response, "agent action prepare");
     const result = (await response.json()) as AgentActionPrepareResponse;
     if (!result || typeof result.messageId !== "string" || result.metadata?.kind !== "action-card")
       throw new Error("action-prepare response is malformed");

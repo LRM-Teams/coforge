@@ -35,10 +35,8 @@ import { CentrifugoConversationRealtime } from "#src/server/conversations/conver
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { isAppError } from "#src/lib/app-error";
 import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
-import {
-  dmPeerNotInWorkspaceResponse,
-  unknownTargetUserResponse,
-} from "#src/server/agents/agent-target-status.server";
+import { postingTargetRefusalResponse } from "#src/server/agents/agent-target-status.server";
+import { errorResponse } from "#src/server/agents/agent-http-error.server";
 
 export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
 
@@ -172,7 +170,7 @@ export type AgentMessagesPostPrincipal = { workspaceId: string; agentId: string 
 
 /** The in-flight duplicate: this key's first request is still working. */
 const inProgress = (error: MessageRequestInProgressError) =>
-  Response.json({ error: error.message }, { status: 409 });
+  errorResponse("MESSAGE_REQUEST_IN_PROGRESS", error.message, 409, true);
 
 /**
  * Raft 1.0.38's `reconcileOnly` send: whether this key already committed, answered from the
@@ -320,8 +318,7 @@ export async function handleAgentMessagesPost(
         { error: "this direct message is private and read-only for this Agent" },
         { status: 403 },
       );
-    const refused =
-      dmPeerNotInWorkspaceResponse(error, body.target) ?? unknownTargetUserResponse(error);
+    const refused = postingTargetRefusalResponse(error, body.target);
     if (refused) return refused;
     throw error;
   }

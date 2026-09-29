@@ -1,6 +1,7 @@
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import type { AgentManualErrorCode, AgentMentionActionErrorCode } from "@lrm/coforge-sdk/agent";
 import { isRecord, type ChannelOperation } from "@lrm/coforge-sdk/internal";
+import { AgentExplainedRefusalError } from "./agent-explained-refusal-error";
 import { AgentMessageRequestError } from "./agent-message-request-error";
 import { AgentManualRequestError } from "./agent-manual-request-error";
 import { AgentMentionActionRequestError } from "./agent-mention-action-request-error";
@@ -84,7 +85,8 @@ export async function readAgentResponseText(response: Response, what: string): P
   }
 }
 
-/** Throws when the response is a non-2xx: a safe validation message, or a typed transport error. */
+/** Throws when the response is a non-2xx: the server's explained refusal, a safe validation
+ * message, or a typed transport error. */
 export async function assertAgentResponseOk(response: Response, what: string): Promise<void> {
   if (response.ok) return;
   const body = await readAgentResponseText(response, what);
@@ -100,7 +102,10 @@ export async function assertAgentResponseOk(response: Response, what: string): P
       upstream_body_snippet: body.length > 0 ? body.slice(0, 2000) : "<empty>",
     });
   }
-  throw AgentMessageRequestError.fromRpc(response.status, body);
+  throw (
+    AgentExplainedRefusalError.fromResponse(response.status, body) ??
+    AgentMessageRequestError.fromRpc(response.status, body)
+  );
 }
 
 /**
