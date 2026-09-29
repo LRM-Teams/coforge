@@ -176,11 +176,14 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
   const stalledRecovery =
     tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.STALLED_RECOVERY;
   const stalled = tone === "error" && kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_STALLED;
+  const crashed = tone === "error" && kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_CRASHED;
   const label =
     tone === "error"
       ? stalled
         ? "Stalled"
-        : "Error"
+        : crashed
+          ? "Crashed"
+          : "Error"
       : starting
         ? "Starting"
         : compacting
@@ -228,13 +231,9 @@ function activityAtoms(observation: ActivityObservation): ActivityAtom[] {
           : tone === "offline"
             ? STOPPED_STATUS_DETAIL
             : tone === "error"
-              ? stalled
-                ? detail
-                  ? `Stalled: ${detail}`
-                  : "Stalled"
-                : detail
-                  ? `Error: ${detail}`
-                  : "Error"
+              ? detail
+                ? `${label}: ${detail}`
+                : label
               : detail || label;
   const secondary =
     statusSecondary ?? (starting || (tone === "offline" && detail === "Stopped") ? "" : detail);

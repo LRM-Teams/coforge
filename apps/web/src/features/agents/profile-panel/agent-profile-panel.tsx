@@ -17,12 +17,10 @@ import {
 import { m } from "#src/paraglide/messages";
 import { useSubmitGuard } from "#src/hooks/use-submit-guard";
 import {
-  useAgentActivityFeed,
   useLiveAgent,
   usePrefetchAgentActivityFeed,
 } from "#src/features/agents/workspace-agents-realtime";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
-import { AgentActivityTimeline } from "#src/features/agents/agent-activity-timeline";
 import { AgentReminders } from "#src/features/agents/agent-reminders";
 import { listAgentReminders } from "#src/features/agents/agent-reminders.functions";
 import { getAgentSkills } from "#src/features/agents/agent-skills.functions";
@@ -68,7 +66,7 @@ import { AgentProfileHeader } from "./agent-profile-header";
 import { AgentProfileTabs, useAgentProfileTabOrder } from "./agent-profile-tabs";
 import { AgentProfileTab } from "./agent-profile-tab";
 import { AgentWorkspaceTab } from "./agent-workspace-tab";
-import { PanelMessage } from "./panel-message";
+import { AgentActivityTab } from "./agent-activity-tab";
 import {
   resolveAgentProfileTab,
   type AgentProfileTab as ProfileTabId,
@@ -361,7 +359,7 @@ export function AgentProfilePanel({
           overflow here would grow with the file and drag the tree out of view. */}
       <div
         className={
-          profile && tab === "workspace"
+          profile && (tab === "workspace" || tab === "activity")
             ? "flex min-h-0 flex-1 flex-col overflow-hidden"
             : "min-h-0 flex-1 overflow-y-auto"
         }
@@ -379,7 +377,20 @@ export function AgentProfilePanel({
             <Skeleton className="h-24 w-full" />
           </div>
         ) : tab === "activity" ? (
-          <AgentActivityTab agentId={agentId} timeZone={timeZone} />
+          <AgentActivityTab
+            agent={{
+              id: profile.id,
+              workspaceId: profile.workspaceId,
+              computerId: profile.computerId ?? null,
+              computerVersion: profile.computer?.computerVersion ?? null,
+              runtime: profile.runtimeConfig.runtime,
+              model: profile.runtimeConfig.model,
+              stopped: profile.stopped,
+              status: profile.status.value,
+            }}
+            display={liveAgent?.display ?? profile.display}
+            timeZone={timeZone}
+          />
         ) : tab === "reminders" ? (
           <div className="px-5 pb-5">
             <AgentReminders
@@ -587,28 +598,6 @@ export function AgentProfilePanel({
           }}
         />
       )}
-    </div>
-  );
-}
-
-function AgentActivityTab({ agentId, timeZone }: { agentId: string; timeZone: string | null }) {
-  const feed = useAgentActivityFeed(agentId);
-  if (feed.data) return <AgentActivityTimeline activity={feed.data} timeZone={timeZone} compact />;
-  if (feed.isError && !feed.isFetching)
-    return (
-      <PanelMessage text={m.agent_activity_error()} alert onRetry={() => void feed.refetch()} />
-    );
-  return (
-    <div aria-busy="true" className="flex flex-col gap-5 px-4 py-4">
-      <p role="status" className="sr-only">
-        {m.agent_activity_loading()}
-      </p>
-      {["w-2/5", "w-3/5", "w-1/2", "w-3/4"].map((width) => (
-        <div key={width} className="grid grid-cols-[3.5rem_1fr] gap-2">
-          <Skeleton className="h-4 w-12" />
-          <Skeleton className={`h-4 ${width}`} />
-        </div>
-      ))}
     </div>
   );
 }
