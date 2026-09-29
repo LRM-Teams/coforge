@@ -4,6 +4,7 @@ import {
   userConversationChannel,
   workspaceConversationChannel,
   type ActivityChangedEvent,
+  type ChannelCreatedEvent,
   type ChannelUpdatedEvent,
   type MessageAvailableEvent,
   type MemberChangedEvent,
@@ -130,6 +131,9 @@ export type ConversationRealtime = {
   /** A push telling the Workspace's sidebars and the channel's open pages that its name,
    * description or archived state changed. Optional: a port without it announces nothing. */
   channelUpdated?(input: { workspaceId: string; conversationId: string }): Promise<void>;
+  /** A push telling the Workspace's sidebars that a channel was created. Optional: a port without
+   * it announces nothing. */
+  channelCreated?(input: { workspaceId: string; conversationId: string }): Promise<void>;
   /** A push telling open Tasks pages the new copies of the Tasks a write changed. Optional: a
    * port without it announces nothing. */
   taskChanged?(input: TaskChangedSignal): Promise<void>;
@@ -177,6 +181,15 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
         idempotencyKey,
       ),
     ]);
+  }
+
+  async channelCreated(input: { workspaceId: string; conversationId: string }) {
+    const event: ChannelCreatedEvent = { type: "channel.created.v1", ...input };
+    await this.centrifugo.publishJson(
+      workspaceConversationChannel(input.workspaceId),
+      event,
+      crypto.randomUUID(),
+    );
   }
 
   async activityChanged(input: { workspaceId: string; userId: string }) {
@@ -356,6 +369,21 @@ export async function announceChannelUpdated(
 ): Promise<void> {
   await announceBestEffort(realtime, (port) => port.channelUpdated?.(input), {
     name: "channel_updated",
+    workspace_id: input.workspaceId,
+  });
+}
+
+/**
+ * Tells every open sidebar of the Workspace that a channel was created, once the write has
+ * committed, the way Slack sends `channel_created` to every connection of a workspace. Best effort
+ * like `announceChannelUpdated`: a sidebar that misses it lists the channel on its next read.
+ */
+export async function announceChannelCreated(
+  realtime: Pick<ConversationRealtime, "channelCreated"> | undefined,
+  input: { workspaceId: string; conversationId: string },
+): Promise<void> {
+  await announceBestEffort(realtime, (port) => port.channelCreated?.(input), {
+    name: "channel_created",
     workspace_id: input.workspaceId,
   });
 }

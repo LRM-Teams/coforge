@@ -14,6 +14,7 @@ import {
 } from "./agent-channel-management-error.server";
 import { PublicChannels } from "./public-channels.server";
 import {
+  announceChannelCreated,
   announceMemberChanged,
   announceJoinedOrLeft,
   type ConversationRealtime,
@@ -225,6 +226,7 @@ export class AgentChannelManagement {
           members: { create: { agentId, channelRole: "admin" } },
         },
       });
+      await announceChannelCreated(this.realtime, { workspaceId, conversationId: channel.id });
       return {
         target: `#${channel.channelName}`,
         channel: {

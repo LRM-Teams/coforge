@@ -7,6 +7,7 @@ import {
   getWorkspaceConversationSubscriptionToken,
 } from "#src/features/realtime/realtime.functions";
 import {
+  decodeChannelCreatedEvent,
   decodeChannelUpdatedEvent,
   decodeMessageAvailableEvent,
   decodeViewerEvent,
@@ -148,6 +149,21 @@ export function sidebarListsChangedBy(event: ViewerEvent): readonly SidebarList[
 }
 
 /**
+ * Which lists a Workspace-channel publication makes stale: a channel created or changed anywhere in
+ * the Workspace (`channel.created.v1`, `channel.updated.v1`) makes the channel list stale; anything
+ * else (a message signal) is undefined.
+ */
+export function workspaceSignalLists(data: unknown): readonly SidebarList[] | undefined {
+  if (decodeChannelCreatedEvent(data)) return ["channels"];
+  try {
+    decodeChannelUpdatedEvent(data);
+    return ["channels"];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Coalesces sidebar re-reads: lists named before a re-read starts go into it, and lists named
  * while one is running go into a single re-read after it, so a burst of events costs at most one
  * read in flight and one queued. Each call settles once a re-read covering its lists has.
@@ -267,8 +283,9 @@ export function useChannelUnread({
   listedConversationIds: ReadonlySet<string>;
   /** A new message arrived in a closed chat: the sidebar re-reads its list to bring it back. */
   onClosedConversationActivity: () => void;
-  /** These lists are stale: a channel was renamed, described, archived or unarchived
-   * (`channel.updated.v1`), or the viewer's own place in a chat changed elsewhere (`ViewerEvent`). */
+  /** These lists are stale: a channel was created, renamed, described, archived or unarchived
+   * (`channel.created.v1`, `channel.updated.v1`), or the viewer's own place in a chat changed
+   * elsewhere (`ViewerEvent`). */
   onSidebarListsChanged: (lists: readonly SidebarList[]) => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
@@ -290,12 +307,10 @@ export function useChannelUnread({
   };
 
   const onPublication = useCallback((publication: { data: unknown }) => {
-    try {
-      decodeChannelUpdatedEvent(publication.data);
-      refs.current.onSidebarListsChanged(["channels"]);
+    const lists = workspaceSignalLists(publication.data);
+    if (lists) {
+      refs.current.onSidebarListsChanged(lists);
       return;
-    } catch {
-      // Not a channel update; the other payload is a message signal.
     }
     try {
       const event = decodeMessageAvailableEvent(publication.data);

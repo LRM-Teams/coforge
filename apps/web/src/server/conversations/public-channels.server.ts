@@ -61,6 +61,7 @@ import { deliveryMentionsAgent, mentionAffinityScores } from "./mentions.server"
 import { toggleUserMessageReaction } from "./user-message-reactions.server";
 import {
   announceChannelTasksDeleted,
+  announceChannelCreated,
   announceChannelUpdated,
   announceJoinedOrLeft,
   announceViewerEvent,
@@ -876,10 +877,13 @@ export class PublicChannels {
       if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw error;
     }
-    await announceViewerEvent(this.realtime, {
-      userIds: [userId],
-      event: { type: "channel.joined.v1", workspaceId, conversationId: created.id },
-    });
+    await Promise.all([
+      announceChannelCreated(this.realtime, { workspaceId, conversationId: created.id }),
+      announceViewerEvent(this.realtime, {
+        userIds: [userId],
+        event: { type: "channel.joined.v1", workspaceId, conversationId: created.id },
+      }),
+    ]);
     return created;
   }
 

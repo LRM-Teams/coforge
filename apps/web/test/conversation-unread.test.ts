@@ -6,6 +6,7 @@ import {
   applyUnreadEvent,
   sidebarListsChangedBy,
   sidebarRefreshQueue,
+  workspaceSignalLists,
   clearUnread,
   seedUnreadCounts,
   replaceUnreadCounts,
@@ -474,5 +475,31 @@ describe("sidebarRefreshQueue", () => {
     expect(reads).toEqual([["channels"], ["channels", "dms"]]);
     running.shift()!();
     await second;
+  });
+});
+
+describe("workspaceSignalLists", () => {
+  const ids = { workspaceId: "workspace-a", conversationId: "channel-z" };
+
+  test("a channel created or changed anywhere in the Workspace makes the channel list stale", () => {
+    expect(workspaceSignalLists({ type: "channel.created.v1", ...ids })).toEqual(["channels"]);
+    expect(workspaceSignalLists({ type: "channel.updated.v1", ...ids })).toEqual(["channels"]);
+    expect(
+      workspaceSignalLists(
+        new TextEncoder().encode(JSON.stringify({ type: "channel.created.v1", ...ids })),
+      ),
+    ).toEqual(["channels"]);
+  });
+
+  test("anything else on the Workspace channel is not a list change", () => {
+    expect(
+      workspaceSignalLists({
+        type: "message.available.v1",
+        conversationId: "channel-z",
+        messageId: "m",
+        sequence: 1,
+      }),
+    ).toBeUndefined();
+    expect(workspaceSignalLists({ type: "channel.created.v1", workspaceId: "w" })).toBeUndefined();
   });
 });

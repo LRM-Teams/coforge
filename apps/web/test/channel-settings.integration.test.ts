@@ -18,17 +18,22 @@ import { AgentChannelManagement } from "#src/server/conversations/agent-channel-
  */
 const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
 
-/** Records which channels were announced as renamed, described, archived or unarchived. */
+/** Records which channels were announced as created, or renamed, described, archived or
+ * unarchived. */
 function recordingRealtime() {
   const updated: { workspaceId: string; conversationId: string }[] = [];
+  const created: { workspaceId: string; conversationId: string }[] = [];
   const realtime: ConversationRealtime = {
     async messageAvailable() {},
     async memberChanged() {},
     async channelUpdated(input) {
       updated.push(input);
     },
+    async channelCreated(input) {
+      created.push(input);
+    },
   };
-  return { realtime, updated };
+  return { realtime, updated, created };
 }
 
 async function setup() {
@@ -54,11 +59,24 @@ async function setup() {
   const general = await db.conversation.findUniqueOrThrow({
     where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
   });
-  const { realtime, updated } = recordingRealtime();
+  const { realtime, updated, created } = recordingRealtime();
   const channels = new PublicChannels(db, undefined, undefined, undefined, realtime);
   const team = await channels.create(workspace.id, creator.id, `team-${suffix}`);
   await channels.join(workspace.id, bob.id, team.id);
-  return { db, channels, updated, suffix, workspace, owner, creator, bob, general, team };
+  return {
+    db,
+    channels,
+    realtime,
+    updated,
+    created,
+    suffix,
+    workspace,
+    owner,
+    creator,
+    bob,
+    general,
+    team,
+  };
 }
 
 async function teardown(db: PrismaClient, workspaceId: string, userIds: string[]) {
@@ -391,6 +409,53 @@ test.skipIf(!connectionString)(
       expect((await channels.open(workspace.id, bob.id, beta.id)).archived).toBe(false);
     } finally {
       await teardown(db, workspace.id, [owner.id, creator.id, bob.id, admin.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "every open page of the Workspace hears when a person or an Agent creates a channel",
+  async () => {
+    const { db, channels, realtime, created, suffix, workspace, owner, creator, bob, team } =
+      await setup();
+    try {
+      // Setup's own channel was announced when it was made.
+      expect(created).toEqual([{ workspaceId: workspace.id, conversationId: team.id }]);
+      created.length = 0;
+
+      const byPerson = await channels.create(workspace.id, bob.id, `lab-${suffix}`);
+      const agent = await db.agent.create({
+        data: {
+          workspaceId: workspace.id,
+          name: `cs-maker-${suffix}`,
+          displayName: "Maker",
+          ownerId: bob.id,
+          runtimeConfig: {
+            runtime: "pi",
+            provider: { kind: "default" },
+            model: "",
+            modelProvider: "",
+            reasoning: "",
+          },
+        },
+      });
+      const byAgent = await new AgentChannelManagement(db, undefined, channels, realtime).create(
+        workspace.id,
+        agent.id,
+        `ops-${suffix}`,
+        undefined,
+      );
+      expect(created).toEqual([
+        { workspaceId: workspace.id, conversationId: byPerson.id },
+        { workspaceId: workspace.id, conversationId: byAgent.channel.id },
+      ]);
+
+      // A name already taken creates nothing and announces nothing.
+      created.length = 0;
+      await channels.create(workspace.id, bob.id, `lab-${suffix}`).catch(() => undefined);
+      expect(created).toEqual([]);
+    } finally {
+      await teardown(db, workspace.id, [owner.id, creator.id, bob.id]);
     }
   },
 );
