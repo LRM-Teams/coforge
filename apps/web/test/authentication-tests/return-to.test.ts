@@ -26,6 +26,24 @@ test("anything that could leave CoForge is not a place to return to", () => {
   }
 });
 
+test("a page path with non-ASCII characters comes back percent-encoded, so it fits a Location header", () => {
+  expect(safeReturnTo("/oauth/verify?x=项")).toBe("/oauth/verify?x=%E9%A1%B9");
+  expect(safeReturnTo("/w/acme/项目")).toBe("/w/acme/%E9%A1%B9%E7%9B%AE");
+  expect(() => new Headers({ location: safeReturnTo("/oauth/verify?x=项")! })).not.toThrow();
+});
+
+test("dot segments that would resolve to another host are not a place to return to", () => {
+  expect(safeReturnTo("/.//evil.com")).toBeUndefined();
+  expect(safeReturnTo("/a/..//evil.com")).toBeUndefined();
+  expect(safeReturnTo("/w/acme/../../join/abc")).toBe("/join/abc");
+});
+
+test("a return path long enough to overflow the sign-in cookie is dropped", () => {
+  expect(safeReturnTo(`/w/acme/${"a".repeat(2_041)}`)).toBeUndefined();
+  expect(safeReturnTo(`/w/acme/${"a".repeat(2_040)}`)).toHaveLength(2_048);
+  expect(safeReturnTo(`/w/acme/${"a".repeat(1_000)}`)).toBe(`/w/acme/${"a".repeat(1_000)}`);
+});
+
 test("the page to return to keeps the locale prefix CoForge pages carry, and none on /oauth", () => {
   expect(localizedReturnHref("/w/x/channel/1?view=chat")).toBe("/en/w/x/channel/1?view=chat");
   expect(localizedReturnHref("/oauth/verify?user_code=AB-CD")).toBe(
