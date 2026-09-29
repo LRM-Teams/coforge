@@ -373,3 +373,61 @@ async function loginAs(sub: string, email: string) {
 function cookieHeader(setCookie: string): string {
   return setCookie.split(";", 1)[0] ?? "";
 }
+
+/** The value a Set-Cookie header gives its cookie. */
+function cookieValue(setCookie: string): string {
+  return setCookie.slice(setCookie.indexOf("=") + 1, setCookie.indexOf(";"));
+}
+
+test("a sign-in state cookie replayed as the session cookie signs nobody in", () => {
+  const started = startBrowserLogin({ config, sessionSecret });
+
+  expect(
+    readBrowserSession({
+      sessionSecret,
+      cookieHeader: `coforge_session=${cookieValue(started.stateCookie)}`,
+    }),
+  ).toBeNull();
+});
+
+test("a switch-account return cookie replayed as the session cookie signs nobody in", () => {
+  const ended = endBrowserLogin({
+    config,
+    postLogoutRedirectUri: "http://localhost:3000/",
+    sessionSecret,
+    cookieHeader: "",
+    returnTo: "/join/abc",
+  });
+
+  expect(
+    readBrowserSession({
+      sessionSecret,
+      cookieHeader: `coforge_session=${cookieValue(ended.returnCookie!)}`,
+    }),
+  ).toBeNull();
+});
+
+test("a session cookie replayed as a sign-in state or switch-account cookie is refused", async () => {
+  const started = startBrowserLogin({ config, sessionSecret });
+  const state = new URL(started.authorizationUrl).searchParams.get("state")!;
+  const completed = await completeBrowserLogin({
+    config,
+    sessionSecret,
+    code: "valid-code",
+    state,
+    cookieHeader: started.stateCookie.split(";")[0]!,
+    authing: fakeAuthing({ sub: "authing-user-1", email: "ada@example.com" }),
+  });
+  const session = cookieValue(completed.sessionCookie);
+
+  expect(
+    consumeLogoutReturnTo({
+      sessionSecret,
+      cookieHeader: `coforge_logout_return=${session}`,
+      origin: "http://localhost:3000",
+    })?.returnTo,
+  ).toBeUndefined();
+  expect(
+    readBrowserSession({ sessionSecret, cookieHeader: completed.sessionCookie.split(";")[0]! }),
+  ).toMatchObject({ email: "ada@example.com" });
+});
