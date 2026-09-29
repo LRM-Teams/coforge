@@ -7,6 +7,8 @@ import {
   memberWeekTitle,
   normalizeReportContent,
   withAssignmentUnread,
+  withoutWeekSendDismissed,
+  isAutoSendCancelled,
 } from "#src/features/records/records-content";
 import {
   parseTemplateSections,
@@ -48,6 +50,29 @@ export async function distributeWeeklyReport(
     });
     const memberIds = new Set(memberships.map((member) => member.userId));
     if (!memberIds.has(input.userId)) throw new AppError("ACCESS_DENIED");
+    const liveFormat = await tx.weeklyReport.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        settingsId: settings.id,
+        kind: "template",
+        submissions: { none: { kind: "member" } },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, content: true },
+    });
+    if (liveFormat && isAutoSendCancelled(normalizeReportContent(liveFormat.content), year, week)) {
+      await tx.weeklyReport.update({
+        where: { id: liveFormat.id },
+        data: {
+          content: withoutWeekSendDismissed(
+            normalizeReportContent(liveFormat.content),
+            year,
+            week,
+          ) as Prisma.InputJsonValue,
+        },
+      });
+    }
     const existing = await tx.weeklyReport.findFirst({
       where: {
         workspaceId: input.workspaceId,
@@ -89,26 +114,15 @@ export async function distributeWeeklyReport(
       },
       update: {},
     });
-    const liveFormat =
-      input.content === undefined
-        ? await tx.weeklyReport.findFirst({
-            where: {
-              workspaceId: input.workspaceId,
-              authorId: input.userId,
-              settingsId: settings.id,
-              kind: "template",
-              submissions: { none: { kind: "member" } },
-            },
-            orderBy: { updatedAt: "desc" },
-            select: { content: true },
-          })
-        : null;
-    const content =
+    const content = withoutWeekSendDismissed(
       input.content !== undefined
         ? normalizeReportContent(input.content)
         : liveFormat
           ? normalizeReportContent(liveFormat.content)
-          : reportContentFromSections(parseTemplateSections(settings.dimensions));
+          : reportContentFromSections(parseTemplateSections(settings.dimensions)),
+      year,
+      week,
+    );
     const parent = await tx.weeklyReport.create({
       data: {
         workspaceId: input.workspaceId,

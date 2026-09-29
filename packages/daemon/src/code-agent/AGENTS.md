@@ -62,6 +62,16 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   the Agent to lexical `coforge message search`, then a target-scoped
   `message read --around`.
 
+## Assigned skills
+
+- `assigned-skills.ts` refreshes platform-owned skills on Agent launch using a
+  content hash. Preserve edited or unknown same-named files. Exact known legacy
+  hashes allow migration of pre-marker installs; retire only unchanged platform
+  files and keep other files in their directories.
+- Weekly-report conversation guidance lives in navigation; writing is reserved
+  for platform extraction/Collect wakes. Shared communication and safety belong
+  in `agent-instructions.ts`, not feature skills.
+
 ## Codex
 
 - `codex/provider.ts` owns retry classification. Structured `willRetry: true`

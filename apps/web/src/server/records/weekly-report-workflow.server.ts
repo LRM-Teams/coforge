@@ -2,6 +2,7 @@ import type { WeeklyReportWorkflowAction } from "@lrm/coforge-sdk/internal";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
+import { loadKeyPointPromptForLeader } from "./weekly-report-key-points.server";
 import { RecordCatalog } from "./record-catalog.server";
 import {
   distributeWeeklyReport,
@@ -9,9 +10,9 @@ import {
 } from "./weekly-report-distribution.server";
 import {
   normalizeReportContent,
+  DEFAULT_TEAM_KEY_POINT_PROMPT,
   reportContentForRecipient,
 } from "#src/features/records/records-content";
-import { parseTemplateSections } from "#src/features/records/template-outline-sections";
 
 type Actor = { workspaceId: string; userId: string };
 
@@ -28,37 +29,9 @@ export class WeeklyReportWorkflow {
       select: { role: true },
     });
     if (!membership) throw new AppError("ACCESS_DENIED");
-    if (action.type === "templates") {
-      const limit = action.limit ?? 25;
-      const rows = await this.db.weeklyReportTemplate.findMany({
-        where: {
-          workspaceId: actor.workspaceId,
-          ownerId: actor.userId,
-          ...(action.query
-            ? { name: { contains: action.query, mode: "insensitive" as const } }
-            : {}),
-        },
-        orderBy: { id: "asc" },
-        take: limit + 1,
-        ...(action.cursor ? { cursor: { id: action.cursor }, skip: 1 } : {}),
-        include: { recipients: { select: { userId: true } } },
-      });
-      return {
-        templates: rows.slice(0, limit).map((row) => ({
-          id: row.id,
-          name: row.name,
-          sections: parseTemplateSections(row.dimensions),
-          scheduleEnabled: row.scheduleEnabled,
-          sendWeekday: row.sendWeekday,
-          sendTime: row.sendTime,
-          timeZone: "Asia/Shanghai",
-          allMembers: row.allMembers,
-          recipientUserIds: row.recipients.map((recipient) => recipient.userId),
-        })),
-        nextCursor: rows.length > limit ? rows[limit - 1]!.id : null,
-      };
-    }
     const catalog = new RecordCatalog(this.db, this.notifier);
+    if (action.type === "templates")
+      return catalog.listAssistantTemplateFormats({ ...actor, ...action });
     if (action.type === "configure") {
       const { type: _type, requestId, templateId, ...configuration } = action;
       if (new Set(configuration.recipientUserIds).size !== configuration.recipientUserIds.length)
@@ -158,9 +131,21 @@ export class WeeklyReportWorkflow {
         authorId: actor.userId,
         hiddenFromAuthor: false,
       },
-      select: { id: true, kind: true, content: true },
+      select: { id: true, kind: true, content: true, settingsId: true },
     });
     if (!report) throw new AppError("NOT_FOUND");
+    const summaryPrompt =
+      report.kind === "template" &&
+      (action.type === "summary" || (action.type === "sources" && !action.sourceReportId))
+        ? (
+            await loadKeyPointPromptForLeader(this.db, {
+              workspaceId: actor.workspaceId,
+              leaderUserId: actor.userId,
+              settingsId: report.settingsId,
+              slot: "team",
+            })
+          ).text.trim() || DEFAULT_TEAM_KEY_POINT_PROMPT
+        : undefined;
     if (action.type === "sources" || action.type === "status") {
       if (report.kind !== "template") throw new AppError("INVALID_INPUT");
       const limit = action.limit ?? 25;
@@ -186,6 +171,7 @@ export class WeeklyReportWorkflow {
       });
       if (sourceReportId && !rows.length) throw new AppError("NOT_FOUND");
       return {
+        ...(summaryPrompt ? { summaryPrompt } : {}),
         reports: rows.slice(0, limit).map((row) => {
           const metadata = {
             id: row.id,
@@ -212,6 +198,7 @@ export class WeeklyReportWorkflow {
         ...actor,
         reportId: report.id,
         markdown: action.markdown,
+        ...(summaryPrompt ? { promptSnapshot: summaryPrompt } : {}),
       });
     if (report.kind !== "member") throw new AppError("INVALID_INPUT");
     const content = normalizeReportContent(report.content);

@@ -200,7 +200,7 @@ test("conversation configures, sends once, collects a member submission and writ
     });
     const { RecordCatalog: Catalog } = await import("#src/server/records/record-catalog.server");
     const cycle = await new Catalog(db).ensureCurrentCycle(actor);
-    await db.weeklyReport.create({
+    const liveFormat = await db.weeklyReport.create({
       data: {
         workspaceId: actor.workspaceId,
         authorId: actor.userId,
@@ -208,7 +208,14 @@ test("conversation configures, sends once, collects a member submission and writ
         settingsId: configured.id,
         kind: "template",
         title: "Live format",
-        content: { tabs: { Summary: { markdown: "Please include evidence links." } } },
+        content: {
+          keyPointPrompts: {
+            team: { text: "Group by research risk", history: [] },
+            personal: { text: "Personal", history: [] },
+          },
+          tabs: { Summary: { markdown: "Please include evidence links." } },
+          schedule: { cancelledYear: cycle.year, cancelledWeek: cycle.week, dismissSend: true },
+        },
       },
     });
     const results = (await Promise.all([
@@ -217,6 +224,12 @@ test("conversation configures, sends once, collects a member submission and writ
     ])) as Array<{ parentId: string; assignmentCount: number }>;
     expect(results[0]!.parentId).toBe(results[1]!.parentId);
     expect(results[0]!.assignmentCount).toBe(1);
+    expect(
+      (await db.weeklyReport.findUniqueOrThrow({ where: { id: liveFormat.id } })).content,
+    ).not.toHaveProperty("schedule");
+    expect(
+      (await db.weeklyReport.findUniqueOrThrow({ where: { id: results[0]!.parentId } })).content,
+    ).not.toHaveProperty("schedule");
     const memberActor = { ...actor, userId: member.id };
     const inbox = (await workflow.execute(memberActor, { type: "inbox" })) as {
       reports: Array<{ id: string }>;
@@ -247,6 +260,9 @@ test("conversation configures, sends once, collects a member submission and writ
     expect(
       await workflow.execute(actor, { type: "status", reportId: results[0]!.parentId }),
     ).toMatchObject({ reports: [{ id: reportId, status: "submitted" }] });
+    expect(
+      await workflow.execute(actor, { type: "sources", reportId: results[0]!.parentId }),
+    ).toMatchObject({ summaryPrompt: "Group by research risk" });
     await workflow.execute(actor, {
       type: "summary",
       reportId: results[0]!.parentId,
@@ -258,6 +274,7 @@ test("conversation configures, sends once, collects a member submission and writ
     expect(summary.content).toMatchObject({
       keyPointExtraction: {
         status: "ready",
+        promptSnapshot: "Group by research risk",
         markdown: expect.stringContaining("Model evaluation complete"),
       },
     });

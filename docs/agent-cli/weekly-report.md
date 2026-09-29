@@ -1,13 +1,16 @@
 # Weekly report
 
-The private weekly-report Agent can complete a collection in its owner's DM.
+The private weekly-report Agent handles collections in its owner's DM or Records side chat.
 Commands use the existing Credential Proxy and Agent HTTPS API, authorized as
 that assistant's owner. Ordinary Agents and other Workspace principals are denied.
 
 ## Discover without a page
 
-- `coforge weekly-report templates`: the owner's template settings, even before
-  the Workspace has a report or cycle. An empty report list is not an empty template catalog.
+- `coforge weekly-report templates`: real Workspace template formats, even before
+  any report or cycle exists. Both chat surfaces use the same catalog. `canManage`
+  marks owned settings; only those entries include recipients and schedule.
+  Other entries are reusable outlines. Ask to create an owned template before
+  configuring or sending them. An empty report list is not an empty template catalog.
 - `coforge weekly-report members`: Workspace members for recipient selection.
 - `coforge weekly-report inbox`: owned formats, team overviews and member reports,
   including drafts. Select the intended week and report explicitly.
@@ -48,17 +51,19 @@ Schedules use Asia/Shanghai, ISO weekdays 1–7, and whole-hour `HH:00` times.
 One-off sending works without enabling a recurring schedule. All send entry
 points serialize on the existing settings row and reuse that week's collection.
 Retries reuse the assignments and retry invitations; later due ticks retry failed invitations too.
-Team synthesis uses `sources`, including for the owner’s own submitted report;
+Team synthesis uses `sources` and its configured `summaryPrompt`, including for the owner’s own submitted report;
 follow `nextCursor` and section `nextOffset` until null to read complete sources. Invitations are canonical
 messages from each recipient's own private assistant, never public-channel notices.
 A missing Computer assignment is reported as `assistant_unconfigured`, not success.
 `notified` means the canonical invitation was persisted; realtime and device push
 follow the existing best-effort messaging contract, not a read receipt.
 
-A clear user request authorizes the corresponding DM operation: selecting a
+A clear user request authorizes the corresponding operation in either chat surface: selecting a
 format, specifying recipients/time, submitting, or writing a summary needs no
 additional page click. Ask about ambiguous targets or missing required fields.
-The existing report side panel retains its preview/Insert interaction.
+Only requested previews and platform Collect drafts use the side-panel Insert interaction.
+Existing pending preview cards remain usable; new user sends and summaries are
+handled by the Agent, without a separate keyword-triggered write path.
 Workspace members may manage their own settings during the current MVP. They
 cannot edit another member's drafts or another owner's configuration.
 
@@ -74,3 +79,15 @@ The integration test verifies creation retries, concurrent sending, private DM
 invitations, member editing/submission, delivered snapshots and summary write-back.
 Deploy the compatible Web backend before upgrading the Computer/Daemon; the
 new CLI actions and assigned skill text require that client upgrade.
+
+On the next Agent launch after upgrading Computer/Daemon, unchanged built-in
+weekly-report skills are refreshed and redundant analysis/review/privacy files
+are retired. Exact historical hashes identify old installs without a management
+marker. Modified or unknown user skills are preserved and may still contain old
+instructions; review those overrides if behavior differs after upgrading.
+
+Manual acceptance: ask the same template question in DM and a report side panel,
+choose a format, send immediately and retry after cancellation, submit member
+notes, then request a team summary. Verify saved page content refreshes, source
+links use submitted copies, custom summary prompts apply, and old Insert cards
+still work. Repeat after upgrading an existing assistant, not only a fresh one.
