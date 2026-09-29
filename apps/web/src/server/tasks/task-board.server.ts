@@ -25,7 +25,6 @@ import { AppError } from "#src/lib/app-error";
 import type { ConversationTaskSubset } from "#src/features/tasks/conversation-task-subset";
 import {
   conversationSignalScopes,
-  messageSignalScope,
   type ConversationRealtime,
   type MessageSignalScope,
 } from "#src/server/conversations/conversation-realtime.server";
@@ -1341,11 +1340,10 @@ export class TaskBoard {
         deliveries: { include: { agent: { select: { computerId: true } } } },
       },
     });
-    const signalScope = await messageSignalScope(
-      this.db,
-      message.conversationId,
-      message.workspaceId,
-    );
+    // A receipt is a server notice, which nobody counts unread: like `signalNotices`, only the
+    // conversation's own channel hears of it, never a sidebar's badge channel. A person assigned
+    // finds it under Mentions in their Activity, told through `activity.changed.v1`.
+    const assignedPerson = message.mentions.find((mention) => mention.kind === "user")?.actorId;
     // A failed notification never rolls back or misreports a committed assignment.
     await Promise.allSettled([
       Promise.resolve().then(() =>
@@ -1353,8 +1351,15 @@ export class TaskBoard {
           conversationId: message.conversationId,
           messageId: message.id,
           sequence: message.sequence,
-          ...signalScope,
         }),
+      ),
+      Promise.resolve().then(() =>
+        assignedPerson
+          ? this.dependencies.realtime?.activityChanged?.({
+              workspaceId: message.workspaceId,
+              userId: assignedPerson,
+            })
+          : undefined,
       ),
       Promise.resolve().then(() => this.dependencies.notifications?.notifyMessage(message.id)),
       this.publishDeliveries(

@@ -1,0 +1,79 @@
+import { expect, test } from "bun:test";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "#src/generated/prisma/client";
+import type {
+  ConversationRealtime,
+  ConversationRealtimeMessage,
+} from "#src/server/conversations/conversation-realtime.server";
+import { enrollGeneralChannel } from "#src/server/conversations/public-channels.server";
+import { TaskBoard } from "#src/server/tasks/task-board.server";
+
+/**
+ * An assignment receipt is a server notice: nobody counts it unread, so its signal goes only to
+ * the conversation's own channel, never to a sidebar's badge channel; a person assigned hears of
+ * their Activity mention through `activity.changed.v1` instead.
+ *
+ * Skipped unless `CHANNEL_TEST_DATABASE_URL` points at local PostgreSQL.
+ */
+const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+
+test.skipIf(!connectionString)(
+  "a Task assigned to a person tells the conversation and the assignee's Activity, not the sidebars",
+  async () => {
+    const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: connectionString! }) });
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const ada = await db.user.create({ data: { username: `ars-ada-${suffix}` } });
+    const bob = await db.user.create({ data: { username: `ars-bob-${suffix}` } });
+    const workspace = await db.workspace.create({
+      data: {
+        slug: `ars-${suffix}`,
+        name: "Assignment receipt signal",
+        members: {
+          create: [
+            { userId: ada.id, role: "owner" },
+            { userId: bob.id, role: "member" },
+          ],
+        },
+      },
+    });
+    try {
+      await enrollGeneralChannel(db, workspace.id);
+      const general = await db.conversation.findFirstOrThrow({
+        where: { workspaceId: workspace.id, channelName: "general" },
+      });
+      const messages: ConversationRealtimeMessage[] = [];
+      const activity: { workspaceId: string; userId: string }[] = [];
+      const realtime: ConversationRealtime = {
+        async messageAvailable(input) {
+          messages.push(input);
+        },
+        async memberChanged() {},
+        async activityChanged(input) {
+          activity.push(input);
+        },
+      };
+      await new TaskBoard(db, { realtime }).execute(
+        { workspaceId: workspace.id, userId: ada.id },
+        {
+          operation: "create",
+          idempotencyKey: crypto.randomUUID(),
+          conversationId: general.id,
+          title: "Review the plan",
+          assignee: `@${bob.username}`,
+        },
+      );
+      const receipt = await db.message.findFirstOrThrow({
+        where: { conversationId: general.id, senderMemberId: null, mentions: { some: {} } },
+      });
+      const receiptSignals = messages.filter((message) => message.messageId === receipt.id);
+      expect(receiptSignals).toEqual([
+        { conversationId: general.id, messageId: receipt.id, sequence: receipt.sequence },
+      ]);
+      expect(activity).toEqual([{ workspaceId: workspace.id, userId: bob.id }]);
+    } finally {
+      await db.workspace.delete({ where: { id: workspace.id } }).catch(() => {});
+      await db.user.deleteMany({ where: { username: { endsWith: suffix } } }).catch(() => {});
+      await db.$disconnect();
+    }
+  },
+);

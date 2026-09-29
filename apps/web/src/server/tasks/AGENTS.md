@@ -28,9 +28,10 @@ contract is `packages/coforge-sdk/src/internal/tasks.ts`.
   pages after the commit. Creation, conversion and assignment post in the
   conversation; claims, status moves and unassignment post in the Task's own
   thread. `unclaim`, `delete`, `amend`, the resource `receipt`, `history`,
-  `list` and no-op writes post nothing. Only the assignment receipt is delivered,
-  pushed and fanned out to unread badges; other notices reach only the
-  conversation's own realtime channel.
+  `list` and no-op writes post nothing. Only the assignment receipt is delivered
+  and pushed, and a person assigned hears of it through `activity.changed.v1`
+  (it is their Activity mention). No notice counts unread, so every notice's
+  message signal reaches only the conversation's own realtime channel.
 - Every Task write also announces the new copies of the Tasks it changed, or
   the ids it deleted, as `task.changed.v1` (`ConversationRealtime.taskChanged`),
   routed like its conversation's messages by `messageSignalScope`: a channel's
