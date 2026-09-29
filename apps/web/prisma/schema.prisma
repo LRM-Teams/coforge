@@ -16,6 +16,7 @@ model Workspace {
   iconContentType        String?
   members                WorkspaceMembership[]
   invitations            WorkspaceInvitation[]
+  joinLinks              WorkspaceJoinLink[]
   computers              WorkspaceComputer[]
   computerRuntimes       ComputerRuntime[]
   modelCatalogs          ComputerModelCatalog[]
@@ -104,6 +105,7 @@ model User {
   pendingMentionActions       PendingMentionAction[]
   sentInvitations             WorkspaceInvitation[]           @relation("WorkspaceInvitationInviter")
   receivedInvitations         WorkspaceInvitation[]           @relation("WorkspaceInvitationInvitee")
+  createdJoinLinks            WorkspaceJoinLink[]
   agents                      Agent[]
   weeklyReportAssistants        WeeklyReportAssistant[]
   weeklyReportAssistantChatSessions WeeklyReportAssistantChatSession[]
@@ -616,6 +618,28 @@ model WorkspaceInvitation {
   @@index([workspaceId, status])
   @@index([inviteeUserId, status])
   @@map("workspace_invitations")
+}
+
+/// A reusable link anyone signed in can open to join the Workspace as an ordinary member (no role).
+/// "Updating" a link revokes it and creates a new one, so the old URL stops working at once.
+model WorkspaceJoinLink {
+  id              String    @id @default(uuid()) @db.Uuid
+  workspaceId     String    @db.Uuid
+  /// 32 random bytes, base64url. Plaintext: owners and admins see the link again.
+  token           String    @unique
+  createdByUserId String    @db.Uuid
+  /// NULL is no use limit.
+  maxUses         Int?
+  useCount        Int       @default(0)
+  /// NULL never expires.
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy       User      @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("workspace_join_links")
 }
 
 model Computer {

@@ -136,7 +136,7 @@ export function generalChannelForCreator(userId: string) {
  * Puts every Workspace human and every public, live Agent in `#general`, creating the channel if
  * the Workspace has none. `#general` is the Workspace-wide channel: nobody leaves it, so anyone
  * whose row was soft-left is back in. Called from the write points that add someone to the
- * Workspace (an accepted invitation, a new Agent); a new Workspace gets it through
+ * Workspace (`admitWorkspaceMember`, a new Agent); a new Workspace gets it through
  * `generalChannelForCreator`, and the 20260924040000 migration brought it back for older ones, so
  * reads never enroll.
  */

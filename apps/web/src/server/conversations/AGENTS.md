@@ -90,7 +90,8 @@ These rules apply to `src/server/conversations/`.
 
 - Every Workspace has a `#general` that every human member and every public,
   live Agent is in. Workspace creation creates it with its creator in it;
-  accepting an invitation, creating a public Agent, and making an Agent public
+  joining the Workspace (an accepted invitation or a join link, both through
+  `admitWorkspaceMember`), creating a public Agent, and making an Agent public
   enroll through `enrollGeneralChannel` or `joinGeneralChannel`, so reads never
   enroll. A private Agent is never in it.
 - Nobody can be a channel admin of `#general`; its members always keep
@@ -145,7 +146,8 @@ These rules apply to `src/server/conversations/`.
 ## Leaving and returning to the Workspace
 
 - Leaving or being removed soft-leaves every conversation (channels and direct
-  conversations) in one write; coming back (`acceptInvitation`) makes the
+  conversations) in one write; coming back (`admitWorkspaceMember`, by an
+  invitation or a join link) makes the
   person's direct conversations and `#general` active again on the same rows,
   read positions kept. Other channels stay left until they join.
 - A direct conversation whose person left stays readable to the other side (a
