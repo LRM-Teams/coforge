@@ -33,7 +33,7 @@ export const agentActivityChannel = (workspaceId: string) => `agent:activity:${w
 export const agentActivityChannelForAgent = (workspaceId: string, agentId: string) =>
   `agent:activity:${workspaceId}:${agentId}`;
 
-/** The avatar popover's row count. */
+/** The Agent card's Recent activity row count. */
 export const RECENT_ACTIVITY_LIMIT = 5;
 
 /**

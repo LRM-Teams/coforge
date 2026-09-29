@@ -15,13 +15,16 @@ import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
 import { agentDisplay, isBusyTone, presentActivityRows } from "./agent-activity-presentation";
 import { RECENT_ACTIVITY_LIMIT } from "./agent-activity";
-import { agentProfileQuery, canManageAgent } from "./profile-panel/agent-profile-queries";
-import type { OpenAgentProfile } from "./profile-panel/open-agent-profile";
+import {
+  agentProfileQuery,
+  canManageAgent,
+} from "#src/features/agents/profile-panel/agent-profile-queries";
+import type { OpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import { runtimeProviderLabel } from "./runtime-provider-display";
 import type { ActivityEntry } from "./agent-activity";
 import { useAgentRecentActivity, useLiveAgentDisplay } from "./workspace-agents-realtime";
 
-const workspaceRoute = getRouteApi("/w/$workspaceSlug");
+const appRoute = getRouteApi("/w/$workspaceSlug");
 
 /** The card's reads may be a few minutes old: live status comes from the realtime store, and a
  * profile edit invalidates the query itself. Re-hovering an Agent does not re-read its profile. */
@@ -86,9 +89,11 @@ function AgentCard({
   // Read here, beside the profile, so the two run side by side; the list itself shows only once
   // the profile says the viewer may see it.
   const activity = useAgentRecentActivity(agentId);
-  const display = useLiveAgentDisplay(agentId);
-  const view = agentDisplay(display);
   const data = profile.data;
+  // The live display once a publication has arrived; until then the profile read's own snapshot,
+  // as the profile panel does.
+  const display = useLiveAgentDisplay(agentId) ?? data?.display;
+  const view = agentDisplay(display);
   const displayName = data?.displayName || name;
   const shownHandle = data?.name ?? handle;
   return (
@@ -113,7 +118,8 @@ function AgentCard({
               </span>
             )}
           </div>
-          {shownHandle && (
+          {/* The handle only when it says something the name does not. */}
+          {shownHandle && shownHandle !== displayName && (
             <p className="truncate font-mono text-xs text-tertiary">@{shownHandle}</p>
           )}
           {profile.isError ? (
@@ -174,7 +180,7 @@ function CardRecentActivity({
   activity: readonly ActivityEntry[];
   onOpenActivity: () => void;
 }) {
-  const timeZone = workspaceRoute.useLoaderData({ select: (data) => data.timeZone });
+  const timeZone = appRoute.useLoaderData({ select: (data) => data.timeZone });
   const closePreview = useClosePreview();
   // The recent-Activity cache is capped already; merging a statement's fragments into rows can
   // still leave more rows than the card shows. The cache is newest first; the card reads top to
@@ -193,7 +199,7 @@ function CardRecentActivity({
           onOpenActivity();
         }}
       >
-        {m.agent_avatar_recent()}
+        {m.agent_card_recent_activity()}
       </Button>
       <ol className="space-y-1.5">
         {rows.map((entry) => (

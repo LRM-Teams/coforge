@@ -47,7 +47,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 
 | detailKind | 上报条件 | 展示 |
 | --- | --- | --- |
-| `tool_end` | Claude 的 `tool_result`、Codex 的 `item/completed`（命令）、Kiro 的 `tool_call_update` 终态、Pi 的 `tool_execution_end`；detail 固定为 “Tool finished” | 可见，写入历史，Activity timeline 展示为一行状态行（主标题 Working，副标题“Tool finished”），不出现在头像 popover |
+| `tool_end` | Claude 的 `tool_result`、Codex 的 `item/completed`（命令）、Kiro 的 `tool_call_update` 终态、Pi 的 `tool_execution_end`；detail 固定为 “Tool finished” | 可见，写入历史，Activity timeline 展示为一行状态行（主标题 Working，副标题“Tool finished”），也出现在 Agent 卡片的 Recent activity |
 | `thinking_end` | 由 Daemon 从归一化事件流中统一推导（`ActivityTrajectory`）：一次 thinking 运行开始后，下一个 text-delta、tool-start、tool-end、compaction activity、turn 结束或 error 到来时上报一次；对每个 provider 都成立，不依赖各 provider 的专属信号；detail 固定为 “Thinking finished” | 同 `tool_end`，副标题“Thinking finished” |
 | `compacting_context` | Claude 的 `system/status=compacting`（原先误报为 `runtime_progress`）；Kiro 的 ACP `compaction_update`（`status=in_progress`）；Pi/CoForge 的 SDK `compaction_start` 事件；Codex 无对应信号。自 2026-09-18 起，provider 只上报归一化的 `compaction-started`/`compaction-finished`/`compaction-interrupted`/`progress` 信号（`packages/agent/src/contract.ts`），由 Daemon core（`packages/daemon/src/agent-runtime/compaction-tracker.ts`）统一去重（同一次压缩只报一次“开始”）并决定是否上报 Activity | 可见，写入历史，文案“Compacting context…” |
 | `compaction_finished` | 上述 provider 各自的结束信号（Claude 的 `compact_boundary`；Kiro 的 `compaction_update` 转为 `completed`；Pi/CoForge 的 `compaction_end`，未被中止时）。Daemon core 还会在压缩仍处于打开状态时，从恢复输出（文本/thinking）、新工具调用或 turn 结束推断出压缩已结束，并在这些信号自身的 Activity 之前上报 | 同 `tool_end`，副标题“Compaction finished”（此前仅续租、不写入历史） |

@@ -43,7 +43,7 @@ These rules apply to `src/features/agents/`.
   `observedAtMs`, and the CoForge `level` extension in the Agent-owned timeline
   in this directory.
 - Activity content and labels are **not internationalized**. Use plain English
-  activity labels consistently in the timeline, avatar hover, and chat header.
+  activity labels consistently in the timeline, the Agent card, and chat header.
   Do not add Activity label translation keys. Navigation, tabs, and general UI
   remain localized.
 - Preserve provider text, thinking, errors, and warnings in their original

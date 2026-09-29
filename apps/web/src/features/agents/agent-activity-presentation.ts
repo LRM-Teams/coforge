@@ -39,11 +39,12 @@ export type ActivityRow = {
  * any other busy frame). Current daemons send their own secondary text in `detail` ("Tool
  * finished", "Thinking finished"); this map's `label` is only the fallback wording for an empty
  * `detail` (older daemons, and rows stored before the daemon started sending text), and its
- * `recentTone` the dot the recent-activity list gives the row when it differs from the frame's own
- * (a finished compaction reads as the Agent settling back, not another busy step). `runtime_progress` has no entry here — it stays a
- * content-free liveness filler, never persisted or shown in the timeline (`mergeAgentActivity`
- * drops it), so falling through to its empty raw
- * `detail` below (no secondary text at all) is correct for it too.
+ * `recentTone` the dot the Agent card's Recent activity gives the row when it differs from the
+ * frame's own (a finished compaction reads as the Agent settling back, not another busy step).
+ * `runtime_progress` has no entry here — it stays a content-free liveness filler, never
+ * persisted or shown in the timeline (`decodeActivityObservation` drops it, `mergeAgentActivity`
+ * again as a guard), so falling through to its empty raw `detail` below (no secondary text at
+ * all) is correct for it too.
  */
 const FINISHED_STATUS: Readonly<Record<string, { label: string; recentTone?: Tone }>> = {
   [AGENT_ACTIVITY_DETAIL_KIND.TOOL_END]: { label: "Tool finished" },
@@ -56,7 +57,7 @@ const FINISHED_STATUS: Readonly<Record<string, { label: string; recentTone?: Ton
 };
 
 /** Working and thinking are the busy tones: their dots pulse. */
-export function isBusyTone(tone: Tone): boolean {
+export function isBusyTone(tone: StatusTone): boolean {
   return tone === "working" || tone === "thinking";
 }
 
@@ -339,7 +340,7 @@ export function agentDisplay(display?: AgentDisplaySnapshot, options?: { stopped
     label,
     isOnline: kind !== "offline",
     tone: kind === "online" ? ("idle" as const) : kind,
-    pulse: kind === "working" || kind === "thinking",
+    pulse: isBusyTone(kind),
     ...(options?.stopped === true && kind === "offline"
       ? { statusDetail: STOPPED_STATUS_DETAIL }
       : {}),
