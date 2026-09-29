@@ -10,7 +10,11 @@ owning conversation and is unique with `conversationId`.
 
 Agent→Web send retries carry a stable `idempotencyKey`. For the MVP, Web keeps the
 request result in bounded, expiring Redis idempotency state and returns that
-same result when the same authorized sender retries the request. Redis loss may
+same result when the same authorized sender retries the request. An Agent send
+with `reconcileOnly: true` reads that state without claiming it and without the
+freshness check: a completed record answers `committed` with its `messageId`
+(`receiptComplete: false`), none answers `not_found`, and a request still
+processing answers 409. Redis loss may
 lose this short-term deduplication state; PostgreSQL persists no idempotency
 key, and this decision does not add a Prisma model, column, migration, or
 unique constraint for request idempotency.

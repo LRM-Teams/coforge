@@ -1,7 +1,9 @@
 import type {
   AgentHistoryResponse,
   AgentSearchResponse,
-  AgentSendResponse,
+  AgentSendCommittedResponse,
+  AgentSendDecisionResponse,
+  AgentSendReconciliationResponse,
   AgentResolveResponse,
   AgentReactionResponse,
   AgentMessage,
@@ -46,6 +48,7 @@ import type {
   AgentReminderOperationRequest,
   AgentReminderOperationResponse,
 } from "@lrm/coforge-sdk/internal";
+import { AGENT_SEND_REQUEST_TIMEOUT_MS } from "@lrm/coforge-sdk/internal";
 import { AgentTransportError } from "./agent-transport-error";
 import { AgentUserInfoRequestError } from "./agent-user-info-request-error";
 import { AgentProfileRequestError } from "./agent-profile-request-error";
@@ -65,6 +68,7 @@ import {
   readAgentResponseJson,
   readUpstreamErrorCode,
   validateAgentMessageArrayShape,
+  validateAgentSendReconciliationShape,
   validateAgentSendResponseShape,
   type AgentHttpInput,
   type HttpFetch,
@@ -75,7 +79,10 @@ import {
 export interface AgentMessageHttpClient {
   requestRead?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentHistoryResponse>;
   requestSearch?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentSearchResponse>;
-  requestSend?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentSendResponse>;
+  requestSend?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentSendDecisionResponse>;
+  requestSendReconciliation?(
+    input: AgentHttpInput<AgentSendReconciliationRequest>,
+  ): Promise<AgentSendReconciliationResponse>;
   requestResolve?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentResolveResponse>;
   requestReaction?(
     input: AgentHttpInput<AgentMessageRequest> & { method: "POST" | "DELETE" },
@@ -127,15 +134,22 @@ export interface AgentMessageHttpClient {
  * `AgentThreadAttentionResponse`) is adapted into this shape by `agentMessage`; it is no longer
  * `CloudAgentMessageResponse & {...}` now that the shared envelope is gone.
  */
+/** What a `reconcileOnly` request names: the send's key and target, in its Agent's scope. */
+export type AgentSendReconciliationRequest = Pick<
+  AgentMessageRequest,
+  "idempotencyKey" | "agentId" | "workspaceId" | "target"
+>;
+
 export type AgentMessageTransportResponse = {
   idempotencyKey: string;
   accepted: boolean;
   attentionCount: number;
   messageId?: string;
   messages: AgentMessage[];
-  /** `send` only: Raft's send contract (state/decision/reason/counts). */
-  state?: "sent" | "held";
-  decision?: AgentSendResponse["decision"];
+  /** `send` only: Raft's send contract (state/decision/reason/counts); `committed` is a send whose
+   * lost answer reconciliation confirmed. */
+  state?: AgentSendDecisionResponse["state"] | AgentSendCommittedResponse["state"];
+  decision?: AgentSendDecisionResponse["decision"];
   reason?: string;
   producerFactId?: string;
   availableActions?: string[];
@@ -156,7 +170,7 @@ export type AgentMessageTransportResponse = {
   /** `send` only: pending messages a bypassed hold chose not to review; empty otherwise. */
   recentUnread?: AgentMessage[];
   /** `send` only: the mentions a sent message did not deliver, as the server reported them. */
-  pendingMentionActions?: AgentSendResponse["pendingMentionActions"];
+  pendingMentionActions?: AgentSendDecisionResponse["pendingMentionActions"];
   unresolvedMentionHandles?: string[];
 };
 
@@ -192,7 +206,9 @@ export function adaptAgentSearchResponse(
  * Adapts the send route's response into the shape `DaemonRuntime` consumes. Raft's own
  * `state`/`decision` are carried through unchanged; `messages` is the held context window.
  */
-export function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransportResponse {
+export function adaptAgentSendResponse(
+  response: AgentSendDecisionResponse,
+): AgentMessageTransportResponse {
   return {
     idempotencyKey: response.idempotencyKey,
     accepted: response.state === "sent",
@@ -214,6 +230,21 @@ export function adaptAgentSendResponse(response: AgentSendResponse): AgentMessag
     recentUnread: response.recentUnread,
     pendingMentionActions: response.pendingMentionActions,
     unresolvedMentionHandles: response.unresolvedMentionHandles,
+  };
+}
+
+/** A send confirmed by reconciliation, in the shape `DaemonRuntime` consumes: accepted, with its
+ * message id and no receipt (no held window, no recent unread, no mention report). */
+export function adaptAgentSendCommittedResponse(
+  response: AgentSendCommittedResponse,
+): AgentMessageTransportResponse {
+  return {
+    idempotencyKey: response.idempotencyKey,
+    accepted: true,
+    attentionCount: 0,
+    messageId: response.messageId,
+    messages: [],
+    state: "committed",
   };
 }
 
@@ -280,6 +311,8 @@ export const createAgentMessageHttpClient = (
     getAgentJson(httpClient, {
       ...keys,
       what: "agent read",
+      // A read also resolves a send's short thread target, so it shares the send's deadline.
+      timeoutMs: AGENT_SEND_REQUEST_TIMEOUT_MS,
       query: {
         target: request.target,
         idempotencyKey: request.idempotencyKey,
@@ -316,6 +349,7 @@ export const createAgentMessageHttpClient = (
       {
         method: "POST",
         headers: agentHeaders(keys, true),
+        signal: AbortSignal.timeout(AGENT_SEND_REQUEST_TIMEOUT_MS),
         // Raft's `agentApiSendV2BodySchema` field names (1.0.32 bundle 16728-16744): the idempotency
         // key is `idempotencyKey`, `sendDraft` is declared when this
         // send is the resend of a held draft, and `mentions` is the structured list. Raft also
@@ -338,10 +372,35 @@ export const createAgentMessageHttpClient = (
       "agent send",
     );
     await assertAgentResponseOk(response, "agent send");
-    return readAgentResponseJson<AgentSendResponse>(
+    return readAgentResponseJson<AgentSendDecisionResponse>(
       response,
       "agent send",
       validateAgentSendResponseShape,
+    );
+  },
+  /** Raft 1.0.38's `reconcileOnly` request on the send route: it asks only whether this key already
+   * committed, so it carries the key and the target and nothing that could send or hold. */
+  async requestSendReconciliation({ url, request, ...keys }) {
+    const response = await fetchAgentResponse(
+      httpClient,
+      url,
+      {
+        method: "POST",
+        headers: agentHeaders(keys, true),
+        signal: AbortSignal.timeout(AGENT_SEND_REQUEST_TIMEOUT_MS),
+        body: JSON.stringify({
+          idempotencyKey: request.idempotencyKey,
+          target: request.target,
+          reconcileOnly: true,
+        }),
+      },
+      "agent send reconciliation",
+    );
+    await assertAgentResponseOk(response, "agent send reconciliation");
+    return readAgentResponseJson<AgentSendReconciliationResponse>(
+      response,
+      "agent send reconciliation",
+      validateAgentSendReconciliationShape,
     );
   },
   requestEvents: ({ request, ...keys }) =>

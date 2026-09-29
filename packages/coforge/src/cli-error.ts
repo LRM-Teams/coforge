@@ -1,3 +1,5 @@
+import type { AgentProxyFailureDetails } from "@lrm/coforge-sdk/internal";
+
 /**
  * A typed failure the Agent CLI can render consistently: a short message plus the diagnostics an
  * Agent needs to decide whether to retry, wait, or ask a person — never a bare, single-line
@@ -114,7 +116,23 @@ export function renderCliErrorText(error: CliError): string {
   if (error.draftSaved !== undefined) lines.push(`Draft saved: ${error.draftSaved ? "yes" : "no"}`);
   if (error.suggestedNextAction !== undefined)
     lines.push(`Next action: ${error.suggestedNextAction}`);
+  const discarded = discardedDraftContent(error.details);
+  if (discarded !== undefined)
+    lines.push(
+      "The discarded draft body is no longer stored anywhere; this is its last copy:",
+      "---",
+      discarded.replace(/\n$/u, ""),
+      "---",
+    );
   return lines.join("\n");
+}
+
+/** `SEND_DRAFT_EXPIRED`'s `details.discarded_draft.content` (the proxy contract's
+ * `AgentProxyFailureDetails`): the only copy of an expired draft's body, which text mode prints
+ * last (JSON mode carries it in `details` as it is). */
+function discardedDraftContent(details: unknown): string | undefined {
+  const content = (details as AgentProxyFailureDetails | undefined)?.discarded_draft?.content;
+  return typeof content === "string" ? content : undefined;
 }
 
 export function renderCliErrorJson(error: CliError): string {

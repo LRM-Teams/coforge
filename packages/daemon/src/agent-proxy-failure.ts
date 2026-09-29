@@ -7,35 +7,18 @@ import { AgentTaskRequestError } from "#src/connection/agent-task-request-error"
 import { AgentUpstreamRefusalError } from "#src/connection/agent-upstream-refusal-error";
 import { AgentWeeklyReportRequestError } from "#src/connection/agent-weekly-report-request-error";
 import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
+import {
+  AgentSendVerdictError,
+  type AgentSendVerdict,
+} from "#src/daemon-runtime/agent-send-verdict";
+
+import type { AgentProxyFailureBody, AgentProxyFailureClass } from "@lrm/coforge-sdk/internal";
 
 /** Response header carrying the same correlation id as the JSON error body. */
 export const AGENT_PROXY_CORRELATION_HEADER = "x-coforge-correlation-id";
 
-export type AgentProxyFailureClass =
-  | AgentTransportFailureClass
-  | "local_precondition"
-  | "request_validation"
-  | "unclassified";
-
-export type AgentProxyFailureBody = {
-  error: string;
-  code: string;
-  detail?: string;
-  suggested_next_action?: string;
-  proxy: {
-    layer: "local_daemon_proxy";
-    correlation_id: string;
-    route_family: string;
-    failure_class: AgentProxyFailureClass;
-    cause_code: string;
-    upstream_layer?: string;
-    upstream_status?: number;
-    response_started: boolean;
-    response_complete: boolean;
-    /** Only ever set for `failure_class: "local_precondition"`; see `AgentPreflightError.draftSaved`. */
-    draft_saved?: boolean;
-  };
-};
+// The contract itself lives in the SDK, which the CLI reads it through.
+export type { AgentProxyFailureBody, AgentProxyFailureClass };
 
 export type AgentProxyClassifiedFailure = {
   status: number;
@@ -89,7 +72,37 @@ function boundedDetail(message: string): string {
  */
 export function classifyAgentProxyFailure(
   error: unknown,
-  context: { method: string; path: string; routeFamily: string; agentId: string; redact?: boolean },
+  context: ProxyFailureContext,
+): AgentProxyClassifiedFailure {
+  // A judged send is classified by the failure that caused it; the verdict is what the daemon
+  // itself knows about it. A verdict carries nothing from upstream, so reviewer isolation keeps it.
+  const judged = error instanceof AgentSendVerdictError ? error : undefined;
+  const classified = classifyFailure(judged ? judged.cause : error, context);
+  const verdict = judged?.verdict ?? (error instanceof AgentPreflightError ? error.verdict : {});
+  applyVerdict(classified.body, verdict);
+  if (error instanceof AgentPreflightError && error.details)
+    classified.body.details = error.details;
+  return classified;
+}
+
+type ProxyFailureContext = {
+  method: string;
+  path: string;
+  routeFamily: string;
+  agentId: string;
+  redact?: boolean;
+};
+
+function applyVerdict(body: AgentProxyFailureBody, verdict: AgentSendVerdict): void {
+  if (verdict.retryable !== undefined) body.retryable = verdict.retryable;
+  if (verdict.suggestedNextAction !== undefined)
+    body.suggested_next_action = verdict.suggestedNextAction;
+  if (verdict.draftSaved !== undefined) body.proxy.draft_saved = verdict.draftSaved;
+}
+
+function classifyFailure(
+  error: unknown,
+  context: ProxyFailureContext,
 ): AgentProxyClassifiedFailure {
   const correlationId = crypto.randomUUID();
 
@@ -105,7 +118,6 @@ export function classifyAgentProxyFailure(
       upstreamStatus?: number;
       responseStarted?: boolean;
       responseComplete?: boolean;
-      draftSaved?: boolean;
       /** Log only: the upstream body's own `code`, which explains a refusal that the caller is
        * deliberately not shown the internals of. Never enters `body`. */
       upstreamCode?: string;
@@ -127,7 +139,6 @@ export function classifyAgentProxyFailure(
           : {}),
         response_started: options.responseStarted ?? false,
         response_complete: options.responseComplete ?? false,
-        ...(options.draftSaved !== undefined ? { draft_saved: options.draftSaved } : {}),
       },
     };
     return {
@@ -157,7 +168,6 @@ export function classifyAgentProxyFailure(
       topLevelCode: error.code,
       responseStarted: false,
       responseComplete: false,
-      draftSaved: error.draftSaved,
     });
 
   if (context.redact)

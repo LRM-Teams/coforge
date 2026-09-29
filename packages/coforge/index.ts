@@ -9,6 +9,7 @@ import {
   parseMentionSelector,
   RFC_UUID_PATTERN,
   type AgentMessageRecord,
+  type AgentMessageResponse,
   type AgentReminderOperationResponse,
   type ChannelCommand,
   type LocalReminderRequest,
@@ -61,6 +62,7 @@ import {
   formatReadWindow,
   formatSearchResults,
   formatSendSuccess,
+  formatSendCommitted,
   formatTaskWorkflowHint,
   formatUndeliveredMentions,
   senderPendingMention,
@@ -128,6 +130,8 @@ export type MessageInvocation =
       command: "send";
       target: string;
       sendDraft?: boolean;
+      /** `--send-draft` only: refuse unless the draft still belongs to the send with this key. */
+      expectedDraftKey?: string;
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
       json?: boolean;
@@ -265,6 +269,7 @@ export type MessageTransport = {
     body?: string,
     options?: {
       sendDraft?: boolean;
+      expectedDraftKey?: string;
       continueAnyway?: boolean;
       freshnessContextMode?: "withheld";
       attachmentIds?: string[];
@@ -565,6 +570,7 @@ export function parseArgs(
     } else if (args[1] === "send") {
       let target: string | undefined;
       let sendDraft = false;
+      let expectedDraftKey: string | undefined;
       let continueAnyway = false;
       let json = false;
       let reviewerIsolation = reviewerIsolationFromEnvironment();
@@ -574,6 +580,8 @@ export function parseArgs(
       for (let index = 2; index < args.length; index++) {
         if (args[index] === "--target" && args[index + 1]) target = args[++index];
         else if (args[index] === "--send-draft") sendDraft = true;
+        else if (args[index] === "--expected-draft-key" && args[index + 1])
+          expectedDraftKey = args[++index];
         else if (args[index] === "--anyway") continueAnyway = true;
         else if (args[index] === "--reviewer-isolation") reviewerIsolation = true;
         else if (args[index] === "--json") json = true;
@@ -621,6 +629,17 @@ export function parseArgs(
           }),
           outputMode,
         );
+      if (expectedDraftKey !== undefined && !sendDraft)
+        throw withOutputMode(
+          new CliError({
+            code: "EXPECTED_DRAFT_KEY_REQUIRES_SEND_DRAFT",
+            message: "--expected-draft-key can only be used together with --send-draft.",
+            retryable: false,
+            draftSaved: false,
+            suggestedNextAction: NO_MESSAGE_SENT_NEXT_ACTION,
+          }),
+          outputMode,
+        );
       const mentions = rawMentions.length
         ? parseMentionSelectors(rawMentions, outputMode)
         : undefined;
@@ -629,6 +648,7 @@ export function parseArgs(
           command: "send",
           target,
           ...(sendDraft ? { sendDraft: true } : {}),
+          ...(expectedDraftKey !== undefined ? { expectedDraftKey } : {}),
           ...(continueAnyway ? { continueAnyway: true } : {}),
           ...(reviewerIsolation ? { freshnessContextMode: "withheld" as const } : {}),
           ...(json ? { json: true as const } : {}),
@@ -639,7 +659,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create --target <target> --title <title>... [--assignee @handle] [--creates-resource] | coforge task claim --target <target> (--number <n> | --message-id <id>)... [--reviewer-isolation] | coforge task convert|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --idempotency-key <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json] | coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge channel info <target> | coforge channel members <target> | coforge channel join --target '#channel' | coforge channel leave --target '#channel' | coforge channel create --name <name> [--description <text>] [--json] | coforge channel update --target '#channel' [--name <name>] [--description <text>] [--json] | coforge channel lifecycle archive|unarchive --target '#channel' [--json] | coforge channel add-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge channel remove-member --target '#channel' (--user @handle | --agent @handle) [--json] | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check [--target @user|#channel] | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft [--expected-draft-key <key>]] [--anyway] [--reviewer-isolation] [--json] [--attachment-id <uuid>]... [--mention human:<uuid>:<handle>|agent:<uuid>:<handle>]... [--target-confirmed] | coforge message resolve <message-id> | coforge message react --message-id <id> --emoji <emoji> [--remove] | coforge task list (--target <target> | --mine) [--status all|todo|in_progress|in_review|done|closed] | coforge task create --target <target> --title <title>... [--assignee @handle] [--creates-resource] | coforge task claim --target <target> (--number <n> | --message-id <id>)... [--reviewer-isolation] | coforge task convert|unclaim|assign|unassign|update|amend|history|delete|receipt ... | coforge attachment view [--id] <id> --output <path> [--json] | coforge attachment upload --path <file> (--target <target>|--channel <target>) [--mime-type <type>] [--json] | coforge weekly-report context --subject-type report|cycle --subject-id <uuid> | coforge weekly-report list [--cycle-id <uuid>] [--cursor <uuid>] [--limit <n>] | coforge weekly-report read --report-id <uuid> --section <name> [--max-characters <n>] | coforge weekly-report-collect submit-pack|submit-empty|submit-failure --run-id <uuid> --idempotency-key <uuid> [--markdown <path>] [--reason <text>] | coforge action prepare --target <target> | coforge manual get <topic> [--intent <text>] [--reason <text>] | coforge manual search \"<keywords>\" [--intent <text>] [--reason <text>] | coforge whoami [--json] | coforge version [--json] | coforge user info <name> [--json] | coforge profile show [<target>] [--json] | coforge profile update [--display-name <text>] [--description <text>] [--json] | coforge mention pending [--json] | coforge mention notify <resolution-id>... [--json] | coforge mention add <resolution-id>... [--json]",
   );
 }
 
@@ -1377,6 +1397,7 @@ export async function run(args: readonly string[], transport: MessageTransport):
     try {
       result = await transport.send(invocation.target, body, {
         sendDraft: invocation.sendDraft,
+        expectedDraftKey: invocation.expectedDraftKey,
         continueAnyway: invocation.continueAnyway,
         freshnessContextMode: invocation.freshnessContextMode,
         attachmentIds: invocation.attachmentIds,
@@ -1408,6 +1429,17 @@ export async function run(args: readonly string[], transport: MessageTransport):
         ),
         outputMode,
       );
+    if (isCommittedSend(result))
+      return invocation.json
+        ? JSON.stringify({
+            state: "committed",
+            target: invocation.target,
+            messageId: result.messageId,
+            idempotencyKey: result.idempotencyKey,
+            reconciliation: true,
+            receiptComplete: false,
+          })
+        : formatSendCommitted(invocation.target, result.messageId);
     const sent = result as {
       messageId?: string;
       recentUnread?: AgentMessageRecord[];
@@ -1665,6 +1697,16 @@ function formatMessageResolve(result: unknown): string {
 function formatReaction(messageId: string, emoji: string, remove: boolean): string {
   const shortId = messageId.slice(0, 8);
   return `Reaction ${emoji} ${remove ? "removed from" : "added to"} message ${shortId}.`;
+}
+
+/** A send whose lost answer the daemon confirmed by its key: only its message id is known. */
+type CommittedSendResult = Pick<AgentMessageResponse, "messageId" | "idempotencyKey"> & {
+  state: "committed";
+};
+
+function isCommittedSend(result: unknown): result is CommittedSendResult {
+  if (!result || typeof result !== "object") return false;
+  return (result as { state?: unknown }).state === "committed";
 }
 
 function isHeldSend(result: unknown): result is HeldSendResult {

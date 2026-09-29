@@ -91,8 +91,39 @@ export type AgentSearchResponse = {
   results: AgentMessage[];
 };
 
-/** Response for the send route (POST /api/agent/v1/messages); Raft 1.0.32's own send contract. */
-export type AgentSendResponse = {
+/**
+ * Response for the send route (POST /api/agent/v1/messages), Raft 1.0.38's send contract: a sent or
+ * held send, or — for a `reconcileOnly` request — whether the idempotency key already committed.
+ */
+export type AgentSendResponse =
+  | AgentSendDecisionResponse
+  | AgentSendCommittedResponse
+  | AgentSendNotFoundResponse;
+
+/** The answer to a `reconcileOnly` request: whether this idempotency key already committed. */
+export type AgentSendReconciliationResponse =
+  | AgentSendCommittedResponse
+  | AgentSendNotFoundResponse;
+
+/** A `reconcileOnly` answer: this key's send was committed. Only the message id is known — the
+ * original response is gone, so its delivery receipt (mention reports, recent unread) is not. */
+export type AgentSendCommittedResponse = {
+  idempotencyKey: string;
+  state: "committed";
+  reconciliation: true;
+  receiptComplete: false;
+  messageId: string;
+};
+
+/** A `reconcileOnly` answer: nothing was committed under this key, so replaying it is safe. */
+export type AgentSendNotFoundResponse = {
+  idempotencyKey: string;
+  state: "not_found";
+  reconciliation: true;
+};
+
+/** A send the server decided: sent, or held by the freshness check. */
+export type AgentSendDecisionResponse = {
   idempotencyKey: string;
   state: "sent" | "held";
   decision: "forward" | "bypass" | "local_hold" | "syncing_hold";

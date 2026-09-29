@@ -1626,6 +1626,49 @@ test("a local precondition failure (missing API key, no held draft, ...) is a cl
   });
 });
 
+test("a send forwards --expected-draft-key and refuses a blank one before the runtime", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async (_context, request) => {
+        requests.push(request as Record<string, unknown>);
+        return {};
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const post = (payload: Record<string, unknown>) =>
+    fetch(proxy.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        idempotencyKey: "request-1",
+        operation: "send",
+        target: "@ada",
+        ...payload,
+      }),
+    });
+
+  expect((await post({ sendDraft: true, expectedDraftKey: "key-1" })).status).toBe(200);
+  expect((await post({ sendDraft: true, expectedDraftKey: "" })).status).toBe(400);
+  // Only the daemon may ask the server to reconcile; a caller's flag never reaches the runtime.
+  expect((await post({ content: "hi", reconcileOnly: true })).status).toBe(200);
+
+  // Only `--send-draft` has a draft to check a key against: refused at the boundary, as the
+  // runtime's local precondition contract, before the runtime runs.
+  const misplaced = await post({ content: "hi", expectedDraftKey: "key-1" });
+  expect(misplaced.status).toBe(400);
+  expect(await misplaced.json()).toMatchObject({
+    code: "EXPECTED_DRAFT_KEY_REQUIRES_SEND_DRAFT",
+    proxy: { failure_class: "local_precondition", draft_saved: false },
+  });
+
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toMatchObject({ sendDraft: true, expectedDraftKey: "key-1" });
+  expect(requests[1]).not.toHaveProperty("reconcileOnly");
+});
+
 test("every route forwards the token-bound context and Agent API key to its runtime handler", async () => {
   const calls: Record<string, { context: string; agentApiKey?: string }> = {};
   const proxy = startAgentProxy({

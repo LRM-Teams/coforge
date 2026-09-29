@@ -35,7 +35,7 @@ export const MANUAL_TOPICS: readonly AgentManualTopic[] = [
     slug: "attachments",
     title: "Attachments and send flags",
     summary:
-      "Download and upload attachments, --attachment-id / --mention / --target-confirmed / --anyway, and what Draft saved: yes means.",
+      "Download and upload attachments, --attachment-id / --mention / --target-confirmed / --anyway / --expected-draft-key, and what Retryable: yes and Draft saved: yes mean.",
     body: attachmentsBody,
   },
   {

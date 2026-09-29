@@ -106,6 +106,23 @@ test("models the send route's state discriminant and held context", () => {
   expect(bypassed.heldMessages).toBeUndefined();
 });
 
+test("models the answers to a reconcileOnly send: committed without a receipt, or not_found", () => {
+  const committed: AgentSendResponse = {
+    idempotencyKey: "request-send-lost",
+    state: "committed",
+    reconciliation: true,
+    receiptComplete: false,
+    messageId: "message-5",
+  };
+  const notFound: AgentSendResponse = {
+    idempotencyKey: "request-send-lost",
+    state: "not_found",
+    reconciliation: true,
+  };
+  expect(committed.state === "committed" && committed.messageId).toBe("message-5");
+  expect(notFound.state).toBe("not_found");
+});
+
 test("models the resolve route's own response shape", () => {
   const response: AgentResolveResponse = {
     idempotencyKey: "request-resolve",
