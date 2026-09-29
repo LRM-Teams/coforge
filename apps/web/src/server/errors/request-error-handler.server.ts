@@ -34,6 +34,9 @@ export function handleRequestError(error: unknown): HandledRequestError {
       // A private Agent's direct conversation is scoped to its creator: the caller can
       // see the Agent but its DM stays read-only for them, so this is a 403, not a 404.
       AGENT_DM_RESTRICTED: 403,
+      // The person on the other side of a direct message is not a member of the Workspace (never
+      // was, or left): nothing new is sent to them.
+      DM_PEER_NOT_IN_WORKSPACE: 403,
       // The server could not reach this browser's push service: the caller should
       // retry another way, not treat it as a permanent failure.
       PUSH_SERVICE_UNREACHABLE: 503,

@@ -9,7 +9,10 @@ import {
 } from "#src/server/attachments/attachment-upload-session.server";
 import { getFileStorage } from "#src/server/files/file-storage.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
-import { targetResolutionStatus } from "#src/server/agents/agent-target-status.server";
+import {
+  dmPeerNotInWorkspaceResponse,
+  targetResolutionStatus,
+} from "#src/server/agents/agent-target-status.server";
 
 const UUID_PATTERN = UUID_LIKE_PATTERN;
 
@@ -87,6 +90,8 @@ export async function handleAttachmentUploadSessionCreate(
     );
     conversationId = resolved.conversationId;
   } catch (error) {
+    const refused = dmPeerNotInWorkspaceResponse(error, parentTarget);
+    if (refused) return refused;
     return errorResponse(
       "UPLOAD_FORBIDDEN",
       "target is not accessible",
@@ -122,7 +127,7 @@ export const Route = createFileRoute("/api/agent/v1/attachment-upload-sessions/"
         const storage = await getFileStorage();
         return handleAttachmentUploadSessionCreate(request, principal, {
           resolveTarget: (workspaceId, agentId, target) =>
-            repository.resolveAgentTarget(workspaceId, agentId, target),
+            repository.resolveAgentSendTarget(workspaceId, agentId, target),
           create: (input) => createAttachmentUploadSession(db, storage, input),
         });
       },

@@ -59,7 +59,7 @@ export class DirectConversations {
       select: { id: true },
     });
     if (!own) throw new AppError("ACCESS_DENIED");
-    const conversation = await this.conversations.getOrCreateUserAgent(
+    const conversation = await this.conversations.openUserAgent(
       workspaceId,
       viewerId,
       peer.agentId,

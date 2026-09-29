@@ -16,15 +16,26 @@ import { DirectConversations } from "#src/server/conversations/direct-conversati
 import { PrismaWorkspaceMemberDirectoryStore } from "#src/server/workspaces/member-directory-store.server";
 import { WorkspaceMemberDirectory } from "#src/server/workspaces/member-directory.server";
 import { TaskBoard } from "#src/server/tasks/task-board.server";
+import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import { RedisClient } from "bun";
+import { RedisMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
+import { SendDirectMessage } from "#src/server/conversations/direct-message.server";
+import { handleAgentMessagesPost } from "#src/routes/api/agent/v1/messages";
+import { handleAgentAttachmentUpload } from "#src/routes/api/agent/v1/attachments/index";
+import { handleAttachmentUploadSessionCreate } from "#src/routes/api/agent/v1/attachment-upload-sessions/index";
+
+type Person = { id: string; username: string };
 
 /**
  * Leaving a Workspace, or being removed from it, ends a person's memberships but never their
  * history: what they wrote stays readable under their name, and nobody still in the Workspace
  * sees them as a member. Drives the real services and Prisma stores against local PostgreSQL.
  *
- * Skipped unless `CHANNEL_TEST_DATABASE_URL` points at local PostgreSQL.
+ * Skipped unless `CHANNEL_TEST_DATABASE_URL` points at local PostgreSQL; the Agent send test also
+ * needs `CHANNEL_TEST_REDIS_URL` for request records.
  */
 const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+const redisUrl = Bun.env.CHANNEL_TEST_REDIS_URL;
 
 // Every send goes through request idempotency; these tests store each request once.
 const passThrough: MessageRequestIdempotency = { execute: (_scope, persist) => persist() };
@@ -152,6 +163,11 @@ test.skipIf(!connectionString)(
         channelId: team.id,
         body: "back on it",
       });
+      const history = await channels.open(workspace.id, owner.id, team.id);
+      expect(history.messages.at(-1)).toMatchObject({
+        body: "back on it",
+        senderHandle: bob.username,
+      });
     } finally {
       await teardown(db, workspace.id, [owner.id, bob.id]);
     }
@@ -233,6 +249,212 @@ test.skipIf(!connectionString)(
       expect(list.conversations.map((row) => row.conversationId).sort()).toEqual(
         [withOwner.conversationId, withHelper.conversationId].sort(),
       );
+    } finally {
+      await teardown(db, workspace.id, [owner.id, bob.id]);
+    }
+  },
+);
+
+const createAgent = (db: PrismaClient, workspaceId: string, owner: Person) =>
+  db.agent.create({
+    data: {
+      workspaceId,
+      ownerId: owner.id,
+      name: `helper-${owner.username}`,
+      displayName: "Helper",
+      runtimeConfig: {},
+    },
+  });
+
+/** Bob's own Agent, with one direct message from Bob it has not read yet. */
+async function unreadAgentDirectMessage(db: PrismaClient, workspaceId: string, bob: Person) {
+  const helper = await createAgent(db, workspaceId, bob);
+  const repo = new PrismaDirectConversationRepository(db);
+  const opened = await repo.memberForUser(workspaceId, bob.id, helper.id);
+  const sent = await repo.sendMessage(
+    opened.conversationId,
+    opened.senderMemberId,
+    bob.id,
+    "please look",
+  );
+  return { repo, helper, conversationId: opened.conversationId, sent };
+}
+
+test.skipIf(!connectionString)(
+  "an Agent still recovers, reads and marks read a direct message from someone who left",
+  async () => {
+    const { db, directory, workspace, owner, bob } = await setup();
+    try {
+      const { repo, helper, sent } = await unreadAgentDirectMessage(db, workspace.id, bob);
+
+      await directory.leave({ workspaceId: workspace.id, userId: bob.id });
+
+      const recovery = await repo.readAgentRecoveryContext(workspace.id, helper.id);
+      expect(recovery.unreadSummary).toEqual({ [`@${bob.username}`]: 1 });
+      await repo.advanceAgentReadThrough(
+        workspace.id,
+        helper.id,
+        `@${bob.username}`,
+        sent.sequence,
+      );
+      expect((await repo.readAgentRecoveryContext(workspace.id, helper.id)).unreadSummary).toEqual(
+        {},
+      );
+    } finally {
+      await teardown(db, workspace.id, [owner.id, bob.id]);
+    }
+  },
+);
+
+const departedRefusal = (bob: Person) => ({
+  code: "DM_PEER_NOT_IN_WORKSPACE",
+  error: `@${bob.username} is not a member of this Workspace, so this Agent cannot send them a direct message`,
+  retryable: false,
+});
+
+test.skipIf(!connectionString || !redisUrl)(
+  "an Agent's reply to someone who left is refused with a stable code, and nothing is written",
+  async () => {
+    const { db, directory, workspace, owner, bob } = await setup();
+    const redis = new RedisClient(redisUrl!);
+    try {
+      const { repo, helper, conversationId, sent } = await unreadAgentDirectMessage(
+        db,
+        workspace.id,
+        bob,
+      );
+      const agentBoundary = () =>
+        db.conversationMember.findFirstOrThrow({
+          where: { conversationId, agentId: helper.id },
+          select: { agentReadThroughSequence: true },
+        });
+      const boundaryBefore = await agentBoundary();
+
+      await directory.leave({ workspaceId: workspace.id, userId: bob.id });
+
+      const records = new RedisMessageRequestIdempotency(redis);
+      const dependencies = {
+        repository: repo,
+        requestRecords: records,
+        sender: new SendDirectMessage(repo, records, { publish: async () => {} }),
+      };
+      const send = {
+        target: `@${bob.username}`,
+        content: "on it",
+      };
+      // Having reviewed the unread message, with it still unread, and sending anyway: none of
+      // them advances the Agent's read position, holds the send, or records the request.
+      for (const extra of [{ seenUpToSeq: sent.sequence }, {}, { continueAnyway: true }]) {
+        const idempotencyKey = crypto.randomUUID();
+        const response = await handleAgentMessagesPost(
+          new Request("https://server.example/api/agent/v1/messages", {
+            method: "POST",
+            body: JSON.stringify({ ...send, ...extra, idempotencyKey }),
+          }),
+          { workspaceId: workspace.id, agentId: helper.id },
+          dependencies,
+        );
+        expect({ status: response.status, body: await response.json() }).toEqual({
+          status: 403,
+          body: departedRefusal(bob),
+        });
+        expect(
+          await records.find({
+            workspaceId: workspace.id,
+            senderKind: "agent",
+            senderId: helper.id,
+            requestId: idempotencyKey,
+          }),
+        ).toBeUndefined();
+      }
+      expect(await db.message.count({ where: { conversationId } })).toBe(1);
+      expect(await agentBoundary()).toEqual(boundaryBefore);
+    } finally {
+      redis.close();
+      await teardown(db, workspace.id, [owner.id, bob.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "an Agent cannot upload an attachment to someone who left",
+  async () => {
+    const { db, directory, workspace, owner, bob } = await setup();
+    try {
+      const { repo, helper } = await unreadAgentDirectMessage(db, workspace.id, bob);
+      await directory.leave({ workspaceId: workspace.id, userId: bob.id });
+      const principal = { workspaceId: workspace.id, agentId: helper.id };
+      const resolveTarget = repo.resolveAgentSendTarget.bind(repo);
+      let stored = 0;
+
+      const form = new FormData();
+      form.set("target", `@${bob.username}`);
+      form.set("file", new File(["notes"], "notes.txt", { type: "text/plain" }));
+      const upload = await handleAgentAttachmentUpload(
+        new Request("https://server.example/api/agent/v1/attachments", {
+          method: "POST",
+          body: form,
+        }),
+        principal,
+        {
+          resolveTarget,
+          store: async () => {
+            stored += 1;
+            throw new Error("nothing is stored for a refused target");
+          },
+        },
+      );
+      const session = await handleAttachmentUploadSessionCreate(
+        new Request("https://server.example/api/agent/v1/attachment-upload-sessions", {
+          method: "POST",
+          body: JSON.stringify({
+            target: `@${bob.username}`,
+            fileName: "notes.txt",
+            contentType: "text/plain",
+            sizeBytes: 5,
+            idempotencyKey: crypto.randomUUID(),
+          }),
+        }),
+        principal,
+        {
+          resolveTarget,
+          create: async () => {
+            stored += 1;
+            throw new Error("nothing is stored for a refused target");
+          },
+        },
+      );
+
+      for (const response of [upload, session])
+        expect({ status: response.status, body: await response.json() }).toEqual({
+          status: 403,
+          body: departedRefusal(bob),
+        });
+      expect(stored).toBe(0);
+    } finally {
+      await teardown(db, workspace.id, [owner.id, bob.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a direct message with an Agent that lost its member row works again when the person opens it",
+  async () => {
+    const { db, workspace, owner, bob } = await setup();
+    try {
+      const helper = await createAgent(db, workspace.id, bob);
+      const repo = new PrismaDirectConversationRepository(db);
+      const { conversationId } = await repo.memberForUser(workspace.id, bob.id, helper.id);
+      await repo.sendAgentMessage(conversationId, helper.id, "hello");
+      // A row that owns no message could be deleted outright, and nothing else recreates it.
+      await db.conversationMember.deleteMany({ where: { conversationId, userId: bob.id } });
+
+      const direct = new DirectConversations(db);
+      expect(await direct.open(workspace.id, bob.id, { agentId: helper.id })).toEqual({
+        conversationId,
+      });
+      const page = await direct.page(workspace.id, bob.id, conversationId);
+      expect(page.messages.map((message) => message.body)).toEqual(["hello"]);
     } finally {
       await teardown(db, workspace.id, [owner.id, bob.id]);
     }

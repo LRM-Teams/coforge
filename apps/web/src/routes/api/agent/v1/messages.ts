@@ -34,6 +34,7 @@ import { CentrifugoConversationRealtime } from "#src/server/conversations/conver
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { isAppError } from "#src/lib/app-error";
 import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
+import { dmPeerNotInWorkspaceResponse } from "#src/server/agents/agent-target-status.server";
 
 export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
 
@@ -278,9 +279,8 @@ export async function handleAgentMessagesPost(
     });
     return Response.json(mapSendResult(idempotencyKey, result));
   } catch (error) {
-    // Only this send-specific class is mapped here; every other error (including any AppError
-    // raised elsewhere, e.g. getAgentChannel's ACCESS_DENIED for a non-member) propagates
-    // unchanged, exactly as it did before this class existed.
+    // The send-specific rejections and the named AppError codes below are mapped here; anything
+    // else (e.g. getAgentChannel's ACCESS_DENIED for a non-member) propagates unchanged.
     if (error instanceof AgentSendRejectedError)
       return Response.json({ error: error.message }, { status: error.status });
     // The same key's first request is still working: a duplicate, never a second message. Mapped
@@ -299,6 +299,8 @@ export async function handleAgentMessagesPost(
         { error: "this direct message is private and read-only for this Agent" },
         { status: 403 },
       );
+    const refused = dmPeerNotInWorkspaceResponse(error, body.target);
+    if (refused) return refused;
     throw error;
   }
 }

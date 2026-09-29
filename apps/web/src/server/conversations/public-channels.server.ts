@@ -80,10 +80,8 @@ export type ChannelActor = { userId: string } | { agentId: string };
 
 /**
  * Soft-leaves one member's row (sets `leftAt`) if it is currently active; a no-op (returns
- * `false`) if the row is missing or already left. This is the one write both `leave` and
- * `removeMember` use, for both the human/Web UI (`PublicChannels.leave`/`removeMember`) and the
- * Agent CLI (`AgentChannelManagement.leave`/`removeMember`) — the soft-leave write
- * itself lives in exactly one place regardless of who is leaving/removing whom.
+ * `false`) if the row is missing or already left. `PublicChannels.leave` and `removeMember` use
+ * it for a human or an Agent.
  */
 export async function softLeaveMember(
   db: Pick<PrismaClient, "conversationMember">,

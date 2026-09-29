@@ -225,7 +225,7 @@ test("a Task written in it is announced to its members, never to the Workspace",
   expect(channels).toContain(`chat:user:${grace.id}`);
 });
 
-test("a member who left and came back can use the conversation again", async () => {
+test("a member whose row is missing gets it back by opening the conversation", async () => {
   const conversations = new UserDirectConversations(db, passThrough);
   const { conversationId } = await conversations.open(workspace.id, carol.id, ada.id);
   // A member's row can be missing altogether; opening the conversation again restores it.
