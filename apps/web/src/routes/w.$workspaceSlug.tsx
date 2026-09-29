@@ -142,9 +142,10 @@ function AppLayout() {
                 }}
                 onCreateWorkspace={createAndOpen}
                 /** Like FirstWorkspacePage's link: a full browser navigation so the server route
-                 * can clear the session cookie and send the browser to Authing. `?returnTo`
-                 * carries this page back across the sign-out (the root route hands it to
-                 * `/login`) once the switch-account return step is in. */
+                 * can clear the session cookie and send the browser to Authing. Passing
+                 * `?returnTo=<this page>` would carry it back to `/login` (the root route's
+                 * switch-account step consumes it); left off so a plain sign-out lands on the
+                 * homepage, matching that link's behavior. */
                 onSignOut={() => void window.location.assign("/auth/logout")}
               >
                 <Outlet />
