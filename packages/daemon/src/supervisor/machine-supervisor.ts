@@ -62,8 +62,9 @@ export type ManagedBinding = DaemonConfig & {
   lastFailure?: LifecycleFailure;
 };
 
+export const LIFECYCLE_FAILURE_OPERATIONS = ["start", "restart", "stop"] as const;
 export type LifecycleFailure = {
-  operation: "start" | "restart" | "stop";
+  operation: (typeof LIFECYCLE_FAILURE_OPERATIONS)[number];
   message: string;
   at: number;
 };
@@ -689,14 +690,11 @@ export class MachineSupervisor {
     await this.#saveBinding({
       ...binding,
       restart: undefined,
-      restartResults: [
-        ...(binding.restartResults ?? []),
-        {
-          requestId: restart.requestId,
-          status: "completed" as const,
-          instanceId,
-        },
-      ].slice(-128),
+      restartResults: appendRestartResult(binding, {
+        requestId: restart.requestId,
+        status: "completed",
+        instanceId,
+      }),
     });
   }
   /**
@@ -791,8 +789,13 @@ const workspaceIdOf = (binding: ManagedBinding) => binding.workspaceId;
  * stop or a configure replaced it, and a replay of that request must not restart it again. */
 function cancelledRestartResults(binding: ManagedBinding): RestartResult[] | undefined {
   if (!binding.restart) return binding.restartResults;
-  return [
-    ...(binding.restartResults ?? []),
-    { requestId: binding.restart.requestId, status: "cancelled" as const },
-  ].slice(-128);
+  return appendRestartResult(binding, {
+    requestId: binding.restart.requestId,
+    status: "cancelled",
+  });
+}
+
+/** A binding's restart receipts with one more, keeping the newest 128. */
+function appendRestartResult(binding: ManagedBinding, result: RestartResult): RestartResult[] {
+  return [...(binding.restartResults ?? []), result].slice(-128);
 }

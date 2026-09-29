@@ -3,7 +3,11 @@
  * exception is `install`: a corrupt or unreadable `active.json` fails the whole command, because
  * every other section is meaningless without knowing which Computer build is even running. */
 
-import type { WorkspaceCloudConnectionReport, WorkspaceHealthState } from "@lrm/coforge-daemon";
+import type {
+  LifecycleFailure,
+  WorkspaceCloudConnectionReport,
+  WorkspaceHealthState,
+} from "@lrm/coforge-daemon";
 
 export type SupportedStatusPlatform = "darwin" | "linux" | "win32";
 
@@ -86,7 +90,7 @@ export type WorkspaceStatus = {
   /** Set while a start or restart of this Workspace is queued or running. */
   underWay?: true;
   /** The last operator command that failed after it had already answered; `at` is ISO. */
-  lastFailure?: { operation: "start" | "restart" | "stop"; message: string; at: string };
+  lastFailure?: Omit<LifecycleFailure, "at"> & { at: string };
 };
 
 export type WorkspacesStatus =
@@ -139,7 +143,7 @@ export type StatusBinding = {
     state: "pending" | "succeeded" | "failed" | "acknowledged";
     requestedAt: number;
   }[];
-  lastFailure?: { operation: "start" | "restart" | "stop"; message: string; at: number };
+  lastFailure?: LifecycleFailure;
 };
 
 export type DaemonRuntimeSnapshotEntry = {

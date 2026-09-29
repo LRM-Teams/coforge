@@ -1,6 +1,7 @@
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  LIFECYCLE_FAILURE_OPERATIONS,
   UPGRADE_OPERATION_HISTORY,
   type BindingStore,
   type ManagedBinding,
@@ -128,7 +129,7 @@ function validateBindings(value: unknown): asserts value is ManagedBinding[] {
       const failure = binding.lastFailure;
       if (
         !record(failure) ||
-        !["start", "restart", "stop"].includes(String(failure.operation)) ||
+        !(LIFECYCLE_FAILURE_OPERATIONS as readonly unknown[]).includes(failure.operation) ||
         !text(failure.message) ||
         !integer(failure.at)
       )

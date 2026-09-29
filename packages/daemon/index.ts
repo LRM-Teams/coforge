@@ -50,6 +50,7 @@ export {
 } from "#src/supervisor/workspace-health-journal";
 export type { WorkspaceHealthState } from "#src/supervisor/workspace-health-journal";
 export { runMachineSupervisor } from "#src/supervisor/run-supervisor";
+export type { LifecycleFailure } from "#src/supervisor/machine-supervisor";
 export {
   readWorkspaceCloudConnection,
   type WorkspaceCloudConnectionReport,
