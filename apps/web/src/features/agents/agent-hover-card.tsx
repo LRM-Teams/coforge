@@ -86,9 +86,11 @@ function AgentCard({
   // Read here, beside the profile, so the two run side by side; the list itself shows only once
   // the profile says the viewer may see it.
   const activity = useAgentRecentActivity(agentId);
-  const display = useLiveAgentDisplay(agentId);
-  const view = agentDisplay(display);
   const data = profile.data;
+  // The live display once a publication has arrived; until then the profile read's own snapshot,
+  // as the profile panel does.
+  const display = useLiveAgentDisplay(agentId) ?? data?.display;
+  const view = agentDisplay(display);
   const displayName = data?.displayName || name;
   const shownHandle = data?.name ?? handle;
   return (

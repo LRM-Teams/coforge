@@ -41,8 +41,9 @@ export type ActivityRow = {
  * `detail` (older daemons, and rows stored before the daemon started sending text), and its
  * `recentTone` the dot the recent-activity list gives the row when it differs from the frame's own
  * (a finished compaction reads as the Agent settling back, not another busy step). `runtime_progress` has no entry here — it stays a
- * content-free liveness filler, never persisted or shown in the timeline (`mergeAgentActivity`
- * drops it), so falling through to its empty raw
+ * content-free liveness filler, never persisted or shown in the timeline
+ * (`decodeActivityObservation` drops it, `mergeAgentActivity` again as a guard), so falling
+ * through to its empty raw
  * `detail` below (no secondary text at all) is correct for it too.
  */
 const FINISHED_STATUS: Readonly<Record<string, { label: string; recentTone?: Tone }>> = {
