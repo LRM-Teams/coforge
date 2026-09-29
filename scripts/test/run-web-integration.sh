@@ -2,9 +2,10 @@
 # Runs the Web integration suites - the ones CI cannot run, because the jobs have no PostgreSQL, so
 # nothing exercises them between a developer's machine and `main`.
 #
-# Their environment is the obstacle: fifteen distinct `<AREA>_TEST_DATABASE_URL` names (plus two
-# redis ones) each checked by their own suite, so the only way to learn them is one failure at a
-# time. This points every one of them at one scratch database and one scratch redis.
+# Their environment is the obstacle: each suite checks its own `<AREA>_TEST_DATABASE_URL` (two of
+# them a redis one instead), so the set of names is only learnable one failure at a time. This points
+# every one of them at one scratch database and one scratch redis. The list below is the truth about
+# how many there are - a count in prose would rot, which is what the guard in scripts/ci is for.
 #
 #   INTEGRATION_DATABASE_URL=postgresql://coforge:test@127.0.0.1:15440/coforge \
 #   INTEGRATION_REDIS_URL=redis://127.0.0.1:16379 \
