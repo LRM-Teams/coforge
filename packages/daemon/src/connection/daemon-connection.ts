@@ -226,6 +226,8 @@ export interface DaemonConnectionConfig {
   /** Requests replacement of only this Workspace runtime. The supervisor supplies recovery evidence. */
   requestRestart?(requestId: string): Promise<void>;
   requestUpgrade?(requestId: string, expectedVersion?: string): Promise<void>;
+  /** Aborting it gives up a `start` still waiting for its first connection; no effect after. */
+  signal?: AbortSignal;
 }
 
 /** Provider-neutral client contract for the daemon's Workspace connection. */
@@ -451,6 +453,8 @@ export class DaemonConnection implements DaemonConnectionClient {
   >();
   readonly #reconnect = new ListenerSlot<() => void>();
   readonly #connectionRefused = new ListenerSlot<(reason: DaemonConnectRejectionReason) => void>();
+  /** Set only while `start` waits for the first connection; rejecting it ends that `start`. */
+  #failPendingStart: ((error: Error) => void) | undefined;
   /** Publications received between a ready request and its acknowledgement, in arrival order. */
   #readyPublications: Array<() => void> | undefined;
   #readyRequestFactory: (() => DaemonRuntimeReadyRequest) | undefined;
@@ -532,8 +536,8 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#markInbound();
       this.#handleAgentPublication(data, config);
     });
-    /** Set while `start` is still connecting; a refusal then rejects `start` itself. */
-    let refuseStart: ((error: DaemonConnectionRefusedError) => void) | undefined;
+    // centrifuge-js emits `disconnected` only once it has stopped reconnecting; while it retries
+    // it reports `connecting` instead.
     client.on("disconnected", (context) => {
       if (client !== this.#client) return;
       this.#connected = false;
@@ -543,7 +547,13 @@ export class DaemonConnection implements DaemonConnectionClient {
         logger.warning("Daemon cloud connection disconnected", {
           event: "daemon_connection:disconnected",
           ...scope,
+          ...(context ? { disconnect_code: context.code } : {}),
         });
+        this.#failPendingStart?.(
+          Object.assign(new Error(`daemon connection closed: ${context?.reason ?? "unknown"}`), {
+            code: context?.code,
+          }),
+        );
         return;
       }
       // The client does not reconnect after a terminal disconnect code.
@@ -553,14 +563,14 @@ export class DaemonConnection implements DaemonConnectionClient {
         reason: refusal,
         outcome: "refused",
       });
-      if (refuseStart) refuseStart(new DaemonConnectionRefusedError(refusal));
+      if (this.#failPendingStart) this.#failPendingStart(new DaemonConnectionRefusedError(refusal));
       else this.#connectionRefused.current?.(refusal);
     });
     await new Promise<void>((resolve, reject) => {
-      refuseStart = reject;
+      this.#failPendingStart = reject;
       client.on("connected", () => {
         if (client !== this.#client) return;
-        refuseStart = undefined;
+        this.#failPendingStart = undefined;
         const reconnect = this.#hasConnected;
         this.#connected = true;
         this.#hasConnected = true;
@@ -584,20 +594,29 @@ export class DaemonConnection implements DaemonConnectionClient {
         }
         resolve();
       });
-      client.on("error", (error) => {
-        logger.error("Daemon cloud connection failed", {
+      const { signal } = config;
+      if (signal?.aborted) return reject(signal.reason);
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      // An attempt the client retries with its own backoff, first connect included: a temporary
+      // connect error (the connect proxy failing, or answering non-200) or a transport that
+      // closed before it opened. Only `disconnected` ends a pending start.
+      client.on("error", (context) => {
+        if (client !== this.#client) return;
+        const { type, error } = (context ?? {}) as { type?: unknown; error?: unknown };
+        logger.warning("Daemon cloud connection attempt failed; retrying", {
           event: "daemon_connection:failed",
           ...scope,
-          error_code: diagnosticErrorCode(error),
-          outcome: "failed",
+          error_type: typeof type === "string" ? type : undefined,
+          error_code: diagnosticErrorCode(error ?? context),
+          outcome: "retrying",
         });
-        reject(error);
       });
       client.connect();
     }).catch((error) => {
+      this.#failPendingStart = undefined;
       this.#cancelReadyRecovery();
-      client.disconnect();
       this.#client = undefined;
+      client.disconnect();
       throw error;
     });
   }
@@ -1955,6 +1974,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async stop(): Promise<void> {
     const client = this.#client;
+    this.#failPendingStart?.(new Error("daemon connection stopped before it connected"));
     this.#cancelReadyRecovery();
     if (this.#statusRefreshTimer) clearInterval(this.#statusRefreshTimer);
     this.#statusRefreshTimer = undefined;

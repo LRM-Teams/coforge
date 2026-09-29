@@ -486,6 +486,8 @@ export class DaemonRuntime {
   readonly #transportFactory: DaemonConnectionClientFactory;
   #transport: DaemonConnectionClient;
   #startPromise: Promise<void> | undefined;
+  /** Aborted by `stop`, so a start still waiting for the cloud never holds a stop up. */
+  #startAbort: AbortController | undefined;
   #stopPromise: Promise<void> | undefined;
   #started = false;
   #stopping = false;
@@ -909,8 +911,11 @@ export class DaemonRuntime {
     if (this.#started) return Promise.resolve();
     if (this.#startPromise) return this.#startPromise;
 
-    this.#startPromise = this.#start(connection).finally(() => {
+    const startAbort = new AbortController();
+    this.#startAbort = startAbort;
+    this.#startPromise = this.#start(connection, startAbort.signal).finally(() => {
       this.#startPromise = undefined;
+      this.#startAbort = undefined;
     });
     return this.#startPromise;
   }
@@ -923,7 +928,7 @@ export class DaemonRuntime {
     for (const unsubscribe of this.#subscriptions.splice(0)) unsubscribe();
   }
 
-  async #start(connection: DaemonConfig): Promise<void> {
+  async #start(connection: DaemonConfig, signal: AbortSignal): Promise<void> {
     mkdirSync(connection.workspaceRoot, { recursive: true });
     const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
     if (!token) throw new Error("Workspace credential is missing");
@@ -1140,6 +1145,7 @@ export class DaemonRuntime {
         requestUpgrade: this.lifecycle.requestUpgrade
           ? (requestId, expectedVersion) => this.#requestUpgrade(requestId, expectedVersion)
           : undefined,
+        signal,
       });
       await this.#agentControl.replay();
       await this.#agentSessions.replay();
@@ -4616,6 +4622,9 @@ export class DaemonRuntime {
     for (const agentId of this.#agentInputQueues.keys())
       this.#closeAgentInputQueue(agentId, new Error("daemon runtime is stopping"));
     this.#unsubscribeAll();
+    // A start still waiting for its first cloud connection would otherwise hold this stop up for
+    // as long as the cloud stays unreachable.
+    this.#startAbort?.abort(new Error("daemon runtime is stopping"));
     this.#reminders.stop();
     for (const token of this.#agentProxyTokens.values()) this.#agentProxy?.revoke(token);
     this.#agentProxyTokens.clear();
