@@ -268,7 +268,8 @@ export type PresentedActivityRow = ActivityRow & { observedAtMs: number; key: st
  * oldest-to-newest with no separator (they are contiguous slices of one stream), its
  * timestamp and key come from the oldest fragment (stable identity while later
  * fragments stream in and extend it), and `currentLabel` reflects the newest fragment.
- * `activity` is newest-first (`orderActivity`); the merged output stays newest-first.
+ * `activity` is newest-first (`orderActivity`); the rows come out oldest first, the order every
+ * reader shows them in.
  */
 export function presentActivityRows(activity: readonly ActivityEntry[]): PresentedActivityRow[] {
   const chronological = [...activity].reverse().flatMap((entry) =>
@@ -296,7 +297,7 @@ export function presentActivityRows(activity: readonly ActivityEntry[]): Present
     }
     openGroup = atom.mergeGroup;
   }
-  return merged.reverse();
+  return merged;
 }
 
 /**

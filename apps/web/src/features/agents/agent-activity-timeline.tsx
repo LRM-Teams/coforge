@@ -33,15 +33,12 @@ export function AgentActivityTimeline({
   const rows = useMemo(() => {
     const reusable = previous.current ?? new Map<string, PresentedActivityRow>();
     const next = new Map<string, PresentedActivityRow>();
-    // presentActivityRows is newest-first; the log reads oldest at top, newest at bottom.
-    const timeline = presentActivityRows(activity)
-      .reverse()
-      .map((presented) => {
-        const earlier = reusable.get(presented.key);
-        const row = earlier ? replaceEqualDeep(earlier, presented) : presented;
-        next.set(row.key, row);
-        return row;
-      });
+    const timeline = presentActivityRows(activity).map((presented) => {
+      const earlier = reusable.get(presented.key);
+      const row = earlier ? replaceEqualDeep(earlier, presented) : presented;
+      next.set(row.key, row);
+      return row;
+    });
     previous.current = next;
     return timeline;
   }, [activity]);
