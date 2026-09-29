@@ -42,6 +42,11 @@ import { PiJsonlFixtureProvider } from "@lrm/coforge-daemon/test/fixtures/pi-jso
  * would exercise.
  */
 const databaseUrl = requireEnvironment("DATABASE_URL");
+// The standard stack (the managed infra compose) publishes Web on 8789 and Centrifugo on 8000;
+// hosts where those host ports are taken point these elsewhere through the environment.
+const serverHttpUrl = process.env.COFORGE_E2E_SERVER_HTTP_URL ?? "http://127.0.0.1:8789";
+const centrifugoWsUrl =
+  process.env.COFORGE_E2E_CENTRIFUGO_WS_URL ?? "ws://127.0.0.1:8000/connection/websocket";
 const workspaceRoot = join(import.meta.dir, `../../../.amp/e2e/mention-${crypto.randomUUID()}`);
 const daemonStateDirectory = `${workspaceRoot}-state`;
 
@@ -125,7 +130,7 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
         workspaceId: workspace.id,
         computerId: registration.computerId,
         workspaceRoot,
-        serverHttpUrl: "http://127.0.0.1:8789",
+        serverHttpUrl,
       },
       () =>
         new PiJsonlFixtureProvider([
@@ -136,7 +141,7 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
       {
         create: () =>
           new DaemonConnection(
-            "ws://127.0.0.1:8000/connection/websocket",
+            centrifugoWsUrl,
             defaultCentrifugeWorkspaceClientFactory,
           ),
       },
@@ -154,7 +159,7 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
       workspaceId: workspace.id,
       computerId: registration.computerId,
       workspaceRoot,
-      serverHttpUrl: "http://127.0.0.1:8789",
+      serverHttpUrl,
     });
     const alphaRoot = agentRoot(workspace.id, alpha.agent.id);
     const betaRoot = agentRoot(workspace.id, beta.agent.id);
@@ -180,6 +185,9 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
             operation: "send",
             target: "#general",
             body: `@${beta.agent.name} please handle this @${gamma.agent.name} please handle this too`,
+            // Alpha holds the send on its own unread frontier (the human mention that woke it);
+            // the fixture emulates the CLI's continue-anyway here.
+            continueAnyway: true,
           },
         ],
       }),
