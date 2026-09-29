@@ -298,7 +298,7 @@ test("unclaiming and deleting a Task post no notice", async () => {
   expect(await noticesAfter(mark)).toEqual([]);
 });
 
-test("only the assignment receipt is delivered, pushed and fanned out to unread badges", async () => {
+test("only the assignment receipt is delivered and pushed; no notice reaches a badge channel", async () => {
   const {
     channel,
     signaled,
@@ -360,14 +360,13 @@ test("only the assignment receipt is delivered, pushed and fanned out to unread 
     receiptsFirst,
   );
 
-  // A notice reaches the open conversation only; the Workspace-wide signal that drives unread
-  // badges is for the receipt alone.
+  // No notice counts unread, the receipt included, so each reaches the open conversation only,
+  // never the Workspace-wide signal that drives unread badges.
   for (const notice of notices) {
     const events = signaled.filter((event) => event.messageId === notice.id);
     expect(events).toHaveLength(1);
     expect(events[0]!.conversationId).toBe(channel.id);
-    if (receiptIds.includes(notice.id)) expect(events[0]!.workspaceId).toBe(workspaceId);
-    else expect(events[0]).not.toHaveProperty("workspaceId");
+    expect(events[0]).not.toHaveProperty("workspaceId");
   }
 });
 

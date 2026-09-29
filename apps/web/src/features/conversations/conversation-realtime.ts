@@ -165,9 +165,10 @@ export function decodeMemberChangedEvent(value: unknown): MemberChangedEvent {
 }
 
 /**
- * Something reached one person's Activity inbox without a message arriving in a conversation they
- * are in: a mention from outside the channel they were notified of. Published on that person's own
- * channel; their Activity page and nav dot re-read what they show.
+ * Something reached one person's Activity inbox that no badge signal announces: a mention from
+ * outside the channel they were notified of, or a Task assignment receipt naming them (a notice,
+ * which counts no badge). Published on that person's own channel; their Activity page and nav dot
+ * re-read what they show.
  */
 export type ActivityChangedEvent = { type: "activity.changed.v1"; workspaceId: string };
 
