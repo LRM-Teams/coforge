@@ -29,18 +29,20 @@ test("reads and projects account billing through the public reader", async () =>
 
 test("derives usage and reports pay-as-you-go", async () => {
   const snapshot = await read(
-    billing({ used: 15, monthlyLimit: 20, onDemandCap: 10, onDemandUsed: 2.5 }),
+    billing({ used: 15, monthlyLimit: 20, onDemandCap: { val: 10 }, onDemandUsed: { val: 2.5 } }),
   );
   expect(snapshot?.primary?.usedPercent).toBe(75);
   expect(snapshot?.secondary).toMatchObject({ usedPercent: 25 });
 });
 
-test("reads the on-demand cap and usage out of Grok 1.0.41's `{ val }` wrapper", async () => {
+test("a bare number is not a reading: only the `{ val }` wrapper Grok sends is accepted", async () => {
+  // 1.0.41 is grok's newest release, so nothing produces the bare-number form the reader used to
+  // take as well; reading it would leave a second path alive that no test can stand behind.
   const snapshot = await read(
-    billing({ used: 15, monthlyLimit: 20, onDemandCap: { val: 10 }, onDemandUsed: { val: 2.5 } }),
+    billing({ used: 15, monthlyLimit: 20, onDemandCap: 10, onDemandUsed: 2.5 }),
   );
   expect(snapshot?.primary?.usedPercent).toBe(75);
-  expect(snapshot?.secondary).toMatchObject({ usedPercent: 25 });
+  expect(snapshot?.secondary).toBeUndefined();
 });
 
 test("an account with no metered usage is unsupported, not a failed scan", async () => {
