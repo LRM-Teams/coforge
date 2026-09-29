@@ -117,7 +117,7 @@ export type ConversationProps = {
   onShowFiles?: () => void;
   /** Opens the Agent profile panel from an Agent sender's avatar/name; absent where the
    * conversation route does not own that slot. See `features/agents/profile-panel/`. A named tab
-   * opens the panel on it (the avatar card's "Recent activity" opens Activity). */
+   * opens the panel on it (the Agent card's "Recent activity" opens Activity). */
   onOpenAgentProfile?: OpenAgentProfile;
   /** The Agent profile panel's URL state, owned by the route (`profile`/`agentTab` search
    * params via `features/agents/profile-panel/`), not by this feature. `agentId` undefined means
