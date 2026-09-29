@@ -256,6 +256,9 @@ export type CodeAgentInventory = {
   catalogs: CodeAgentModelCatalog[];
 };
 
+/** Pi's model discovery is in-process (the Pi SDK), not a spawned CLI. */
+type PiModelDiscovery = typeof discoverPiModels;
+
 type CatalogCommands = {
   codex?: readonly string[];
   kiro?: readonly string[];
@@ -267,6 +270,8 @@ type CatalogCommands = {
 export type CodeAgentDiscoveryOptions = {
   probe?: ExternalCodeAgentProbe;
   commands?: CatalogCommands;
+  /** Replaces the Pi SDK's in-process model discovery, as `commands` replaces the spawned CLIs. */
+  piModels?: PiModelDiscovery;
   cwd?: string;
   environment?: Readonly<Record<string, string | undefined>>;
   platform?: NodeJS.Platform;
@@ -389,7 +394,7 @@ export async function discoverCodeAgentCatalogs(
   const discoveries: Array<Promise<Discovered>> = [];
   discoveries.push(Promise.resolve({ catalog: discoverCoforgeCatalog() }));
   discoveries.push(
-    discoverPiCatalog(cwd, environment).then((catalog) => ({
+    discoverPiCatalog(cwd, environment, options.piModels).then((catalog) => ({
       provider: RUNTIME_PROVIDER.PI,
       keyPaths: piCacheKeyPaths(environment),
       catalog,
@@ -744,21 +749,46 @@ function catalogErrorMessage(error: unknown): string {
   return "model catalog discovery failed; untrusted error detail omitted";
 }
 
+/**
+ * Pi's catalog comes from the embedded SDK, in this process, and is bounded by `within` like every
+ * spawned provider's, for `PI_CATALOG_DISCOVERY_TIMEOUT_MS`. A discovery that fails or outlives the
+ * deadline leaves Pi out of this pass
+ * (so nothing is cached for it) and is logged with the vocabulary of `withJsonlProcess`.
+ *
+ * The deadline abandons the SDK call; it cannot stop it. `discoverPiModels` takes no AbortSignal,
+ * and the resource loader under it (`createAgentSessionServices`) has no way to be cancelled. The
+ * race still subscribes to the abandoned call, so a rejection that arrives later is observed.
+ */
 export async function discoverPiCatalog(
   cwd: string,
   environment: Readonly<Record<string, string | undefined>>,
+  discover: PiModelDiscovery = discoverPiModels,
 ): Promise<CodeAgentModelCatalog | undefined> {
+  const startedAt = performance.now();
   try {
     const agentDir = piAgentDirectory(environment);
-    const models = await discoverPiModels(cwd, {
-      agentDir,
-      environment: definedEnvironment(environment),
-    });
+    const models = await within(
+      discover(cwd, {
+        agentDir,
+        environment: definedEnvironment(environment),
+      }),
+      PI_CATALOG_DISCOVERY_TIMEOUT_MS,
+    );
     return {
       provider: RUNTIME_PROVIDER.PI,
       models: models.map(piModel).filter(isModel),
     };
-  } catch {
+  } catch (error) {
+    logger.warning("Code Agent model catalog discovery failed", {
+      event: "code_agent_catalog:discovery_failed",
+      provider: RUNTIME_PROVIDER.PI,
+      discovery_id: crypto.randomUUID(),
+      stage: "get_available_models" satisfies CatalogProgress["stage"],
+      elapsed_ms: Math.round(performance.now() - startedAt),
+      error_code: diagnosticErrorCode(error),
+      error_message: catalogErrorMessage(error),
+      outcome: "unavailable",
+    });
     return undefined;
   }
 }
@@ -775,14 +805,25 @@ function definedEnvironment(environment: Readonly<Record<string, string | undefi
  * several requests grants each its own wait. */
 export const CATALOG_DISCOVERY_TIMEOUT_MS = 5_000;
 
-function within<T>(promise: Promise<T>): Promise<T> {
+/**
+ * How long Pi's in-process catalog discovery may run: two waits, like Codex's initialize and
+ * model/list. A healthy Pi discovery can legitimately outlast one. Its network refresh is capped at
+ * 5 s (`refreshPiModelCatalog` in `packages/agent/src/runner.ts` passes `AbortSignal.timeout(5_000)`
+ * to `ModelRuntime.refresh` of `@earendil-works/pi-coding-agent@0.84.3`,
+ * `dist/core/model-runtime.d.ts`), and creating the model runtime and `createAgentSessionServices`
+ * (its resource loader) run around it. One wait would cut a discovery the SDK itself still bounds.
+ */
+export const PI_CATALOG_DISCOVERY_TIMEOUT_MS = 2 * CATALOG_DISCOVERY_TIMEOUT_MS;
+
+function within<T>(
+  promise: Promise<T>,
+  timeoutMs: number = CATALOG_DISCOVERY_TIMEOUT_MS,
+): Promise<T> {
   return Promise.race([
     promise,
-    Bun.sleep(CATALOG_DISCOVERY_TIMEOUT_MS).then(() =>
+    Bun.sleep(timeoutMs).then(() =>
       Promise.reject(
-        new CatalogDiscoveryError(
-          `model catalog discovery timed out after ${CATALOG_DISCOVERY_TIMEOUT_MS} ms`,
-        ),
+        new CatalogDiscoveryError(`model catalog discovery timed out after ${timeoutMs} ms`),
       ),
     ),
   ]);
