@@ -32,7 +32,16 @@ import {
 } from "./agent-context-cache.server";
 import { getUsageCache, type UsageCache, type UsageSnapshot } from "./usage-cache.server";
 import { PublishAgentRuntimeControl } from "#src/server/agents/agent-runtime-control.server";
-import { decodeAgentMessageDeliveryAck } from "@lrm/coforge-sdk/internal";
+import {
+  AgentDeliveryRejectionScopeError,
+  type AgentDeliveryRejectionOutcome,
+} from "#src/server/agents/agent-delivery-rejection.server";
+import { rejectNonDaemonPrincipal } from "./daemon-principal.server";
+import {
+  decodeAgentMessageDeliveryAck,
+  decodeAgentMessageDeliveryRejection,
+  type AgentMessageDeliveryRejection,
+} from "@lrm/coforge-sdk/internal";
 import {
   AGENT_STATUS_LEASE_MS,
   getAgentStatusCache,
@@ -169,6 +178,36 @@ export function createAgentDeliveryAckMethod(repository: {
         code: 403,
         message: "delivery acknowledgement is not authorized",
       };
+    }
+  };
+}
+
+/** A delivery the Daemon rejected instead of taking custody of it. Scoped to the authenticated
+ * Computer; `AgentDeliveryRejections` decides what the server does about it. */
+export function createAgentDeliveryRejectMethod(rejections: {
+  receive(
+    scope: { workspaceId: string; computerId: string },
+    rejection: AgentMessageDeliveryRejection,
+  ): Promise<AgentDeliveryRejectionOutcome>;
+}): CentrifugoRpcMethod {
+  return async (payload, metadata) => {
+    const denied = rejectNonDaemonPrincipal(metadata.principal);
+    if (denied) return denied;
+    let rejection: AgentMessageDeliveryRejection;
+    try {
+      rejection = decodeAgentMessageDeliveryRejection(payload);
+    } catch {
+      return { code: 400, message: "invalid Agent delivery rejection" };
+    }
+    const { workspaceId, computerId } = metadata.principal;
+    if (workspaceId !== rejection.workspaceId)
+      return { code: 403, message: "delivery rejection is not authorized" };
+    try {
+      await rejections.receive({ workspaceId, computerId }, rejection);
+      return new Uint8Array();
+    } catch (error) {
+      if (!(error instanceof AgentDeliveryRejectionScopeError)) throw error;
+      return { code: 403, message: error.message };
     }
   };
 }

@@ -45,6 +45,7 @@ export const RPC_METHODS = {
   agentContextScanResult: "agent:v1:context:scan_result",
   agentMessage: "agent:v1:message:deliver",
   agentMessageAck: "agent:v1:message:ack",
+  agentMessageReject: "agent:v1:message:reject",
   agentChannelMute: "agent:v1:channel:mute",
   agentChannelUnmute: "agent:v1:channel:unmute",
   agentThreadUnfollow: "agent:v1:thread:unfollow",

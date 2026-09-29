@@ -84,6 +84,7 @@ import {
   encodeAgentActivity,
   encodeAgentStatus,
   encodeAgentMessageDeliveryAck,
+  encodeAgentMessageDeliveryRejection,
   encodeDaemonRuntimeReadyRequest,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
   DAEMON_RUNTIME_READY_METHOD,
@@ -92,6 +93,7 @@ import {
   DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
   DAEMON_RUNTIME_MODEL_REFRESH_RESULT_METHOD,
   AGENT_MESSAGE_ACK_METHOD,
+  AGENT_MESSAGE_REJECT_METHOD,
   AGENT_STATUS_METHOD,
   type DaemonRuntimeReadyRequest,
   type DaemonRuntimeCodeAgentsUpdateRequest,
@@ -107,6 +109,7 @@ import {
   type AgentInboxPurge,
   type AgentMessageDelivery,
   type AgentMessageDeliveryAck,
+  type AgentMessageDeliveryRejection,
   type AgentMessageRequest,
   type WorkspaceInfoRequest,
   type WorkspaceInfoResponse,
@@ -337,6 +340,8 @@ export interface DaemonConnectionClient {
    * disconnected and flushed on reconnect, like `sendSessionInvalidate`. */
   sendAgentContextUsage?(message: AgentContextUsage): void;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
+  /** Rejects a delivery the daemon did not take custody of back to the server; never an ACK. */
+  sendAgentDeliveryRejection?(rejection: AgentMessageDeliveryRejection): Promise<void>;
   agentMessage?(
     request: AgentMessageRequest,
     agentApiKey: string,
@@ -1040,6 +1045,10 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async sendAgentDeliveryAck(ack: AgentMessageDeliveryAck): Promise<void> {
     await this.#rpc(AGENT_MESSAGE_ACK_METHOD, encodeAgentMessageDeliveryAck(ack));
+  }
+
+  async sendAgentDeliveryRejection(rejection: AgentMessageDeliveryRejection): Promise<void> {
+    await this.#rpc(AGENT_MESSAGE_REJECT_METHOD, encodeAgentMessageDeliveryRejection(rejection));
   }
 
   /** Credentials for one Agent-scoped HTTP call: the Agent's own key plus the daemon key. */

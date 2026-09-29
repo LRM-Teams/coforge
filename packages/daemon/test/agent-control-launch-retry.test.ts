@@ -82,6 +82,7 @@ function harness(launch: (attempt: number) => Promise<SessionIdentity | undefine
   let record: AgentRuntimeRecord | undefined;
   const results: AgentControlResult[] = [];
   const launches: number[] = [];
+  const settled: string[] = [];
   const state = new AgentRuntimeState({
     listAgentIds: async () => [],
     read: async () => record && structuredClone(record),
@@ -99,6 +100,9 @@ function harness(launch: (attempt: number) => Promise<SessionIdentity | undefine
       running: () => false,
       rebind: async () => undefined,
       stop: async () => undefined,
+      startSettled(agentId) {
+        settled.push(agentId);
+      },
       async launch() {
         launches.push(launches.length + 1);
         return launch(launches.length);
@@ -109,7 +113,7 @@ function harness(launch: (attempt: number) => Promise<SessionIdentity | undefine
     },
     timers.scheduler,
   );
-  return { control, results, launches, timers, record: () => record };
+  return { control, results, launches, timers, settled, record: () => record };
 }
 
 test("a failed launch is counted, retried after the cooldown, and reports started once it succeeds", async () => {
@@ -343,4 +347,62 @@ test("the retry backoff and its recovery are logged with attempts and cooldown",
   expect(records.some((record) => record.properties.event === "agent_control:launch_failed")).toBe(
     false,
   );
+});
+
+test("a Start stays pending from the call through every retry cooldown, then settles once", async () => {
+  const h = harness(async (attempt) => {
+    if (attempt < 3) throw new Error("spawn blew up");
+    return { sessionId: "fresh", state: "empty" };
+  });
+
+  const starting = h.control.start(startIntent);
+  // Pending from the synchronous call, before the first launch attempt has run.
+  expect(h.control.startPending("a")).toBe(true);
+  await starting;
+  expect(h.control.startPending("a")).toBe(true);
+  await h.timers.fireLatest();
+  expect(h.control.startPending("a")).toBe(true);
+  expect(h.settled).toEqual([]);
+
+  await h.timers.fireLatest();
+  expect(h.results.at(-1)?.phase).toBe("started");
+  expect(h.control.startPending("a")).toBe(false);
+  expect(h.settled).toEqual(["a"]);
+});
+
+test("a Start whose attempts run out settles once, after the terminal launch_failed", async () => {
+  const h = harness(async () => {
+    throw new Error("never spawns");
+  });
+
+  await h.control.start(startIntent);
+  for (let attempt = 2; attempt <= LAUNCH_FAILURE_MAX_ATTEMPTS; attempt++) {
+    expect(h.settled).toEqual([]);
+    await h.timers.fireLatest();
+  }
+
+  expect(h.results.at(-1)).toMatchObject({ phase: "failed", errorCode: "launch_failed" });
+  expect(h.control.startPending("a")).toBe(false);
+  expect(h.settled).toEqual(["a"]);
+});
+
+test("a Stop that cancels the armed retry settles the pending Start", async () => {
+  const h = harness(async () => {
+    throw new Error("never spawns");
+  });
+  await h.control.start(startIntent);
+  expect(h.control.startPending("a")).toBe(true);
+
+  await h.control.stop({
+    protocolMajor: 1,
+    requestId: "stop-1",
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "pi",
+    epoch: 2,
+  });
+
+  expect(h.control.startPending("a")).toBe(false);
+  expect(h.settled).toEqual(["a"]);
 });

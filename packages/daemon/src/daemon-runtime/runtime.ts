@@ -62,6 +62,7 @@ import { DaemonConnectionStoppedError } from "#src/connection/daemon-connection-
 import {
   type DaemonConnectRejectionReason,
   WORKSPACE_PROTOCOL_MAJOR,
+  AGENT_MESSAGE_REJECT_METHOD,
   AGENT_ACTIVITY_DETAIL_KIND,
   truncateCodePoints,
   type AgentActivity,
@@ -508,6 +509,9 @@ export class DaemonRuntime {
   /** Launch failures of message-triggered wakes, per Agent: while one owes a cooldown, a delivery
    * does not launch the Agent again. No attempt cap; the cooldown stops growing at its ceiling. */
   readonly #wakeLaunchFailures = new LaunchFailureBackoff();
+  /** Deliveries held, unacknowledged, while a server Start is pending for an Agent with nothing
+   * else to take them; released when that Start settles. */
+  readonly #startBuffers = new Map<string, AgentMessageDelivery[]>();
   /** Agents whose in-flight launch is a message wake, which presents what waits as one notice. */
   readonly #wakeLaunches = new Set<string>();
   /** Per-Agent retryable-runtime-error bookkeeping: consecutive-failure delivery
@@ -724,6 +728,7 @@ export class DaemonRuntime {
         );
       },
       rebind: (intent, launchId) => this.#rebindAgent(intent, launchId),
+      startSettled: (agentId) => this.#releaseStartBuffer(agentId),
       // `launchId` is always present here (minted synchronously by `AgentControl.start()`
       // before this call); the wire message and the retry's cold-start Activity
       // (`#launchAgent`'s `request.invalidateReason` narration) both follow that same,
@@ -2793,33 +2798,7 @@ export class DaemonRuntime {
       this.#runnerHold === undefined &&
       !this.#agentProcessManager.session(message.agentId) &&
       !this.#agentLaunches.has(message.agentId);
-    // An exited Agent is not woken for a message it has already consumed: the delivery is
-    // acknowledged and dropped here, before any launch, rather than after one.
-    if (exited && this.#messageAttention.hasConsumed(message))
-      return this.#messageAttention.acknowledge(message);
-    // A wake launch failed moments ago, so launching again now would most likely fail the same
-    // way. The delivery waits, acknowledged as the daemon keeps it, for the first launch after the
-    // cooldown.
-    const wakeable = exited ? this.#agentProcessManager.restartConfig(message.agentId) : undefined;
-    if (wakeable && this.#wakeLaunchFailures.isBlocked(message.agentId)) {
-      this.#deliveryQueue.enqueue(message.agentId, message);
-      this.#acknowledgeCustody(message);
-      logger.info("Agent wake deferred by a launch-failure cooldown", {
-        event: "agent.wake.cooldown_deferred",
-        agent_id: message.agentId,
-        delivery_id: message.deliveryId,
-        until: new Date(this.#wakeLaunchFailures.blockedUntil(message.agentId)!).toISOString(),
-      });
-      return;
-    }
-    // Deliveries are already waiting for this Agent's next launch: this one joins them, so the
-    // launch presents all of them in a single notice instead of this one alone.
-    if (wakeable && this.#deliveryQueue.hasQueued(message.agentId)) {
-      this.#deliveryQueue.enqueue(message.agentId, message);
-      this.#acknowledgeCustody(message);
-      await this.#wakeAgent(message.agentId, wakeable);
-      return;
-    }
+    if (exited) return this.#deliverToExitedAgent(message);
     // A wake launch that will present waiting deliveries is still in flight: join them as well,
     // rather than arriving as a second notice right after theirs. Only a wake: a recovery launch
     // drops what waits once its own notice is accepted, and that notice does not cover this one.
@@ -2852,17 +2831,123 @@ export class DaemonRuntime {
       });
       return;
     }
-    if (this.#agentProcessManager.session(message.agentId)) {
+    if (this.#agentProcessManager.session(message.agentId))
       this.#ensureAgentInputDrain(message.agentId);
-      return delivery;
-    }
-    if (this.#agentLaunches.has(message.agentId)) return delivery;
+    // Otherwise a launch is in flight, and it drains the queue once its session is up.
+    return delivery;
+  }
+
+  /** A delivery for an Agent with no hold, session, or launch in flight. */
+  async #deliverToExitedAgent(message: AgentMessageDelivery): Promise<void> {
+    // An exited Agent is not woken for a message it has already consumed: the delivery is
+    // acknowledged and dropped here, before any launch, rather than after one.
+    if (this.#messageAttention.hasConsumed(message))
+      return this.#messageAttention.acknowledge(message);
     const restart = this.#agentProcessManager.restartConfig(message.agentId);
-    if (!restart) {
-      this.#closeAgentInputQueue(message.agentId, new Error("Agent is inactive"));
-      return delivery;
+    if (!restart && this.#agentControl.startPending(message.agentId))
+      return this.#holdForPendingStart(message);
+    if (!restart) return this.#rejectDeliveriesWithoutProcess(message);
+    // A wake launch failed moments ago, so launching again now would most likely fail the same
+    // way. The delivery waits, acknowledged as the daemon keeps it, for the first launch after the
+    // cooldown.
+    const blockedUntil = this.#wakeLaunchFailures.isBlocked(message.agentId)
+      ? this.#wakeLaunchFailures.blockedUntil(message.agentId)
+      : undefined;
+    if (blockedUntil !== undefined) {
+      this.#deliveryQueue.enqueue(message.agentId, message);
+      this.#acknowledgeCustody(message);
+      logger.info("Agent wake deferred by a launch-failure cooldown", {
+        event: "agent.wake.cooldown_deferred",
+        agent_id: message.agentId,
+        delivery_id: message.deliveryId,
+        until: new Date(blockedUntil).toISOString(),
+      });
+      return;
     }
+    // Deliveries are already waiting for this Agent's next launch: this one joins them, so the
+    // launch presents all of them in a single notice instead of this one alone.
+    if (this.#deliveryQueue.hasQueued(message.agentId)) {
+      this.#deliveryQueue.enqueue(message.agentId, message);
+      this.#acknowledgeCustody(message);
+      await this.#wakeAgent(message.agentId, restart);
+      return;
+    }
+    const delivery = this.#enqueueAgentInput(message.agentId, (completion) => ({
+      kind: "delivery",
+      message,
+      completion,
+    }));
     await Promise.all([this.#wakeAgent(message.agentId, restart), delivery]);
+  }
+
+  /**
+   * A server Start is pending (being set up, or waiting out a launch-retry cooldown) for an Agent
+   * with nothing else to take this delivery. It is held for that Start without an ACK: the daemon
+   * takes custody only once the Agent can be told.
+   */
+  #holdForPendingStart(message: AgentMessageDelivery): void {
+    const held = this.#startBuffers.get(message.agentId) ?? [];
+    held.push(message);
+    this.#startBuffers.set(message.agentId, held);
+    logger.info("Agent delivery held for a pending Start", {
+      event: "agent.message.delivery_held_for_start",
+      agent_id: message.agentId,
+      delivery_id: message.deliveryId,
+      held_count: held.length,
+    });
+  }
+
+  /** The pending Start settled: a launched Agent receives what was held as ordinary deliveries;
+   * otherwise it is dropped unacknowledged and stays unread in the cloud. */
+  #releaseStartBuffer(agentId: string): void {
+    const held = this.#startBuffers.get(agentId);
+    if (!held) return;
+    this.#startBuffers.delete(agentId);
+    if (!this.#agentProcessManager.session(agentId)) {
+      logger.info("Agent deliveries held for a Start that did not launch were dropped", {
+        event: "agent.message.start_buffer_dropped",
+        agent_id: agentId,
+        dropped_count: held.length,
+      });
+      return;
+    }
+    for (const message of held)
+      void this.handleAgentMessage(message).catch((error) =>
+        this.#logAgentOperationFailure("message_delivery", message, error),
+      );
+  }
+
+  /**
+   * No process, no launch in flight, and nothing to relaunch from: the daemon takes no custody, so
+   * nothing is acknowledged. This delivery, and any a lifted runner hold left queued for the same
+   * Agent, are rejected back to the server as `no_process`; the server decides whether to start
+   * the Agent.
+   */
+  async #rejectDeliveriesWithoutProcess(message: AgentMessageDelivery): Promise<void> {
+    const queued =
+      this.#agentInputQueues
+        .get(message.agentId)
+        ?.items.flatMap((item) => (item.kind === "delivery" ? [item.message] : [])) ?? [];
+    this.#closeAgentInputQueue(message.agentId, new Error("Agent is inactive"));
+    for (const rejected of [...queued, message]) {
+      logger.info("Agent delivery rejected: no process to take it", {
+        event: "agent.message.delivery_rejected",
+        agent_id: rejected.agentId,
+        delivery_id: rejected.deliveryId,
+        reason: "no_process",
+      });
+      await this.#transport.sendAgentDeliveryRejection?.({
+        protocolMajor: rejected.protocolMajor,
+        requestId: rejected.requestId,
+        messageId: rejected.messageId,
+        deliveryId: rejected.deliveryId,
+        workspaceId: rejected.workspaceId,
+        agentId: rejected.agentId,
+        sequence: rejected.sequence,
+        reason: "no_process",
+        method: AGENT_MESSAGE_REJECT_METHOD,
+      });
+    }
   }
 
   /** Relaunches an exited Agent for a message; a failure starts or extends the wake cooldown. A

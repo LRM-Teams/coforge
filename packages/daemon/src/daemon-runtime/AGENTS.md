@@ -58,6 +58,18 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   notice is accepted, or when it is held for a later notice or launch
   (`AgentDeliveryQueue`, a failed launch's input queue). A delivery queued
   behind the runner hold of a Computer upgrade is not ACKed.
+- An Agent with no process, no launch in progress, and no restart config
+  takes no custody: its delivery, and any a lifted runner hold left queued for
+  it, is not ACKed but rejected over `agent:v1:message:reject` with reason
+  `no_process`, and the server decides whether to start it. A delivery it has
+  already consumed is still ACKed and dropped instead. A failed server Start
+  leaves no daemon-side restart config or failure record.
+- While a server Start is pending for such an Agent
+  (`AgentControl.startPending`: from the `start` call through every
+  launch-retry cooldown), its deliveries are held, unacknowledged, instead of
+  rejected. When the Start settles, a launched Agent receives them as ordinary
+  deliveries; otherwise they are dropped unacknowledged and stay unread in the
+  cloud.
 - An inbox purge (`agent:v1:inbox:purge`) drops the waiting deliveries and
   pending attention of channels the Agent can no longer read, threads
   included; what it drops is ACKed, so a later rejoin does not replay it on

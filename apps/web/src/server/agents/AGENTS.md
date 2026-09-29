@@ -119,6 +119,16 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
 - Ready recovery skips a stopped Agent; if the Daemon still reports it running,
   reconcile with a Stop through `AgentControl.publishStop` without blocking
   the rest of recovery.
+- `agent-delivery-rejection.server.ts` answers a Daemon's `no_process`
+  delivery rejection. It never starts a stopped or deleted Agent, one with an
+  operation in flight (for any configuration), or one whose latest operation
+  for its current configuration ended failed after it began a Start or a chain
+  ending in one, whatever step failed, a Restart or Reset failing at its stop
+  step included. That Agent waits for a person's Start or the next Daemon
+  `ready`. Otherwise it sends the same recovery Start as ready recovery.
+  `controlOperationState` (`agent-control.server.ts`) reads the control state; the guard stays
+  in the receiver, never in `recover()` or `WorkspaceAgentRecovery`, so ready
+  recovery still restarts a failed Agent.
 - `ManageAgents.update`, `ChangeAgentRuntimeCredential`, and
   `AgentEnvironment.save` skip the stop → persist → start restart for a stopped
   Agent and return `"deferred"`.

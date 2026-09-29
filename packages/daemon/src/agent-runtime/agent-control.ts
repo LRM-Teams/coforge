@@ -56,6 +56,9 @@ type Runtime = {
    */
   rebind(intent: AgentStartIntent, launchId: string): Promise<SessionIdentity | undefined>;
   result(result: AgentControlResult): Promise<void>;
+  /** A Start that was pending for this Agent (see `startPending`) no longer is: it launched, its
+   * attempts ran out, or a Stop or newer operation ended it. */
+  startSettled?(agentId: string): void;
 };
 
 /** Injectable timer seam for the automatic launch retry: production uses plain `setTimeout`, and
@@ -79,6 +82,8 @@ export class AgentControl {
   readonly #launchFailures = new LaunchFailureBackoff();
   /** The one pending automatic launch retry per Agent, if any. */
   readonly #launchRetries = new Map<string, unknown>();
+  /** Start calls and launch retries currently running, per Agent. */
+  readonly #startsRunning = new Map<string, number>();
   constructor(
     private readonly instanceId: string,
     private readonly state: AgentRuntimeState,
@@ -289,7 +294,35 @@ export class AgentControl {
       await this.runtime.result(record.lastResult).catch(() => {});
     });
   }
+  /**
+   * Whether a Start is pending for this Agent: from the synchronous `start` call, through every
+   * launch attempt and the cooldown before each automatic retry, until it launches or ends.
+   */
+  startPending(agentId: string): boolean {
+    return (this.#startsRunning.get(agentId) ?? 0) > 0 || this.#launchRetries.has(agentId);
+  }
+
+  #beginStartRun(agentId: string): void {
+    this.#startsRunning.set(agentId, (this.#startsRunning.get(agentId) ?? 0) + 1);
+  }
+
+  #endStartRun(agentId: string): void {
+    const running = (this.#startsRunning.get(agentId) ?? 1) - 1;
+    if (running > 0) this.#startsRunning.set(agentId, running);
+    else this.#startsRunning.delete(agentId);
+    this.#settleIfIdle(agentId);
+  }
+
+  #settleIfIdle(agentId: string): void {
+    if (!this.startPending(agentId)) this.runtime.startSettled?.(agentId);
+  }
+
   start(intent: AgentStartIntent): Promise<void> {
+    this.#beginStartRun(intent.agentId);
+    return this.#start(intent).finally(() => this.#endStartRun(intent.agentId));
+  }
+
+  #start(intent: AgentStartIntent): Promise<void> {
     const known = this.#known.has(intent.agentId);
     this.#known.add(intent.agentId);
     return this.state.run(intent.agentId, async () => {
@@ -557,6 +590,7 @@ export class AgentControl {
   ): void {
     this.#clearLaunchRetry(intent.agentId);
     const handle = this.launchRetryScheduler.schedule(() => {
+      this.#beginStartRun(intent.agentId);
       this.#launchRetries.delete(intent.agentId);
       void this.state
         .run(intent.agentId, async () => {
@@ -583,7 +617,8 @@ export class AgentControl {
             attempt,
             error_code: diagnosticErrorCode(error),
           });
-        });
+        })
+        .finally(() => this.#endStartRun(intent.agentId));
     }, delayMs);
     this.#launchRetries.set(intent.agentId, handle);
   }
@@ -593,6 +628,7 @@ export class AgentControl {
     if (handle === undefined) return;
     this.#launchRetries.delete(agentId);
     this.launchRetryScheduler.cancel(handle);
+    this.#settleIfIdle(agentId);
   }
 
   /** Drops every pending retry and every failure streak. Called on daemon shutdown: a pending

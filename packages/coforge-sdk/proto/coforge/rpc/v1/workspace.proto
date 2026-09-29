@@ -279,6 +279,21 @@ message AgentMessageDeliveryAck {
   string method = 8;
 }
 
+// Versioned daemon-to-server rejection of a delivery the daemon did not take custody of; it
+// is never an acknowledgement. Closed vocabulary for `reason`: "no_process" (the Agent has no
+// running process, no launch in progress, and nothing the daemon can relaunch it from).
+message AgentMessageDeliveryRejection {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string delivery_id = 3;
+  string message_id = 4;
+  string workspace_id = 5;
+  string agent_id = 6;
+  uint64 sequence = 7;
+  string method = 8;
+  string reason = 9;
+}
+
 // Versioned daemon-to-server Agent activity. Agent status remains a separate
 // concern in the daemon/runtime contract; this payload carries activity data.
 message AgentActivity {
