@@ -149,19 +149,41 @@ test("status presentation uses backend detail instead of hardcoding the received
 });
 
 test.each([
-  ["computer_disconnected", "Computer disconnected", "The Computer is restarting", "offline"],
-  ["computer_started", "Computer started", "", "idle"],
-  ["computer_restarted", "Computer restarted", "", "idle"],
-  ["computer_upgraded", "Computer upgraded", "Now running 0.1.0-dev.80", "idle"],
-] as const)("a %s row names the Computer event", (detailKind, label, detail, tone) => {
-  expect(presentActivity({ detailKind, level: "info", detail })).toEqual([
+  ["computer_disconnected", "Disconnected", "offline"],
+  ["computer_started", "Started", "idle"],
+  ["computer_restarted", "Restarted", "idle"],
+  ["computer_upgraded", "Upgraded", "idle"],
+] as const)("a %s row names the Computer event and nothing else", (detailKind, label, tone) => {
+  // Rows stored before the server stopped writing a detail still read as the label alone.
+  for (const detail of ["", "Now running 0.1.0-dev.80"])
+    expect(presentActivity({ detailKind, level: "info", detail })).toEqual([
+      {
+        label,
+        detail: "",
+        recentLabel: label,
+        currentLabel: null,
+        tone,
+        recentTone: tone,
+        pulse: false,
+        monospace: false,
+        expandable: false,
+      },
+    ]);
+});
+
+test("a computer_operation_failed row names the failure and says what happened, at error tone", () => {
+  const detail =
+    "The upgrade did not complete; still running 1.0.0. Run `coforge-computer upgrade` to try again.";
+  expect(
+    presentActivity({ detailKind: "computer_operation_failed", level: "error", detail }),
+  ).toEqual([
     {
-      label,
+      label: "Computer operation failed",
       detail,
-      recentLabel: detail ? `${label}: ${detail}` : label,
+      recentLabel: `Computer operation failed: ${detail}`,
       currentLabel: null,
-      tone,
-      recentTone: tone,
+      tone: "error",
+      recentTone: "error",
       pulse: false,
       monospace: false,
       expandable: false,
