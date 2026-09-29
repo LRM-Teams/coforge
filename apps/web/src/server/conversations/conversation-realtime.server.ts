@@ -40,6 +40,9 @@ export type ConversationRealtimeMessage = {
   /** Present only for a person's send: its idempotency key, so the sender's page can match the
    * pending copy it shows to this message (see `MessageAvailableEvent.requestId`). */
   requestId?: string;
+  /** The person who wrote the message (`MessageAvailableEvent.senderUserId`); absent for an
+   * Agent's or a system message. */
+  senderUserId?: string;
 };
 
 /**

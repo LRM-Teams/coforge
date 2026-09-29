@@ -2234,6 +2234,7 @@ export class PublicChannels {
           workspaceId,
           threadRootId: message.threadRootId ?? undefined,
           requestId,
+          ...(message.sender?.user ? { senderUserId: message.sender.user.id } : {}),
         });
       } catch {
         // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.

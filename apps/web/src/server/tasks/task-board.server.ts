@@ -1157,6 +1157,7 @@ export class TaskBoard {
               messageId: task.messageId,
               sequence: result.sequences[index]!,
               ...signalScope,
+              ...(member.userId ? { senderUserId: member.userId } : {}),
             }),
           ),
         ]),

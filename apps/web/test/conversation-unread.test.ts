@@ -574,3 +574,34 @@ describe("listsMissedBySubscribe", () => {
     }
   });
 });
+
+describe("a person's own message", () => {
+  const own = { conversationId: "channel-a", sequence: 4, senderUserId: "viewer" };
+
+  test("never bumps their badge, from any page or device", () => {
+    const conversations = new Set(["channel-a"]);
+    expect(applyUnreadEvent({}, own, { conversations, viewerId: "viewer" })).toEqual({});
+    expect(
+      applyUnreadEvent(
+        {},
+        { ...own, senderUserId: "someone" },
+        { conversations, viewerId: "viewer" },
+      ),
+    ).toEqual({ "channel-a": 1, "channel-a:seq": 4 });
+    // An event without a sender (an Agent, or an older server) counts as before.
+    const { senderUserId: _unused, ...unnamed } = own;
+    void _unused;
+    expect(applyUnreadEvent({}, unnamed, { conversations, viewerId: "viewer" })).toEqual({
+      "channel-a": 1,
+      "channel-a:seq": 4,
+    });
+  });
+
+  test("never brings a closed chat back, so no list is re-read for it", () => {
+    // The server brings a closed chat back only for someone else's message.
+    expect(closedConversationLists(own, new Set(), "viewer")).toEqual([]);
+    expect(
+      closedConversationLists({ ...own, senderUserId: "someone" }, new Set(), "viewer"),
+    ).toEqual(["channels"]);
+  });
+});

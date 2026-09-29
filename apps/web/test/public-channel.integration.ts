@@ -95,6 +95,7 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       workspaceId?: string;
       threadRootId?: string;
       requestId?: string;
+      senderUserId?: string;
     }> = [];
     const channels = new PublicChannels(
       db,
@@ -193,6 +194,8 @@ test("Workspace humans enrolled in general see one general channel; outsiders ca
       workspaceId: workspace.id,
       threadRootId: undefined,
       requestId,
+      // Alice's own message: her other pages do not count it unread.
+      senderUserId: alice.id,
     });
     expect((await send(alice.id, "Hello Bob", requestId)).id).toBe(saved.id);
     const unjoined = await channels.open(workspace.id, bob.id, engineering.id);

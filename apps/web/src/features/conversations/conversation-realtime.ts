@@ -48,6 +48,12 @@ export type MessageAvailableEvent = {
    * the send's own response. Meaningless to anyone else, who ignores it.
    */
   requestId?: string;
+  /**
+   * The person who wrote the message, as Slack's `message` event names its `user`; absent for an
+   * Agent's or a system message, and from an older server. A person's own pages never count their
+   * own message unread (the server's count never does), wherever they sent it from.
+   */
+  senderUserId?: string;
 };
 
 export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEvent {
@@ -64,6 +70,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
   const agentId = Reflect.get(value, "agentId");
   const peerUserId = Reflect.get(value, "peerUserId");
   const requestId = Reflect.get(value, "requestId");
+  const senderUserId = Reflect.get(value, "senderUserId");
   if (
     type !== "message.available.v1" ||
     typeof conversationId !== "string" ||
@@ -76,7 +83,8 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     (threadRootId !== undefined && (typeof threadRootId !== "string" || !threadRootId)) ||
     (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
     (peerUserId !== undefined && (typeof peerUserId !== "string" || !peerUserId)) ||
-    (requestId !== undefined && (typeof requestId !== "string" || !requestId))
+    (requestId !== undefined && (typeof requestId !== "string" || !requestId)) ||
+    (senderUserId !== undefined && (typeof senderUserId !== "string" || !senderUserId))
   )
     throw new Error("invalid conversation event");
   return {
@@ -89,6 +97,7 @@ export function decodeMessageAvailableEvent(value: unknown): MessageAvailableEve
     ...(agentId ? { agentId } : {}),
     ...(peerUserId ? { peerUserId } : {}),
     ...(requestId ? { requestId } : {}),
+    ...(senderUserId ? { senderUserId } : {}),
   };
 }
 

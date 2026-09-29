@@ -69,6 +69,7 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
   const realtime: Array<{
     messageId: string;
     publicationId?: string;
+    senderUserId?: string;
   }> = [];
   const board = new TaskBoard(db, {
     realtime: {
@@ -178,6 +179,10 @@ test("TaskBoard atomically creates, converts, claims and revision-checks message
     ).toEqual({ target: `@${alice.username}:${directResource.tasks[0]!.messageId}` });
 
     const created = await board.execute({ workspaceId: workspace.id, userId: alice.id }, command);
+    // The Task's message is Alice's own: her other pages do not count it unread.
+    expect(realtime).toContainEqual(
+      expect.objectContaining({ messageId: created.tasks[0]!.messageId, senderUserId: alice.id }),
+    );
     expect(created.tasks[0]).toMatchObject({
       number: 1,
       title: command.title,

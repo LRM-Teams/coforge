@@ -53,7 +53,14 @@ export type UnreadEventInput = {
   agentId?: string;
   /** Present on a signal of a DM between members: the other member. */
   peerUserId?: string;
+  /** Present on a person's message: that person. */
+  senderUserId?: string;
 };
+
+/** A message the viewer wrote themself, from any page or device. */
+function isOwnMessage(event: UnreadEventInput, viewerId: string | undefined) {
+  return viewerId !== undefined && event.senderUserId === viewerId;
+}
 
 /**
  * Applies one `message.available.v1` event. Only a top-level message in a listed,
@@ -70,9 +77,12 @@ export function applyUnreadEvent(
     openConversationId?: string;
     /** Every listed channel's conversation id. */
     conversations: ReadonlySet<string>;
+    /** The viewer, whose own message never counts (`MessageAvailableEvent.senderUserId`). */
+    viewerId?: string;
   },
 ): UnreadCounts {
   if (event.conversationId === options.openConversationId) return current;
+  if (isOwnMessage(event, options.viewerId)) return current;
   if (event.threadRootId) return current;
   const key = event.conversationId;
   const direct = event.agentId !== undefined || event.peerUserId !== undefined;
@@ -110,8 +120,11 @@ export function unknownAgentOf(
 export function closedConversationLists(
   event: UnreadEventInput,
   listed: ReadonlySet<string>,
+  viewerId?: string,
 ): readonly ChatList[] {
-  if (event.threadRootId || listed.has(event.conversationId)) return [];
+  // The server brings a closed chat back only for someone else's message.
+  if (event.threadRootId || listed.has(event.conversationId) || isOwnMessage(event, viewerId))
+    return [];
   return event.agentId !== undefined || event.peerUserId !== undefined ? ["dms"] : ["channels"];
 }
 
@@ -362,6 +375,7 @@ export function useChannelUnread({
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
   const getUserToken = useServerFn(getUserConversationSubscriptionToken);
   const refs = useRef({
+    userId,
     channels,
     openConversationId,
     listedConversationIds,
@@ -370,6 +384,7 @@ export function useChannelUnread({
     onSidebarListsChanged,
   });
   refs.current = {
+    userId,
     channels,
     openConversationId,
     listedConversationIds,
@@ -393,12 +408,14 @@ export function useChannelUnread({
         onClosedConversationActivity: reopenFromActivity,
       } = refs.current;
       const conversations = new Set(channelRows.map((channel) => channel.id));
-      const stale = closedConversationLists(event, listed);
+      const viewerId = refs.current.userId;
+      const stale = closedConversationLists(event, listed, viewerId);
       if (stale.length > 0) reopenFromActivity(stale, event);
       setCounts((current) =>
         applyUnreadEvent(current, event, {
           conversations,
           openConversationId: open,
+          viewerId,
         }),
       );
     } catch {
