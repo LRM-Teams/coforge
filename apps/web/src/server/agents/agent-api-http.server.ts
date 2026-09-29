@@ -30,6 +30,7 @@ export async function authenticateAgentMessageRequest(
     agentApiKeys: AgentApiKeyRepository;
     verifyDaemonApiKey(token: string): Promise<DaemonPrincipal>;
     computerBelongsToWorkspace(workspaceId: string, computerId: string): Promise<boolean>;
+    agentIsActive(workspaceId: string, agentId: string): Promise<boolean>;
   },
 ) {
   try {
@@ -37,16 +38,20 @@ export async function authenticateAgentMessageRequest(
     const agentAuthorization = request.headers.get("x-coforge-agent-api-key");
     if (!agentAuthorization?.startsWith("Bearer ") || !daemonAuthorization?.startsWith("Bearer "))
       throw new Error("credentials missing");
-    const record = await authenticateAgentApiKey(
-      agentAuthorization.slice(7).trim(),
-      dependencies.agentApiKeys,
-    );
-    const daemon = await dependencies.verifyDaemonApiKey(daemonAuthorization.slice(7).trim());
-    if (
-      !isAgentApiKeyBoundToComputer(record, daemon) ||
-      !(await dependencies.computerBelongsToWorkspace(daemon.workspaceId, daemon.computerId))
-    )
-      throw new Error("credential scope mismatch");
+    // Every Agent HTTP call runs this before its route, so the reads that do not depend on each
+    // other go out together: both keys, then the Computer's and the Agent's scope.
+    const [record, daemon] = await Promise.all([
+      authenticateAgentApiKey(agentAuthorization.slice(7).trim(), dependencies.agentApiKeys),
+      dependencies.verifyDaemonApiKey(daemonAuthorization.slice(7).trim()),
+    ]);
+    if (!isAgentApiKeyBoundToComputer(record, daemon)) throw new Error("credential scope mismatch");
+    const [computerInWorkspace, agentActive] = await Promise.all([
+      dependencies.computerBelongsToWorkspace(daemon.workspaceId, daemon.computerId),
+      // Deleting an Agent revokes its keys, but a key minted before the delete could still be
+      // in flight; check the Agent itself so a deleted Agent can never act through the HTTP API.
+      dependencies.agentIsActive(record.workspaceId, record.agentId),
+    ]);
+    if (!computerInWorkspace || !agentActive) throw new Error("credential scope mismatch");
     return {
       userId: record.ownerId,
       workspaceId: record.workspaceId,
@@ -71,7 +76,7 @@ export function createAgentReminderService(
 }
 
 export async function authenticateAgentHttpRequest(request: Request, db: PrismaClient) {
-  const principal = await authenticateAgentMessageRequest(request, {
+  return authenticateAgentMessageRequest(request, {
     agentApiKeys: new PrismaAgentApiKeyRepository(db),
     verifyDaemonApiKey: (token) => verifyDaemonApiKey(token, new PrismaDaemonApiKeyRepository(db)),
     computerBelongsToWorkspace: async (workspaceId, computerId) =>
@@ -81,17 +86,12 @@ export async function authenticateAgentHttpRequest(request: Request, db: PrismaC
           select: { id: true },
         }),
       ),
+    agentIsActive: async (workspaceId, agentId) =>
+      Boolean(
+        await db.agent.findFirst({
+          where: { id: agentId, workspaceId, ...ACTIVE_AGENT_WHERE },
+          select: { id: true },
+        }),
+      ),
   });
-  // Deleting an Agent revokes its keys, but a key minted before the delete could still
-  // be in flight; check the Agent itself so a deleted Agent can never act through the HTTP API.
-  const agent = await db.agent.findFirst({
-    where: {
-      id: principal.agentId,
-      workspaceId: principal.workspaceId,
-      ...ACTIVE_AGENT_WHERE,
-    },
-    select: { id: true },
-  });
-  if (!agent) throw new CentrifugoRpcAuthenticationError();
-  return principal;
 }
