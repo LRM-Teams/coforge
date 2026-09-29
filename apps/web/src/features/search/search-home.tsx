@@ -163,7 +163,10 @@ function useFrequentEntities(
           return { kind, ...agents.get(id)! };
         case "dm": {
           const { id: peerId, name, handle, avatarUrl } = dms.get(id)!;
-          return { kind, id, peerId, name, handle, avatarUrl };
+          // The viewer's DM with themself reads as their own name, marked as them.
+          const label =
+            peerId === directory.viewerId ? `${name} ${m.conversation_dm_self_suffix()}` : name;
+          return { kind, id, peerId, name: label, handle, avatarUrl };
         }
       }
     });

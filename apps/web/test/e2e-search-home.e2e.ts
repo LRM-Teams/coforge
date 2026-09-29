@@ -8,7 +8,8 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 
 /**
  * The search page with nothing typed: the searches that led somewhere (Search history) and the
- * channels and Agents opened from search (Frequently used), both kept in this browser only.
+ * channels, Agents and direct messages with members opened from search (Frequently used), both kept
+ * in this browser only.
  * Opening a message result records its query and its conversation; opening a match records the
  * typed text and the match. A repeated search moves to the front, whatever its case. A history
  * entry searches again; one can be removed, or all cleared. A frequently used card opens its
