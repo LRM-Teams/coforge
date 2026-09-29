@@ -1,5 +1,10 @@
 import { AgentChannelManagementError } from "#src/server/conversations/agent-channel-management-error.server";
 
+/** Who a channel-management route acts as: one Agent, in one Workspace. Declared once here because
+ * the whole family shares it - the route files under `routes/api/agent/v1/channels*` each used to
+ * spell it out, and export it, themselves (nothing imported those copies). */
+export type AgentChannelManagementPrincipal = { workspaceId: string; agentId: string };
+
 export {
   agentIdempotencyKey as idempotencyKeyFrom,
   agentIdempotencyKeyFromQuery as idempotencyKeyFromQuery,
