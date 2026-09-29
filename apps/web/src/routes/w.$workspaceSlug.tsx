@@ -1,15 +1,15 @@
 import { useCallback, useEffect } from "react";
-import { Outlet, createFileRoute, notFound, useNavigate } from "@tanstack/react-router";
+import { Outlet, createFileRoute, notFound, redirect, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
 import { AppShell } from "#src/components/app-shell";
 import { TimeFormatProvider } from "#src/lib/time-format-context";
 import { getUserProfile } from "#src/features/profiles/profile.functions";
 import {
-  createWorkspace,
   loadWorkspaceSwitcher,
   openWorkspace,
 } from "#src/features/workspaces/workspaces.functions";
+import { useCreateAndOpenWorkspace } from "#src/features/workspaces/create-workspace-form";
 import { isAppError } from "#src/lib/app-error";
 import { isValidWorkspaceSlug } from "#src/features/workspaces/workspace-slug";
 import { loadRecordsNavAttention } from "#src/features/records/records.functions";
@@ -28,6 +28,7 @@ import { useLastLocationMemory } from "#src/features/workspaces/use-last-locatio
 import { useSearchShortcut } from "#src/features/search/search-shortcut";
 import { markShownWorkspace, shownWorkspace } from "#src/features/workspaces/shown-workspace";
 import { LeaveDeletedWorkspace } from "#src/features/workspaces/leave-deleted-workspace";
+import { getStartPage } from "#src/features/workspaces/last-location.functions";
 
 export const Route = createFileRoute("/w/$workspaceSlug")({
   staleTime: Infinity,
@@ -41,9 +42,12 @@ export const Route = createFileRoute("/w/$workspaceSlug")({
     if (shown === params.workspaceSlug) return;
     // Runs before any page loader: a Workspace the User is not in is a page that does not exist
     // for them. Checked once per Workspace entered; every server call re-checks it anyway.
-    await openWorkspace().catch((error: unknown) => {
-      if (isAppError(error) && error.code === "NOT_FOUND") throw notFound();
-      throw error;
+    await openWorkspace().catch(async (error: unknown) => {
+      if (!isAppError(error) || error.code !== "NOT_FOUND") throw error;
+      // A person in no Workspace at all has nowhere to go from here but creating one.
+      if (!(await getStartPage({ data: { resume: false } })))
+        throw redirect({ to: "/workspaces/new" });
+      throw notFound();
     });
     // Query keys are not scoped by Workspace, so moving to another one starts from an empty cache.
     if (shown) context.queryClient.clear();
@@ -98,7 +102,7 @@ function AppLayout() {
   const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
   const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
   const navigate = useNavigate();
-  const create = useServerFn(createWorkspace);
+  const createAndOpen = useCreateAndOpenWorkspace();
   return (
     <TimeFormatProvider timeFormat={timeFormat}>
       <BrowserRealtimeProvider
@@ -136,13 +140,12 @@ function AppLayout() {
                 onSelectWorkspace={async (slug) => {
                   await navigate({ to: "/w/$workspaceSlug", params: { workspaceSlug: slug } });
                 }}
-                onCreateWorkspace={async (input) => {
-                  const workspace = await create({ data: input });
-                  await navigate({
-                    to: "/w/$workspaceSlug",
-                    params: { workspaceSlug: workspace.slug },
-                  });
-                }}
+                onCreateWorkspace={createAndOpen}
+                /** Like FirstWorkspacePage's link: a full browser navigation so the server route
+                 * can clear the session cookie and send the browser to Authing. `?returnTo`
+                 * carries this page back across the sign-out (the root route hands it to
+                 * `/login`) once the switch-account return step is in. */
+                onSignOut={() => void window.location.assign("/auth/logout")}
               >
                 <Outlet />
               </AppShell>

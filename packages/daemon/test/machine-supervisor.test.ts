@@ -550,7 +550,9 @@ test("stop durably supersedes a pending restart and rejects its later replay", a
   const recovered = fixture.create();
   await recovered.recover();
   expect(fixture.running.has("a")).toBe(false);
-  await expect(recovered.command("restart", "a", "request")).rejects.toThrow("cancelled");
+  await expect(recovered.command("restart", "a", "request")).rejects.toThrow(
+    "superseded by a stop",
+  );
   expect(fixture.running.get("b")).toBe("old-b");
   expect((await recovered.snapshot())[0]?.enabled).toBe(false);
 });
@@ -1066,7 +1068,7 @@ test("a stop wins over a restart still under way: the restart is abandoned and r
   const [saved] = fixture.saved();
   expect(saved).toMatchObject({ enabled: false });
   expect(saved?.restart).toBeUndefined();
-  expect(saved?.restartResults).toEqual([{ requestId: "first", status: "cancelled" }]);
+  expect(saved?.restartResults).toEqual([{ requestId: "first", status: "cancelled", by: "stop" }]);
   expect(fixture.starts).toEqual(["a"]);
   expect((await fixture.supervisor.view())[0]?.instanceId).toBeNull();
 });
@@ -1083,7 +1085,36 @@ test("a restart queued before a stop never runs", async () => {
   await expect(first).rejects.toThrow("superseded by a stop");
   await expect(second).rejects.toThrow("superseded by a stop");
   expect(fixture.starts).toEqual(["a"]);
-  expect(fixture.saved()[0]?.restartResults).toEqual([{ requestId: "first", status: "cancelled" }]);
+  // The queued one is recorded too, so a replay of it (a cloud restart request) can neither run
+  // nor enable the Workspace the operator stopped.
+  expect(fixture.saved()[0]?.restartResults).toEqual([
+    { requestId: "first", status: "cancelled", by: "stop" },
+    { requestId: "second", status: "cancelled", by: "stop" },
+  ]);
+  await expect(fixture.supervisor.command("restart", "a", "second")).rejects.toThrow(
+    "Workspace a restart was superseded by a stop. Run 'coforge-computer start --workspace a' to start it again.",
+  );
+  expect(fixture.saved()[0]).toMatchObject({ enabled: false });
+  expect(fixture.starts).toEqual(["a"]);
+});
+
+test("a replayed restart that attaching the Workspace again replaced names that, not a stop", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+  const restart = fixture.supervisor.command("restart", "a", "first");
+  await untilStarted(fixture);
+  const configured = fixture.supervisor.configure({
+    workspaceId: "a",
+    computerId: "c",
+    workspaceRoot: "/a",
+  });
+  fixture.open();
+  await configured;
+  await expect(restart).rejects.toThrow("superseded");
+
+  await expect(fixture.supervisor.command("restart", "a", "first")).rejects.toThrow(
+    "Workspace a restart was superseded by attaching it again",
+  );
 });
 
 test("a start requested after a stop still runs", async () => {
@@ -1113,7 +1144,9 @@ test("configure takes over a restart still under way instead of refusing", async
   const [saved] = fixture.saved();
   expect(saved).toMatchObject({ enabled: true });
   expect(saved?.restart).toBeUndefined();
-  expect(saved?.restartResults).toEqual([{ requestId: "first", status: "cancelled" }]);
+  expect(saved?.restartResults).toEqual([
+    { requestId: "first", status: "cancelled", by: "configure" },
+  ]);
   expect(fixture.starts).toEqual(["a", "a"]);
 });
 
@@ -1198,4 +1231,100 @@ test("a restart a stop took over after its answer is not recorded as a failure",
   await fixture.supervisor.snapshot();
 
   expect(fixture.saved()[0]?.lastFailure).toBeUndefined();
+});
+
+test("a failure without a message is still recorded, with a reason that says so", async () => {
+  const fixture = gatedFixture([binding("a", false)]);
+  await fixture.supervisor.recover();
+  await fixture.supervisor.command("start", "a", undefined, { deadline: Date.now() + 10 });
+
+  fixture.fail(new Error(""));
+  const deadline = Date.now() + 1_000;
+  while (!fixture.saved()[0]?.lastFailure && Date.now() < deadline) await Bun.sleep(1);
+
+  expect(fixture.saved()[0]?.lastFailure?.message).toBe(
+    "The start failed without a reason; the Computer log has the details.",
+  );
+});
+
+test("a stop that answers before its turn has already persisted the Workspace as stopped", async () => {
+  const fixture = gatedFixture([binding("a"), binding("b", false)]);
+  await fixture.supervisor.recover();
+  const startB = fixture.supervisor.command("start", "b");
+  await untilStarted(fixture);
+
+  expect(
+    await fixture.supervisor.command("stop", "a", undefined, { deadline: Date.now() + 20 }),
+  ).toEqual({ started: [], pending: ["a"] });
+
+  // A Coordinator that dies now still comes back with "a" stopped, as the CLI was told.
+  expect(fixture.saved()[0]).toMatchObject({ workspaceId: "a", enabled: false });
+  fixture.open();
+  await startB;
+});
+
+test("a stop marked while a restart is under way records that restart cancelled at once", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+  const restart = fixture.supervisor.command("restart", "a", "first");
+  await untilStarted(fixture);
+
+  await fixture.supervisor.command("stop", "a", undefined, { deadline: Date.now() });
+
+  expect(fixture.saved()[0]).toMatchObject({
+    enabled: false,
+    restartResults: [{ requestId: "first", status: "cancelled", by: "stop" }],
+  });
+  expect(fixture.saved()[0]?.restart).toBeUndefined();
+  await expect(restart).rejects.toThrow("superseded by a stop");
+  await fixture.supervisor.snapshot();
+  expect(fixture.saved()[0]?.restartResults).toHaveLength(1);
+});
+
+test("a pause takes effect at once instead of waiting behind a start under way; work queued behind it is refused", async () => {
+  const fixture = gatedFixture([binding("a", false), binding("b", false)]);
+  await fixture.supervisor.recover();
+  const startA = fixture.supervisor.command("start", "a");
+  const startB = fixture.supervisor.command("start", "b").catch((error: unknown) => error);
+  await untilStarted(fixture);
+
+  await fixture.supervisor.pause();
+
+  fixture.open();
+  await expect(startA).resolves.toEqual({ started: ["a"], pending: [] });
+  expect(await startB).toBeInstanceOf(UpgradeLaunchesPausedError);
+  expect(fixture.starts).toEqual(["a"]);
+});
+
+test("configure answers by its deadline while its start is still under way, and the start finishes", async () => {
+  const fixture = gatedFixture([]);
+  await fixture.supervisor.recover();
+
+  expect(
+    await fixture.supervisor.configure(
+      { workspaceId: "a", computerId: "c", workspaceRoot: "/a" },
+      { deadline: Date.now() + 20 },
+    ),
+  ).toEqual({ pending: true });
+  expect(fixture.saved()[0]).toMatchObject({ workspaceId: "a", enabled: true });
+  fixture.open();
+  expect((await fixture.supervisor.snapshot())[0]?.instanceId).toBe("new-1");
+});
+
+test("a configure that fails after it answered is recorded on its binding", async () => {
+  const fixture = gatedFixture([]);
+  await fixture.supervisor.recover();
+  await fixture.supervisor.configure(
+    { workspaceId: "a", computerId: "c", workspaceRoot: "/a" },
+    { deadline: Date.now() + 10 },
+  );
+
+  fixture.fail(new Error("Workspace a failed process readiness"));
+  const deadline = Date.now() + 1_000;
+  while (!fixture.saved()[0]?.lastFailure && Date.now() < deadline) await Bun.sleep(1);
+
+  expect(fixture.saved()[0]?.lastFailure).toMatchObject({
+    operation: "configure",
+    message: "Workspace a failed process readiness",
+  });
 });

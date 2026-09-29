@@ -24,9 +24,13 @@ import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
 import { FileBindingStore } from "#src/supervisor/binding-store";
 import type { WorkspaceCloudConnectionReport } from "#src/supervisor/workspace-start-outcome";
 
+/** A Workspace configuration the Daemon took; `lifecycleUnderWay` when its start was still under
+ * way at the Coordinator's deadline and finishes behind the answer. */
+export type DaemonStarted = { lifecycleUnderWay?: boolean };
+
 export interface DaemonLauncher {
   preflight?(): Promise<void>;
-  ensureStarted(input: DaemonWorkspaceConfig): Promise<void>;
+  ensureStarted(input: DaemonWorkspaceConfig): Promise<DaemonStarted>;
   stopAll?(): Promise<void>;
 }
 export interface DaemonCommandRunner {
@@ -124,14 +128,15 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
     }
   }
 
-  async ensureStarted(input: DaemonWorkspaceConfig): Promise<void> {
+  async ensureStarted(input: DaemonWorkspaceConfig): Promise<DaemonStarted> {
     try {
-      if (await this.#handshake(input)) return;
+      const started = await this.#handshake(input);
+      if (started) return started;
     } catch (error) {
       if (error instanceof Error && error.message.includes("server does not match")) throw error;
       throw new Error("coforge-daemon did not accept the local handshake", { cause: error });
     }
-    await this.#waitForHandshake(input);
+    return this.#waitForHandshake(input);
   }
 
   async ensureRunning(): Promise<void> {
@@ -139,10 +144,11 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
     await this.#waitForHandshake();
   }
 
-  async #waitForHandshake(input?: DaemonWorkspaceConfig): Promise<void> {
+  async #waitForHandshake(input?: DaemonWorkspaceConfig): Promise<DaemonStarted> {
     const deadline = Date.now() + this.#timeoutMilliseconds;
     while (Date.now() < deadline) {
-      if (await this.#handshake(input)) return;
+      const started = await this.#handshake(input);
+      if (started) return started;
       await this.#sleep(50);
     }
     throw new Error(
@@ -292,7 +298,8 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
     }
   }
 
-  async #handshake(config?: DaemonWorkspaceConfig): Promise<boolean> {
+  /** False while the daemon does not answer; what it took once it did. */
+  async #handshake(config?: DaemonWorkspaceConfig): Promise<DaemonStarted | false> {
     let connection: LocalDaemonConnection;
     try {
       connection = await this.#connect(this.options.socketPath);
@@ -303,7 +310,7 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
     }
     try {
       await this.#verifyHandshake(connection);
-      if (!config) return true;
+      if (!config) return {};
       const configureId = crypto.randomUUID();
       const responseEnvelope = decodeLocalRpcResponse(
         await connection.request(
@@ -332,7 +339,7 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
         configured.requestId === configureId &&
         configured.accepted;
       if (!accepted) throw new Error("coforge-daemon did not accept configuration");
-      return true;
+      return configured.lifecycleUnderWay ? { lifecycleUnderWay: true } : {};
     } finally {
       connection.close();
     }

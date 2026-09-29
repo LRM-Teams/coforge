@@ -1,0 +1,12 @@
+---
+name: weekly-report-review
+description: >-
+  Guides template conformity checks, missing-content checks, and quality review.
+---
+
+# Weekly report review
+
+- Compare a report against the visible template outline and section names.
+- Flag empty sections, weak placeholders, and missing required structure.
+- Separate factual gaps from stylistic suggestions.
+- Keep review comments actionable and scoped to authorized content.

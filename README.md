@@ -34,8 +34,10 @@ The architecture invariants every change must respect are in
 | [apps/web/AGENTS.md](apps/web/AGENTS.md) | Web/backend rules and module map |
 | [packages/computer/AGENTS.md](packages/computer/AGENTS.md) | Computer package rules and module map |
 | [packages/daemon/AGENTS.md](packages/daemon/AGENTS.md) | Daemon package rules and module map |
+| [installer/AGENTS.md](installer/AGENTS.md) | Rust installer crate (`coforge-installer`): toolchain, commands, CI, supply-chain gate, module map |
 | [docs/database-schema/](docs/database-schema/README.md) | Database schema and conversation/delivery model |
 | [docs/reliable-message-delivery.md](docs/reliable-message-delivery.md) | Message delivery guarantees |
+| [docs/workspace-deletion.md](docs/workspace-deletion.md) | What deleting a Workspace removes, and when |
 | [docs/observability/](docs/observability/README.md) | Agent Activity, status, and observability baseline |
 | [docs/local-logging.md](docs/local-logging.md) | Computer/Daemon logging contract |
 | [docs/release/](docs/release/README.md) | Release contract: deployment, Computer distribution, promotion, rollback |

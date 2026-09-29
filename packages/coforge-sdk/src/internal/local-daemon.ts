@@ -570,6 +570,8 @@ export type DaemonRuntimeConfigureResponse = {
   protocolMajor: number;
   requestId: string;
   accepted: boolean;
+  /** Taken, but the Workspace's start was still under way when the Coordinator answered. */
+  lifecycleUnderWay?: boolean;
 };
 export type DaemonCommandRequest = {
   protocolMajor: number;
@@ -602,6 +604,8 @@ export type ManagedRuntimeIdentity = {
   /** Only on the Workspaces an operator start or restart just started. */
   cloudConnection?: WorkspaceCloudConnection;
   cloudConnectionError?: string;
+  /** A start, restart, or configure of this Workspace is queued or running in the Coordinator. */
+  lifecycleUnderWay?: boolean;
 };
 export type DaemonCommandResponse = {
   protocolMajor: number;
@@ -670,7 +674,12 @@ export function decodeDaemonRuntimeConfigureResponse(
   bytes: Uint8Array,
 ): DaemonRuntimeConfigureResponse {
   const v = fromBinary(DaemonRuntimeConfigureResponseSchema, bytes);
-  return { protocolMajor: v.protocolMajor, requestId: v.requestId, accepted: v.accepted };
+  return {
+    protocolMajor: v.protocolMajor,
+    requestId: v.requestId,
+    accepted: v.accepted,
+    ...(v.lifecycleUnderWay ? { lifecycleUnderWay: true } : {}),
+  };
 }
 
 export function encodeDaemonCommandRequest(value: DaemonCommandRequest): Uint8Array {
@@ -704,6 +713,7 @@ export function decodeDaemonCommandResponse(bytes: Uint8Array): DaemonCommandRes
       version: runtime.version,
       ...(runtime.parkReason ? { parkReason: runtime.parkReason } : {}),
       ...connectionFields(runtime),
+      ...(runtime.lifecycleUnderWay ? { lifecycleUnderWay: true } : {}),
     })),
     ...(value.error ? { error: value.error } : {}),
     ...(value.errorCode ? { errorCode: value.errorCode } : {}),

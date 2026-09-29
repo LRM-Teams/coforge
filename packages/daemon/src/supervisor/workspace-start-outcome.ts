@@ -4,7 +4,6 @@ import type {
 } from "@lrm/coforge-sdk/internal";
 import { join } from "node:path";
 import { LocalDaemonLauncher } from "#src/daemon-host/launcher";
-import { answeredWithin } from "./runner-hold";
 import { WorkspaceParkedError } from "./workspace-health-journal";
 import { workspaceStateDirectory } from "./workspace-instance";
 
@@ -31,22 +30,16 @@ export function workspaceSocketPath(stateRoot: string, workspaceId: string): str
  * Asks one Workspace process's handshake where its cloud connection stands, bounded so a socket
  * that accepts and then stalls cannot hold its caller. Null when it does not answer in time.
  */
-export async function readWorkspaceCloudConnection(
+export function readWorkspaceCloudConnection(
   stateRoot: string,
   workspaceId: string,
 ): Promise<WorkspaceCloudConnectionReport | null> {
-  const launcher = new LocalDaemonLauncher({
+  // Bounded by the handshake itself, which closes its socket at the deadline.
+  return new LocalDaemonLauncher({
     executablePath: process.execPath,
     socketPath: workspaceSocketPath(stateRoot, workspaceId),
     spawn: () => {},
-  });
-  const reported = await answeredWithin(
-    launcher.identity(),
-    CLOUD_CONNECTION_PROBE_MS,
-    "Workspace handshake timed out",
-  ).catch(() => null);
-  if (!reported?.cloudConnection) return null;
-  return connectionReport(reported.cloudConnection, reported.cloudConnectionError);
+  }).cloudConnection(CLOUD_CONNECTION_PROBE_MS);
 }
 
 function connectionReport(

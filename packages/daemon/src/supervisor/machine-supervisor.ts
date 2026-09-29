@@ -4,6 +4,7 @@ import type { DaemonConfig } from "#src/daemon-runtime/runtime";
 import { answeredWithin, holdRunnersUntilQuiescent, type RunnerHoldSnapshot } from "./runner-hold";
 import { UpgradeLaunchesPausedError, UpgradeOperationPendingError } from "./upgrade-error";
 import { WorkspaceParkedError } from "./workspace-health-journal";
+import { WorkspaceLifecycleSupersededError } from "./lifecycle-superseded-error";
 
 export type RestartProgress = {
   requestId: string;
@@ -12,7 +13,8 @@ export type RestartProgress = {
 };
 export type RestartResult =
   | { requestId: string; status: "completed"; instanceId: string }
-  | { requestId: string; status: "cancelled" };
+  /** `by`: what took it over; older receipts without it were cancelled by a stop. */
+  | { requestId: string; status: "cancelled"; by?: "stop" | "configure" };
 
 /**
  * The canonical local Computer upgrade operation. `pending` means an external one-shot job was
@@ -62,7 +64,7 @@ export type ManagedBinding = DaemonConfig & {
   lastFailure?: LifecycleFailure;
 };
 
-export const LIFECYCLE_FAILURE_OPERATIONS = ["start", "restart", "stop"] as const;
+export const LIFECYCLE_FAILURE_OPERATIONS = ["start", "restart", "stop", "configure"] as const;
 export type LifecycleFailure = {
   operation: (typeof LIFECYCLE_FAILURE_OPERATIONS)[number];
   message: string;
@@ -116,27 +118,6 @@ type CommandProgress = {
   settle(workspaceId: string): void;
 };
 
-/**
- * A start or restart a later `stop` or `configure` of the same Workspace took over, as systemd
- * replaces a unit's pending start job with a stop job: the work under way gives up at its next
- * step, and one still queued never runs.
- */
-export class WorkspaceLifecycleSupersededError extends Error {
-  constructor(
-    readonly workspaceId: string,
-    readonly by: "stop" | "configure",
-    operation?: "start" | "restart",
-  ) {
-    const work = operation ?? "lifecycle work";
-    super(
-      by === "stop"
-        ? `Workspace ${workspaceId} ${work} was superseded by a stop. Run 'coforge-computer start --workspace ${workspaceId}' to start it again.`
-        : `Workspace ${workspaceId} ${work} was superseded by attaching it again, which starts it with its new configuration.`,
-    );
-    this.name = "WorkspaceLifecycleSupersededError";
-  }
-}
-
 export interface WorkspaceProcesses {
   /** Gives up with `signal.reason` once `signal` aborts (a stop or configure took over). */
   start(binding: ManagedBinding, options?: { signal?: AbortSignal }): Promise<string>;
@@ -186,7 +167,12 @@ export class MachineSupervisor {
   /** Start/restart/configure requests per Workspace, from request until handled: queued or
    * running, what the view reports as under way. */
   #underWay = new Map<string, number>();
-  #mutation = Promise.resolve();
+  /** Workspaces a stop has already persisted as stopped while its own turn in the queue is still
+   * to come (the sequence of that stop). Any save of them meanwhile keeps them stopped. */
+  #stopIntents = new Map<string, number>();
+  /** Store writes, one at a time: a stop's intent is written outside the lifecycle queue. */
+  #writing = new SerialQueue();
+  #mutation = new SerialQueue();
   #paused = false;
   #reloadRequired = false;
   constructor(
@@ -226,7 +212,7 @@ export class MachineSupervisor {
 
   /** Attaches (or re-attaches) a Workspace and starts it. It takes over a start or restart of the
    * same Workspace still under way or queued; a restart it replaces is recorded cancelled. */
-  configure(config: DaemonConfig) {
+  configure(config: DaemonConfig, options: CommandOptions = {}): Promise<{ pending: boolean }> {
     this.#supersede([config.workspaceId], "configure");
     const settle = this.#markUnderWay([config.workspaceId]);
     const work = this.#serialize(async () => {
@@ -237,13 +223,24 @@ export class MachineSupervisor {
       const binding = {
         ...config,
         enabled: true,
-        restartResults: previous ? cancelledRestartResults(previous) : undefined,
+        restartResults: previous ? cancelledRestartResults(previous, "configure") : undefined,
       };
       await this.processes.clearParked?.(binding);
       await this.#saveBinding(binding);
       await this.#track(binding.workspaceId, (signal) => this.#start(binding, signal));
-    });
-    return work.finally(settle.all);
+      await this.#clearFailure(binding.workspaceId);
+      return { pending: false };
+    }).finally(settle.all);
+    // With a deadline it answers like a command: the configuration is taken, its start finishes
+    // behind the answer, and a later failure is recorded for `status`.
+    const { deadline } = options;
+    if (deadline === undefined) return work;
+    return this.#answerBy(
+      deadline,
+      work,
+      () => ({ pending: true }),
+      (error) => this.#failedAfterAnswer("configure", [config.workspaceId], error),
+    );
   }
 
   /**
@@ -262,21 +259,59 @@ export class MachineSupervisor {
     const sequence = operation === "stop" ? this.#supersede(requested, "stop") : ++this.#sequence;
     const settle = this.#markUnderWay(operation === "stop" ? [] : requested);
     const progress: CommandProgress = { done: 0, started: [], settle: settle.one };
-    const work = this.#serialize(() =>
-      this.#command(operation, workspaceId, requestId, sequence, progress),
-    ).finally(settle.all);
-    if (options.deadline === undefined) return work;
+    // A stop is persisted before it answers, so a Coordinator that dies before the stop's turn
+    // comes back with the Workspace stopped, as the CLI was told.
+    const intent = operation === "stop" ? this.#persistStopIntent(requested, sequence) : undefined;
+    const work = this.#serialize(async () => {
+      await intent;
+      return this.#command(operation, workspaceId, requestId, sequence, progress);
+    }).finally(() => {
+      settle.all();
+      if (operation === "stop") this.#releaseStopIntents(requested, sequence);
+    });
+    const { deadline } = options;
+    if (deadline === undefined) return work;
     const unhandled = () => (progress.targets ?? requested).slice(progress.done);
-    return this.#answerBy(
-      options.deadline,
-      work,
-      () => {
-        if (progress.refused) throw progress.refused;
-        if (progress.superseded) throw progress.superseded;
-        return { started: [...progress.started], pending: unhandled() };
-      },
-      (error) => this.#failedAfterAnswer(operation, unhandled(), error),
-    );
+    const answer = () =>
+      this.#answerBy(
+        deadline,
+        work,
+        () => {
+          if (progress.refused) throw progress.refused;
+          if (progress.superseded) throw progress.superseded;
+          return { started: [...progress.started], pending: unhandled() };
+        },
+        (error) => this.#failedAfterAnswer(operation, unhandled(), error),
+      );
+    if (!intent) return answer();
+    return intent.then(answer, (error: unknown) => {
+      work.catch(() => {});
+      throw error;
+    });
+  }
+
+  /** Persists these Workspaces as stopped now, ahead of the stop's turn in the queue. */
+  async #persistStopIntent(workspaceIds: readonly string[], sequence: number): Promise<void> {
+    for (const id of workspaceIds) this.#stopIntents.set(id, sequence);
+    try {
+      await this.#exclusive(async () => {
+        await this.#reloadIfRequired();
+        const next = this.#bindings.map((binding) =>
+          this.#stopIntents.has(binding.workspaceId) ? stopped(binding) : binding,
+        );
+        await this.#store(next);
+      });
+    } catch (error) {
+      // The stop fails as a whole (its queued turn sees the same error), so nothing stays forced.
+      this.#releaseStopIntents(workspaceIds, sequence);
+      throw error;
+    }
+  }
+
+  /** Ends this stop's hold over its Workspaces, unless a later stop took them over since. */
+  #releaseStopIntents(workspaceIds: readonly string[], sequence: number): void {
+    for (const id of workspaceIds)
+      if (this.#stopIntents.get(id) === sequence) this.#stopIntents.delete(id);
   }
 
   /**
@@ -286,11 +321,13 @@ export class MachineSupervisor {
    * and the operator asked for the takeover.
    */
   #failedAfterAnswer(
-    operation: "start" | "restart" | "stop",
+    operation: LifecycleFailure["operation"],
     workspaceIds: readonly string[],
     error: unknown,
   ): void {
-    const message = error instanceof Error ? error.message : String(error);
+    const message =
+      (error instanceof Error ? error.message : String(error)) ||
+      `The ${operation} failed without a reason; the Computer log has the details.`;
     if (error instanceof WorkspaceParkedError || error instanceof WorkspaceLifecycleSupersededError)
       return;
     logger.warn("A lifecycle command failed after it had already answered", {
@@ -401,12 +438,7 @@ export class MachineSupervisor {
     for (let binding of targets) {
       const id = binding.workspaceId;
       if (operation === "stop") {
-        binding = await this.#saveBinding({
-          ...binding,
-          enabled: false,
-          restart: undefined,
-          restartResults: cancelledRestartResults(binding),
-        });
+        binding = await this.#saveBinding(stopped(binding));
         await this.#stop(binding);
         await this.#clearFailure(id);
       } else {
@@ -420,6 +452,21 @@ export class MachineSupervisor {
           // A stop or configure requested after this command takes precedence.
           const { by } = this.#supersededAt.get(id)!;
           progress.superseded ??= new WorkspaceLifecycleSupersededError(id, by, operation);
+          // Record it like one taken over while running, so a replay neither runs nor re-enables.
+          if (
+            operation === "restart" &&
+            requestId &&
+            binding.restart?.requestId !== requestId &&
+            !binding.restartResults?.some((entry) => entry.requestId === requestId)
+          )
+            await this.#saveBinding({
+              ...binding,
+              restartResults: appendRestartResult(binding, {
+                requestId,
+                status: "cancelled",
+                by,
+              }),
+            });
         } else {
           try {
             const current = binding;
@@ -488,7 +535,11 @@ export class MachineSupervisor {
       const id = requestId ?? crypto.randomUUID();
       const result = binding.restartResults?.find((entry) => entry.requestId === id);
       if (result?.status === "cancelled")
-        throw new Error("Workspace restart was cancelled by stop");
+        throw new WorkspaceLifecycleSupersededError(
+          binding.workspaceId,
+          result.by ?? "stop",
+          "restart",
+        );
       if (result) return false;
       if (binding.restart && binding.restart.requestId !== id)
         throw new Error(
@@ -624,10 +675,15 @@ export class MachineSupervisor {
     });
   }
 
+  /**
+   * Stops new lifecycle work at once. Work already running finishes; work still queued is refused
+   * when its turn comes (`#assertMutable`). It does not wait behind the queue: a restart's hold
+   * and readiness would outlast the local lifecycle client, and an upgrade waits for the work
+   * under way through the view instead.
+   */
   pause() {
-    return this.#serialize(async () => {
-      this.#paused = true;
-    });
+    this.#paused = true;
+    return Promise.resolve();
   }
   resume() {
     return this.#serialize(async () => {
@@ -735,9 +791,17 @@ export class MachineSupervisor {
     });
   }
   async #saveBinding(binding: ManagedBinding): Promise<ManagedBinding> {
-    const next = this.#bindings.filter((entry) => entry.workspaceId !== binding.workspaceId);
-    const index = this.#bindings.findIndex((entry) => entry.workspaceId === binding.workspaceId);
-    next.splice(index < 0 ? next.length : index, 0, binding);
+    // A Workspace a stop already persisted stays stopped, whatever older work saves meanwhile.
+    const stored = this.#stopIntents.has(binding.workspaceId) ? stopped(binding) : binding;
+    await this.#exclusive(async () => {
+      const next = this.#bindings.filter((entry) => entry.workspaceId !== stored.workspaceId);
+      const index = this.#bindings.findIndex((entry) => entry.workspaceId === stored.workspaceId);
+      next.splice(index < 0 ? next.length : index, 0, stored);
+      await this.#store(next);
+    });
+    return stored;
+  }
+  async #store(next: ManagedBinding[]): Promise<void> {
     try {
       await this.store.save(next);
     } catch (error) {
@@ -746,12 +810,17 @@ export class MachineSupervisor {
       throw error;
     }
     this.#bindings = next;
-    return binding;
   }
   async #refresh() {
+    await this.#exclusive(() => this.#reloadIfRequired());
+  }
+  async #reloadIfRequired() {
     if (!this.#reloadRequired) return;
     this.#bindings = await this.store.load();
     this.#reloadRequired = false;
+  }
+  #exclusive<T>(write: () => Promise<T>): Promise<T> {
+    return this.#writing.run(write);
   }
   async #start(binding: ManagedBinding, signal?: AbortSignal): Promise<string> {
     const expected = this.#instances.get(binding.workspaceId);
@@ -774,8 +843,17 @@ export class MachineSupervisor {
       throw new UpgradeLaunchesPausedError("machine lifecycle is paused for upgrade");
   }
   #serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.#mutation.then(operation);
-    this.#mutation = result.then(
+    return this.#mutation.run(operation);
+  }
+}
+
+/** Runs operations one at a time, in the order they were asked for; a failure does not stop the
+ * ones behind it. */
+class SerialQueue {
+  #tail = Promise.resolve();
+  run<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#tail.then(operation);
+    this.#tail = result.then(
       () => {},
       () => {},
     );
@@ -785,13 +863,28 @@ export class MachineSupervisor {
 
 const workspaceIdOf = (binding: ManagedBinding) => binding.workspaceId;
 
-/** A binding's restart receipts with its unfinished restart, if any, recorded as cancelled: a
- * stop or a configure replaced it, and a replay of that request must not restart it again. */
-function cancelledRestartResults(binding: ManagedBinding): RestartResult[] | undefined {
+/** A binding as a stop leaves it: disabled, its unfinished restart recorded cancelled. */
+function stopped(binding: ManagedBinding): ManagedBinding {
+  if (!binding.enabled && !binding.restart) return binding;
+  return {
+    ...binding,
+    enabled: false,
+    restart: undefined,
+    restartResults: cancelledRestartResults(binding, "stop"),
+  };
+}
+
+/** A binding's restart receipts with its unfinished restart, if any, recorded as cancelled by
+ * `by`: a stop or a configure replaced it, and a replay of that request must not restart it. */
+function cancelledRestartResults(
+  binding: ManagedBinding,
+  by: "stop" | "configure",
+): RestartResult[] | undefined {
   if (!binding.restart) return binding.restartResults;
   return appendRestartResult(binding, {
     requestId: binding.restart.requestId,
     status: "cancelled",
+    by,
   });
 }
 

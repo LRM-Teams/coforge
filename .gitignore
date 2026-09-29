@@ -35,3 +35,7 @@ infra/centrifugo/config.local.yaml
 
 # DaemonRuntime tests that use the default state directory write the probe cache here.
 .coforge-daemon-state/
+
+# The installer crate's Cargo build output and locally generated license notices.
+/installer/target/
+/installer/THIRD_PARTY_NOTICES.txt

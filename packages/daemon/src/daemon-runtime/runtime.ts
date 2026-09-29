@@ -978,7 +978,8 @@ export class DaemonRuntime {
       (value, run) =>
         heldControl.latestFor(value.agentId, kind, run);
     const control: Hold<unknown> = (_value, run) => heldControl.add(run);
-    const notice: Hold<unknown> = (_value, run) => heldMessages.notice(run);
+    const notice: Hold<{ agentId: string }> = (value, run) =>
+      heldMessages.notice(value.agentId, run);
     const failure =
       <Request extends AgentStopIntent | AgentWorkspaceResetRequest | AgentMessageDelivery>(
         operation: "stop" | "workspace_reset" | "message_delivery",
@@ -990,7 +991,7 @@ export class DaemonRuntime {
       this.#subscribe(
         this.#transport.onReconnect?.(() => {
           const transport = this.#transport;
-          void this.#reportCodeAgentRuntimes(connection)
+          void this.#reportCodeAgentRuntimes(connection, transport)
             .then((report) => {
               if (report.needsCatalogRefresh && !this.#stopping && this.#transport === transport)
                 void this.#reportCodeAgentCatalogs(connection, report.runtimes, transport).catch(
@@ -1209,14 +1210,6 @@ export class DaemonRuntime {
       await Promise.all(
         this.#readyRunningAgentIds().map((agentId) => this.#requestReminderSnapshot(agentId)),
       );
-      const codeAgentReport = await this.#reportCodeAgentRuntimes(connection).catch(
-        () => undefined,
-      );
-      if (this.#stopping) return;
-      if (codeAgentReport?.needsCatalogRefresh)
-        void this.#reportCodeAgentCatalogs(connection, codeAgentReport.runtimes, transport).catch(
-          () => {},
-        );
       const heldNotices = heldMessages.take();
       if (heldNotices.dropped > 0)
         logger.warn("Delivery notices held during start were dropped; the cloud resends them", {
@@ -1227,7 +1220,21 @@ export class DaemonRuntime {
       buffering = false;
       this.#started = true;
       this.#activityEnabled = true;
+      // Kick off optional inventory before flushing buffered publications so immediate probes can
+      // make progress while the first Agent inputs are delivered.
+      const codeAgentReport = this.#reportCodeAgentRuntimes(connection, transport);
       await Promise.all(buffered.map((flush) => flush()));
+      // Inventory is optional and may spawn several provider CLIs. Start accepting Agent
+      // traffic as soon as the cloud handshake and recovery replay are complete; a slow probe
+      // must never hold the first reply or a daemon restart hostage.
+      void codeAgentReport
+        .then((report) => {
+          if (report.needsCatalogRefresh && !this.#stopping && this.#transport === transport)
+            void this.#reportCodeAgentCatalogs(connection, report.runtimes, transport).catch(
+              () => {},
+            );
+        })
+        .catch(() => {});
     } catch (error) {
       this.#unsubscribeAll();
       this.#started = false;
@@ -1428,6 +1435,7 @@ export class DaemonRuntime {
    */
   async #reportCodeAgentRuntimes(
     connection: DaemonConfig,
+    transport: DaemonConnectionClient,
   ): Promise<{ runtimes: RuntimeMetadata[]; needsCatalogRefresh: boolean }> {
     const requestId = crypto.randomUUID();
     const scope = {
@@ -1438,7 +1446,9 @@ export class DaemonRuntime {
     try {
       const runtimes = await this.#codeAgentDiscovery.runtimes();
       const { catalogs, needsRefresh } = await this.#codeAgentDiscovery.cachedCatalogs(runtimes);
-      await this.#transport.updateCodeAgents?.({
+      if (this.#stopping || this.#transport !== transport)
+        return { runtimes, needsCatalogRefresh: false };
+      await transport.updateCodeAgents?.({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId,
         workspaceId: connection.workspaceId,

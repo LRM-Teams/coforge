@@ -9,6 +9,6 @@ itself is described in [`packages/coforge/README.md`](../../packages/coforge/REA
 | [Mentions that reached no one](mentions.md) | The partial result of a send whose @mentions reached no one, `mention pending/notify/add`   |
 | [Channels](channels.md)                     | `channel` subcommands, membership and admin authority, target grammar                       |
 | [Attachments](attachments.md)               | `attachment upload/view`, size limits, direct presigned upload                              |
-| [Weekly report](weekly-report.md)           | The weekly-report assistant's read surface                                                  |
+| [Weekly report](weekly-report.md)           | Weekly-report discovery, collection and submission through private chat                                                  |
 | [Action cards](action-cards.md)             | `action prepare`, supported card kinds, how a human commits a card                          |
 | [Output formats](output.md)                 | The plain-text formats the CLI prints                                                       |

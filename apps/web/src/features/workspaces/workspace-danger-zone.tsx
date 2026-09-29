@@ -15,57 +15,53 @@ import {
   SettingsGroup,
   type SaveError,
 } from "#src/components/settings-content";
-import { isAppError } from "#src/lib/app-error";
+import { isAppError, type AppError, type AppErrorCode } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
 import { leaveWorkspace } from "./members.functions";
 import { canDeleteWorkspace } from "./workspace-roles";
 import { deleteWorkspace } from "./workspaces.functions";
 
-type DialogProps = {
-  open: boolean;
-  workspaceName: string;
-  workspaceSlug: string;
-  onClose: () => void;
-};
+type DialogProps = { open: boolean; workspaceName: string; onClose: () => void };
 
 /**
  * Settings → Workspace profile → Danger zone: its owner deletes the Workspace, everyone else
  * leaves it.
  */
 export function WorkspaceDangerZone({
+  workspaceName,
+  workspaceSlug,
   actorRole,
-  ...names
 }: {
   workspaceName: string;
   workspaceSlug: string;
   actorRole: string;
 }) {
   const [open, setOpen] = useState(false);
-  // Only a new invitation undoes leaving, so it is a destructive action too (docs/design).
-  const [action, GoOutDialog] = canDeleteWorkspace(actorRole)
-    ? [
-        {
-          title: m.settings_delete_workspace(),
-          description: m.settings_delete_workspace_description(),
-          icon: Trash01,
-        },
-        DeleteWorkspaceDialog,
-      ]
-    : [
-        {
-          title: m.settings_leave_workspace(),
-          description: m.settings_leave_workspace_description(),
-          icon: LogOut01,
-        },
-        LeaveWorkspaceDialog,
-      ];
+  const owner = canDeleteWorkspace(actorRole);
+  const dialog = { open, workspaceName, onClose: () => setOpen(false) };
+  const action = owner
+    ? {
+        title: m.settings_delete_workspace(),
+        description: m.settings_delete_workspace_description(),
+        icon: Trash01,
+      }
+    : // Only a new invitation undoes leaving, so it is a destructive action too (docs/design).
+      {
+        title: m.settings_leave_workspace(),
+        description: m.settings_leave_workspace_description(),
+        icon: LogOut01,
+      };
 
   return (
     <SettingsGroup icon={AlertTriangle} label={m.settings_danger_zone()}>
       <SettingsCard>
         <DangerAction {...action} onPress={() => setOpen(true)} />
       </SettingsCard>
-      <GoOutDialog open={open} {...names} onClose={() => setOpen(false)} />
+      {owner ? (
+        <DeleteWorkspaceDialog {...dialog} workspaceSlug={workspaceSlug} />
+      ) : (
+        <LeaveWorkspaceDialog {...dialog} />
+      )}
     </SettingsGroup>
   );
 }
@@ -100,33 +96,34 @@ function DangerAction({
 }
 
 /**
- * Runs the write that takes the viewer out of the Workspace, then opens the Workspace the server
- * picked, or `/` when there is none. A refusal whose code says the viewer is out already goes to
- * `/` too; any other failure stays inline as `error`.
+ * The viewer's departure from the Workspace: runs the write that takes them out (leave, delete),
+ * then opens the Workspace the server picked, or `/` when there is none. A refusal whose code says
+ * they are out already goes to `/` too; any other failure stays inline as `error`.
  */
-function useGoOut({
+function useWorkspaceDeparture({
   write,
   outAlready,
   messageFor,
 }: {
   write: () => Promise<{ nextWorkspaceSlug: string | null }>;
-  outAlready: readonly string[];
-  messageFor: (code: string | undefined) => string;
+  outAlready: readonly AppErrorCode[];
+  /** The inline copy for a failure; `refusal` is absent when the server gave no reason. */
+  messageFor: (refusal: AppError | undefined) => string;
 }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<SaveError | null>(null);
 
-  async function goOut() {
+  async function depart() {
     setBusy(true);
     setError(null);
     let next: string | null;
     try {
       next = (await write()).nextWorkspaceSlug;
     } catch (cause) {
-      const code = isAppError(cause) ? cause.code : undefined;
-      if (!code || !outAlready.includes(code)) {
-        setError(saveErrorFrom(messageFor(code), cause));
+      const refusal = isAppError(cause) ? cause : undefined;
+      if (!refusal || !outAlready.includes(refusal.code)) {
+        setError(saveErrorFrom(messageFor(refusal), cause));
         setBusy(false);
         return;
       }
@@ -141,18 +138,20 @@ function useGoOut({
     }
   }
 
-  return { busy, error, goOut, clearError: () => setError(null) };
+  return { busy, error, depart, clearError: () => setError(null) };
 }
 
 /** Confirms leaving; the write runs here so a failure stays inline. */
 function LeaveWorkspaceDialog({ open, workspaceName, onClose }: DialogProps) {
   const leave = useServerFn(leaveWorkspace);
-  const { busy, error, goOut, clearError } = useGoOut({
+  const { busy, error, depart, clearError } = useWorkspaceDeparture({
     write: () => leave(),
     // No longer a member (removed meanwhile): they are out already.
     outAlready: ["NOT_FOUND", "ACCESS_DENIED"],
-    messageFor: (code) =>
-      code === "CONFLICT" ? m.settings_leave_workspace_owner() : m.settings_leave_workspace_error(),
+    messageFor: (refusal) =>
+      refusal?.code === "CONFLICT"
+        ? m.settings_leave_workspace_owner()
+        : m.settings_leave_workspace_error(),
   });
 
   return (
@@ -167,27 +166,36 @@ function LeaveWorkspaceDialog({ open, workspaceName, onClose }: DialogProps) {
         onClose();
       }}
       confirmLabel={busy ? m.settings_leave_workspace_leaving() : m.settings_leave_workspace()}
-      onConfirm={() => void goOut()}
+      onConfirm={() => void depart()}
     />
   );
 }
 
-const deleteRefusals: Record<string, (slug: string) => string> = {
-  INVALID_INPUT: (slug) => m.settings_delete_workspace_mismatch({ slug }),
-  ACCESS_DENIED: () => m.settings_delete_workspace_denied(),
-  CONFLICT: () => m.settings_delete_workspace_memory(),
-};
+/** What a refused delete says, by the refusal's `errorId`, else its code. */
+function deleteRefusalMessage(refusal: AppError | undefined, slug: string) {
+  if (refusal?.errorId === "workspace-memory-bound")
+    return m.settings_delete_workspace_memory_bound();
+  if (refusal?.errorId === "workspace-memory-cleanup-pending")
+    return m.settings_delete_workspace_memory_cleanup();
+  if (refusal?.code === "INVALID_INPUT") return m.settings_delete_workspace_mismatch({ slug });
+  if (refusal?.code === "ACCESS_DENIED") return m.settings_delete_workspace_denied();
+  return m.settings_delete_workspace_error();
+}
 
 /** Confirms deleting with the Workspace's slug typed exactly; the server checks it again. */
-function DeleteWorkspaceDialog({ open, workspaceName, workspaceSlug, onClose }: DialogProps) {
+function DeleteWorkspaceDialog({
+  open,
+  workspaceName,
+  workspaceSlug,
+  onClose,
+}: DialogProps & { workspaceSlug: string }) {
   const remove = useServerFn(deleteWorkspace);
   const [typed, setTyped] = useState("");
-  const { busy, error, goOut, clearError } = useGoOut({
+  const { busy, error, depart, clearError } = useWorkspaceDeparture({
     write: () => remove({ data: { confirmSlug: typed } }),
     // Deleted from another tab meanwhile.
     outAlready: ["NOT_FOUND"],
-    messageFor: (code) =>
-      (code && deleteRefusals[code]?.(workspaceSlug)) ?? m.settings_delete_workspace_error(),
+    messageFor: (refusal) => deleteRefusalMessage(refusal, workspaceSlug),
   });
 
   return (
@@ -204,7 +212,7 @@ function DeleteWorkspaceDialog({ open, workspaceName, workspaceSlug, onClose }: 
       }}
       confirmLabel={busy ? m.settings_delete_workspace_deleting() : m.settings_delete_workspace()}
       isConfirmDisabled={typed !== workspaceSlug}
-      onConfirm={() => void goOut()}
+      onConfirm={() => void depart()}
     >
       <div className="mx-6 mt-4">
         <Input

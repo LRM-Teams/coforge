@@ -2,6 +2,7 @@ import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import {
   getFileStorage,
+  type BulkFileRemoval,
   type FileStorage,
   type StoredFile,
 } from "#src/server/files/file-storage.server";
@@ -222,16 +223,15 @@ export async function attachmentKeys(
   return [...new Set([...attachments, ...uploads].map(({ objectKey }) => objectKey))];
 }
 
-/** Removes stored files whose rows are already gone. Best effort: a file left behind is never
- * served again, since nothing references it. */
+/** Removes stored files whose rows are already gone, in bulk (a thousand keys per request on
+ * OSS). Best effort: a file left behind is never served again, since nothing references it. */
 export async function removeAttachmentFiles(
   objectKeys: readonly string[],
-  storage: () => Promise<FileStorage> = getFileStorage,
+  storage: () => Promise<BulkFileRemoval> = getFileStorage,
 ): Promise<void> {
   if (objectKeys.length === 0) return;
   try {
-    const files = await storage();
-    await Promise.allSettled(objectKeys.map((objectKey) => files.remove(objectKey)));
+    await (await storage()).removeMany(objectKeys);
   } catch {
     /* best effort */
   }

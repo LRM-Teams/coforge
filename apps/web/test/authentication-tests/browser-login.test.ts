@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
   completeBrowserLogin,
+  consumeLogoutReturnTo,
   endBrowserLogin,
   readBrowserSession,
   startBrowserLogin,
@@ -60,6 +61,39 @@ test("startBrowserLogin sends the user to Authing with PKCE", () => {
   expect(started.stateCookie).not.toContain("Domain=");
 });
 
+test("each sign-in keeps its own state cookie, named by its state", () => {
+  const first = startBrowserLogin({ config, sessionSecret });
+  const second = startBrowserLogin({ config, sessionSecret });
+  const firstState = new URL(first.authorizationUrl).searchParams.get("state");
+  const secondState = new URL(second.authorizationUrl).searchParams.get("state");
+
+  expect(firstState).not.toBe(secondState);
+  // base64url is a legal cookie-name alphabet, so the state can be the name's suffix as it is.
+  expect(firstState).toMatch(/^[A-Za-z0-9_-]+$/);
+  expect(first.stateCookie).toStartWith(`coforge_oauth_state_${firstState}=`);
+  expect(second.stateCookie).toStartWith(`coforge_oauth_state_${secondState}=`);
+  expect(first.stateCookie).toContain("Max-Age=600");
+  expect(first.stateCookie).toContain("Path=/;");
+});
+
+test("completeBrowserLogin rejects another sign-in's cookie stored under this state's name", async () => {
+  const mine = startBrowserLogin({ config, sessionSecret });
+  const other = startBrowserLogin({ config, sessionSecret });
+  const myState = new URL(mine.authorizationUrl).searchParams.get("state") ?? "";
+  const otherValue = cookieHeader(other.stateCookie).split("=")[1] ?? "";
+
+  await expect(
+    completeBrowserLogin({
+      config,
+      sessionSecret,
+      code: "valid-code",
+      state: myState,
+      cookieHeader: `coforge_oauth_state_${myState}=${otherValue}`,
+      authing: fakeAuthing({ sub: "authing-user-1", email: "ada@example.com" }),
+    }),
+  ).rejects.toThrow("invalid login state");
+});
+
 test("completeBrowserLogin creates a CoForge user session from Authing", async () => {
   const started = startBrowserLogin({ config, sessionSecret });
   const state = new URL(started.authorizationUrl).searchParams.get("state");
@@ -88,7 +122,7 @@ test("completeBrowserLogin creates a CoForge user session from Authing", async (
   expect(completed.sessionCookie).toContain("HttpOnly");
   expect(completed.sessionCookie).toContain("SameSite=Lax");
   expect(completed.sessionCookie).not.toContain("Domain=");
-  expect(completed.clearStateCookie).toContain("coforge_oauth_state=");
+  expect(completed.clearStateCookie).toStartWith(`coforge_oauth_state_${state}=`);
   expect(completed.clearStateCookie).toContain("Max-Age=0");
 
   const user = readBrowserSession({
@@ -213,6 +247,103 @@ test("endBrowserLogin sends Authing the id_token hint so it can redirect back", 
   });
   const authingLogout = new URL(ended.authingLogoutUrl);
   expect(authingLogout.searchParams.get("id_token_hint")).toBe("authing-id-token");
+});
+
+function logoutReturn(returnTo: string, now?: () => number) {
+  return endBrowserLogin({
+    config,
+    postLogoutRedirectUri: "http://localhost:3000/",
+    sessionSecret,
+    cookieHeader: "",
+    returnTo,
+    ...(now ? { now } : {}),
+  }).returnCookie;
+}
+
+test("coming back from Authing after switching account gives the page to sign in to, once", () => {
+  const returnCookie = logoutReturn("/join/abc");
+  if (!returnCookie) throw new Error("return cookie missing");
+
+  const landed = consumeLogoutReturnTo({
+    sessionSecret,
+    cookieHeader: cookieHeader(returnCookie),
+    origin: "http://localhost:3000",
+  });
+  expect(landed?.returnTo).toBe("/join/abc");
+  expect(landed?.clearCookie).toStartWith("coforge_logout_return=;");
+  expect(landed?.clearCookie).toContain("Max-Age=0");
+
+  // The browser applied the clearing cookie, so the next landing on / has nothing to consume.
+  expect(
+    consumeLogoutReturnTo({ sessionSecret, cookieHeader: "", origin: "http://localhost:3000" }),
+  ).toBeUndefined();
+});
+
+test("the clearing cookie of the landing step is Secure on an https site", () => {
+  const returnCookie = logoutReturn("/join/abc") ?? "";
+  const landed = consumeLogoutReturnTo({
+    sessionSecret,
+    cookieHeader: cookieHeader(returnCookie),
+    origin: "https://staging.coforge.cn",
+  });
+  expect(landed?.clearCookie).toContain("Secure");
+});
+
+test("a forged or expired switch-account cookie gives no page, and is cleared", () => {
+  const start = 1_700_000_000_000;
+  const valid = cookieHeader(logoutReturn("/join/abc", () => start) ?? "");
+  const [name, value] = valid.split("=");
+  const [body, signature] = (value ?? "").split(".");
+  const forgedBody = Buffer.from(
+    JSON.stringify({ returnTo: "/w/evil", exp: Math.floor(start / 1000) + 600 }),
+  ).toString("base64url");
+  const otherSecret = "another-session-secret-of-32-characters";
+  const signedElsewhere = cookieHeader(
+    endBrowserLogin({
+      config,
+      postLogoutRedirectUri: "http://localhost:3000/",
+      sessionSecret: otherSecret,
+      cookieHeader: "",
+      returnTo: "/join/abc",
+      now: () => start,
+    }).returnCookie ?? "",
+  );
+
+  const cases = [
+    // Payload rewritten under the old signature.
+    { cookieHeader: `${name}=${forgedBody}.${signature}`, now: start },
+    // Signed with another secret.
+    { cookieHeader: signedElsewhere, now: start },
+    { cookieHeader: `${name}=${body}`, now: start },
+    { cookieHeader: `${name}=not-a-cookie`, now: start },
+    // Valid, but read after its ten minutes.
+    { cookieHeader: valid, now: start + 601_000 },
+  ];
+  for (const { cookieHeader: header, now } of cases) {
+    const landed = consumeLogoutReturnTo({
+      sessionSecret,
+      cookieHeader: header,
+      origin: "http://localhost:3000",
+      now: () => now,
+    });
+    expect(landed?.returnTo).toBeUndefined();
+    expect(landed?.clearCookie).toContain("Max-Age=0");
+  }
+  // Still valid just inside the window.
+  expect(
+    consumeLogoutReturnTo({
+      sessionSecret,
+      cookieHeader: valid,
+      origin: "http://localhost:3000",
+      now: () => start + 599_000,
+    })?.returnTo,
+  ).toBe("/join/abc");
+});
+
+test("switching account only remembers a page of this site", () => {
+  for (const returnTo of ["//evil.com", "https://evil.com", "/\\evil"]) {
+    expect(logoutReturn(returnTo)).toBeUndefined();
+  }
 });
 
 test("readBrowserSession returns null for a missing or tampered cookie", () => {

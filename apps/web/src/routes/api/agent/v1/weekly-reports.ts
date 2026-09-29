@@ -1,3 +1,4 @@
+import { WeeklyReportWorkflow } from "#src/server/records/weekly-report-workflow.server";
 import { createFileRoute } from "@tanstack/react-router";
 import { validateWeeklyReportRequest } from "@lrm/coforge-sdk/internal";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
@@ -27,6 +28,7 @@ export const Route = createFileRoute("/api/agent/v1/weekly-reports")({
             },
             command,
             principal,
+            new WeeklyReportWorkflow(db),
           );
           if ("error" in result)
             return Response.json({ error: result.error.message }, { status: result.error.code });

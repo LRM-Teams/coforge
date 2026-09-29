@@ -1,3 +1,4 @@
+import type { WeeklyReportWorkflowAction } from "@lrm/coforge-sdk/internal";
 import {
   type WeeklyReportCommand,
   type WeeklyReportRequest,
@@ -53,6 +54,12 @@ export async function executeAgentWeeklyReport(
   authorization: WeeklyReportAuthorization,
   request: WeeklyReportRequest,
   principal: WeeklyReportPrincipal,
+  workflow?: {
+    execute(
+      actor: { workspaceId: string; userId: string },
+      action: WeeklyReportWorkflowAction,
+    ): Promise<unknown>;
+  },
 ): Promise<{ response: WeeklyReportResponse } | { error: { code: number; message: string } }> {
   const assignedComputerId = principal.agentId
     ? await authorization.computerIdForAuthorizedAgent(
@@ -76,7 +83,12 @@ export async function executeAgentWeeklyReport(
     return { error: { code: 403, message: "Weekly report assistant access denied" } };
   try {
     const { workspaceId, agentId: _agentId, idempotencyKey, ...command } = request;
-    const result = await executeWeeklyReportRead(catalog, workspaceId, owner.userId, command);
+    if (command.operation === "workflow" && !workflow)
+      return { error: { code: 400, message: "Weekly report workflow unavailable" } };
+    const result =
+      command.operation === "workflow"
+        ? await workflow!.execute({ workspaceId, userId: owner.userId }, command.action)
+        : await executeWeeklyReportRead(catalog, workspaceId, owner.userId, command);
     return {
       response: {
         idempotencyKey,
@@ -99,7 +111,7 @@ async function executeWeeklyReportRead(
   catalog: WeeklyReportCatalog,
   workspaceId: string,
   userId: string,
-  command: WeeklyReportCommand,
+  command: Exclude<WeeklyReportCommand, { operation: "workflow" }>,
 ) {
   if (command.operation === "context") {
     return catalog.loadAssistantContextManifest({

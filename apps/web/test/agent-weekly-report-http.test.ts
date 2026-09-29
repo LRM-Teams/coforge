@@ -123,3 +123,64 @@ test("weekly-report HTTP echoes the caller's idempotencyKey after validation", a
     response: { idempotencyKey: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
   });
 });
+
+test("weekly-report workflow uses the authenticated owner without requiring a page", async () => {
+  const calls: unknown[] = [];
+  const outcome = await executeAgentWeeklyReport(
+    {
+      loadAssistantContextManifest: async () => ({}),
+      listAssistantVisibleReports: async () => ({}),
+      readAssistantReportSection: async () => ({}),
+    },
+    {
+      computerIdForAuthorizedAgent: async () => "computer",
+      weeklyReportAssistantOwner: async () => ({ userId: "owner" }),
+    },
+    { ...request, operation: "workflow", action: { type: "templates" } },
+    { userId: "owner", workspaceId: "workspace", computerId: "computer", agentId: "assistant" },
+    {
+      execute: async (actor, action) => {
+        calls.push({ actor, action });
+        return { templates: [{ name: "Foundation Models Weekly" }] };
+      },
+    },
+  );
+  expect(outcome).toMatchObject({
+    response: {
+      operation: "workflow",
+      result: { templates: [{ name: "Foundation Models Weekly" }] },
+    },
+  });
+  expect(calls).toEqual([
+    { actor: { workspaceId: "workspace", userId: "owner" }, action: { type: "templates" } },
+  ]);
+});
+
+test("ordinary Agents cannot invoke workflow writes even with matching principal IDs", async () => {
+  const outcome = await executeAgentWeeklyReport(
+    {
+      loadAssistantContextManifest: async () => ({}),
+      listAssistantVisibleReports: async () => ({}),
+      readAssistantReportSection: async () => ({}),
+    },
+    {
+      computerIdForAuthorizedAgent: async () => "computer",
+      weeklyReportAssistantOwner: async () => undefined,
+    },
+    {
+      ...request,
+      agentId: "ordinary",
+      operation: "workflow",
+      action: { type: "submit", reportId: REPORT },
+    },
+    { userId: "owner", workspaceId: "workspace", computerId: "computer", agentId: "ordinary" },
+    {
+      execute: async () => {
+        throw new Error("unauthorized workflow must not execute");
+      },
+    },
+  );
+  expect(outcome).toEqual({
+    error: { code: 403, message: "Weekly report assistant access denied" },
+  });
+});

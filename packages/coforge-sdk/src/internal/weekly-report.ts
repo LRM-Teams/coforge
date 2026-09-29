@@ -1,3 +1,7 @@
+import {
+  weeklyReportWorkflowSchema,
+  type WeeklyReportWorkflowAction,
+} from "./weekly-report-workflow";
 import { RPC_METHODS } from "./rpc-methods";
 import { RFC_UUID_PATTERN } from "./uuid";
 import { utf8Encoder, utf8Decoder } from "./text-codec";
@@ -8,6 +12,7 @@ export const WEEKLY_REPORT_SUBJECT_TYPES = ["report", "cycle"] as const;
 export type WeeklyReportSubjectType = (typeof WEEKLY_REPORT_SUBJECT_TYPES)[number];
 
 export type WeeklyReportCommand =
+  | { operation: "workflow"; action: WeeklyReportWorkflowAction }
   | {
       operation: "context";
       subjectType: WeeklyReportSubjectType;
@@ -55,6 +60,15 @@ export function validateWeeklyReportRequest(value: unknown): WeeklyReportRequest
   if (!isNonblank(row.idempotencyKey) || !isNonblank(row.workspaceId) || !isNonblank(row.agentId))
     throw new Error("invalid weekly-report request");
   const operation = row.operation;
+  if (operation === "workflow") {
+    return {
+      idempotencyKey: row.idempotencyKey,
+      workspaceId: row.workspaceId,
+      agentId: row.agentId,
+      operation,
+      action: weeklyReportWorkflowSchema.parse(row.action),
+    };
+  }
   if (operation === "context") {
     if (!SUBJECT_TYPES.has(String(row.subjectType)) || !isUuid(row.subjectId))
       throw new Error("invalid weekly-report request");
@@ -125,7 +139,7 @@ export function decodeWeeklyReportRequest(bytes: Uint8Array): WeeklyReportReques
 export function encodeWeeklyReportResponse(response: WeeklyReportResponse): Uint8Array {
   if (
     !isNonblank(response.idempotencyKey) ||
-    !["context", "list", "read"].includes(response.operation)
+    !["context", "list", "read", "workflow"].includes(response.operation)
   )
     throw new Error("invalid weekly-report response");
   return utf8Encoder.encode(
@@ -149,7 +163,7 @@ export function decodeWeeklyReportResponse(bytes: Uint8Array): WeeklyReportRespo
   const row = value as Record<string, unknown>;
   if (
     !isNonblank(row.idempotencyKey) ||
-    !["context", "list", "read"].includes(String(row.operation))
+    !["context", "list", "read", "workflow"].includes(String(row.operation))
   )
     throw new Error("invalid weekly-report response");
   return {

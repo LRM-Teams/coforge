@@ -39,6 +39,16 @@
    and carries only the custom policy `CoForgeStagingFilesBucketAccess`:
    `oss:PutObject`/`oss:GetObject`/`oss:DeleteObject` on `workspaces/*` and `users/*` of
    the private user-files bucket `coforge-files-staging`, nothing on the release bucket.
+   Deleting a Workspace also sweeps everything under `workspaces/<id>/`, which lists the
+   bucket: add `oss:ListObjects` on the bucket resource `acs:oss:*:*:coforge-files-staging`
+   with the condition `oss:Prefix` `StringLike` `workspaces/*`
+   ([ListObjectsV2](https://help.aliyun.com/zh/oss/developer-reference/listobjectsv2)).
+   Without it the sweep is refused and logged (`workspace_file_cleanup:failed`,
+   `remove_prefix`); the objects the Workspace's rows named are still removed, since
+   batch delete needs only `oss:DeleteObject`
+   ([DeleteMultipleObjects](https://help.aliyun.com/zh/oss/developer-reference/deletemultipleobjects)).
+   The profile-image bucket needs the same four actions once `COFORGE_IMAGE_OSS_BUCKET` is
+   set; its Web role policy is not documented yet.
    The Web container reads the role's STS token from the instance metadata service
    (`ALIBABA_CLOUD_ECS_METADATA` in the Compose file names the role), so no AccessKey
    pair exists anywhere in this deployment. Verify from the host:

@@ -53,7 +53,11 @@ channel:
           X-CoForge-Centrifugo-Proxy-Secret: ${CENTRIFUGO_VAR_RPC_PROXY_SECRET}
   namespaces:
     - name: workspace
+    # `daemon:<workspace_id>:<computer_id>`: one Computer's control channel, subscribed server side
+    # by the connect proxy. Presence lists its connection, so deleting the Workspace disconnects
+    # exactly that client (apps/web/src/server/workspaces/deletion.server.ts). No join/leave.
     - name: daemon
+      presence: true
     - name: chat
       history_size: 200
       history_ttl: 5m

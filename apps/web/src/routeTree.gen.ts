@@ -28,6 +28,7 @@ import { Route as OauthDeviceRouteImport } from './routes/oauth/device'
 import { Route as OauthTokenRouteImport } from './routes/oauth/token'
 import { Route as OauthVerifyRouteImport } from './routes/oauth/verify'
 import { Route as WWorkspaceSlugRouteImport } from './routes/w.$workspaceSlug'
+import { Route as WorkspacesNewRouteImport } from './routes/workspaces.new'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments.$attachmentId'
 import { Route as ApiComputerAttachRouteImport } from './routes/api/computer/attach'
 import { Route as ApiComputerWorkspaceRouteImport } from './routes/api/computer/workspace'
@@ -74,7 +75,6 @@ import { Route as WWorkspaceSlugProjectsIndexRouteImport } from './routes/w.$wor
 import { Route as WWorkspaceSlugProjectsProjectSlugRouteImport } from './routes/w.$workspaceSlug/projects.$projectSlug'
 import { Route as WWorkspaceSlugRecordsIndexRouteImport } from './routes/w.$workspaceSlug/records.index'
 import { Route as WWorkspaceSlugRecordsRecordIdRouteImport } from './routes/w.$workspaceSlug/records.$recordId'
-import { Route as WWorkspaceSlugRecordsAssistantRouteImport } from './routes/w.$workspaceSlug/records.assistant'
 import { Route as WWorkspaceSlugRecordsDashboardRouteImport } from './routes/w.$workspaceSlug/records.dashboard'
 import { Route as WWorkspaceSlugRecordsSettingsRouteImport } from './routes/w.$workspaceSlug/records.settings'
 import { Route as WWorkspaceSlugRecordsStatsRouteImport } from './routes/w.$workspaceSlug/records.stats'
@@ -206,6 +206,11 @@ const OauthVerifyRoute = OauthVerifyRouteImport.update({
 const WWorkspaceSlugRoute = WWorkspaceSlugRouteImport.update({
   id: '/w/$workspaceSlug',
   path: '/w/$workspaceSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WorkspacesNewRoute = WorkspacesNewRouteImport.update({
+  id: '/workspaces/new',
+  path: '/workspaces/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAttachmentsAttachmentIdRoute =
@@ -456,12 +461,6 @@ const WWorkspaceSlugRecordsRecordIdRoute =
     path: '/$recordId',
     getParentRoute: () => WWorkspaceSlugRecordsRoute,
   } as any)
-const WWorkspaceSlugRecordsAssistantRoute =
-  WWorkspaceSlugRecordsAssistantRouteImport.update({
-    id: '/assistant',
-    path: '/assistant',
-    getParentRoute: () => WWorkspaceSlugRecordsRoute,
-  } as any)
 const WWorkspaceSlugRecordsDashboardRoute =
   WWorkspaceSlugRecordsDashboardRouteImport.update({
     id: '/dashboard',
@@ -699,6 +698,7 @@ export interface FileRoutesByFullPath {
   '/oauth/token': typeof OauthTokenRoute
   '/oauth/verify': typeof OauthVerifyRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugRouteWithChildren
+  '/workspaces/new': typeof WorkspacesNewRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -740,7 +740,6 @@ export interface FileRoutesByFullPath {
   '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugRoute
   '/w/$workspaceSlug/records/$recordId': typeof WWorkspaceSlugRecordsRecordIdRoute
-  '/w/$workspaceSlug/records/assistant': typeof WWorkspaceSlugRecordsAssistantRoute
   '/w/$workspaceSlug/records/dashboard': typeof WWorkspaceSlugRecordsDashboardRoute
   '/w/$workspaceSlug/records/settings': typeof WWorkspaceSlugRecordsSettingsRoute
   '/w/$workspaceSlug/records/stats': typeof WWorkspaceSlugRecordsStatsRoute
@@ -801,6 +800,7 @@ export interface FileRoutesByTo {
   '/oauth/token': typeof OauthTokenRoute
   '/oauth/verify': typeof OauthVerifyRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugChatIndexRoute
+  '/workspaces/new': typeof WorkspacesNewRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -841,7 +841,6 @@ export interface FileRoutesByTo {
   '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugRoute
   '/w/$workspaceSlug/records/$recordId': typeof WWorkspaceSlugRecordsRecordIdRoute
-  '/w/$workspaceSlug/records/assistant': typeof WWorkspaceSlugRecordsAssistantRoute
   '/w/$workspaceSlug/records/dashboard': typeof WWorkspaceSlugRecordsDashboardRoute
   '/w/$workspaceSlug/records/settings': typeof WWorkspaceSlugRecordsSettingsRoute
   '/w/$workspaceSlug/records/stats': typeof WWorkspaceSlugRecordsStatsRoute
@@ -902,6 +901,7 @@ export interface FileRoutesById {
   '/oauth/token': typeof OauthTokenRoute
   '/oauth/verify': typeof OauthVerifyRoute
   '/w/$workspaceSlug': typeof WWorkspaceSlugRouteWithChildren
+  '/workspaces/new': typeof WorkspacesNewRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/computer/attach': typeof ApiComputerAttachRoute
   '/api/computer/workspace': typeof ApiComputerWorkspaceRoute
@@ -945,7 +945,6 @@ export interface FileRoutesById {
   '/w/$workspaceSlug/agent/$agentId': typeof WWorkspaceSlugAgentAgentIdRoute
   '/w/$workspaceSlug/projects/$projectSlug': typeof WWorkspaceSlugProjectsProjectSlugRoute
   '/w/$workspaceSlug/records/$recordId': typeof WWorkspaceSlugRecordsRecordIdRoute
-  '/w/$workspaceSlug/records/assistant': typeof WWorkspaceSlugRecordsAssistantRoute
   '/w/$workspaceSlug/records/dashboard': typeof WWorkspaceSlugRecordsDashboardRoute
   '/w/$workspaceSlug/records/settings': typeof WWorkspaceSlugRecordsSettingsRoute
   '/w/$workspaceSlug/records/stats': typeof WWorkspaceSlugRecordsStatsRoute
@@ -1008,6 +1007,7 @@ export interface FileRouteTypes {
     | '/oauth/token'
     | '/oauth/verify'
     | '/w/$workspaceSlug'
+    | '/workspaces/new'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -1049,7 +1049,6 @@ export interface FileRouteTypes {
     | '/w/$workspaceSlug/agent/$agentId'
     | '/w/$workspaceSlug/projects/$projectSlug'
     | '/w/$workspaceSlug/records/$recordId'
-    | '/w/$workspaceSlug/records/assistant'
     | '/w/$workspaceSlug/records/dashboard'
     | '/w/$workspaceSlug/records/settings'
     | '/w/$workspaceSlug/records/stats'
@@ -1110,6 +1109,7 @@ export interface FileRouteTypes {
     | '/oauth/token'
     | '/oauth/verify'
     | '/w/$workspaceSlug'
+    | '/workspaces/new'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -1150,7 +1150,6 @@ export interface FileRouteTypes {
     | '/w/$workspaceSlug/agent/$agentId'
     | '/w/$workspaceSlug/projects/$projectSlug'
     | '/w/$workspaceSlug/records/$recordId'
-    | '/w/$workspaceSlug/records/assistant'
     | '/w/$workspaceSlug/records/dashboard'
     | '/w/$workspaceSlug/records/settings'
     | '/w/$workspaceSlug/records/stats'
@@ -1210,6 +1209,7 @@ export interface FileRouteTypes {
     | '/oauth/token'
     | '/oauth/verify'
     | '/w/$workspaceSlug'
+    | '/workspaces/new'
     | '/api/attachments/$attachmentId'
     | '/api/computer/attach'
     | '/api/computer/workspace'
@@ -1253,7 +1253,6 @@ export interface FileRouteTypes {
     | '/w/$workspaceSlug/agent/$agentId'
     | '/w/$workspaceSlug/projects/$projectSlug'
     | '/w/$workspaceSlug/records/$recordId'
-    | '/w/$workspaceSlug/records/assistant'
     | '/w/$workspaceSlug/records/dashboard'
     | '/w/$workspaceSlug/records/settings'
     | '/w/$workspaceSlug/records/stats'
@@ -1315,6 +1314,7 @@ export interface RootRouteChildren {
   OauthTokenRoute: typeof OauthTokenRoute
   OauthVerifyRoute: typeof OauthVerifyRoute
   WWorkspaceSlugRoute: typeof WWorkspaceSlugRouteWithChildren
+  WorkspacesNewRoute: typeof WorkspacesNewRoute
   ApiComputerAttachRoute: typeof ApiComputerAttachRoute
   ApiComputerWorkspaceRoute: typeof ApiComputerWorkspaceRoute
   ApiInternalCentrifugoRoute: typeof ApiInternalCentrifugoRoute
@@ -1497,6 +1497,13 @@ declare module '@tanstack/react-router' {
       path: '/w/$workspaceSlug'
       fullPath: '/w/$workspaceSlug'
       preLoaderRoute: typeof WWorkspaceSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/workspaces/new': {
+      id: '/workspaces/new'
+      path: '/workspaces/new'
+      fullPath: '/workspaces/new'
+      preLoaderRoute: typeof WorkspacesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/attachments/$attachmentId': {
@@ -1821,13 +1828,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WWorkspaceSlugRecordsRecordIdRouteImport
       parentRoute: typeof WWorkspaceSlugRecordsRoute
     }
-    '/w/$workspaceSlug/records/assistant': {
-      id: '/w/$workspaceSlug/records/assistant'
-      path: '/assistant'
-      fullPath: '/w/$workspaceSlug/records/assistant'
-      preLoaderRoute: typeof WWorkspaceSlugRecordsAssistantRouteImport
-      parentRoute: typeof WWorkspaceSlugRecordsRoute
-    }
     '/w/$workspaceSlug/records/dashboard': {
       id: '/w/$workspaceSlug/records/dashboard'
       path: '/dashboard'
@@ -2143,7 +2143,6 @@ const WWorkspaceSlugComputersRouteWithChildren =
 
 interface WWorkspaceSlugRecordsRouteChildren {
   WWorkspaceSlugRecordsRecordIdRoute: typeof WWorkspaceSlugRecordsRecordIdRoute
-  WWorkspaceSlugRecordsAssistantRoute: typeof WWorkspaceSlugRecordsAssistantRoute
   WWorkspaceSlugRecordsDashboardRoute: typeof WWorkspaceSlugRecordsDashboardRoute
   WWorkspaceSlugRecordsSettingsRoute: typeof WWorkspaceSlugRecordsSettingsRoute
   WWorkspaceSlugRecordsStatsRoute: typeof WWorkspaceSlugRecordsStatsRoute
@@ -2153,7 +2152,6 @@ interface WWorkspaceSlugRecordsRouteChildren {
 
 const WWorkspaceSlugRecordsRouteChildren: WWorkspaceSlugRecordsRouteChildren = {
   WWorkspaceSlugRecordsRecordIdRoute: WWorkspaceSlugRecordsRecordIdRoute,
-  WWorkspaceSlugRecordsAssistantRoute: WWorkspaceSlugRecordsAssistantRoute,
   WWorkspaceSlugRecordsDashboardRoute: WWorkspaceSlugRecordsDashboardRoute,
   WWorkspaceSlugRecordsSettingsRoute: WWorkspaceSlugRecordsSettingsRoute,
   WWorkspaceSlugRecordsStatsRoute: WWorkspaceSlugRecordsStatsRoute,
@@ -2271,6 +2269,7 @@ const rootRouteChildren: RootRouteChildren = {
   OauthTokenRoute: OauthTokenRoute,
   OauthVerifyRoute: OauthVerifyRoute,
   WWorkspaceSlugRoute: WWorkspaceSlugRouteWithChildren,
+  WorkspacesNewRoute: WorkspacesNewRoute,
   ApiComputerAttachRoute: ApiComputerAttachRoute,
   ApiComputerWorkspaceRoute: ApiComputerWorkspaceRoute,
   ApiInternalCentrifugoRoute: ApiInternalCentrifugoRoute,

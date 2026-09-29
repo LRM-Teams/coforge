@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { ComputerSetup, type ComputerSetupOptions } from "#src/setup/computer-setup";
+import { writeSetupResult } from "#src/cli/setup-output";
 import type { AccessibleWorkspace, Credential } from "#src/login";
 import { CliError } from "#src/errors";
 import { createWorkspaceLookup } from "#src/workspace/lookup";
@@ -345,6 +346,7 @@ test("setup rejects a cross-environment profile before authentication or setup s
     launcher: {
       async ensureStarted() {
         calls.push("daemon");
+        return {};
       },
     },
   });
@@ -392,6 +394,7 @@ test("setup preflights daemon identity before authentication, registration, save
       },
       async ensureStarted() {
         calls.push("launch");
+        return {};
       },
     },
   });
@@ -644,7 +647,7 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
         };
       },
     }),
-    launcher: { async ensureStarted() {} },
+    launcher: { ensureStarted: async () => ({}) },
     metadataProvider: {
       async get() {
         return {
@@ -663,3 +666,34 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
     workspaceRoot: overrides.workspaceRoot ?? "/home/test-user/coforge-workspaces",
   });
 }
+
+test("setup whose Daemon answers with the Workspace still starting saves the registration and says so", async () => {
+  const saved: string[] = [];
+  const setup = createSetup({
+    config: {
+      async loadCurrentProfile() {
+        return { serverUrl: "https://coforge.example" };
+      },
+      async saveRegistration(registration) {
+        saved.push(registration.id);
+        return "/config/workspaces/id/config.json";
+      },
+      async discardRegistration() {},
+    },
+    launcher: {
+      async ensureStarted() {
+        return { lifecycleUnderWay: true };
+      },
+    },
+  });
+
+  const result = await setup.run({ workspaceSlug: "workspace-a" });
+
+  expect(saved).toHaveLength(1);
+  expect(result.daemonStillStarting).toBe(true);
+  const lines: string[] = [];
+  writeSetupResult((line) => lines.push(line), result, false);
+  expect(lines).toContain(
+    "Daemon:                still starting; run 'coforge-computer status' to follow it",
+  );
+});

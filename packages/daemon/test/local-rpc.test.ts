@@ -16,6 +16,7 @@ import { startDaemonLocalRpcServer } from "#src/local-rpc";
 import { InMemoryDaemonCredentialStore } from "#src/credentials/credential-store";
 import type { WorkspaceConfig } from "#src/daemon-runtime/runtime";
 import type { DaemonCredentialStore } from "#src/credentials/credential-store";
+import { WorkspaceLifecycleSupersededError } from "#src/supervisor/lifecycle-superseded-error";
 
 const servers: Array<{ close(): Promise<void> }> = [];
 const config = {
@@ -623,4 +624,110 @@ test("a daemon that cannot hold answers accepted:false rather than blocking an u
   const response = await launcher.hold("hold");
   expect(response.accepted).toBe(false);
   expect(response.busyAgents).toEqual([]);
+});
+
+test.each(["superseded", "failed"] as const)(
+  "a configure that %s after a newer setup saved its key leaves the newer key in place",
+  async (outcome) => {
+    const credentials = new FakeCredentialStore();
+    credentials.token = "revoked-token";
+    const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
+    const firstWaiting = Promise.withResolvers<void>();
+    const supersede = Promise.withResolvers<void>();
+    let calls = 0;
+    const server = await startDaemonLocalRpcServer({
+      socketPath,
+      serverUrl: launcherEnvironment.serverUrl,
+      validateCredential: () => true,
+      runtime: {
+        configure: async ({ workspaceId }) => {
+          calls += 1;
+          if (calls === 1) {
+            firstWaiting.resolve();
+            await supersede.promise;
+            throw outcome === "superseded"
+              ? new WorkspaceLifecycleSupersededError(workspaceId, "configure")
+              : new Error("readiness failed");
+          }
+          supersede.resolve();
+        },
+      },
+      credentials,
+    });
+    servers.push(server);
+    const launcher = () =>
+      new LocalDaemonLauncher({
+        ...launcherEnvironment,
+        executablePath: "/unused",
+        socketPath,
+        spawn: () => {},
+        timeoutMilliseconds: 0,
+      });
+
+    const first = launcher().ensureStarted({ ...config, daemonApiKey: "first-token" });
+    await firstWaiting.promise;
+    await launcher().ensureStarted({ ...config, daemonApiKey: "second-token" });
+    await expect(first).rejects.toThrow("did not accept");
+
+    expect(credentials.token).toBe("second-token");
+  },
+);
+
+test("a configure a stop superseded keeps the key it saved", async () => {
+  const credentials = new FakeCredentialStore();
+  credentials.token = "revoked-token";
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
+  const server = await startDaemonLocalRpcServer({
+    socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
+    validateCredential: () => true,
+    runtime: {
+      configure: async ({ workspaceId }) => {
+        throw new WorkspaceLifecycleSupersededError(workspaceId, "stop");
+      },
+    },
+    credentials,
+  });
+  servers.push(server);
+  const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
+    executablePath: "/unused",
+    socketPath,
+    spawn: () => {},
+    timeoutMilliseconds: 0,
+  });
+
+  await expect(launcher.ensureStarted({ ...config, daemonApiKey: "new-token" })).rejects.toThrow(
+    "did not accept",
+  );
+
+  // The setup registered this key and the cloud revoked the old one: the Workspace is only
+  // stopped, and the next start must use the key it was attached with.
+  expect(credentials.token).toBe("new-token");
+});
+
+test("a configure the Coordinator answered while its start is under way reports that, keeping the new key", async () => {
+  const credentials = new FakeCredentialStore();
+  credentials.token = "old-token";
+  const socketPath = join(tmpdir(), `coforge-${crypto.randomUUID()}.sock`);
+  const server = await startDaemonLocalRpcServer({
+    socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
+    validateCredential: () => true,
+    runtime: { configure: async () => ({ lifecycleUnderWay: true }) },
+    credentials,
+  });
+  servers.push(server);
+  const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
+    executablePath: "/unused",
+    socketPath,
+    spawn: () => {},
+    timeoutMilliseconds: 0,
+  });
+
+  expect(await launcher.ensureStarted({ ...config, daemonApiKey: "new-token" })).toEqual({
+    lifecycleUnderWay: true,
+  });
+  expect(credentials.token).toBe("new-token");
 });

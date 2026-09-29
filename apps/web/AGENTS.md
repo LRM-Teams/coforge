@@ -99,7 +99,8 @@ responsibility.
   UI class helpers.
 - `features/agents/` — Members page, Agent creation, profile panel, control buttons, and Agent status and Activity display.
 - `features/auth/` — the sign-in error page, the split shell of the pages before
-  sign-in, `returnTo` handling, and the auth middleware for server functions.
+  sign-in, `returnTo` handling, the step `/` takes to resume sign-in after
+  signing out to switch account, and the auth middleware for server functions.
 - `features/computers/` — Computer list/detail, setup, and Runtime Usage.
 - `features/conversations/` — channels, direct messages, threads, composer, message rendering, action cards, saved messages, and the sidebar lists.
 - `features/device-auth/` — device-code verification page.
@@ -118,7 +119,7 @@ responsibility.
 - `features/settings/` — preference pages and device-local preferences.
 - `features/search/` — the Workspace search page (`search`): filters, matching channels, Agents and Computers, message results with their preview, and the browser-local search history and frequently used places.
 - `features/tasks/` — Task board, list, overview, and message task actions.
-- `features/workspaces/` — Workspace switcher and creation, the Workspace a page URL names (`/w/<slug>`) and the one each QueryClient last showed, member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, join links and the invite-link page (`/join/<token>`), human roles, the Settings → Workspace profile Danger zone (leave, or delete for its owner), leaving a page whose Workspace was deleted (`workspace.deleted.v1`), and the last page `/` returns to.
+- `features/workspaces/` — Workspace switcher and creation (the switcher dialog and the page a signed-in person in no Workspace lands on, `/workspaces/new`), the Workspace a page URL names (`/w/<slug>`) and the one each QueryClient last showed, member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, join links and the invite-link page (`/join/<token>`), human roles, the Settings → Workspace profile Danger zone (leave, or delete for its owner), leaving a page whose Workspace was deleted (`workspace.deleted.v1`), and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,
   visibility, deletion, and the Agent HTTPS API.
 - `server/attachments/` — attachment upload sessions, claiming a sender's uploads for a new message, and delivery.
@@ -130,9 +131,9 @@ responsibility.
 - `server/conversations/` — public channels, channel authority, stopping and resuming a channel's Agents, direct messages, history, message search, action cards, reactions, tracked @mention delivery outcomes (`mention-deliveries`), and conversation realtime.
 - `server/db/` — the Prisma client, repositories (a DM's list preferences apart from its messages; the Agent attention rule in `agent-attention`), and the shared unique-violation check.
 - `server/errors/` — public error mapping and request error handling.
-- `server/files/` — file storage, delivery, and uploaded-image validation.
-- `server/http/`, `server/install/`, `server/observability/` — public origin,
-  install scripts, tracing, and Server-Timing.
+- `server/files/` — file storage (per object, and bulk removal by keys or prefix), delivery, and uploaded-image validation.
+- `server/http/`, `server/install/`, `server/observability/` — public origin and
+  request timeouts, install scripts, tracing, and Server-Timing.
 - `server/inbox/` — the Activity inbox read model and its Done and read-all writes.
 - `server/integrations/` — GitHub connection, configuration, and webhooks.
 - `server/notifications/` — Web Push and in-page notification delivery.
@@ -143,8 +144,8 @@ responsibility.
 - `server/tasks/` — the message-backed TaskBoard, the Tasks page's overview reads, its Task view, history records, and notice wording.
 - `server/workspaces/` — Workspace catalog (name and icon), selection,
   enrollment, member roles, member directory, join links, admitting a member (one step for
-  invitations and join links), deleting a Workspace, and going out of a Workspace (leaving
-  or deleting it) to the next one.
+  invitations and join links), deleting a Workspace and removing its stored files, and going
+  out of a Workspace (leaving or deleting it) to the next one.
 - `prisma/` (app root) — schema and migrations; `messages/` — UI translations.
 
 ## A changed file ends without a blank line

@@ -5,6 +5,7 @@
 import {
   canAdmitSegment,
   decodeAdmittedPublicChannelSegment,
+  sameAdmittedSegmentLineage,
   type AdmittedPublicChannelSegment,
 } from "./admission";
 import {
@@ -240,7 +241,7 @@ export function createInMemoryWorkspaceMemoryAdmissionStore(deps?: {
       const key = segmentKey(decoded.workspace.workspaceId, decoded.segmentId);
       const existing = segments.get(key);
       if (existing) {
-        if (!sameLineage(existing, decoded)) {
+        if (!sameAdmittedSegmentLineage(existing, decoded)) {
           throw new AdmissionReplayConflictError(decoded.segmentId);
         }
         return { outcome: "replay", segment: existing };
@@ -335,22 +336,6 @@ function toAdmitted(
     closedAt: detected.closedAt,
   });
   return "code" in decoded ? null : decoded;
-}
-
-function sameLineage(
-  stored: AdmittedPublicChannelSegment,
-  incoming: AdmittedPublicChannelSegment,
-): boolean {
-  return (
-    stored.kind === incoming.kind &&
-    stored.conversationKind === incoming.conversationKind &&
-    stored.sourcePayloadHash === incoming.sourcePayloadHash &&
-    stored.profileGeneration === incoming.profileGeneration &&
-    stored.closedAt === incoming.closedAt &&
-    stored.workspace.channelId === incoming.workspace.channelId &&
-    stored.sourceMessageIds.length === incoming.sourceMessageIds.length &&
-    stored.sourceMessageIds.every((id, index) => id === incoming.sourceMessageIds[index])
-  );
 }
 
 function segmentKey(workspaceId: string, segmentId: string): string {

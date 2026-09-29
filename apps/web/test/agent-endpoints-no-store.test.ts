@@ -20,6 +20,7 @@ const AGENT_FUNCTIONS_DIRECTORY = join(import.meta.dir, "../src/features/agents"
 const FEATURES_DIRECTORY = join(import.meta.dir, "../src/features");
 const EXTRA_GUARDED_FILES = [
   "auth/current-user.functions.ts",
+  "auth/logout-return.functions.ts",
   "workspaces/last-location.functions.ts",
   "integrations/github.functions.ts",
 ];
