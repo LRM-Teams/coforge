@@ -9,7 +9,7 @@ import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import { m } from "#src/paraglide/messages";
 import { TabbedHeader } from "#src/components/layout/tabbed-header";
 import { conversationHeaderTabs, type HeaderTabs } from "./conversation-header-tabs";
-import { ConversationListButton } from "./conversation-navigation";
+import { ConversationListButton } from "./conversation-list-button";
 import { DirectThreadedConversation } from "./direct-threaded-conversation";
 import { plainMentionsByHandle } from "./message-markdown";
 import type {

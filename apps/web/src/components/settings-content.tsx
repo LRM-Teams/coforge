@@ -28,7 +28,6 @@ import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Input } from "#src/components/base/input/input";
 import { TextArea } from "#src/components/base/textarea/textarea";
-import { Skeleton } from "#src/components/ui/skeleton";
 import { Select } from "#src/components/base/select/select";
 import { Tooltip } from "#src/components/base/tooltip/tooltip";
 import { SelectItem } from "#src/components/base/select/select-item";
@@ -50,6 +49,7 @@ import {
 } from "#src/features/settings/message-font-size";
 import { MessageFontSizePreview } from "#src/features/settings/message-font-size-preview";
 import { useShowAgentModel } from "#src/features/settings/show-agent-model";
+import { SettingsNavigationGroup } from "#src/features/settings/settings-navigation-group";
 import {
   isConversationOpenMode,
   type ConversationOpenMode,
@@ -150,77 +150,6 @@ interface SettingsContentProps {
   archivedChannelsGroup?: React.ReactNode;
   /** The Danger zone Settings → Workspace profile ends with. */
   dangerZone?: React.ReactNode;
-}
-
-export function SettingsPending() {
-  return (
-    <main aria-busy="true" className="flex h-svh min-w-0">
-      <p role="status" className="sr-only">
-        {m.settings_loading()}
-      </p>
-      <nav className="flex w-full min-w-0 flex-col overflow-hidden border-r border-secondary bg-primary md:w-60 md:shrink-0">
-        <PageHeader heading={m.settings_title()} />
-        <div className="space-y-5 overflow-y-auto p-3">
-          {[
-            {
-              label: m.settings_personal_group(),
-              items: [
-                m.settings_account(),
-                m.settings_language_region(),
-                m.settings_preferences(),
-                m.settings_notifications(),
-                m.settings_integrations(),
-              ],
-            },
-            {
-              label: m.settings_workspace_group(),
-              items: [m.settings_workspace_profile(), m.settings_members()],
-            },
-          ].map((group) => (
-            <SettingsNavigationGroup key={group.label} label={group.label}>
-              {group.items.map((label) => (
-                <li key={label} className="flex h-9 items-center gap-3 px-3 text-sm font-medium">
-                  <span>{label}</span>
-                </li>
-              ))}
-            </SettingsNavigationGroup>
-          ))}
-        </div>
-      </nav>
-      <section className="@container/settings hidden min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex">
-        <PageHeader heading={m.settings_account()} />
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
-          <section>
-            <header className="flex min-h-12 items-center pb-4">
-              <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
-            </header>
-            <div
-              aria-hidden="true"
-              className="space-y-6 border-t border-secondary py-6 motion-safe:animate-pulse"
-            >
-              <Skeleton className="size-20 rounded-full" />
-              {["w-3/5", "w-4/5", "w-2/3"].map((width) => (
-                <div
-                  key={width}
-                  className="grid gap-2 border-t border-secondary pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
-                >
-                  <Skeleton className="h-3 w-16" />
-                  <Skeleton className={`h-4 ${width}`} />
-                </div>
-              ))}
-            </div>
-            <div
-              aria-hidden="true"
-              className="grid gap-2 border-t border-secondary py-5 motion-safe:animate-pulse @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
-            >
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-4 w-3/5" />
-            </div>
-          </section>
-        </div>
-      </section>
-    </main>
-  );
 }
 
 export function SettingsContent(props: SettingsContentProps) {
@@ -371,25 +300,6 @@ export function SettingsContent(props: SettingsContentProps) {
         </section>
       </section>
     </main>
-  );
-}
-
-function SettingsNavigationGroup({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <h2 className="px-3 pt-2 pb-2 text-xs font-semibold text-quaternary uppercase tracking-wide">
-        {label}
-      </h2>
-      <ul aria-label={label} className="space-y-1">
-        {children}
-      </ul>
-    </div>
   );
 }
 

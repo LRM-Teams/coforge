@@ -2,7 +2,7 @@ import { Monitor03 as MonitorX } from "@untitledui/icons";
 
 import { PageHeader } from "#src/components/layout/page-header";
 import { m } from "#src/paraglide/messages";
-import { BackToComputers } from "./computer-layout";
+import { BackToComputers } from "./back-to-computers";
 
 /**
  * The detail panel when the URL names a Computer this Workspace does not have.

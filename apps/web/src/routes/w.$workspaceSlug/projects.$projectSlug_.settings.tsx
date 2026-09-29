@@ -1,6 +1,6 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { PageLoadError } from "#src/features/errors/page-load-error";
-import { ProjectsPending } from "#src/features/projects/projects-content";
+import { ProjectsPending } from "#src/features/projects/projects-pending";
 import { ProjectSettingsPage } from "#src/features/projects/project-settings";
 import { getProject } from "#src/features/projects/projects.functions";
 import { m } from "#src/paraglide/messages";

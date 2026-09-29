@@ -4,9 +4,10 @@ import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { SettingsContent, SettingsPending } from "#src/components/settings-content";
+import { SettingsContent } from "#src/components/settings-content";
 import { useAppToast } from "#src/components/ui/toast";
 import { PageLoadError } from "#src/features/errors/page-load-error";
+import { SettingsPending } from "#src/features/settings/settings-pending";
 import { saveUserProfile } from "#src/features/profiles/profile.functions";
 import {
   browserNotificationPermission,

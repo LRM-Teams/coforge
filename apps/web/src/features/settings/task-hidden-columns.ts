@@ -12,8 +12,17 @@ import { createDevicePreference } from "./device-preference";
 const STORAGE_KEY = "coforge-task-hidden-columns";
 const NONE: ReadonlySet<TaskStatus> = new Set();
 
-/** The class on <html> naming a hidden column (see `HIDDEN_COLUMN_CLASS` in task-workflow). */
+/** The class on <html> naming a hidden column (see `HIDDEN_COLUMN_CLASS`). */
 export const taskColumnHiddenClass = (status: TaskStatus) => `task-column-hidden-${status}`;
+
+/** A hidden board column before hydration: the boot script's class on <html> hides it. */
+export const HIDDEN_COLUMN_CLASS: Record<TaskStatus, string> = {
+  todo: "[.task-column-hidden-todo_&]:hidden",
+  in_progress: "[.task-column-hidden-in_progress_&]:hidden",
+  in_review: "[.task-column-hidden-in_review_&]:hidden",
+  done: "[.task-column-hidden-done_&]:hidden",
+  closed: "[.task-column-hidden-closed_&]:hidden",
+};
 
 export function parseHiddenColumns(stored: string | null): ReadonlySet<TaskStatus> {
   const names = new Set(stored?.split(",") ?? []);

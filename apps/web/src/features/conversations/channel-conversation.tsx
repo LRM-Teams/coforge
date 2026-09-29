@@ -7,7 +7,7 @@ import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { ChannelSettingsPanel } from "./channel-settings-panel";
 import type { ChannelCapabilities } from "#src/server/conversations/channel-authority.server";
 import { TabbedHeader } from "#src/components/layout/tabbed-header";
-import { ConversationListButton } from "./conversation-navigation";
+import { ConversationListButton } from "./conversation-list-button";
 import { ThreadFollowingAgents } from "./thread-following-agents";
 import { conversationHeaderTabs, type HeaderTabs } from "./conversation-header-tabs";
 import type { Mentionable } from "./mention-text";

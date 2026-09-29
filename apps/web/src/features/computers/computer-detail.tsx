@@ -15,7 +15,8 @@ import { Toggle } from "#src/components/base/toggle/toggle";
 import { useAppToast } from "#src/components/ui/toast";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
-import { BackToComputers, useUpgradingComputer } from "./computer-layout";
+import { BackToComputers } from "./back-to-computers";
+import { useUpgradingComputer } from "./computer-layout";
 import {
   computerLabel,
   computerVersionLabel,
