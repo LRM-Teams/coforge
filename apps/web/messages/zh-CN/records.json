@@ -205,6 +205,7 @@
   "records_delete_error": "删除失败，请检查网络后重试。",
   "records_template_name_placeholder": "请输入模板名称",
   "records_template_name_hint": "字数不超过10个汉字或20个字母",
+  "records_template_use_foundation_preset": "使用 Foundation Models Weekly 格式",
   "records_template_details": "模板详情",
   "records_template_detail_failed": "模板详情加载失败，请稍后重试。",
   "records_template_dimension": "显示页",

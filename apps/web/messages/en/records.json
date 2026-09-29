@@ -205,6 +205,7 @@
   "records_delete_error": "Couldn't delete it. Check your connection and try again.",
   "records_template_name_placeholder": "Enter a template name",
   "records_template_name_hint": "Up to 10 Chinese characters or 20 letters",
+  "records_template_use_foundation_preset": "Use Foundation Models Weekly format",
   "records_template_details": "Template details",
   "records_template_detail_failed": "Couldn't load the template details. Please try again.",
   "records_template_dimension": "Display pages",
