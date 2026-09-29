@@ -22,10 +22,11 @@ import { browserTimers, createTaskChangeBurst } from "./conversation-task-change
 import {
   conversationTasksKey,
   createConversationTasks,
-  UNFINISHED_STATUSES,
+  DEMAND_GC_TIME_MS,
   type ConversationTasks,
   type TaskChanges,
 } from "./conversation-tasks-collection";
+import { UNFINISHED_STATUSES } from "./finished-tasks";
 import { finishedTasksScopeKey } from "./use-finished-tasks";
 import { m } from "#src/paraglide/messages";
 
@@ -54,11 +55,7 @@ export function conversationTasksFor(queryClient: QueryClient, conversationId: s
 }
 
 export function useConversationTasksCollection(conversationId: string) {
-  const queryClient = useQueryClient();
-  return useMemo(
-    () => conversationTasksFor(queryClient, conversationId),
-    [queryClient, conversationId],
-  );
+  return conversationTasksFor(useQueryClient(), conversationId);
 }
 
 /**
@@ -90,7 +87,7 @@ export function useUnfinishedTasks(conversationId: string) {
       q
         .from({ task: tasks.collection })
         .where(({ task }) => inArray(task.status, UNFINISHED_STATUSES)),
-    gcTime: tasks.demandGcTime,
+    gcTime: DEMAND_GC_TIME_MS,
   });
   const byId = useSelector(tasks.store, (held) => held.byId);
   const listed = useMemo(
@@ -114,9 +111,10 @@ export function useConversationTaskWrites() {
   const workspaceId = useCurrentWorkspaceId() ?? "";
   return useCallback(
     (conversationId: string, changes: readonly TaskChanges[], finishedChanged = false) => {
-      if (conversationTasksFor(queryClient, conversationId).apply(changes).finishedChanged)
-        finishedChanged = true;
-      if (finishedChanged)
+      if (
+        conversationTasksFor(queryClient, conversationId).apply(changes).finishedChanged ||
+        finishedChanged
+      )
         void queryClient.invalidateQueries({
           queryKey: finishedTasksScopeKey({ workspaceId, conversationId }),
         });

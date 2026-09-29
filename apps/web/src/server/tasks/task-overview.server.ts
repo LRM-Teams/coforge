@@ -243,8 +243,8 @@ export class TaskOverviewReads {
       where: {
         workspaceId: viewer.workspaceId,
         conversationId: readable,
-        status: statuses && { in: [...statuses] },
-        number: numbers && { in: [...numbers] },
+        status: statuses && { in: statuses },
+        number: numbers && { in: numbers },
         message: window ? { sequence: { gte: sequenceFrom, lte: sequenceTo } } : undefined,
       },
       orderBy: { number: "asc" },

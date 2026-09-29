@@ -4,10 +4,11 @@ import { createLiveQueryCollection, eq, gte, inArray } from "@tanstack/react-db"
 
 import {
   createConversationTasks,
+  DEMAND_GC_TIME_MS,
   messageWindowTasks,
-  UNFINISHED_STATUSES,
   type ConversationTasksApi,
 } from "#src/features/tasks/conversation-tasks-collection";
+import { UNFINISHED_STATUSES } from "#src/features/tasks/finished-tasks";
 import type {
   ConversationTask,
   ConversationTaskSubset,
@@ -182,7 +183,7 @@ test("a window that moves keeps the Tasks it showed until the next window's read
   const { tasks, hold, release } = fixture();
   const first = createLiveQueryCollection({
     query: (q) => q.from({ task: tasks.collection }).where(({ task }) => gte(task.sequence, 40)),
-    gcTime: tasks.demandGcTime,
+    gcTime: DEMAND_GC_TIME_MS,
   });
   const shown = first.subscribeChanges(() => {}, { includeInitialState: true });
   await first.toArrayWhenReady();
@@ -191,7 +192,7 @@ test("a window that moves keeps the Tasks it showed until the next window's read
   hold();
   const next = createLiveQueryCollection({
     query: (q) => q.from({ task: tasks.collection }).where(({ task }) => gte(task.sequence, 30)),
-    gcTime: tasks.demandGcTime,
+    gcTime: DEMAND_GC_TIME_MS,
   });
   const loaded = next.preload();
   // The page stops showing the first window before the next one has answered, and that read takes

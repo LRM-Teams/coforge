@@ -4,7 +4,6 @@ import { parseLoadSubsetOptions, queryCollectionOptions } from "@tanstack/query-
 import { createStore } from "@tanstack/react-store";
 import {
   TASK_REFERENCE_TOKEN_PATTERN,
-  TASK_STATUSES,
   type TaskStatus,
   type TaskView,
 } from "@lrm/coforge-sdk/internal";
@@ -14,6 +13,7 @@ import {
   type ConversationTask,
   type ConversationTaskSubset,
 } from "./conversation-task-subset";
+import { createAnnouncedTasks } from "./announced-tasks";
 import { isFinishedStatus } from "./finished-tasks";
 import { loadConversationTasks } from "./tasks.functions";
 
@@ -30,16 +30,8 @@ export type ConversationTasksApi = {
   ) => Promise<{ tasks: ConversationTask[] }>;
 };
 
-export const serverConversationTasksApi: ConversationTasksApi = {
-  load: (conversationId, subset) =>
-    loadConversationTasks({
-      data: {
-        conversationId,
-        ...subset,
-        statuses: subset.statuses && [...subset.statuses],
-        numbers: subset.numbers && [...subset.numbers],
-      },
-    }),
+const serverConversationTasksApi: ConversationTasksApi = {
+  load: (conversationId, subset) => loadConversationTasks({ data: { conversationId, ...subset } }),
 };
 
 /** Every Query key the collection reads under starts with this one, so invalidating it reads each
@@ -47,17 +39,12 @@ export const serverConversationTasksApi: ConversationTasksApi = {
 export const conversationTasksKey = (conversationId: string) =>
   ["conversation", "tasks", conversationId] as const;
 
-/** The statuses the Tasks tab lists itself; Done and Closed are counted and paged apart. */
-export const UNFINISHED_STATUSES: TaskStatus[] = TASK_STATUSES.filter(
-  (status) => !isFinishedStatus(status),
-);
-
 /**
  * A live query's predicate as the read it asks for. Only what the server answers is accepted —
  * `status` and `number` in (or equal to) some values, `sequence` from and through a bound — so a
  * predicate it could not answer fails rather than reading more than was asked.
  */
-export function conversationTaskSubset(options: LoadSubsetOptions | undefined) {
+function conversationTaskSubset(options: LoadSubsetOptions | undefined) {
   const { filters, limit } = parseLoadSubsetOptions(options);
   if (limit !== undefined) throw new Error("A conversation's Tasks are read without a limit");
   const subset: ConversationTaskSubset = {};
@@ -120,7 +107,7 @@ export function messageWindowTasks(
 export type TaskChanges = { tasks: readonly TaskView[]; deleted: readonly string[] };
 
 /** The Tasks the collection holds, by message id and by number, for readers of one Task. */
-export type HeldConversationTasks = {
+type HeldConversationTasks = {
   byId: ReadonlyMap<string, ConversationTask>;
   byNumber: ReadonlyMap<number, ConversationTask>;
 };
@@ -148,7 +135,7 @@ function heldAfter(
  * How long a live query's read stays held after nothing shows it: a window that moves keeps the
  * Tasks it showed until the next window's read has answered, rather than blanking their badges.
  */
-const DEMAND_GC_TIME_MS = 10_000;
+export const DEMAND_GC_TIME_MS = 10_000;
 /** A remount or focus within a few seconds of a read does not read again. */
 const READ_STALE_TIME_MS = 5_000;
 
@@ -157,20 +144,9 @@ export function createConversationTasks(
   conversationId: string,
   api: ConversationTasksApi = serverConversationTasksApi,
 ) {
-  // Changes a read may not have seen yet: a read whose snapshot was taken before a change answers
-  // after it, and must not put the older copy (or a deleted Task) back. Each read is complete for
-  // its own subset, so this is the only thing that could.
-  const announced = new Map<string, TaskView>();
-  const deletedTasks = new Set<string>();
-  const withAnnounced = (rows: readonly ConversationTask[]) =>
-    rows.flatMap((row) => {
-      if (deletedTasks.has(row.messageId)) return [];
-      const newer = announced.get(row.messageId);
-      if (!newer) return [row];
-      if (newer.revision >= row.revision) return [{ ...row, ...newer }];
-      announced.delete(row.messageId);
-      return [row];
-    });
+  // A read that started before a change must not put the older copy, or a deleted Task, back:
+  // each read is complete for its own subset, so this is the only thing that could.
+  const announced = createAnnouncedTasks();
 
   const collection = createCollection(
     queryCollectionOptions({
@@ -184,7 +160,7 @@ export function createConversationTasks(
             conversationTaskSubset(context.meta?.loadSubsetOptions as LoadSubsetOptions),
           )
         ).tasks,
-      select: withAnnounced,
+      select: announced.over,
       queryClient,
       getKey: (row: ConversationTask) => row.messageId,
       staleTime: READ_STALE_TIME_MS,
@@ -224,16 +200,13 @@ export function createConversationTasks(
         )
           finishedChanged = true;
         next.set(copy.messageId, copy);
-        announced.set(copy.messageId, copy);
-        // A Task converted again from the message of a deleted one is back.
-        deletedTasks.delete(copy.messageId);
+        announced.changed(copy);
       }
       for (const messageId of deleted) {
         const held = current(messageId);
         if (!held || isFinishedStatus(held.status)) finishedChanged = true;
         next.set(messageId, null);
-        announced.delete(messageId);
-        deletedTasks.add(messageId);
+        announced.deleted(messageId);
       }
     }
     const writes = [...next].filter(([messageId, copy]) => copy || collection.has(messageId));
@@ -248,7 +221,7 @@ export function createConversationTasks(
     return { finishedChanged };
   };
 
-  return { collection, store, apply, demandGcTime: DEMAND_GC_TIME_MS };
+  return { collection, store, apply };
 }
 
 export type ConversationTasks = ReturnType<typeof createConversationTasks>;

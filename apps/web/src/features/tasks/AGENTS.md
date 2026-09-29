@@ -53,7 +53,7 @@ These rules apply to `src/features/tasks/`.
   name, and the open popup's number. Never add a live query per row or a
   collection per predicate; a new kind of read is a predicate that
   `conversationTaskSubset` and the server accept. Demands keep their read for
-  `demandGcTime` after they stop showing, so a moving window never blanks
+  `DEMAND_GC_TIME_MS` after they stop showing, so a moving window never blanks
   badges.
 - Commands and announced changes are written into that collection
   (`useConversationTaskWrites`, the collection's `apply`): announcements

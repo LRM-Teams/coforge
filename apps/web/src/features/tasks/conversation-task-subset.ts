@@ -7,8 +7,8 @@ import type { TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
  * references in its bodies). At least one is required: none would be the whole list.
  */
 export type ConversationTaskSubset = {
-  statuses?: readonly TaskStatus[];
-  numbers?: readonly number[];
+  statuses?: TaskStatus[];
+  numbers?: number[];
   sequenceFrom?: number;
   sequenceTo?: number;
 };

@@ -34,6 +34,8 @@ import type { ChannelSuggestion } from "./reference-completion";
 
 /** No channels to link or suggest: one array, so what is memoized on the list keeps. */
 const NO_CHANNELS: readonly ChannelSuggestion[] = [];
+/** No messages whose Tasks to read. */
+const NO_MESSAGES: DirectConversationView["messages"] = [];
 
 export function ThreadedConversation(props: ThreadedConversationProps) {
   // Persisted panel sizes use localStorage; mount that UI only after hydration.
@@ -136,10 +138,7 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     openTask: openTaskReference,
     closeTask: closeTaskReference,
   } = taskPopup ?? conversationTaskPopup;
-  const heldTask = useNumberedTask(conversation.conversationId, openTaskNumber);
-  const hostTask = taskPopup?.task;
-  const openTask =
-    heldTask ?? (hostTask && hostTask.number === openTaskNumber ? hostTask : undefined);
+  const openTask = useNumberedTask(conversation.conversationId, openTaskNumber) ?? taskPopup?.task;
   const openTaskRoot =
     openTask && mainMessages.find((message) => message.id === openTask.messageId);
   // What every thread pane shares: the side pane and the thread under the task popup.
@@ -188,13 +187,21 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
       }
     />
   ) : null;
-  // The Tasks the stream and the popup show are read here, once per window rather than per row.
+  // The Tasks the stream and the popup show are read here, once per window rather than per row. A
+  // popup shown alone has no stream: only its thread's references are read.
   const taskLayer = (
     <>
       <ConversationTaskDemand
         conversationId={conversation.conversationId}
-        messages={conversation.messages}
+        messages={
+          !taskPopup
+            ? conversation.messages
+            : openTaskRoot
+              ? [openTaskRoot, ...repliesOf(openTaskRoot.id)]
+              : NO_MESSAGES
+        }
         hasNewer={conversation.hasNewer ?? false}
+        readWindow={!taskPopup}
         openTaskNumber={openTaskNumber}
       />
       {dialog}
