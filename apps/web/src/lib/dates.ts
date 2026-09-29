@@ -98,12 +98,6 @@ export function formatClockTime(
   }).format(new Date(value));
 }
 
-/** A sortable `YYYY-MM-DD` key for the calendar day `value` falls on in `timeZone`, used to
- * detect a day change between two instants (not for display). */
-export function calendarDayKey(value: Date | string, timeZone: string | null | undefined) {
-  return zonedDateTime(value, timeZone).toPlainDate().toString();
-}
-
 /** The instant the calendar day containing `now` began in `timeZone` (viewer preference, then
  * the browser's zone). Correct across a daylight-saving change earlier that day. */
 export function startOfDay(now: Date, timeZone: string | null | undefined): Date {
@@ -115,18 +109,6 @@ function zonedDateTime(value: Date | string, timeZone: string | null | undefined
   return Temporal.Instant.fromEpochMilliseconds(new Date(value).getTime()).toZonedDateTimeISO(
     resolveTimeZone(timeZone, browserTimeZone()),
   );
-}
-
-/** The display label for a date-separator row: the calendar day only, no time. */
-export function formatCalendarDayLabel(
-  value: Date | string,
-  timeZone: string | null | undefined,
-  locale = typeof navigator === "undefined" ? "en-US" : navigator.language,
-) {
-  return dateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeZone: resolveTimeZone(timeZone, browserTimeZone()),
-  }).format(new Date(value));
 }
 
 export function formatRelativeTime(

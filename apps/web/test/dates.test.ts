@@ -1,19 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { calendarDayKey, resolveTimeZone, startOfDay, validateTimeZone } from "#src/lib/dates";
+import { resolveTimeZone, startOfDay, validateTimeZone } from "#src/lib/dates";
 
 /**
  * The calendar-day rules the chat stream and search filters rely on, pinned in real IANA zones
  * (including a daylight-saving change) so the underlying date arithmetic can change safely.
  */
 describe("calendar days in a time zone", () => {
-  test("the same instant falls on different days in different zones", () => {
-    const instant = new Date("2026-09-24T20:30:00Z");
-    expect(calendarDayKey(instant, "UTC")).toBe("2026-09-24");
-    expect(calendarDayKey(instant, "Asia/Shanghai")).toBe("2026-09-25");
-    expect(calendarDayKey(instant, "America/Los_Angeles")).toBe("2026-09-24");
-  });
-
   test("the start of day is local midnight", () => {
     expect(startOfDay(new Date("2026-09-24T20:30:00Z"), "Asia/Shanghai").toISOString()).toBe(
       "2026-09-24T16:00:00.000Z",

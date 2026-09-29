@@ -70,9 +70,9 @@ These rules apply to `src/features/agents/`.
   stream only; conversation and profile headers show a plain avatar. Its
   Recent activity goes only to the viewers who get the panel's Activity tab
   (`canManageAgent`): the five newest rows, "finished" status rows included,
-  oldest at the top. The Agent detail Activity tab and the profile panel's
-  Activity tab show the full log through the same timeline component (the
-  `compact` prop), not a second component.
+  oldest at the top. The profile panel's Activity tab shows the full log
+  (`agent-activity-timeline.tsx`): one dense row per entry with its clock,
+  dot, label and detail, no day separators, oldest at the top.
 
 ## Members page
 
