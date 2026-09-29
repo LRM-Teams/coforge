@@ -98,20 +98,19 @@ function AgentDirectConversationPage({
   conversation: DirectConversationView;
 }) {
   const { conversationId } = conversation;
-  // The sidebar keeps a DM's badge under its Agent.
   const agentId = conversation.agent.id;
   const agentStatus = useLiveAgent(agentId)?.status.value;
   const advanceReadCursor = useServerFn(markDirectConversationRead);
   return (
     <ConversationPageBody
       {...props}
-      unreadKey={agentId}
+      unreadKey={conversationId}
       page={page}
       taskView={taskView}
       isMember
       name={conversation.agent.displayName}
       readCursor={{
-        key: `agent:${agentId}`,
+        key: `dm:${conversationId}`,
         advance: (throughSequence) =>
           advanceReadCursor({ data: { conversationId, throughSequence } }),
       }}

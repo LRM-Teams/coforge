@@ -1,7 +1,7 @@
 import type { DirectorySectionId } from "./directory-sections";
 
-/** One row of the sidebar's Pinned section: a pinned channel or a pinned DM, keyed by the id the
- * row addresses it by (channel id, or the DM's Agent id). */
+/** One row of the sidebar's Pinned section: a pinned channel or a pinned DM, keyed by its
+ * conversation id. */
 export type PinnedConversation<Channel, Direct> =
   | { kind: "channel"; id: string; channel: Channel }
   | { kind: "direct"; id: string; direct: Direct };
@@ -16,8 +16,10 @@ export type PinnedConversation<Channel, Direct> =
 export function splitPinnedConversations<
   Channel extends { id: string; pinned: boolean; pinSortOrder: number | null },
   Direct extends {
-    agent: { id: string };
-    preference: { pinned: boolean; sortOrder: number | null; hidden: boolean };
+    conversationId: string;
+    pinned: boolean;
+    pinSortOrder: number | null;
+    hidden: boolean;
   },
 >(channels: readonly Channel[], directs: readonly Direct[]) {
   const pinned = [
@@ -28,10 +30,10 @@ export function splitPinnedConversations<
         entry: { kind: "channel", id: channel.id, channel } as const,
       })),
     ...directs
-      .filter((direct) => direct.preference.pinned)
+      .filter((direct) => direct.pinned)
       .map((direct) => ({
-        order: direct.preference.sortOrder ?? 0,
-        entry: { kind: "direct", id: direct.agent.id, direct } as const,
+        order: direct.pinSortOrder ?? 0,
+        entry: { kind: "direct", id: direct.conversationId, direct } as const,
       })),
   ]
     .sort((left, right) => left.order - right.order)
@@ -39,11 +41,11 @@ export function splitPinnedConversations<
   return {
     pinned,
     channels: channels.filter((channel) => !channel.pinned),
-    directs: directs.filter((direct) => !direct.preference.pinned && !direct.preference.hidden),
+    directs: directs.filter((direct) => !direct.pinned && !direct.hidden),
   };
 }
 
-/** Row keys per section, in display order: `channel:<channelId>` or `direct:<agentId>`. */
+/** Row keys per section, in display order: `channel:<channelId>` or `direct:<conversationId>`. */
 export type DirectoryLayout = Record<DirectorySectionId, string[]>;
 
 /** The section a row lives in when it is not pinned. */
@@ -52,23 +54,23 @@ export type HomeSection = Exclude<DirectorySectionId, "pinned">;
 export function channelRowKey(channelId: string) {
   return `channel:${channelId}`;
 }
-export function directRowKey(agentId: string) {
-  return `direct:${agentId}`;
+export function directRowKey(conversationId: string) {
+  return `direct:${conversationId}`;
 }
 
-/** A sidebar row as the member's pins name it: a channel by id, a DM by its Agent. */
+/** A sidebar row as the member's pins name it: a channel or a DM, each by its id. */
 export type PinRef = ReturnType<typeof pinOfRowKey>;
 
 /** The row key for a pin, the reverse of `pinOfRowKey`. */
 export function rowKeyOf(ref: PinRef) {
-  return ref.kind === "channel" ? channelRowKey(ref.channelId) : directRowKey(ref.agentId);
+  return ref.kind === "channel" ? channelRowKey(ref.channelId) : directRowKey(ref.conversationId);
 }
 
 /** The pin a row key stands for, the shape the server's pin list takes. */
 export function pinOfRowKey(key: string) {
   return key.startsWith("channel:")
     ? { kind: "channel" as const, channelId: key.slice("channel:".length) }
-    : { kind: "direct" as const, agentId: key.slice("direct:".length) };
+    : { kind: "direct" as const, conversationId: key.slice("direct:".length) };
 }
 
 function homeSection(key: string): HomeSection {

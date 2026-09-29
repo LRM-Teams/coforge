@@ -1,4 +1,5 @@
 import { VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
+import { viewerDirectConversationWhere } from "./viewer-direct-conversations.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { pinOrdersAfterArrange } from "#src/lib/pin-order";
@@ -48,10 +49,10 @@ async function nextPinOrder(tx: Prisma.TransactionClient, workspaceId: string, u
   return (_max.sortOrder ?? -1) + 1;
 }
 
-/** A pinned conversation as the sidebar addresses it: a channel by id, a DM by its Agent. */
+/** A pinned conversation as the sidebar addresses it: a channel or a DM, each by its id. */
 export type ConversationPinRef =
   | { kind: "channel"; channelId: string }
-  | { kind: "direct"; agentId: string };
+  | { kind: "direct"; conversationId: string };
 
 /**
  * Puts the member's pins in the order a drag in the sidebar left them: `pins` take the first
@@ -142,7 +143,7 @@ export async function arrangeConversationPins(
 }
 
 /** The member's active membership behind each ref, in order; `undefined` where the member is not
- * in that channel or has no DM with that Agent. */
+ * in that channel, or it is not a DM of theirs. */
 async function activeMemberships(
   tx: Prisma.TransactionClient,
   workspaceId: string,
@@ -151,7 +152,7 @@ async function activeMemberships(
 ) {
   if (refs.length === 0) return [];
   const channelIds = refs.flatMap((ref) => (ref.kind === "channel" ? [ref.channelId] : []));
-  const agentIds = refs.flatMap((ref) => (ref.kind === "direct" ? [ref.agentId] : []));
+  const directIds = refs.flatMap((ref) => (ref.kind === "direct" ? [ref.conversationId] : []));
   const members = await tx.conversationMember.findMany({
     where: {
       workspaceId,
@@ -162,35 +163,22 @@ async function activeMemberships(
           conversationId: { in: channelIds },
           conversation: { channelName: { not: null }, ...VISIBLE_CONVERSATION_WHERE },
         },
-        {
-          conversation: {
-            directKey: { not: null },
-            members: { some: { agentId: { in: agentIds } } },
-          },
-        },
+        // Only a DM the member can open, the same ones their Direct messages list shows.
+        { conversationId: { in: directIds }, conversation: viewerDirectConversationWhere(userId) },
       ],
     },
-    select: {
-      id: true,
-      conversationId: true,
-      conversation: {
-        select: {
-          channelName: true,
-          members: { where: { agentId: { in: agentIds } }, select: { agentId: true } },
-        },
-      },
-    },
+    select: { id: true, conversationId: true, conversation: { select: { channelName: true } } },
   });
-  const byChannel = new Map(
-    members.filter((m) => m.conversation.channelName !== null).map((m) => [m.conversationId, m]),
-  );
-  const byAgent = new Map(
-    members
-      .filter((m) => m.conversation.channelName === null)
-      .flatMap((m) => m.conversation.members.map((agent) => [agent.agentId!, m] as const)),
+  const byKind = new Map(
+    members.map((m) => [
+      `${m.conversation.channelName === null ? "direct" : "channel"}:${m.conversationId}`,
+      m,
+    ]),
   );
   return refs.map((ref) =>
-    ref.kind === "channel" ? byChannel.get(ref.channelId) : byAgent.get(ref.agentId),
+    byKind.get(
+      ref.kind === "channel" ? `channel:${ref.channelId}` : `direct:${ref.conversationId}`,
+    ),
   );
 }
 

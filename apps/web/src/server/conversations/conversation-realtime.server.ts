@@ -25,10 +25,10 @@ export type ConversationRealtimeMessage = {
   threadRootId?: string;
   /** The viewing user of a direct message; routes the event to that user's own signal channel. */
   userId?: string;
-  /** Present only for a direct message: the Agent badge this event bumps. */
+  /** Present only for a direct message with an Agent: that Agent. */
   agentId?: string;
   /** Present only for a direct conversation between people: its members, each of whom gets the
-   * event on their own signal channel, keyed by the other (`MessageAvailableEvent.peerUserId`). */
+   * event on their own signal channel, naming the other (`MessageAvailableEvent.peerUserId`). */
   directUserIds?: readonly string[];
   /** With `directUserIds`: the two people its key names, so a member's peer stays the other
    * even after the other's member row is gone. */
@@ -41,7 +41,7 @@ export type ConversationRealtimeMessage = {
 /**
  * The realtime fan-out scope for one conversation's messages. A channel message goes
  * to the Workspace signal channel; a direct message goes only to its people's own channels — a
- * User–Agent one to its human viewer, naming the Agent badge, one between people to each member —
+ * User–Agent one to its human viewer, naming the Agent, one between people to each member —
  * so DM metadata never reaches the Workspace. A direct conversation that is neither (unreachable
  * through the supported create paths) falls back to the Workspace channel rather than silently
  * publishing nowhere.
@@ -212,7 +212,7 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
     };
     const idempotencyKey = publicationId ?? input.messageId;
     if (directUserIds) {
-      // Each member's badge is keyed by the other person (themself, in their own conversation).
+      // Each member's copy names the other person (themself, in their own conversation).
       await Promise.all([
         this.centrifugo.publishJson(
           conversationRealtimeChannel(input.conversationId),
@@ -234,8 +234,7 @@ export class CentrifugoConversationRealtime implements ConversationRealtime {
     }
     // The per-conversation channel drives the open conversation's reconciliation. The workspace
     // channel drives the sidebar's unread counts for every channel; a direct message instead
-    // goes to its viewer's own channel, so DM metadata never reaches the whole Workspace and the
-    // event can name the Agent badge directly.
+    // goes to its viewer's own channel, so DM metadata never reaches the whole Workspace.
     const fanOutChannel = input.userId
       ? input.agentId
         ? userConversationChannel(input.userId)

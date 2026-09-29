@@ -7,13 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import {
-  getRouteApi,
-  useParams,
-  useRouter,
-  useRouterState,
-  useMatch,
-} from "@tanstack/react-router";
+import { getRouteApi, useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft } from "@untitledui/icons";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
@@ -47,7 +41,7 @@ const ConversationListContext = createContext<{
 } | null>(null);
 
 type UnreadControls = {
-  /** Per-channel unread counts, keyed by conversation id. */
+  /** Per-conversation unread counts (channels and DMs), keyed by conversation id. */
   counts: Readonly<Record<string, number>>;
   /** Clears one conversation's badge and records the sequence it was read through. */
   clear: (conversationId: string, readThroughSequence?: number) => void;
@@ -96,12 +90,6 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     shouldThrow: false,
   });
   const openDm = useParams({ from: "/w/$workspaceSlug/_chat/dm/$dmId", shouldThrow: false });
-  // The open DM's Agent (its realtime events name the Agent), as its page resolved it.
-  const openAgentId = useMatch({
-    from: "/w/$workspaceSlug/_chat/dm/$dmId",
-    shouldThrow: false,
-    select: (match) => match.loaderData?.agentId,
-  });
   const showList =
     browsing ||
     pathname === workspacePath(workspaceSlug) ||
@@ -141,9 +129,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     workspaceId,
     userId: viewerId,
     channels: visibleChannels,
-    openConversationId: channel?.channelId,
-    // The open DM's own events must not bump its badge: they are being read right now.
-    openAgentId,
+    // The open channel's or DM's own events must not bump its badge: they are being read now.
+    openConversationId: channel?.channelId ?? openDm?.dmId,
     listedConversationIds,
     onClosedConversationActivity: () => {
       // One refresh at a time: a burst of messages needs a single re-read of the list. A message
@@ -165,8 +152,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     onChannelUpdated: () => void refreshChannels(),
   });
   // Every server read of the lists carries the persisted counts; local arithmetic restarts from
-  // them (sequence boundaries survive, so no event double-counts). Direct messages are already
-  // keyed by Agent id, the same key their realtime signal carries. A re-seed follows each server
+  // them (sequence boundaries survive, so no event double-counts). Channels and DMs alike are
+  // keyed by conversation id, the id their realtime signal carries. A re-seed follows each server
   // read (`readAt`) and each change of a count shown (a mark-unread), not a pin, a drag, or a
   // closed row with nothing unread.
   const { counts } = unread;
@@ -174,8 +161,8 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   const seed = useMemo(() => {
     const entries = [
       ...visibleChannels.map((listed) => ({ id: listed.id, unreadCount: listed.unreadCount })),
-      ...Object.entries(directs.unread).map(([agentId, unreadCount]) => ({
-        id: agentId,
+      ...Object.entries(directs.unread).map(([conversationId, unreadCount]) => ({
+        id: conversationId,
         unreadCount,
       })),
     ];
@@ -213,14 +200,15 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
                 <ConversationDirectory
                   channels={visibleChannels}
                   agents={agents}
-                  directRows={directs.byAgent}
+                  directRows={directs.rows}
+                  viewerId={viewerId}
                   selectedChannelId={channel?.channelId}
                   selectedDmId={openDm?.dmId}
                   selectedSaved={pathname === workspacePath(workspaceSlug, "/saved")}
                   onCreateChannel={() => setCreating(true)}
                 />
               </div>
-              <LiveAgentActivityBar agents={agents} directRows={directs.byAgent} />
+              <LiveAgentActivityBar agents={agents} agentDms={directs.agentDms} />
             </section>
             <div
               className={cx(

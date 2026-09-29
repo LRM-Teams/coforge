@@ -1,16 +1,15 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
+import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 
 /**
- * Direct-message unread counts against real PostgreSQL. The mocked repository test
- * can only assert the SQL text; this one pins the behavior the badge actually depends on: the
- * count is keyed by the conversation's *agent* member row (a DM has two member rows, so the
- * viewer's own row has a null `agentId`), zero-unread DMs still produce a row so a later event
- * can bump them live, and `markReadForUser` is monotone and clamped.
+ * Unread counts of a DM with an Agent against real PostgreSQL: the badge is keyed by the
+ * conversation id, a zero-unread DM still produces a row so a later event can bump it live, and
+ * `markReadForUser` is monotone and clamped.
  */
-test("DM unread counts are keyed by the conversation's Agent member and survive a zero count", async () => {
+test("DM unread counts are keyed by conversation id and survive a zero count", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -41,18 +40,17 @@ test("DM unread counts are keyed by the conversation's Agent member and survive 
     const agentMessage = (body: string, threadRootId?: string) =>
       conversations.sendAgentMessage(conversation.id, agent.id, body, undefined, threadRootId);
 
-    // The Agent's own two top-level messages are unread for Alice, keyed by the Agent id.
+    const badges = () => new DirectConversations(db).unreadCounts(workspace.id, alice.id);
+    const counted = (unread: number) => [{ conversationId: conversation.id, unread }];
+
+    // The Agent's own two top-level messages are unread for Alice.
     await agentMessage("first");
     const root = await agentMessage("second");
-    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
-      { agentId: agent.id, unread: 2 },
-    ]);
+    expect(await badges()).toEqual(counted(2));
 
     // A thread reply never counts toward the DM's unread.
     await agentMessage("a reply", root!.id);
-    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
-      { agentId: agent.id, unread: 2 },
-    ]);
+    expect(await badges()).toEqual(counted(2));
 
     // Alice's own message never counts for her.
     const aliceMember = await db.conversationMember.findUniqueOrThrow({
@@ -60,32 +58,24 @@ test("DM unread counts are keyed by the conversation's Agent member and survive 
       select: { id: true },
     });
     await conversations.sendMessage(conversation.id, aliceMember.id, alice.id, "my own");
-    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
-      { agentId: agent.id, unread: 2 },
-    ]);
+    expect(await badges()).toEqual(counted(2));
 
     // markRead advances the cursor; a stale boundary cannot move it backwards, and an
     // over-eager one is clamped to the conversation's current end.
     await conversations.markReadForUser(alice.id, conversation.id, 10_000);
-    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
-      { agentId: agent.id, unread: 0 },
-    ]);
+    expect(await badges()).toEqual(counted(0));
     await conversations.markReadForUser(alice.id, conversation.id, 1);
-    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
-      { agentId: agent.id, unread: 0 },
-    ]);
+    expect(await badges()).toEqual(counted(0));
 
     // A fully-read DM still produces a row, so a later event can bump its badge live.
     await agentMessage("after read");
-    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
-      { agentId: agent.id, unread: 1 },
-    ]);
+    expect(await badges()).toEqual(counted(1));
 
     // A user with no direct conversation has no DM badges.
     await db.workspaceMembership.create({
       data: { workspaceId: workspace.id, userId: bob.id },
     });
-    expect(await conversations.unreadCountsForUser(workspace.id, bob.id)).toEqual([]);
+    expect(await new DirectConversations(db).unreadCounts(workspace.id, bob.id)).toEqual([]);
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
@@ -93,7 +83,7 @@ test("DM unread counts are keyed by the conversation's Agent member and survive 
   }
 });
 
-test("a closed DM stays closed until the Agent posts a top-level message after the close", async () => {
+test("a closed DM with an Agent stays closed until the Agent posts a top-level message after the close", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -118,11 +108,11 @@ test("a closed DM stays closed until the Agent posts a top-level message after t
     const agentMessage = (body: string, threadRootId?: string) =>
       conversations.sendAgentMessage(conversation.id, agent.id, body, undefined, threadRootId);
     const closed = async () =>
-      (await conversations.preferencesForUser(workspace.id, alice.id)).hidden;
+      (await new DirectConversations(db).list(workspace.id, alice.id)).hidden;
 
     const root = await agentMessage("before the close");
-    await conversations.setHiddenForUser(workspace.id, alice.id, agent.id, true);
-    expect(await closed()).toEqual([agent.id]);
+    await new DirectConversations(db).setHidden(workspace.id, alice.id, conversation.id, true);
+    expect(await closed()).toEqual([conversation.id]);
 
     // Alice's own message and an Agent thread reply leave it closed.
     await Bun.sleep(2); // createdAt and hiddenAt are millisecond timestamps
@@ -132,7 +122,7 @@ test("a closed DM stays closed until the Agent posts a top-level message after t
     });
     await conversations.sendMessage(conversation.id, aliceMember.id, alice.id, "my own");
     await agentMessage("a reply", root!.id);
-    expect(await closed()).toEqual([agent.id]);
+    expect(await closed()).toEqual([conversation.id]);
 
     await agentMessage("after the close");
     expect(await closed()).toEqual([]);
@@ -167,29 +157,23 @@ test("a DM marked unread below its read cursor counts from the marker until a re
     const conversation = await conversations.getOrCreateUserAgent(workspace.id, alice.id, agent.id);
     const agentMessage = (body: string) =>
       conversations.sendAgentMessage(conversation.id, agent.id, body);
+    const badges = () => new DirectConversations(db).unreadCounts(workspace.id, alice.id);
+    const counted = (unread: number) => [{ conversationId: conversation.id, unread }];
 
     await agentMessage("one");
     await agentMessage("two");
     await conversations.markReadForUser(alice.id, conversation.id, 10_000);
-    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
-      { agentId: agent.id, unread: 0 },
-    ]);
+    expect(await badges()).toEqual(counted(0));
 
     // Marked unread: the newest message counts again although the cursor is past it.
-    await conversations.setUnreadForUser(workspace.id, alice.id, agent.id, true);
-    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
-      { agentId: agent.id, unread: 1 },
-    ]);
+    await new DirectConversations(db).setUnread(workspace.id, alice.id, conversation.id, true);
+    expect(await badges()).toEqual(counted(1));
     await agentMessage("three");
-    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
-      { agentId: agent.id, unread: 2 },
-    ]);
+    expect(await badges()).toEqual(counted(2));
 
     // Reading through the end clears the marker.
     await conversations.markReadForUser(alice.id, conversation.id, 10_000);
-    expect(await conversations.unreadCountsForUser(workspace.id, alice.id)).toEqual([
-      { agentId: agent.id, unread: 0 },
-    ]);
+    expect(await badges()).toEqual(counted(0));
   } finally {
     await db.workspace.deleteMany({ where: { id: workspace.id } });
     await db.user.deleteMany({ where: { id: alice.id } });

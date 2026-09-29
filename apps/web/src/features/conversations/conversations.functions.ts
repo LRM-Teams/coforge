@@ -1,11 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import {
-  workspaceUserMiddleware,
-  type WorkspaceUserContext,
-} from "#src/features/auth/function-auth";
-import {
-  agentConversationInputSchema,
   conversationAroundInputSchema,
   directConversationInputSchema,
   directConversationPageInputSchema,
@@ -21,25 +17,8 @@ import { CentrifugoConversationRealtime } from "#src/server/conversations/conver
 import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
 import { attachActionCardViews } from "#src/server/conversations/action-cards.server";
 import { getMessageRequestIdempotency } from "#src/server/conversations/redis-message-request-idempotency.server";
-import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { withMessageSendTrace } from "#src/server/observability/tracing.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
-
-/**
- * The caller's own direct conversation repository for the sidebar's per-Agent preferences, or a
- * failure when the Agent is not theirs.
- */
-async function ownedConversations(
-  { db, workspaceId, user }: WorkspaceUserContext,
-  agentId: string,
-) {
-  const agent = await db.agent.findFirst({
-    where: { id: agentId, workspaceId, ownerId: user.id },
-    select: { id: true },
-  });
-  if (!agent) throw new Error("conversation scope is not authorized");
-  return new PrismaDirectConversationRepository(db);
-}
 
 /** The viewer's direct conversation with an Agent or a member, started on first open. */
 export const openDirectConversation = createServerFn({ method: "POST" })
@@ -130,32 +109,28 @@ export const markDirectThreadRead = createServerFn({ method: "POST" })
     );
   });
 
-/** Per-DM unread for the sidebar, keyed by the Agent row that owns each badge — the same key
- * the realtime publication carries, so no conversation→Agent alias map is needed. */
+/** Per-DM unread for the sidebar, by conversation id: the key a DM's realtime signal carries
+ * too, for a DM with an Agent and one between members alike. */
 export type DirectConversationUnread = Record<string, number>;
 
 export type DirectConversationBadges = {
   /** The signed-in user's id, for their own direct-message signal channel. */
   viewerId: string;
-  /** Unread counts keyed by the Agent whose sidebar row owns the badge. */
+  /** Unread counts by conversation id. */
   unread: DirectConversationUnread;
 };
 
 /**
- * Everything the Chat sidebar needs about direct messages in one round trip: the viewer's own
- * id (their personal signal channel) and the per-Agent unread counts seeded into the badges.
+ * Everything the Chat sidebar needs about direct-message badges in one round trip: the viewer's
+ * own id (their personal signal channel) and the unread counts seeded into the badges.
  */
 export const loadDirectConversationBadges = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }): Promise<DirectConversationBadges> => {
     const { user, db, workspaceId } = context;
-    const rows =
-      (await new PrismaDirectConversationRepository(db).unreadCountsForUser?.(
-        workspaceId,
-        user.id,
-      )) ?? [];
+    const rows = await new DirectConversations(db).unreadCounts(workspaceId, user.id);
     const unread: DirectConversationUnread = {};
-    for (const row of rows) unread[row.agentId] = row.unread;
+    for (const row of rows) unread[row.conversationId] = row.unread;
     return { viewerId: user.id, unread };
   });
 
@@ -172,46 +147,39 @@ export const markDirectConversationRead = createServerFn({ method: "POST" })
     );
   });
 
-/** Pins the viewer's DM with this Agent after their other pins, or unpins it (#121). */
+/** Pins the viewer's DM after their other pins, or unpins it (#121). */
 export const setDirectConversationPinned = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .validator(agentConversationInputSchema.extend({ pinned: z.boolean() }))
-  .handler(async ({ context, data }) => {
-    const { user, workspaceId } = context;
-    const conversations = await ownedConversations(context, data.agentId);
-    return conversations.setPinnedForUser(workspaceId, user.id, data.agentId, data.pinned);
-  });
+  .validator(directConversationInputSchema.extend({ pinned: z.boolean() }))
+  .handler(({ context: { user, db, workspaceId }, data }) =>
+    new DirectConversations(db).setPinned(workspaceId, user.id, data.conversationId, data.pinned),
+  );
 
-/** Marks the viewer's DM with this Agent unread, or clears the marker (#122). */
+/** Marks the viewer's DM unread, or clears the marker (#122). */
 export const setDirectConversationUnread = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .validator(agentConversationInputSchema.extend({ unread: z.boolean() }))
-  .handler(async ({ context, data }) => {
-    const { user, workspaceId } = context;
-    const conversations = await ownedConversations(context, data.agentId);
-    return conversations.setUnreadForUser(workspaceId, user.id, data.agentId, data.unread);
-  });
+  .validator(directConversationInputSchema.extend({ unread: z.boolean() }))
+  .handler(({ context: { user, db, workspaceId }, data }) =>
+    new DirectConversations(db).setUnread(workspaceId, user.id, data.conversationId, data.unread),
+  );
 
-/** Closes the viewer's DM with this Agent in their list only, or brings it back (#122). */
+/** Closes the viewer's DM in their list only, or brings it back (#122). */
 export const setDirectConversationHidden = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])
-  .validator(agentConversationInputSchema.extend({ hidden: z.boolean() }))
-  .handler(async ({ context, data }) => {
-    const { user, workspaceId } = context;
-    const conversations = await ownedConversations(context, data.agentId);
-    return conversations.setHiddenForUser(workspaceId, user.id, data.agentId, data.hidden);
-  });
+  .validator(directConversationInputSchema.extend({ hidden: z.boolean() }))
+  .handler(({ context: { user, db, workspaceId }, data }) =>
+    new DirectConversations(db).setHidden(workspaceId, user.id, data.conversationId, data.hidden),
+  );
 
 /**
- * The sidebar's DM preferences, keyed by Agent id: the viewer's existing DMs (the sidebar lists
- * only these), which are pinned (with their order) and which are closed.
+ * The sidebar's Direct messages, by conversation id: the viewer's DMs (the sidebar lists only
+ * these) and who each is with, which are pinned (with their order) and which are closed.
  */
 export const loadDirectConversationPreferences = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
-  .handler(async ({ context }) => {
-    const { user, db, workspaceId } = context;
-    return new PrismaDirectConversationRepository(db).preferencesForUser(workspaceId, user.id);
-  });
+  .handler(({ context: { user, db, workspaceId } }) =>
+    new DirectConversations(db).list(workspaceId, user.id),
+  );
 
 export const sendDirectConversationMessage = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])

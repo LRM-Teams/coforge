@@ -26,8 +26,6 @@ export const conversationPageInputSchema = {
   afterSequence: z.number().int().nonnegative().optional(),
   limit: z.number().int().min(1).max(100).optional(),
 };
-/** A sidebar preference on the viewer's DM with an Agent, which the sidebar keys by Agent. */
-export const agentConversationInputSchema = z.object({ agentId: uuid });
 /** One of the viewer's direct conversations, by its own id (`dm/<id>`). */
 export const directConversationInputSchema = z.object({ conversationId: uuid });
 export const directConversationPageInputSchema = directConversationInputSchema.extend(

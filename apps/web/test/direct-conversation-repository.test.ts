@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
+import type { PrismaClient } from "#src/generated/prisma/client";
 import { buildUserAgentConversationCreateInput } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import {
   PrismaDirectConversationRepository,
@@ -1730,41 +1730,6 @@ describe("PrismaDirectConversationRepository", () => {
       const page = await repository.openForUser("workspace-1", "user-2", "agent-1");
       expect(page.dmWritable).toBe(true);
     });
-  });
-
-  test("unread counts group per DM by the Agent whose row owns the badge", async () => {
-    const queries: { sql: string; values: unknown[] }[] = [];
-    const db = {
-      $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
-        // Composed the way Prisma does, so the shared unread rule fragment is part of the text.
-        const statement = Prisma.sql(strings, ...values);
-        queries.push({ sql: statement.sql, values: statement.values });
-        return [
-          { agentId: "agent-1", unread: 3 },
-          { agentId: "agent-2", unread: 0 },
-        ];
-      },
-    } as unknown as PrismaClient;
-
-    const rows = await new PrismaDirectConversationRepository(db).unreadCountsForUser(
-      "workspace-1",
-      "user-1",
-    );
-    expect(rows).toEqual([
-      { agentId: "agent-1", unread: 3 },
-      { agentId: "agent-2", unread: 0 },
-    ]);
-    const statement = queries[0]!;
-    expect(statement.sql).toContain('"directKey" IS NOT NULL');
-    expect(statement.sql).toContain('"threadRootId" IS NULL');
-    expect(statement.sql).toContain(
-      'm."sequence" > LEAST(cm."readThroughSequence", cm."unreadFromSequence" - 1)',
-    );
-    // The badge key is the conversation's agent member row, never the viewer's own row.
-    expect(statement.sql).toContain('am."agentId"');
-    expect(statement.sql).not.toContain('cm."agentId"');
-    expect(statement.values).toContain("workspace-1");
-    expect(statement.values).toContain("user-1");
   });
 
   test("markRead clamps the boundary to the conversation end and stays monotone", async () => {

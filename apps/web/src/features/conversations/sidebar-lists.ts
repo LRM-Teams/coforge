@@ -42,7 +42,7 @@ function useSidebar() {
 
 /**
  * The sidebar's lists: channels in the server's order (a closed one only while pinned), the DM rows
- * by Agent, and when the server last sent them (`readAt`, which a saved change does not move).
+ * by conversation id, and when the server last sent them (`readAt`, which a saved change does not move).
  * Server-rendered from the Query cache; after hydration read live from the collections.
  */
 export function useSidebarLists() {

@@ -13,7 +13,6 @@ import {
 
 import { selectLiveAgentActivity, type LiveAgentActivityCandidate } from "./live-agent-activity";
 import { useCloseConversationList } from "./conversation-navigation";
-import type { DirectRow } from "./sidebar-rows";
 import { useOpenDirectConversation } from "./open-direct-conversation";
 
 /**
@@ -23,12 +22,12 @@ import { useOpenDirectConversation } from "./open-direct-conversation";
  */
 export function LiveAgentActivityBar({
   agents,
-  directRows,
+  agentDms,
 }: {
   agents: readonly LiveAgentActivityCandidate[];
-  /** The viewer's DM rows by Agent. The roster is the viewer's own Agents, so the row opens the
-   * Agent's DM, starting it when there is none yet. */
-  directRows: ReadonlyMap<string, DirectRow>;
+  /** The viewer's DM with each of their Agents, by Agent. The roster is the viewer's own Agents,
+   * so the row opens the Agent's DM, starting it when there is none yet. */
+  agentDms: ReadonlyMap<string, string>;
 }) {
   const activity = selectLiveAgentActivity(agents);
   const closeList = useCloseConversationList();
@@ -41,7 +40,7 @@ export function LiveAgentActivityBar({
     return subscribeLiveAgentActivity(sync);
   }, []);
   if (!enabled || !activity) return null;
-  const dmId = directRows.get(activity.agentId)?.conversationId;
+  const dmId = agentDms.get(activity.agentId);
   const className =
     "flex min-w-0 items-center gap-2 rounded-md px-1 py-1 outline-focus-ring transition duration-100 ease-linear hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2";
   const content = (

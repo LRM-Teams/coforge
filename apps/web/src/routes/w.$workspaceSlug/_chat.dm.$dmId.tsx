@@ -29,8 +29,6 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat/dm/$dmId")({
       cause,
       workspaceId: () => parentMatchPromise.then(({ loaderData }) => loaderData?.workspaceId ?? ""),
     });
-    // The sidebar keeps the open DM's badge, which it holds under the Agent, clear.
-    return { agentId: target.agentId };
   },
   pendingComponent: ConversationPending,
   errorComponent: ConversationLoadError,

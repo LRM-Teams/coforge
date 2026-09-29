@@ -15,15 +15,21 @@ These rules apply to `src/server/conversations/`.
   direct conversations by id: opening one by who it is with (only their own
   live Agent, or a Workspace member), `authorize` (who may use a conversation
   id and who it is with: a DM with an Agent is its creator's alone, and a
-  deleted Agent's DM is read-only), and every page operation (read a window,
-  updates, read cursors, reactions, send). A DM with an Agent and one between
-  members share each operation; only a send branches, to `SendDirectMessage`
-  or `UserDirectConversations`. Server Functions call it and stay thin; do not
-  key a new DM operation by Agent.
+  deleted Agent's DM is read-only), every page operation (read a window,
+  updates, read cursors, reactions, send) and the viewer's Direct messages
+  list (`list`, `unreadCounts`, pin, mark unread, close). A DM with an Agent
+  and one between members share each operation; only a send branches, to
+  `SendDirectMessage` or `UserDirectConversations`. Server Functions call it
+  and stay thin; do not key a new DM operation by Agent.
+- `viewerDirectConversationWhere` (`viewer-direct-conversations.server.ts`)
+  is the one filter for the DMs a viewer's list holds (the ones `authorize`
+  lets them open, less a deleted Agent's); the list and a pin drag both use
+  it. A DM the viewer closed comes back when someone other than them posts a
+  top-level message after the close.
 - `UserDirectConversations` (`user-direct-conversations.server.ts`) owns
   direct conversations between Workspace members (and a member with
   themself): one per pair and sending in it. It never delivers to an
-  Agent; its signals go only to its members' own channels.
+  Agent; its list signal goes only to the other member, never the sender.
 - `server/db/repositories/direct-conversation.repositories.server.ts` owns
   thread root validation, target-scoped ranges, Agent read positions, Agent
   target-scoped reads, and eligible-notification recovery. The Agent HTTPS

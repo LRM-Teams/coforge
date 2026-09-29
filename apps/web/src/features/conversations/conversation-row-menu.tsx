@@ -25,11 +25,11 @@ function itemLabel(item: ConversationRowMenuItem): string {
   return m.conversation_menu_close();
 }
 
-/** What the menu acts on: a channel row (membership decides) or a direct-message row (an existing
- * conversation decides — a preference must not create one). */
+/** What the menu acts on: a channel row (membership decides) or a direct-message row (always the
+ * viewer's own conversation). */
 export type ConversationRowMenuTarget =
   | { kind: "channel"; id: string; joined: boolean; pinned: boolean }
-  | { kind: "direct"; agentId: string; enabled: boolean; pinned: boolean };
+  | { kind: "direct"; conversationId: string; pinned: boolean };
 
 /**
  * The list item around a conversation row: the row's link is the trigger of a React Aria context
@@ -48,7 +48,7 @@ export function ConversationRowMenu({
    * first pressable inside it. */
   children: ReactNode;
 }) {
-  const enabled = target.kind === "channel" ? conversationRowMenuEnabled(target) : target.enabled;
+  const enabled = target.kind === "direct" || conversationRowMenuEnabled(target);
   const [open, setOpen] = useState(false);
   const toast = useAppToast();
   const actions = useSidebarActions();
@@ -56,7 +56,7 @@ export function ConversationRowMenu({
   const row: PinRef =
     target.kind === "channel"
       ? { kind: "channel", channelId: target.id }
-      : { kind: "direct", agentId: target.agentId };
+      : { kind: "direct", conversationId: target.conversationId };
 
   /** Applies the change to the row at once (the menu closes as it would for any choice) and saves
    * it; a failed save puts the row back, and the toast says it failed (§13). */

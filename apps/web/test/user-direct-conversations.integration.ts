@@ -145,7 +145,7 @@ test("only the conversation's own members can send in it", async () => {
   ).rejects.toThrow("ACCESS_DENIED");
 });
 
-test("a send is announced to both members once, and a retried request stores nothing new", async () => {
+test("a send is announced to the other member once, and a retried request stores nothing new", async () => {
   const announced: ConversationRealtimeMessage[] = [];
   const persisted = new Map<string, Awaited<ReturnType<MessageRequestIdempotency["execute"]>>>();
   const idempotency: MessageRequestIdempotency = {
@@ -177,7 +177,8 @@ test("a send is announced to both members once, and a retried request stores not
     sequence: first.sequence,
     requestId: "request-1",
   });
-  expect([...(announced[0]?.directUserIds ?? [])].sort()).toEqual([ada.id, grace.id].sort());
+  // Only the other member's list hears of it: a sender's own message never bumps their badge.
+  expect(announced[0]?.directUserIds).toEqual([ada.id]);
 });
 
 test("both members can use the conversation's Tasks, and nobody else", async () => {

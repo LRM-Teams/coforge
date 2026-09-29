@@ -24,7 +24,6 @@ import {
   ACTIVE_MEMBER_WHERE,
   VISIBLE_CONVERSATION_WHERE,
 } from "#src/server/conversations/active-member.server";
-import { HUMAN_UNREAD_MESSAGE_SQL } from "#src/server/conversations/human-unread.server";
 import {
   MESSAGE_MENTIONS_SELECT,
   type MessageMentionRef,
@@ -51,7 +50,6 @@ import {
 } from "#src/server/conversations/sender-display.server";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
-import { PrismaDirectConversationPreferences } from "./direct-conversation-preferences.repositories.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import {
   browserMessageFields,
@@ -487,18 +485,6 @@ export type DirectConversationRepository = {
     target: string,
     seenUpToSequence: number,
   ): Promise<number>;
-  /** Per-DM unread for the sidebar: other-authored top-level messages past the member's
-   * cursor, keyed by the Agent whose row the badge belongs to. One grouped query
-   * for the whole Workspace; the agent member row is the join, never the viewer's own row. */
-  unreadCountsForUser?(
-    workspaceId: string,
-    userId: string,
-  ): Promise<
-    Array<{
-      agentId: string;
-      unread: number;
-    }>
-  >;
   agentMentionReport?(
     workspaceId: string,
     agentId: string,
@@ -578,11 +564,7 @@ type ResolvedAgentTarget = {
 };
 
 export class PrismaDirectConversationRepository implements DirectConversationRepository {
-  private readonly preferences: PrismaDirectConversationPreferences;
-
-  constructor(private readonly db: PrismaClient) {
-    this.preferences = new PrismaDirectConversationPreferences(db, this);
-  }
+  constructor(private readonly db: PrismaClient) {}
 
   async userIdForUsername(target: string) {
     const [parentTarget, root, extra] = target.split(":");
@@ -931,30 +913,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return { conversationId: conversation.id, senderMemberId: member.id };
   }
 
-  // The viewer's DM list preferences (pinned, marked unread, closed) live in
-  // `PrismaDirectConversationPreferences`; these keep the repository's entry points.
-  setPinnedForUser(
-    workspaceId: string,
-    userId: string,
-    agentId: string,
-    pinned: boolean,
-    sortOrder?: number,
-  ) {
-    return this.preferences.setPinnedForUser(workspaceId, userId, agentId, pinned, sortOrder);
-  }
-
-  setUnreadForUser(workspaceId: string, userId: string, agentId: string, unread: boolean) {
-    return this.preferences.setUnreadForUser(workspaceId, userId, agentId, unread);
-  }
-
-  setHiddenForUser(workspaceId: string, userId: string, agentId: string, hidden: boolean) {
-    return this.preferences.setHiddenForUser(workspaceId, userId, agentId, hidden);
-  }
-
-  preferencesForUser(workspaceId: string, userId: string) {
-    return this.preferences.preferencesForUser(workspaceId, userId);
-  }
-
   /** The viewer's DM with an Agent, started on first open, as `openConversationForUser` reads it. */
   async openForUser(
     workspaceId: string,
@@ -1185,45 +1143,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       select: browserMessageFields,
     });
     return messages.map((message) => toBrowserMessage(message, workspaceId));
-  }
-
-  async unreadCountsForUser(workspaceId: string, userId: string) {
-    // One count per the user's own DM memberships: other-authored top-level messages past the
-    // member's cursor, or from their mark-as-unread marker when that is lower. Direct
-    // conversations only (`directKey` is not null). The badge key is the *agent* member of the
-    // conversation, not the viewer's own row: a DM's two member rows are separate (one
-    // `userId`, one `agentId`), so `cm."agentId"` on the viewer's row is always null. The count
-    // is a LATERAL per membership with a single lower bound, so it is an index range on
-    // `messages(conversationId, sequence)` covering only the unread tail; a plain join (or an
-    // OR of the two bounds) lets the planner hash-join every message of every DM instead.
-    const rows = await this.db.$queryRaw<
-      {
-        agentId: string;
-        unread: number;
-      }[]
-    >`
-      SELECT am."agentId" AS "agentId", SUM(unread."count")::int AS "unread"
-      FROM "conversation_members" cm
-      JOIN "conversations" c
-        ON c."id" = cm."conversationId" AND c."directKey" IS NOT NULL
-      JOIN "conversation_members" am
-        ON am."conversationId" = cm."conversationId"
-       AND am."agentId" IS NOT NULL
-       AND am."leftAt" IS NULL
-      CROSS JOIN LATERAL (
-        SELECT COUNT(*) AS "count"
-        FROM "messages" m
-        WHERE m."conversationId" = cm."conversationId"
-          AND m."threadRootId" IS NULL
-          AND ${HUMAN_UNREAD_MESSAGE_SQL}
-      ) unread
-      WHERE cm."userId" = ${userId}::uuid
-        AND cm."leftAt" IS NULL
-        AND cm."workspaceId" = ${workspaceId}::uuid
-        AND c."workspaceId" = ${workspaceId}::uuid
-      GROUP BY am."agentId"
-    `;
-    return rows;
   }
 
   async markReadForUser(userId: string, conversationId: string, throughSequence: number) {

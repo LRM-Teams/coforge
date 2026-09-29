@@ -23,7 +23,13 @@ import {
 } from "./conversations.functions";
 import { arrangePinnedConversations } from "./conversation-pins.functions";
 import { sidebarChannelsQueryKey, sidebarDirectsQueryKey } from "./conversation-query-keys";
-import { pinOfRowKey, rowKeyOf, type PinRef } from "./pinned-conversations";
+import {
+  channelRowKey,
+  directRowKey,
+  pinOfRowKey,
+  rowKeyOf,
+  type PinRef,
+} from "./pinned-conversations";
 import { directRowsOf, type DirectRow } from "./sidebar-rows";
 
 // The Chat sidebar's channel and DM lists as TanStack DB collections, and the changes made to them
@@ -52,15 +58,19 @@ export const serverSidebarApi: SidebarApi = {
   pin: (target, pinned) =>
     target.kind === "channel"
       ? setPublicConversationPinned({ data: { channelId: target.channelId, pinned } })
-      : setDirectConversationPinned({ data: { agentId: target.agentId, pinned } }),
+      : setDirectConversationPinned({ data: { conversationId: target.conversationId, pinned } }),
   markUnread: (target) =>
     target.kind === "channel"
       ? setPublicConversationUnread({ data: { channelId: target.channelId, unread: true } })
-      : setDirectConversationUnread({ data: { agentId: target.agentId, unread: true } }),
+      : setDirectConversationUnread({
+          data: { conversationId: target.conversationId, unread: true },
+        }),
   close: (target) =>
     target.kind === "channel"
       ? setPublicConversationHidden({ data: { channelId: target.channelId, hidden: true } })
-      : setDirectConversationHidden({ data: { agentId: target.agentId, hidden: true } }),
+      : setDirectConversationHidden({
+          data: { conversationId: target.conversationId, hidden: true },
+        }),
   arrange: (arrangement) =>
     arrangePinnedConversations({
       data: { pins: [...arrangement.pins], unpinned: [...arrangement.unpinned] },
@@ -159,7 +169,7 @@ export function createSidebar(
       queryKey: sidebarDirectsQueryKey(workspaceId),
       queryFn: fetchDirects(api, { tolerant: false }),
       queryClient,
-      getKey: (row: DirectRow) => row.agentId,
+      getKey: (row: DirectRow) => row.conversationId,
       select: (data) => data.rows,
       ...LIST_OPTIONS,
     }),
@@ -169,7 +179,7 @@ export function createSidebar(
   const edit = (target: PinRef, change: (row: SidebarFields) => void) => {
     if (target.kind === "channel") {
       if (channels.has(target.channelId)) channels.update(target.channelId, change);
-    } else if (directs.has(target.agentId)) directs.update(target.agentId, change);
+    } else if (directs.has(target.conversationId)) directs.update(target.conversationId, change);
   };
   /** Keeps a saved change as shown: its fields are written into the synced list, so it does not
    * depend on a later re-read. A row the list has dropped meanwhile has nothing to keep. */
@@ -178,7 +188,7 @@ export function createSidebar(
       const key = String(mutation.key);
       if (mutation.collection.id === channels.id)
         channels.utils.writeUpdate({ ...mutation.changes, id: key });
-      else directs.utils.writeUpdate({ ...mutation.changes, agentId: key });
+      else directs.utils.writeUpdate({ ...mutation.changes, conversationId: key });
     };
     for (const mutation of transaction.mutations) {
       try {
@@ -241,10 +251,10 @@ export function createSidebar(
     onMutate: (arrangement) => {
       const pinned = [
         ...channels.toArray.flatMap((row) =>
-          row.pinned ? [{ key: rowKeyOf({ kind: "channel", channelId: row.id }), row }] : [],
+          row.pinned ? [{ key: channelRowKey(row.id), row }] : [],
         ),
         ...directs.toArray.flatMap((row) =>
-          row.pinned ? [{ key: rowKeyOf({ kind: "direct", agentId: row.agentId }), row }] : [],
+          row.pinned ? [{ key: directRowKey(row.conversationId), row }] : [],
         ),
       ];
       const orders = pinOrdersAfterArrange(
