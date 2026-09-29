@@ -1,7 +1,13 @@
 import { AppError } from "#src/lib/app-error";
+import {
+  canManageMembers,
+  canManageWorkspaceSettings,
+  isWorkspaceAdminRole,
+  WORKSPACE_MEMBER_ROLES,
+  type WorkspaceMemberRole,
+} from "#src/features/workspaces/workspace-roles";
 
-export const WORKSPACE_MEMBER_ROLES = ["owner", "admin", "member"] as const;
-export type WorkspaceMemberRole = (typeof WORKSPACE_MEMBER_ROLES)[number];
+export { WORKSPACE_MEMBER_ROLES, type WorkspaceMemberRole };
 
 export const INVITABLE_WORKSPACE_ROLES = ["admin", "member"] as const;
 export type InvitableWorkspaceRole = (typeof INVITABLE_WORKSPACE_ROLES)[number];
@@ -11,22 +17,22 @@ export function isWorkspaceMemberRole(value: string): value is WorkspaceMemberRo
 }
 
 export function isAdminLike(role: WorkspaceMemberRole): boolean {
-  return role === "owner" || role === "admin";
+  return isWorkspaceAdminRole(role);
 }
 
 /** An actor's stored server role (human `WorkspaceMembership.role` or `Agent.role`) counts as
  * owner/admin only when it is a recognized role; a missing or unknown value fails closed. */
 export function isElevatedServerRole(role: string | undefined): boolean {
-  return role !== undefined && isWorkspaceMemberRole(role) && isAdminLike(role);
+  return isWorkspaceAdminRole(role);
 }
 
 /** Workspace-wide settings, such as hiding `#general`, are Workspace owner/admin only. */
 export function assertCanManageWorkspaceSettings(actorRole: string | undefined): void {
-  if (!isElevatedServerRole(actorRole)) throw new AppError("ACCESS_DENIED");
+  if (!canManageWorkspaceSettings(actorRole)) throw new AppError("ACCESS_DENIED");
 }
 
 export function assertCanManageMembers(actorRole: WorkspaceMemberRole): void {
-  if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
+  if (!canManageMembers(actorRole)) throw new AppError("ACCESS_DENIED");
 }
 
 /** Creating an Agent requires Workspace owner/admin authority, kept as its own named seam. */

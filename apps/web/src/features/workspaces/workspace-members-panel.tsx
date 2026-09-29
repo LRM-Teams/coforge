@@ -20,6 +20,7 @@ import { useAppToast } from "#src/components/ui/toast";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { m } from "#src/paraglide/messages";
 import { InviteMemberDialog } from "./invite-member-dialog";
+import { canManageMembers } from "./workspace-roles";
 import {
   acceptWorkspaceInvitation,
   declineWorkspaceInvitation,
@@ -67,7 +68,7 @@ export function WorkspaceMembersPanel(props: {
    * pending invitations. */
   systemChannels?: ReactNode;
 }) {
-  const canManage = props.actorRole === "owner" || props.actorRole === "admin";
+  const canManage = canManageMembers(props.actorRole);
   const [inviteOpen, setInviteOpen] = useState(false);
   const invite = useServerFn(inviteWorkspaceMember);
   const accept = useServerFn(acceptWorkspaceInvitation);

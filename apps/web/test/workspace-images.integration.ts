@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
+import { AppError } from "#src/lib/app-error";
 import type { FileStorage } from "#src/server/files/file-storage.server";
 import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.server";
 import { WorkspaceImages } from "#src/server/workspaces/workspace-images.server";
@@ -83,22 +84,48 @@ test("a Workspace icon is set by an owner or admin, replaced atomically, and rea
 
     const put = storage.put;
     const uploaded = Promise.withResolvers<void>();
-    let arrivals = 0;
-    storage.put = async (key, file, type) => {
-      await put(key, file, type);
-      if (++arrivals === 2) uploaded.resolve();
-      await uploaded.promise;
-    };
-    const replacements = await Promise.allSettled([
-      images.store(workspace.id, owner!.id, png(3)),
-      images.store(workspace.id, admin!.id, png(4)),
-    ]);
-    storage.put = put;
-    expect(replacements.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(replacements.filter((result) => result.status === "rejected")).toHaveLength(1);
-    expect(objects.size).toBe(1);
-    const winner = replacements[0]?.status === "fulfilled" ? 3 : 4;
-    expect(await bytesOf(member!.id)).toEqual(new Uint8Array(await png(winner).arrayBuffer()));
+    const checked = Promise.withResolvers<void>();
+    const demoted = Promise.withResolvers<void>();
+    try {
+      let arrivals = 0;
+      storage.put = async (key, file, type) => {
+        await put(key, file, type);
+        if (++arrivals === 2) uploaded.resolve();
+        await uploaded.promise;
+      };
+      const replacements = await Promise.allSettled([
+        images.store(workspace.id, owner!.id, png(3)),
+        images.store(workspace.id, admin!.id, png(4)),
+      ]);
+      expect(replacements.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      const lost = replacements.find((result) => result.status === "rejected");
+      expect(lost?.reason).toEqual(new AppError("CONFLICT"));
+      expect(objects.size).toBe(1);
+      const winner = replacements[0]?.status === "fulfilled" ? 3 : 4;
+      expect(await bytesOf(member!.id)).toEqual(new Uint8Array(await png(winner).arrayBuffer()));
+
+      // An admin demoted while their upload is in flight is refused and does not replace the icon.
+      storage.put = async (key, file, type) => {
+        await put(key, file, type);
+        checked.resolve();
+        await demoted.promise;
+      };
+      const demotedUpload = images.store(workspace.id, admin!.id, png(6));
+      await checked.promise;
+      await db.workspaceMembership.update({
+        where: { workspaceId_userId: { workspaceId: workspace.id, userId: admin!.id } },
+        data: { role: "member" },
+      });
+      demoted.resolve();
+      await expect(demotedUpload).rejects.toThrow("ACCESS_DENIED");
+      expect(objects.size).toBe(1);
+      expect(await bytesOf(member!.id)).toEqual(new Uint8Array(await png(winner).arrayBuffer()));
+    } finally {
+      uploaded.resolve();
+      checked.resolve();
+      demoted.resolve();
+      storage.put = put;
+    }
 
     storage.remove = async () => {
       throw new Error("Storage unavailable");

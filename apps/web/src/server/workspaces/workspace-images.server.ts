@@ -12,6 +12,7 @@ import { getPublicImageStorage } from "#src/server/files/public-image-storage.se
 import { validateImage } from "#src/server/files/image-upload.server";
 import { toPublicServerError } from "#src/server/errors/public-error.server";
 import { assertCanManageWorkspaceSettings } from "#src/server/workspaces/member-role.server";
+import { WORKSPACE_ADMIN_ROLES } from "#src/features/workspaces/workspace-roles";
 
 /**
  * Where the browser reads a Workspace icon: its own public URL on the image CDN when this
@@ -49,12 +50,26 @@ export class WorkspaceImages {
     const files = await this.storage();
     await files.put(objectKey, file, file.type);
     try {
-      // Compare-and-swap on the key this upload replaces: of two concurrent uploads one wins.
+      // Compare-and-swap on the key this upload replaces, still as an owner or admin: of two
+      // concurrent uploads one wins, and an uploader demoted meanwhile writes nothing.
       const updated = await this.db.workspace.updateMany({
-        where: { id: workspaceId, iconObjectKey: previousKey },
+        where: {
+          id: workspaceId,
+          iconObjectKey: previousKey,
+          members: { some: { userId, role: { in: [...WORKSPACE_ADMIN_ROLES] } } },
+        },
         data: { iconObjectKey: objectKey, iconContentType: file.type },
       });
-      if (!updated.count) throw new AppError("CONFLICT");
+      if (!updated.count) {
+        // Nothing matched: either the uploader is no longer an owner or admin, or another upload
+        // replaced the icon first. Re-read the role so each case gets its own answer.
+        const current = await this.db.workspaceMembership.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId } },
+          select: { role: true },
+        });
+        assertCanManageWorkspaceSettings(current?.role);
+        throw new AppError("CONFLICT");
+      }
     } catch (error) {
       await files.remove(objectKey);
       throw error;

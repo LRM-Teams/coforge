@@ -37,6 +37,7 @@ import { Checkbox } from "#src/components/base/checkbox/checkbox";
 import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
 import { WorkspaceMembersPanel } from "#src/features/workspaces/workspace-members-panel";
 import { WorkspaceIcon } from "#src/features/workspaces/workspace-icon";
+import { canManageWorkspaceSettings } from "#src/features/workspaces/workspace-roles";
 import { WORKSPACE_NAME_MAX_LENGTH } from "#src/features/workspaces/workspace.schemas";
 import { IMAGE_MAX_BYTES, IMAGE_UPLOAD_TYPES } from "#src/lib/image-upload";
 import { GitHubSettings } from "#src/features/integrations/github-settings";
@@ -329,7 +330,7 @@ export function SettingsContent(props: SettingsContentProps) {
                 // A rename lands through the loader; a fresh Workspace starts a fresh form.
                 key={props.workspace.id}
                 workspace={props.workspace}
-                canEdit={props.members.actorRole === "owner" || props.members.actorRole === "admin"}
+                canEdit={canManageWorkspaceSettings(props.members.actorRole)}
                 onRename={props.onWorkspaceRename}
                 onIconUpload={props.onWorkspaceIconUpload}
               />
@@ -1203,6 +1204,20 @@ function SystemChannelsSettings({
   );
 }
 
+/** The sentence for a failed Workspace icon upload, by what the server answered. */
+function workspaceIconUploadError(cause: unknown): string {
+  switch (isAppError(cause) ? cause.code : undefined) {
+    case "CONFLICT":
+      return m.settings_workspace_icon_conflict();
+    case "ACCESS_DENIED":
+      return m.settings_workspace_profile_access_denied();
+    case "INVALID_INPUT":
+      return m.settings_workspace_icon_invalid();
+    default:
+      return m.settings_workspace_icon_error();
+  }
+}
+
 /** Settings → Workspace profile: the Workspace's icon and name, which its owner or an admin
  * change; everyone else sees the same card read-only. The slug is shown but never edited here,
  * because every link into the Workspace carries it. */
@@ -1265,7 +1280,7 @@ function WorkspaceProfileSettings({
       try {
         await onIconUpload(file);
       } catch (cause) {
-        setIconError(saveErrorFrom(m.settings_workspace_icon_error(), cause));
+        setIconError(saveErrorFrom(workspaceIconUploadError(cause), cause));
       }
     });
   }
@@ -1294,7 +1309,7 @@ function WorkspaceProfileSettings({
                       {icon}
                       <span
                         aria-hidden="true"
-                        className="absolute inset-0 hidden items-center justify-center rounded-lg bg-overlay/70 text-white group-hover:flex group-pending:hidden"
+                        className="absolute inset-0 hidden items-center justify-center rounded-lg bg-overlay/70 text-white group-hover:flex group-focus-visible:flex group-pending:hidden"
                       >
                         <Camera01 className="size-5" />
                       </span>

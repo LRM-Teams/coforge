@@ -59,7 +59,11 @@ export class WorkspaceCatalog {
   }
 
   /** Renames the Workspace; its owner or an admin only. The slug, and so every URL, stays. */
-  async rename(workspaceId: string, actorRole: string, name: string): Promise<WorkspaceRecord> {
+  async rename(
+    workspaceId: string,
+    actorRole: string | undefined,
+    name: string,
+  ): Promise<WorkspaceRecord> {
     assertCanManageWorkspaceSettings(actorRole);
     const trimmed = name.trim();
     if (!trimmed || trimmed.length > WORKSPACE_NAME_MAX_LENGTH) throw new AppError("INVALID_INPUT");
