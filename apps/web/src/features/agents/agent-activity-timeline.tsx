@@ -1,6 +1,7 @@
 import { memo, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { replaceEqualDeep } from "@tanstack/react-query";
 import { Activity as ActivityIcon, ChevronRight } from "@untitledui/icons";
+import { Badge } from "#src/components/base/badges/badges";
 import { Button } from "#src/components/base/buttons/button";
 import {
   Empty,
@@ -118,7 +119,7 @@ const ActivityTimelineRow = memo(function ActivityTimelineRow({
   );
   return (
     <li
-      className="flex items-start gap-2 px-4 py-1.5 hover:bg-primary_hover"
+      className="flex items-start gap-2 px-5 py-1.5 hover:bg-primary_hover"
       style={ROW_RENDER_COST}
     >
       {/* An absolute HH:MM:SS reads better in a chronological log than "6h ago", which keeps
@@ -127,16 +128,16 @@ const ActivityTimelineRow = memo(function ActivityTimelineRow({
       <ClockTime
         value={new Date(row.observedAtMs)}
         timeZone={timeZone}
-        className="mt-0.5 shrink-0 font-mono text-xs whitespace-nowrap text-quaternary"
+        className="mt-0.5 shrink-0 font-mono text-xs whitespace-nowrap text-quaternary tabular-nums"
       />
       <StatusDot tone={row.tone} pulse={row.pulse} className="mt-1.5 size-1.5 shrink-0" />
       <div className="min-w-0 flex-1 text-sm">
         <div className="flex flex-wrap items-baseline gap-x-1.5">
           {label}
           {row.subagent && (
-            <span className="rounded border border-secondary px-1 font-mono text-xs text-tertiary uppercase">
+            <Badge size="sm" color="gray" className="shrink-0 self-center">
               Subagent
-            </span>
+            </Badge>
           )}
           {/* Tool rows: the argument summary inline after the label, in monospace. Other
               non-expandable rows: the status detail or error text as plain prose. */}

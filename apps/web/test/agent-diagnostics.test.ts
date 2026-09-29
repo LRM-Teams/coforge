@@ -31,15 +31,16 @@ test("the copied diagnostic info names the Agent, its Computer, runtime and curr
       "runtime: claude-code",
       "model: claude-opus-4-6",
       "computerVersion: 0.1.1-dev.2",
-      "agentStatus: active",
-      "activity: working",
-      "activityKind: tool_started",
+      "status: active",
+      "stopped: false",
+      "activityKind: working",
+      "detailKind: tool_started",
       "lastActivityAtUtc: 2026-09-29T02:00:05.000Z",
     ].join("\n"),
   );
 });
 
-test("an Agent in error leads with the error message; missing facts read as unknown", () => {
+test("an Agent in error leads with the error message; missing facts read as unknown, a default model as default", () => {
   expect(
     agentDiagnosticInfo({
       agent: {
@@ -53,14 +54,14 @@ test("an Agent in error leads with the error message; missing facts read as unkn
       display: {
         activityKind: "error",
         detailKind: "runtime_crashed",
-        detail: "Provider process exited (code 1)",
+        detail: "Crashed (provider exited)",
       },
       lastActivityAtMs: undefined,
       reportedAt: new Date(Date.UTC(2026, 8, 29, 2, 1, 0)),
     }).split("\n"),
   ).toEqual([
     "CoForge Agent diagnostic info",
-    "errorMessage: Provider process exited (code 1)",
+    "errorMessage: Crashed (provider exited)",
     "reportedAtUtc: 2026-09-29T02:01:00.000Z",
     "workspaceId: workspace-1",
     "agentId: agent-1",
@@ -68,9 +69,10 @@ test("an Agent in error leads with the error message; missing facts read as unkn
     "runtime: claude-code",
     "model: default",
     "computerVersion: unknown",
-    "agentStatus: stopped",
-    "activity: error",
-    "activityKind: runtime_crashed",
+    "status: inactive",
+    "stopped: true",
+    "activityKind: error",
+    "detailKind: runtime_crashed",
     "lastActivityAtUtc: unknown",
   ]);
 });

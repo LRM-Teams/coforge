@@ -355,8 +355,9 @@ export function AgentProfilePanel({
           />
         </div>
       </div>
-      {/* Workspace is a split tree/file viewer: each pane scrolls on its own. A shared
-          overflow here would grow with the file and drag the tree out of view. */}
+      {/* Workspace (a split tree/file viewer) and Activity (a fixed band over a scrolling log)
+          scroll their own parts. A shared overflow here would grow with the content and drag the
+          tree or the band out of view. */}
       <div
         className={
           profile && (tab === "workspace" || tab === "activity")

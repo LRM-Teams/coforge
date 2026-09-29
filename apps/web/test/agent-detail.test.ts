@@ -741,24 +741,31 @@ test("runtime_stalled presents with a dedicated Stalled label at error tone", ()
   ]);
 });
 
-test("runtime_crashed presents with a dedicated Crashed label at error tone", () => {
+test("a crashed runtime reads Error followed by the daemon's own Crashed detail, never Crashed twice", () => {
+  // The daemon words this detail itself (`buildRuntimeCrashedActivity`: "Crashed (<message>)").
   const observation = {
     activityKind: "error" as const,
     detailKind: "runtime_crashed",
     level: "error",
-    detail: "Provider process exited (code 1)",
+    detail: "Crashed (provider exited)",
   };
   expect(presentActivity(observation)).toMatchObject([
     {
-      label: "Crashed",
-      detail: "Provider process exited (code 1)",
-      recentLabel: "Crashed: Provider process exited (code 1)",
+      label: "Error",
+      detail: "Crashed (provider exited)",
+      recentLabel: "Error: Crashed (provider exited)",
       tone: "error",
     },
   ]);
-  expect(presentActivity({ ...observation, detail: "" })).toMatchObject([
-    { label: "Crashed", recentLabel: "Crashed" },
-  ]);
+  expect(
+    agentDisplay(
+      display({
+        activityKind: "error",
+        detailKind: "runtime_crashed",
+        detail: "Crashed (provider exited)",
+      }),
+    ).label,
+  ).toBe("Error: Crashed (provider exited)");
 });
 
 test("system_message has no dedicated label and falls back to its own detail", () => {
