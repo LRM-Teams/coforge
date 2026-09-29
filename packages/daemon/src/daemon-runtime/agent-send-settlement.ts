@@ -8,6 +8,7 @@ import {
 } from "#src/connection/agent-http-clients";
 import { AgentExplainedRefusalError } from "#src/connection/agent-explained-refusal-error";
 import { AgentTransportError } from "#src/connection/agent-transport-error";
+import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import { AgentSendVerdictError, type AgentSendVerdict } from "./agent-send-verdict";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
@@ -27,7 +28,8 @@ export type AgentSendSettlementPorts = {
  * request once under the same key. A failed reconciliation leaves the original failure, whose
  * delivery state stays unknown. A failed replay is retryable only while the target's draft still
  * holds this key, since only then does the retry reuse it. A refusal because an earlier request
- * with this key is still being processed is unknown delivery too, retryable under the draft's key.
+ * with this key is still being processed is unknown delivery too, retryable under the draft's key
+ * for the same reason: once another send replaced the draft, that send cannot be retried safely.
  */
 export async function settleAgentSend(
   send: AgentMessageRequest,
@@ -42,7 +44,12 @@ export async function settleAgentSend(
       throw new AgentSendVerdictError(
         "an earlier request with the send's key is still being processed",
         error,
-        stillProcessingVerdict(send, options.reviewerIsolation),
+        stillProcessingVerdict({
+          idempotencyKey: send.idempotencyKey,
+          target: send.target,
+          draftHoldsKey: await draftStillHoldsKey(send, ports, options.logScope),
+          reviewerIsolation: options.reviewerIsolation,
+        }),
       );
     if (!isAmbiguousSendFailure(error)) throw error;
     failure = error;
@@ -111,13 +118,49 @@ function isStillProcessing(error: unknown): error is AgentExplainedRefusalError 
   );
 }
 
-/** An earlier request with this key may still commit, so delivery is unknown; the saved draft
- * holds the key, and `--expected-draft-key` keeps a resend from sending a draft that replaced it. */
-function stillProcessingVerdict(
+/** Whether the target's draft still holds the send's key. A draft that cannot be checked is
+ * answered as not holding it, the safe answer: only a draft holding the key can be sent again. */
+async function draftStillHoldsKey(
   send: { idempotencyKey: string; target: string },
-  reviewerIsolation: boolean,
-): AgentSendVerdict {
-  const isolation = reviewerIsolation ? " --reviewer-isolation" : "";
+  ports: AgentSendSettlementPorts,
+  logScope: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    return await ports.draftHoldsKey(send.target, send.idempotencyKey);
+  } catch (error) {
+    logger.warn("Agent send draft could not be checked", {
+      event: "agent.message.send_draft_unchecked",
+      ...logScope,
+      target: send.target,
+      error_code: diagnosticErrorCode(error),
+    });
+    return false;
+  }
+}
+
+/** An earlier request with this key may still commit, so delivery is unknown. While the saved draft
+ * holds the key, `--expected-draft-key` keeps a resend from sending a draft that replaced it; once
+ * another send replaced the draft, no command can retry this send. */
+function stillProcessingVerdict(details: {
+  idempotencyKey: string;
+  target: string;
+  draftHoldsKey: boolean;
+  reviewerIsolation: boolean;
+}): AgentSendVerdict {
+  if (!details.draftHoldsKey)
+    return {
+      retryable: false,
+      draftSaved: false,
+      suggestedNextAction:
+        "Delivery is UNKNOWN: an earlier request with this send's idempotency key is still being " +
+        "processed, so this message may still be delivered. The target's draft no longer holds " +
+        "this send's key — any draft there now belongs to a different send — so this send cannot " +
+        "be retried safely. The state is CANNOT_CONFIRM and not retryable: do not resend, and do " +
+        "not write it again as a new send. To look for it, run `coforge message read --target " +
+        `${JSON.stringify(details.target)}\`: a matching message is not proof that this send ` +
+        "committed, and not seeing it proves nothing yet. Wait, or ask a person.",
+    };
+  const isolation = details.reviewerIsolation ? " --reviewer-isolation" : "";
   return {
     retryable: true,
     draftSaved: true,
@@ -125,7 +168,7 @@ function stillProcessingVerdict(
       "An earlier request with this send's idempotency key is still being processed, so this " +
       "message may still be delivered. Do not write it again as a new send. Wait a moment, then " +
       `run \`coforge message send${isolation} --send-draft --expected-draft-key ` +
-      `${JSON.stringify(send.idempotencyKey)} --target ${JSON.stringify(send.target)}\`: it ` +
+      `${JSON.stringify(details.idempotencyKey)} --target ${JSON.stringify(details.target)}\`: it ` +
       "reuses the same key, so it cannot create a second message, and it refuses if another " +
       "send replaced the draft.",
   };
