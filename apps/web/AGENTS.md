@@ -67,7 +67,11 @@ live in nested `AGENTS.md` files listed at the end.
   annotations to route params, search, loader data, or navigation options.
 - Keep feature modules out of the shared layout unless they are genuinely
   required on every page. Check production chunk output after adding a large
-  feature or dependency.
+  feature or dependency: every JS file a route fetches (Resource Timing) needs
+  a `modulepreload` link in its document, or it loads in a request waterfall.
+  The `hoist-transitive-chunk-imports` plugin in `vite.config.ts` gives Start's
+  manifest the static closure; delete it when `@tanstack/react-start` ships
+  TanStack/router#8520.
 
 ## PostgreSQL and Prisma
 
