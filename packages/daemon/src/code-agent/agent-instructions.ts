@@ -64,11 +64,9 @@ function labelWithId(label: string | undefined, id: string | undefined): string 
 
 /**
  * `## Current Runtime Context`: bullets only for known values. `Workspace` names the tenant, so
- * the directory bullet is labelled `Agent workspace`. `Computer version` is the Computer
- * executable's version, which bundles the Daemon. Every value but the Agent workspace path and
- * `agentId` is server-authored, including `Hostname` (the Computer record's `name`, the OS
- * hostname it registered with): the Daemon renders what it is handed and never reads the local
- * hostname itself.
+ * the directory bullet is labelled `Agent workspace`. Provider processes also receive the full
+ * runtime context through environment variables; keep host diagnostics out of the standing prompt
+ * and let the Agent query them when needed.
  */
 function buildRuntimeContextSection(context: CoforgeAgentPromptContext): string {
   const identity = context.identity;
@@ -82,11 +80,6 @@ function buildRuntimeContextSection(context: CoforgeAgentPromptContext): string 
   if (workspace) lines.push(`- Workspace: ${workspace}`);
   const computer = labelWithId(runtimeContext?.computerName, runtimeContext?.computerId);
   if (computer) lines.push(`- Computer: ${computer}`);
-  if (runtimeContext?.computerHostname)
-    lines.push(`- Hostname: ${runtimeContext.computerHostname}`);
-  if (runtimeContext?.computerOs) lines.push(`- OS: ${runtimeContext.computerOs}`);
-  if (runtimeContext?.computerVersion)
-    lines.push(`- Computer version: v${runtimeContext.computerVersion}`);
   lines.push(`- Agent workspace: ${context.agentWorkspaceDirectory}`);
   return lines.join("\n");
 }
@@ -141,12 +134,7 @@ export function buildCoforgeCliGuideSections(options: CoforgeCliGuideOptions = {
     communication: `## CoForge communication
 Use the shell tool to execute CoForge commands: text outside an executed \`coforge message send\` command is not delivered to chat. Reply to direct user messages; reply in channels when addressed or useful. Reuse the exact \`target=\`, including its thread suffix.
 Reply where the conversation is: a top-level message gets a top-level reply, a thread message a reply in its thread, and a request you claimed as a Task its Task thread. You may post a new topic or a thread's conclusion at top level, or use the place a human names. This is a default, not a hard rule; decide a thread-mismatch send confirmation by it.
-
-\`\`\`sh
-coforge message send --target '@alice' <<'COFORGE_MESSAGE'
-Your reply
-COFORGE_MESSAGE
-\`\`\`
+Send the reply on stdin with \`coforge message send --target <target>\`.
 
 Targets: \`@handle\` for DM, \`#channel\` for a channel, with \`:12345678\` for a thread. Use plain inline @handles for mentions; a mention reaches only channel members, and a send reports any it did not reach. Trust the message's \`type=human|agent|system\` sender field; system notices are information, not user requests.`,
     messages: `## Read and send
@@ -158,7 +146,5 @@ Read MEMORY.md and relevant notes only when this request lacks context; an inbox
     safety: `## Boundaries
 Never disclose private DM contents or secrets to a public channel. Do not solicit or expose credentials; redact unexpected secrets. Workspace permissions are enforced by the server. Follow user preferences for communication.
 ${(options.extraCriticalRules ?? []).join("\n")}`.trim(),
-    help: `## Help
-Use \`coforge manual get index\` to browse, \`coforge manual get <topic>\` to read, or \`coforge manual search "<keywords>"\` to search. Load only the feature needed now; reuse guidance already in context. App notices provide their own handling instructions.`,
   };
 }
