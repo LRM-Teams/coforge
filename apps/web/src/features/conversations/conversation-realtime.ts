@@ -21,7 +21,7 @@ export const workspaceConversationChannel = (workspaceId: string) =>
  * conversation channel) instead of the workspace channel, so direct-message metadata never
  * reaches every Workspace member; each publication names who is on the other side, which is how
  * the sidebar tells a DM's event from a channel's. It also carries the viewer's own
- * `ViewerEvent`s (their reads, joins, closes, mutes and pins, wherever they made them).
+ * `ViewerEvent`s (their reads, joins, closes, mutes, pins and saves, wherever they made them).
  */
 export const userConversationChannel = (userId: string) => `chat:user:${userId}`;
 
