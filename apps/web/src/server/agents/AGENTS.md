@@ -78,6 +78,22 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
   republishes the current operation.
 - Control clears the Session binding at the local chain step.
 
+## Send freshness
+
+- `executeAgentSendMessageWithPolicy` is Raft 1.0.38's `planAgentInboxSideEffect`,
+  decided on the server. A message is seen when the Agent sent it, when it is at
+  or below the reported `seenUpToSeq`, or when it is in `seenExactSeqs`, in
+  either freshness mode; the mode only decides what a hold presents.
+- CoForge difference: when every pending message was already seen, the boundary
+  that may advance over them is the larger of the Agent's report and the
+  server's own read-through (Raft trusts only the client's boundaries). The
+  `check` that showed those messages already moved the read-through, so this is
+  safe, and it is what keeps an Agent's exact set small in the steady
+  "notified → check → send" loop.
+- `agent-history-boundary.server.ts` is the one contiguity rule for an Agent
+  history page: the `modelSeenUpToSeq` it reports and the read-through it moves.
+  A page read from an explicit `fromSequence` never joins.
+
 ## Stopped Agents
 
 - `Agent.stoppedAt` is the persisted user stop intent, independent of

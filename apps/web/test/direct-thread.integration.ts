@@ -106,10 +106,11 @@ test("thread send and unread ranges stay separate from the main conversation", a
       root.id.slice(0, 8),
     );
     expect(
-      (await repo.readPendingAgentContext(workspace.id, agent.id, otherShortTarget)).map((m) => [
-        m.body,
-        m.target,
-      ]),
+      (
+        await (
+          await repo.agentTargetFreshness(workspace.id, agent.id, otherShortTarget)
+        ).readPending()
+      ).map((m) => [m.body, m.target]),
     ).toEqual([["other thread", otherTarget]]);
     const recovery = await repo.readAgentRecoveryContext(workspace.id, agent.id);
     expect(recovery.unreadSummary).toEqual({
@@ -368,6 +369,91 @@ test("thread send and unread ranges stay separate from the main conversation", a
     await db.agentMessageDelivery.deleteMany({
       where: { workspaceId: workspace.id },
     });
+    await db.message.deleteMany({ where: { workspaceId: workspace.id } });
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+  }
+});
+
+test("an Agent history page reports the boundary it joins and the conversation it consumed", async () => {
+  const connectionString = Bun.env.THREAD_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("THREAD_TEST_DATABASE_URL is required (local PostgreSQL)");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const id = crypto.randomUUID();
+  const username = `b${id.slice(0, 8)}`;
+  const user = await db.user.create({ data: { username } });
+  const workspace = await db.workspace.create({
+    data: { slug: id, name: "Boundary test", members: { create: { userId: user.id } } },
+  });
+  try {
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: user.id,
+        name: "boundary",
+        displayName: "Boundary",
+        runtimeConfig: {},
+      },
+    });
+    const repo = new PrismaDirectConversationRepository(db);
+    const opened = await repo.openForUser(workspace.id, user.id, agent.id);
+    const send = (body: string, threadRootId?: string) =>
+      repo.sendMessage(
+        opened.conversationId,
+        opened.senderMemberId,
+        user.id,
+        body,
+        undefined,
+        threadRootId,
+      );
+    const dm = `@${username}`;
+    const first = await send("one");
+    await send("two");
+    const third = await send("three");
+
+    // An unpaged read starts right after the read-through, so it joins at its newest message.
+    const unread = await repo.readMessagesPage(workspace.id, agent.id, dm);
+    expect(unread.modelSeenUpToSeq).toBe(third.sequence);
+    expect(unread.consumptionScope).toEqual({
+      agentId: agent.id,
+      conversationId: opened.conversationId,
+      channelType: "dm",
+      target: dm,
+    });
+
+    const fourth = await send("four");
+    const fifth = await send("five");
+    // An anchored read never joins; a page after an unread anchor leaves a gap.
+    expect(
+      (await repo.readMessagesPage(workspace.id, agent.id, dm, { around: fourth.id.slice(0, 8) }))
+        .modelSeenUpToSeq,
+    ).toBeNull();
+    expect(
+      (await repo.readMessagesPage(workspace.id, agent.id, dm, { after: fourth.id }))
+        .modelSeenUpToSeq,
+    ).toBeNull();
+    // A page after an anchor the Agent has read joins it.
+    expect(
+      (await repo.readMessagesPage(workspace.id, agent.id, dm, { after: third.id }))
+        .modelSeenUpToSeq,
+    ).toBe(fifth.sequence);
+
+    // A thread spelled with its short root is consumed under its full target.
+    const reply = await send("reply", first.id);
+    const thread = await repo.readMessagesPage(
+      workspace.id,
+      agent.id,
+      `${dm}:${first.id.slice(0, 8)}`,
+    );
+    expect(thread.modelSeenUpToSeq).toBe(reply.sequence);
+    expect(thread.consumptionScope).toEqual({
+      agentId: agent.id,
+      conversationId: opened.conversationId,
+      channelType: "thread",
+      target: `${dm}:${first.id}`,
+    });
+  } finally {
     await db.message.deleteMany({ where: { workspaceId: workspace.id } });
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.user.delete({ where: { id: user.id } });

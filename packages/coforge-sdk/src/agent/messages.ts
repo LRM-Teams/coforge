@@ -75,6 +75,18 @@ export type AgentMessage = {
   task?: MessageTaskMetadata;
 };
 
+/**
+ * Which conversation a history read consumed (Raft 1.0.38's `consumption_scope`, whose `channel_id`
+ * is CoForge's `conversationId`). Present for a direct conversation (`dm`) or a thread (`thread`),
+ * whose target has more than one spelling; `target` is the spelling the server resolved it to.
+ */
+export type AgentHistoryConsumptionScope = {
+  agentId: string;
+  conversationId: string;
+  channelType: "dm" | "thread";
+  target: string;
+};
+
 /** Response for the read route (GET /api/agent/v1/messages, no `query`); its own shape, not the shared message envelope. */
 export type AgentHistoryResponse = {
   idempotencyKey: string;
@@ -83,6 +95,11 @@ export type AgentHistoryResponse = {
   hasNewer: boolean;
   olderCursor?: string;
   newerCursor?: string;
+  /** Raft 1.0.38's `model_seen_up_to_seq`: the newest sequence up to which the Agent has now seen
+   * this target without a gap, or `null` when this page does not join what it had already read (an
+   * anchored `around` read never does). */
+  modelSeenUpToSeq: number | null;
+  consumptionScope?: AgentHistoryConsumptionScope;
 };
 
 /** Response for the dedicated search route (GET /api/agent/v1/messages/search). */
@@ -139,7 +156,8 @@ export type AgentSendDecisionResponse = {
   newMessageCount?: number;
   shownMessageCount?: number;
   omittedMessageCount?: number;
-  /** Held only: the boundary the Agent should treat as reviewed after this hold. */
+  /** Held: the boundary the Agent should treat as reviewed after this hold. Sent: the boundary the
+   * server advanced over messages the Agent had already seen (Raft's consume effect), if any. */
   seenUpToSeq?: number;
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;

@@ -1,3 +1,4 @@
+import { mergeSeenExactSeqs } from "@lrm/coforge-sdk/internal";
 import type { AgentMessageTransportResponse } from "#src/connection/agent-http-clients";
 
 /**
@@ -33,8 +34,10 @@ export type AgentInboxFreshnessInput = {
   modelSeenSequence: number;
   /** Messages the daemon still counts as unseen for this exact target (its attention index). */
   pendingMessageCount: number;
-  /** The newest sequence the daemon knows for this exact target, whether or not it is pending. */
-  latestSequence: number;
+  /** The newest message the Agent has not been shown for this exact target (0 when none): Raft's
+   * held boundary is the maximum of the unconsumed messages (`heldBoundary`, 1.0.38 bundle
+   * 898685). */
+  pendingMaxSequence: number;
 };
 
 export type AgentInboxFreshnessPlan =
@@ -61,7 +64,7 @@ export function planAgentInboxFreshness(input: AgentInboxFreshnessInput): AgentI
       decision: "local_hold",
       reason: "exact_target_pending",
       newMessageCount: input.pendingMessageCount,
-      seenUpToSeq: input.latestSequence,
+      seenUpToSeq: input.pendingMaxSequence,
     };
   return {
     decision: "forward",
@@ -126,4 +129,19 @@ export function locallyHeldSend(
     seenUpToSeq: plan.seenUpToSeq,
     ...(input.freshnessContextMode ? { freshnessContextMode: input.freshnessContextMode } : {}),
   };
+}
+
+/**
+ * The `seenExactSeqs` a send reports (Raft 1.0.38's `handleMessageSend`): what its draft already
+ * carried plus what the Agent has been shown one by one since, above the frontier the send reports
+ * as `seenUpToSeq`, ascending, the newest `SEEN_EXACT_SEQS_LIMIT`. `undefined` when there are none,
+ * so the field is left off the request. Both inputs are ascending already.
+ */
+export function sendSeenExactSeqs(
+  draft: readonly number[] | undefined,
+  shown: readonly number[],
+  seenUpToSeq: number | undefined,
+): number[] | undefined {
+  const reported = mergeSeenExactSeqs(seenUpToSeq ?? 0, draft ?? [], shown);
+  return reported.length > 0 ? reported : undefined;
 }

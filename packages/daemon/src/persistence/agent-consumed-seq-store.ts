@@ -10,6 +10,7 @@ import {
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { getLogger } from "@logtape/logtape";
+import { normalizeSeenExactSeqs } from "@lrm/coforge-sdk/internal";
 import { escapePathIdentity, isSafePathScope } from "./path-scope";
 
 const logger = getLogger(["coforge", "daemon", "consumed-seqs"]);
@@ -18,41 +19,44 @@ const logger = getLogger(["coforge", "daemon", "consumed-seqs"]);
  * 752736-752751): `seq` is the frontier the Agent has consumed (monotonic, never lower), `readOrder`
  * when the target was last reviewed, ordered against every other target's, and `reviewedSeq` the
  * newest message a review showed. `reviewedSeq` is CoForge's own addition: Raft folds it into `seq`,
- * but a paged read must not move the frontier a hold is decided from, and a `check` moves that
- * frontier without reviewing anything. */
+ * but the two move apart here. A paged read reviews the target without moving the frontier a hold
+ * is decided from; a sent send's advanced boundary moves the frontier without reviewing anything;
+ * only a presented hold does both. */
 export type AgentConsumedSeqEntry = Readonly<{
   seq?: number;
   readOrder?: number;
   reviewedSeq?: number;
+  /** Raft 1.0.38's `exactSeqs`: messages above `seq` the Agent was shown one by one (a `check`, an
+   * anchored `read`, a read the server did not call contiguous), ascending, at most
+   * `SEEN_EXACT_SEQS_LIMIT`. A send reports them as `seenExactSeqs` so its freshness check does
+   * not count them as unreviewed. */
+  exactSeqs?: readonly number[];
 }>;
 
-/** Raft's `consumed-seqs.json` shape, plus `reviewedSeq`: a `targets` map plus the next `readOrder` to hand
- * out. `nextReadOrder` is never trusted as a starting point on read — `read` recomputes it from the
- * orders it actually sees, exactly as Raft's `normalizeState` does. */
+/** Raft 1.0.38's `consumed-seqs.json` shape, plus `reviewedSeq`: a `targets` map, the `aliases` map,
+ * and the next `readOrder` to hand out. `nextReadOrder` is never trusted as a starting point on
+ * read — `read` recomputes it from the orders it actually sees, exactly as Raft's `normalizeState`
+ * does. */
 export type AgentConsumedSeqState = Readonly<{
   targets: Readonly<Record<string, AgentConsumedSeqEntry>>;
+  /** Raft 1.0.38's `aliases`: another spelling of a target mapped to the spelling its cursor is
+   * kept under, so both share one consumed state. Chains are compressed on read: every value is a
+   * canonical target. */
+  aliases: Readonly<Record<string, string>>;
   nextReadOrder: number;
 }>;
 
 /**
- * The port the attention index persists through, under Raft's function names for the two
- * mechanisms that matter: `recordConsumedSeqs` (a consumed frontier — what a check, a read or a held
- * notice showed the Agent) and `recordConsumedRead` (a review of a target, which is what orders
- * targets against each other).
+ * The port the attention index persists through. The index holds the Agent's consumed state in
+ * memory once it has read it, so a store only reads a snapshot (normalizing a file nobody in this
+ * process wrote) and writes one: one write per operation, however many targets, frontiers, exact
+ * sequences, aliases and read orders that operation touched.
  */
 export type AgentConsumedSeqPort = Readonly<{
   /** Raft's `readState`: never throws, and a missing or unreadable file is an empty state. */
   read(agentId: string): AgentConsumedSeqState;
-  /** Moves each target's consumed `seq` frontier and leaves its `readOrder` alone: consuming
-   * messages is not reviewing a target. The daemon records `check` pages here, and a check must not
-   * order anything; a held send takes its order separately through `recordConsumedRead`. (Raft's
-   * `recordConsumedSeqs` takes an order, but Raft calls it only for a held send; Raft 1.0.32's
-   * `check` records nothing.) */
-  recordConsumedSeqs(agentId: string, entries: Readonly<Record<string, number>>): void;
-  /** A review of `target`: takes the next `readOrder` and raises `reviewedSeq` to `sequence`, leaving
-   * the consumed `seq` alone (Raft's `recordConsumedRead`, which raises `seq` instead). Answers the
-   * `readOrder` it assigned. */
-  recordConsumedRead(agentId: string, target: string, sequence?: number): number | undefined;
+  /** Replaces the Agent's durable state with this snapshot, best-effort like Raft's `writeState`. */
+  write(agentId: string, state: AgentConsumedSeqState): void;
 }>;
 
 /** A number that can be a sequence or a read order: positive and finite, or nothing. */
@@ -61,19 +65,20 @@ function positiveFiniteNumber(value: unknown): number | undefined {
 }
 
 /**
- * The daemon's durable copy of the consumed cursor, in Raft's file shape plus one field
- * (`{ targets: { <target>: { seq, readOrder, reviewedSeq } }, nextReadOrder }`).
+ * The daemon's durable copy of the consumed cursor, in Raft 1.0.38's file shape plus one field
+ * (`{ targets: { <target>: { seq, readOrder, reviewedSeq, exactSeqs } }, aliases, nextReadOrder }`).
  *
  * Why it has to be durable: the cursor decides whether a send is held (`modelSeenSequence`), which
- * frontier travels as `seenUpToSeq`, and whether a top-level send under a parent whose newest read
- * context is a thread needs confirming (and which threads a review showed anything in). Raft keeps all three in one file that outlives the process
- * (`consumed-seqs.json`, 1.0.32 bundle 752725-752800); the daemon used to keep them only in memory,
- * so a restart silently reset the Agent's read context to "never read anything".
+ * frontier and exact sequences travel with a send, and whether a top-level send under a parent
+ * whose newest read context is a thread needs confirming (and which threads a review showed
+ * anything in). Raft keeps all of it in one file that outlives the process (`consumed-seqs.json`,
+ * 1.0.32 bundle 752725-752800); the daemon used to keep it only in memory, so a restart silently
+ * reset the Agent's read context to "never read anything".
  *
- * Raft's mechanism is a synchronous read-modify-write per record, with write errors swallowed —
- * best-effort persistence that can never fail a message send. Kept as it is: synchronous critical
- * sections cannot interleave (no lost update between two records racing for the same Agent), and a
- * lost write costs one cursor position, not a failed send. The file name and every field but
+ * Raft reads, modifies and writes the file per record, because each CLI process is its own writer.
+ * Here the daemon is the file's only writer and keeps the state in memory once read, so it writes a
+ * whole snapshot per operation instead, still synchronously and still with write errors swallowed:
+ * a lost write costs one cursor position, not a failed send. The file name and every field but
  * `reviewedSeq` are Raft's; the location is CoForge's own state directory.
  */
 export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
@@ -122,53 +127,14 @@ export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
     } catch {
       // Missing file, or one that a crash left half-written: Raft's `readState` starts over from an
       // empty state rather than failing the read that needs the cursor.
-      return { targets: {}, nextReadOrder: 1 };
+      return { targets: {}, aliases: {}, nextReadOrder: 1 };
     }
     return normalizeState(parsed);
   }
 
-  recordConsumedSeqs(agentId: string, entries: Readonly<Record<string, number>>): void {
-    const updates = Object.entries(entries).filter(
-      ([target, sequence]) => target.length > 0 && positiveFiniteNumber(sequence) !== undefined,
-    );
-    if (updates.length === 0) return;
-    const state = mutableState(this.read(agentId));
-    let changed = false;
-    for (const [target, sequence] of updates) {
-      const prior = state.targets[target] ?? {};
-      if (positiveFiniteNumber(prior.seq) !== undefined && sequence <= prior.seq!) continue;
-      state.targets[target] = { ...prior, seq: sequence };
-      changed = true;
-    }
-    // Raft only pays for the write when a cursor actually moved.
-    if (changed) this.#write(agentId, state);
-  }
-
-  recordConsumedRead(agentId: string, target: string, sequence?: number): number | undefined {
-    if (target.length === 0) return undefined;
-    const state = mutableState(this.read(agentId));
-    const prior = state.targets[target] ?? {};
-    const reviewed = positiveFiniteNumber(sequence);
-    const priorReviewed = positiveFiniteNumber(prior.reviewedSeq);
-    state.targets[target] = {
-      ...prior,
-      readOrder: state.nextReadOrder,
-      reviewedSeq:
-        reviewed !== undefined && (priorReviewed === undefined || reviewed > priorReviewed)
-          ? reviewed
-          : priorReviewed,
-    };
-    state.nextReadOrder += 1;
-    this.#write(agentId, state);
-    return state.targets[target].readOrder;
-  }
-
   /** Best-effort, like Raft's `writeState` inside `try { … } catch {}`: a cursor that cannot be
    * written costs the next cold start a stale boundary, and nothing else. */
-  #write(
-    agentId: string,
-    state: { targets: Record<string, AgentConsumedSeqEntry>; nextReadOrder: number },
-  ): void {
+  write(agentId: string, state: AgentConsumedSeqState): void {
     const path = this.#path(agentId);
     const temporary = `${path}.${crypto.randomUUID()}.tmp`;
     try {
@@ -200,43 +166,73 @@ function encodeIdentity(identity: string): string {
   return escapePathIdentity(identity);
 }
 
-type MutableState = { targets: Record<string, AgentConsumedSeqEntry>; nextReadOrder: number };
-
-function mutableState(state: AgentConsumedSeqState): MutableState {
-  return { targets: { ...state.targets }, nextReadOrder: state.nextReadOrder };
-}
-
 /**
- * Raft's `normalizeState` (1.0.32 bundle 752730-752752): keep the entries that carry an order or a
- * sequence, and start from a `nextReadOrder` that is above every order in the file — so a cursor
+ * Raft's `normalizeState` (1.0.38 `normalizeState`): keep the entries that carry an order, a
+ * sequence or exact sequences above that sequence, compress alias chains, and start from a `nextReadOrder` that is above every order in the file — so a cursor
  * written by an older build (or hand-edited) can never hand out an order it already used. A
  * `reviewedSeq` is kept only beside a `readOrder`, since it describes a review. A file written
  * before `reviewedSeq` existed has none, so no thread counts as read context until it is read again.
  */
 function normalizeState(value: unknown): AgentConsumedSeqState {
   if (!value || typeof value !== "object" || Array.isArray(value))
-    return { targets: {}, nextReadOrder: 1 };
-  const raw = value as { targets?: unknown; nextReadOrder?: unknown };
+    return { targets: {}, aliases: {}, nextReadOrder: 1 };
+  const raw = value as { targets?: unknown; aliases?: unknown; nextReadOrder?: unknown };
   const targets: Record<string, AgentConsumedSeqEntry> = {};
   let maxObservedOrder = 0;
   if (raw.targets && typeof raw.targets === "object" && !Array.isArray(raw.targets)) {
     for (const [target, entry] of Object.entries(raw.targets as Record<string, unknown>)) {
       if (target.length === 0 || !entry || typeof entry !== "object" || Array.isArray(entry))
         continue;
-      const record = entry as { seq?: unknown; readOrder?: unknown; reviewedSeq?: unknown };
+      const record = entry as {
+        seq?: unknown;
+        readOrder?: unknown;
+        reviewedSeq?: unknown;
+        exactSeqs?: unknown;
+      };
       const seq = positiveFiniteNumber(record.seq);
       const readOrder = positiveFiniteNumber(record.readOrder);
-      if (seq === undefined && readOrder === undefined) continue;
+      const exactSeqs = normalizeSeenExactSeqs(record.exactSeqs, seq ?? 0);
+      if (seq === undefined && readOrder === undefined && exactSeqs.length === 0) continue;
       // A shown message without a review order is not a review; drop it with the order.
       const reviewedSeq =
         readOrder === undefined ? undefined : positiveFiniteNumber(record.reviewedSeq);
-      targets[target] = { seq, readOrder, reviewedSeq };
+      targets[target] = {
+        ...(seq !== undefined ? { seq } : {}),
+        ...(readOrder !== undefined ? { readOrder } : {}),
+        ...(reviewedSeq !== undefined ? { reviewedSeq } : {}),
+        ...(exactSeqs.length > 0 ? { exactSeqs } : {}),
+      };
       // Only a real order counts. Raft falls back to `seq` for files written before `readOrder`
-      // existed; this file never had that shape, and a frontier recorded without a review
-      // (`recordConsumedSeqs`) must not push the order counter up to its sequence.
+      // existed; this file never had that shape, and a frontier recorded without a review must not
+      // push the order counter up to its sequence.
       maxObservedOrder = Math.max(maxObservedOrder, readOrder ?? 0);
     }
   }
+  const links = new Map<string, string>();
+  if (raw.aliases && typeof raw.aliases === "object" && !Array.isArray(raw.aliases))
+    for (const [spelling, canonical] of Object.entries(raw.aliases as Record<string, unknown>))
+      if (spelling.length > 0 && typeof canonical === "string" && canonical.length > 0)
+        if (spelling !== canonical) links.set(spelling, canonical);
+  // Raft's `canonicalTargetKey` walks a chain on every lookup; the chain is walked once here, so each
+  // spelling maps straight to its canonical target. A cycle names no canonical target and is dropped.
+  const aliases: Record<string, string> = {};
+  for (const spelling of links.keys()) {
+    let canonical = spelling;
+    const visited = new Set<string>([spelling]);
+    for (let next = links.get(canonical); next !== undefined; next = links.get(canonical)) {
+      if (visited.has(next)) {
+        canonical = spelling;
+        break;
+      }
+      visited.add(next);
+      canonical = next;
+    }
+    if (canonical !== spelling) aliases[spelling] = canonical;
+  }
   const rawNextReadOrder = positiveFiniteNumber(raw.nextReadOrder);
-  return { targets, nextReadOrder: Math.max(rawNextReadOrder ?? 1, maxObservedOrder + 1) };
+  return {
+    targets,
+    aliases,
+    nextReadOrder: Math.max(rawNextReadOrder ?? 1, maxObservedOrder + 1),
+  };
 }

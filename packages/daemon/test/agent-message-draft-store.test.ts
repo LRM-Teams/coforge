@@ -130,6 +130,34 @@ test("reads a draft file Raft itself wrote, including its key and seenUpToSeq", 
   });
 });
 
+test("keeps a draft's exact seen sequences, in Raft 1.0.38's field, deduplicated and bounded", async () => {
+  const stateDirectory = temporaryStateDirectory();
+  const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
+
+  await store.save("@ada", { content: "reply", idempotencyKey: "key-1", seenExactSeqs: [6, 9] });
+  expect((await found(store, "@ada"))?.seenExactSeqs).toEqual([6, 9]);
+  expect(
+    JSON.parse(await readFile(draftFile(stateDirectory), "utf8")).targets["@ada"],
+  ).toMatchObject({
+    seenExactSeqs: [6, 9],
+  });
+
+  // Raft's reader keeps the distinct positive integers, the newest 2500.
+  await writeDraftFile(stateDirectory, {
+    targets: {
+      "@ada": {
+        content: "raft reply",
+        idempotencyKey: "key-raft",
+        savedAt: 1_000,
+        seenExactSeqs: [4, 4, 0, 2.5, ...Array.from({ length: 2600 }, (_, index) => index + 10)],
+      },
+    },
+  });
+  const read = (await found(store, "@ada"))?.seenExactSeqs ?? [];
+  expect(read).toHaveLength(2500);
+  expect(read.at(-1)).toBe(2609);
+});
+
 test("a draft without an idempotency key names no logical send and reads as missing", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);

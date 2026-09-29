@@ -1,7 +1,7 @@
 import { chmod, lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
-import type { LocalMentionSelector } from "@lrm/coforge-sdk/internal";
+import { normalizeSeenExactSeqs, type LocalMentionSelector } from "@lrm/coforge-sdk/internal";
 import { escapePathIdentity } from "./path-scope";
 
 export const AGENT_MESSAGE_DRAFT_TTL_MS = 10 * 60 * 1_000;
@@ -9,7 +9,7 @@ export const AGENT_MESSAGE_DRAFT_TTL_MS = 10 * 60 * 1_000;
 /**
  * The continuation state of one held send — the fields Raft's `setSavedDraft`
  * (`continue-state.json`) writes: `content`, `attachmentIds`, `idempotencyKey`, `mentions`,
- * `savedAt`, `reholdCount`, `seenUpToSeq`.
+ * `savedAt`, `reholdCount`, `seenUpToSeq`, and 1.0.38's `seenExactSeqs`.
  */
 export type AgentMessageDraftContent = Readonly<{
   content: string;
@@ -22,6 +22,10 @@ export type AgentMessageDraftContent = Readonly<{
   /** Raft's `seenUpToSeq`: the reviewed frontier this draft already accounts for. Carried into the
    * resend so the context the held notice presented is not presented — or held — twice. */
   seenUpToSeq?: number;
+  /** Raft 1.0.38's `seenExactSeqs`: the messages above `seenUpToSeq` the Agent was shown one by one.
+   * Only a held refresh whose context was withheld keeps them: a presented hold's frontier covers
+   * them, and before a send they are already durable in the consumed cursor. */
+  seenExactSeqs?: readonly number[];
 }>;
 
 export type AgentMessageDraft = AgentMessageDraftContent &
@@ -125,6 +129,7 @@ export class AgentMessageDraftStore {
         ...(draft.attachmentIds?.length ? { attachmentIds: draft.attachmentIds } : {}),
         ...(draft.mentions?.length ? { mentions: draft.mentions } : {}),
         ...(draft.seenUpToSeq !== undefined ? { seenUpToSeq: draft.seenUpToSeq } : {}),
+        ...(draft.seenExactSeqs?.length ? { seenExactSeqs: draft.seenExactSeqs } : {}),
         savedAt: this.now(),
       });
       await this.#write(drafts);
@@ -191,6 +196,7 @@ export class AgentMessageDraftStore {
         savedAt: draft.savedAt,
         reholdCount: draft.reholdCount,
         ...(draft.seenUpToSeq !== undefined ? { seenUpToSeq: draft.seenUpToSeq } : {}),
+        ...(draft.seenExactSeqs?.length ? { seenExactSeqs: draft.seenExactSeqs } : {}),
       };
     }
     const temporary = `${this.#path}.${crypto.randomUUID()}.tmp`;
@@ -243,6 +249,8 @@ function readDraft(value: unknown, target: string): AgentMessageDraft | "invalid
     ? draft.mentions.filter(isMentionSelector)
     : undefined;
   if (Array.isArray(draft.mentions) && mentions?.length !== draft.mentions.length) return "invalid";
+  // Raft's reader keeps what is usable rather than refusing the draft over one bad sequence.
+  const seenExactSeqs = normalizeSeenExactSeqs(draft.seenExactSeqs);
   return {
     target,
     content: draft.content,
@@ -252,6 +260,7 @@ function readDraft(value: unknown, target: string): AgentMessageDraft | "invalid
     ...(attachmentIds?.length ? { attachmentIds } : {}),
     ...(mentions?.length ? { mentions } : {}),
     ...(typeof draft.seenUpToSeq === "number" ? { seenUpToSeq: draft.seenUpToSeq } : {}),
+    ...(seenExactSeqs.length ? { seenExactSeqs } : {}),
   };
 }
 

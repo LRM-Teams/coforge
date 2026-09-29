@@ -24,7 +24,7 @@ const base = {
   continueAnyway: false,
   modelSeenSequence: 0,
   pendingMessageCount: 0,
-  latestSequence: 0,
+  pendingMaxSequence: 0,
 };
 
 test("an explicit --anyway short-circuits every hold, including one the daemon would take", () => {
@@ -33,7 +33,7 @@ test("an explicit --anyway short-circuits every hold, including one the daemon w
       continueAnyway: true,
       modelSeenSequence: 0,
       pendingMessageCount: 3,
-      latestSequence: 9,
+      pendingMaxSequence: 9,
     }),
   ).toEqual({ decision: "bypass", reason: "continue_anyway" });
 });
@@ -44,7 +44,7 @@ test("unreviewed messages on the exact target are held locally, with the count a
       ...base,
       modelSeenSequence: 4,
       pendingMessageCount: 2,
-      latestSequence: 9,
+      pendingMaxSequence: 9,
     }),
   ).toEqual({
     decision: "local_hold",
@@ -55,17 +55,21 @@ test("unreviewed messages on the exact target are held locally, with the count a
 });
 
 test("a target the Agent is caught up on forwards under Raft's model-seen-boundary reason", () => {
-  expect(planAgentInboxFreshness({ ...base, modelSeenSequence: 7, latestSequence: 7 })).toEqual({
-    decision: "forward",
-    reason: "model_seen_boundary",
-  });
+  expect(planAgentInboxFreshness({ ...base, modelSeenSequence: 7, pendingMaxSequence: 7 })).toEqual(
+    {
+      decision: "forward",
+      reason: "model_seen_boundary",
+    },
+  );
 });
 
 test("a first touch forwards: the daemon has nothing to hold from, so the server decides", () => {
   // Deliberate: `syncing_hold` (`target_first_touch_recent_context`) is the server's call, because
   // only the server can see history the daemon was never delivered. Planning a hold here would
   // withhold sends the server would have forwarded.
-  expect(planAgentInboxFreshness({ ...base, modelSeenSequence: 0, latestSequence: 12 })).toEqual({
+  expect(
+    planAgentInboxFreshness({ ...base, modelSeenSequence: 0, pendingMaxSequence: 12 }),
+  ).toEqual({
     decision: "forward",
     reason: "no_exact_target_pending_or_recent_context",
   });
@@ -83,7 +87,7 @@ test("a locally held send is transport-shaped, counted, and carries the window i
     ...base,
     modelSeenSequence: 1,
     pendingMessageCount: 3,
-    latestSequence: 6,
+    pendingMaxSequence: 6,
   });
   if (plan.decision !== "local_hold") throw new Error("expected a hold");
   const shown = [heldMessage(5), heldMessage(6)];
@@ -103,7 +107,7 @@ test("a locally held send is transport-shaped, counted, and carries the window i
 });
 
 test("a hold with nothing left to show is honest: the count stands, the window is empty", () => {
-  const plan = planAgentInboxFreshness({ ...base, pendingMessageCount: 2, latestSequence: 4 });
+  const plan = planAgentInboxFreshness({ ...base, pendingMessageCount: 2, pendingMaxSequence: 4 });
   if (plan.decision !== "local_hold") throw new Error("expected a hold");
   const held = locallyHeldSend(plan, { idempotencyKey: "send-1", draftReholdCount: 0 });
   expect(held.messages).toEqual([]);
@@ -112,7 +116,7 @@ test("a hold with nothing left to show is honest: the count stands, the window i
 });
 
 test("a draft that has already been held once is told it may be forced with --anyway", () => {
-  const plan = planAgentInboxFreshness({ ...base, pendingMessageCount: 1, latestSequence: 2 });
+  const plan = planAgentInboxFreshness({ ...base, pendingMessageCount: 1, pendingMaxSequence: 2 });
   if (plan.decision !== "local_hold") throw new Error("expected a hold");
   expect(
     locallyHeldSend(plan, { idempotencyKey: "send-1", draftReholdCount: 0 })
@@ -125,7 +129,7 @@ test("a draft that has already been held once is told it may be forced with --an
 });
 
 test("a withheld send keeps its mode so the caller reports a withheld count, not a window", () => {
-  const plan = planAgentInboxFreshness({ ...base, pendingMessageCount: 2, latestSequence: 5 });
+  const plan = planAgentInboxFreshness({ ...base, pendingMessageCount: 2, pendingMaxSequence: 5 });
   if (plan.decision !== "local_hold") throw new Error("expected a hold");
   expect(
     locallyHeldSend(plan, {

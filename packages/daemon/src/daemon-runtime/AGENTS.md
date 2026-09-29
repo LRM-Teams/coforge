@@ -35,9 +35,25 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   canonicalizes short channel/DM thread targets. Threads never create sessions
   or processes.
 - A delivery counts as consumed when its sequence is at or below its target's
-  frontier, or when a `read` already showed that message (kept in memory per
-  launch; an anchored read never moves the frontier). A `search` never counts:
-  it shows a truncated preview without whether the message mentions the Agent.
+  frontier, or is one of the target's exact seen sequences (Raft 1.0.38's
+  `exactSeqs`: durable beside the frontier, at most 2500 per target, pruned as
+  the frontier reaches them). A `check`, an anchored `read`, and a `read` the
+  server does not call contiguous (`modelSeenUpToSeq: null`) record exact
+  sequences only: no frontier, no read order. A `read` with a boundary moves
+  the frontier there and reviews the target; one that found nothing only
+  reviews it. The one inferred boundary is a held task result, which marks its
+  newest inlined message model-seen. A send reports the exact sequences above its
+  `seenUpToSeq` as `seenExactSeqs`; a sent response's `seenUpToSeq` (the server
+  advanced over messages already seen) moves the frontier. A `search` never
+  counts: it shows a truncated preview without whether the message mentions
+  the Agent.
+- The attention index is the consumed cursor's source of truth once it has
+  read the file, and an operation that changed it writes one snapshot. A read's
+  state is kept under its `consumptionScope.target` (a channel's top level is
+  already canonical); the spelling the Agent used becomes an alias of it. A
+  consumption scope for this Agent settles, in every other target of that
+  conversation (and thread, matched by root whatever its case), only the
+  messages the read returned.
 - A delivery is ACKed as soon as the daemon takes custody of it: when its
   notice is accepted, or when it is held for a later notice or launch
   (`AgentDeliveryQueue`, a failed launch's input queue). A delivery queued

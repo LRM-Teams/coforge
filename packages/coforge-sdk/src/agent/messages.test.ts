@@ -57,6 +57,7 @@ test("models the read route's own response shape, including multiple attachments
     ],
     hasOlder: false,
     hasNewer: false,
+    modelSeenUpToSeq: null,
   };
   expect(response.messages[0]?.attachments).toHaveLength(2);
   expect(response.messages[0]?.attachments[0]?.contentType).toBe("text/plain");

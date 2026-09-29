@@ -1,4 +1,5 @@
 import type {
+  AgentHistoryConsumptionScope,
   AgentHistoryResponse,
   AgentSearchResponse,
   AgentSendCommittedResponse,
@@ -161,10 +162,16 @@ export type AgentMessageTransportResponse = {
   hasNewer?: boolean;
   olderCursor?: string;
   newerCursor?: string;
+  /** `read` only: the server's contiguous model-seen boundary (Raft 1.0.38's
+   * `model_seen_up_to_seq`); `null` when the page does not join what the Agent had read. */
+  modelSeenUpToSeq?: number | null;
+  /** `read` only: the conversation the read consumed (Raft 1.0.38's `consumption_scope`). */
+  consumptionScope?: AgentHistoryConsumptionScope;
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
-  /** `send` only: Raft's `seenUpToSeq` on a held response — the frontier the notice presented and
-   * that the daemon records as consumed (Raft's `recordConsumedSeqs`). */
+  /** `send` only: Raft's `seenUpToSeq` — on a held response, the frontier the notice presented; on a
+   * sent one, the boundary the server advanced over messages the Agent had already seen. Either is
+   * what the daemon records as consumed. */
   seenUpToSeq?: number;
   hasMore?: boolean;
   /** `send` only: pending messages a bypassed hold chose not to review; empty otherwise. */
@@ -174,10 +181,13 @@ export type AgentMessageTransportResponse = {
   unresolvedMentionHandles?: string[];
 };
 
-/** Adapts the read route's response into the shape `DaemonRuntime` consumes. */
+/** Adapts the read route's response into the shape `DaemonRuntime` consumes. A boundary or a scope
+ * that is not well formed is not trusted: a malformed or missing boundary reads as "no boundary"
+ * (`null`), and a malformed scope is dropped, as Raft's `safeParse` drops it. */
 export function adaptAgentHistoryResponse(
   response: AgentHistoryResponse,
 ): AgentMessageTransportResponse {
+  const boundary: unknown = response.modelSeenUpToSeq;
   return {
     idempotencyKey: response.idempotencyKey,
     accepted: true,
@@ -187,7 +197,28 @@ export function adaptAgentHistoryResponse(
     hasNewer: response.hasNewer,
     olderCursor: response.olderCursor,
     newerCursor: response.newerCursor,
+    modelSeenUpToSeq:
+      typeof boundary === "number" && Number.isSafeInteger(boundary) && boundary > 0
+        ? boundary
+        : null,
+    consumptionScope: historyConsumptionScope(response.consumptionScope),
   };
+}
+
+function historyConsumptionScope(value: unknown): AgentHistoryConsumptionScope | undefined {
+  if (!isRecord(value)) return undefined;
+  const { agentId, conversationId, channelType, target } = value;
+  if (
+    typeof agentId !== "string" ||
+    !agentId ||
+    typeof conversationId !== "string" ||
+    !conversationId ||
+    (channelType !== "dm" && channelType !== "thread") ||
+    typeof target !== "string" ||
+    !target
+  )
+    return undefined;
+  return { agentId, conversationId, channelType, target };
 }
 
 /** Adapts the dedicated search route's response into the shape `DaemonRuntime` consumes. */
@@ -364,6 +395,7 @@ export const createAgentMessageHttpClient = (
           draftReholdCount: request.draftReholdCount,
           draftReplacedExisting: request.draftReplacedExisting,
           seenUpToSeq: request.seenUpToSeq,
+          seenExactSeqs: request.seenExactSeqs,
           freshnessContextMode: request.freshnessContextMode,
           attachmentIds: request.attachmentIds,
           mentions: request.mentions,

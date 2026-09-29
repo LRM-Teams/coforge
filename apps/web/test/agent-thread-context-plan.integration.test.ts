@@ -112,9 +112,10 @@ test.skipIf(!connectionString)(
       const repo = new PrismaDirectConversationRepository(db);
       const target = `#${channelName}:${root.id}`;
       recording = true;
-      const pending = await repo.readPendingAgentContext(workspace.id, agent.id, target);
-      const count = await repo.countPendingAgentContext(workspace.id, agent.id, target);
-      const recent = await repo.readRecentAgentContext(workspace.id, agent.id, target, 3);
+      const freshness = await repo.agentTargetFreshness(workspace.id, agent.id, target);
+      const pending = await freshness.readPending();
+      const count = await freshness.countPending();
+      const recent = (await freshness.readRecent(3)).unseen;
       recording = false;
       const bodies = (rows: readonly { body: string }[]) => rows.map((row) => row.body);
       expect(bodies(pending)).toEqual(["message 20004", "message 20005", "message 20006"]);

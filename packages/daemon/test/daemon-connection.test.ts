@@ -1640,6 +1640,7 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
     messages: [],
     hasOlder: false,
     hasNewer: false,
+    modelSeenUpToSeq: null,
   };
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
     requestRead: async (input) => {
@@ -2373,6 +2374,7 @@ test("adapts the read route's AgentHistoryResponse into the transport shape", as
       hasNewer: false,
       olderCursor: "cursor-older",
       newerCursor: "cursor-newer",
+      modelSeenUpToSeq: 1,
     }),
   });
   await transport.start("daemon-token", {
@@ -2396,6 +2398,7 @@ test("adapts the read route's AgentHistoryResponse into the transport shape", as
     hasNewer: false,
     olderCursor: "cursor-older",
     newerCursor: "cursor-newer",
+    modelSeenUpToSeq: 1,
   });
   expect(result.messages).toHaveLength(1);
 });
