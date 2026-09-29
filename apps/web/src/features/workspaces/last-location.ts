@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { browserCookie, cookiePairs } from "#src/lib/browser-cookie";
 import { isValidWorkspaceSlug } from "./workspace-slug";
 
 /**
@@ -51,28 +52,17 @@ function isAppPath(path: string): boolean {
  * not one to return to. Every write restarts the 24 hours. */
 export function lastLocationCookie(path: string, secure: boolean): string | undefined {
   if (!isAppPath(path)) return undefined;
-  return [
-    `${COOKIE_NAME}=${encodeURIComponent(JSON.stringify({ path }))}`,
-    "Path=/",
-    `Max-Age=${MAX_AGE_SECONDS}`,
-    "SameSite=Lax",
-    ...(secure ? ["Secure"] : []),
-  ].join("; ");
+  return browserCookie(COOKIE_NAME, JSON.stringify({ path }), MAX_AGE_SECONDS, secure);
 }
 
 const storedLocation = z.object({ path: z.string() });
 
 /** The page `/` should open from the request's cookies, if any. */
 export function restorableLastLocation(cookieHeader: string | undefined): string | undefined {
-  const pair = (cookieHeader ?? "")
-    .split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${COOKIE_NAME}=`));
+  const pair = cookiePairs(cookieHeader).find(([name]) => name === COOKIE_NAME);
   if (!pair) return undefined;
   try {
-    const parsed = storedLocation.safeParse(
-      JSON.parse(decodeURIComponent(pair.slice(COOKIE_NAME.length + 1))),
-    );
+    const parsed = storedLocation.safeParse(JSON.parse(decodeURIComponent(pair[1])));
     return parsed.success && isAppPath(parsed.data.path) ? parsed.data.path : undefined;
   } catch {
     // A malformed cookie is simply not a place to return to.

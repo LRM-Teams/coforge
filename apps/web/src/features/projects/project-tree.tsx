@@ -8,7 +8,7 @@ import { Avatar } from "#src/components/base/avatar/avatar";
 import { PageHeader } from "#src/components/layout/page-header";
 import { RelativeTime } from "#src/components/ui/relative-time";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
-import { conversationLayoutStorage } from "#src/features/conversations/layout-storage";
+import { localLayoutStorage } from "#src/features/conversations/local-layout-storage";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { cn } from "#src/lib/utils";
@@ -44,7 +44,7 @@ export function ProjectTree({ slug, path }: { slug: string; path: string }) {
     id: "coforge-project-tree",
     panelIds: isDesktop ? ["main", "tree"] : ["main"],
     onlySaveAfterUserInteractions: true,
-    storage: conversationLayoutStorage,
+    storage: localLayoutStorage,
   });
   const index = useMemo(
     () => buildTreeIndex(repository.status === "ready" ? repository.entries : []),

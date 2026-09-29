@@ -1,7 +1,7 @@
 /**
  * Per-device collapse state for the Chat sidebar's PINNED / CHANNELS / DIRECT MESSAGES groups.
  * Read only after mount (see `conversation-directory.tsx`) so SSR markup never depends on it —
- * same reasoning as `layout-storage.ts`, where touching `localStorage` during Nitro's
+ * same reasoning as `local-layout-storage.ts`, where touching `localStorage` during Nitro's
  * `renderToReadableStream` throws.
  */
 const DIRECTORY_SECTION_IDS = ["pinned", "channels", "agents"] as const;

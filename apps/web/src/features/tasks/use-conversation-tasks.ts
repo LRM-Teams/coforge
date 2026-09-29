@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TaskCommand } from "@lrm/coforge-sdk/internal";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { getRouteApi } from "@tanstack/react-router";
+import { getRouteApi, useHydrated } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useSelector } from "@tanstack/react-store";
 import { inArray, useLiveQuery } from "@tanstack/react-db";
@@ -22,6 +22,7 @@ import { browserTimers, createTaskChangeBurst } from "./conversation-task-change
 import {
   conversationTasksKey,
   createConversationTasks,
+  createHeldTasksStore,
   DEMAND_GC_TIME_MS,
   type ConversationTasks,
   type TaskChanges,
@@ -41,10 +42,11 @@ const tasksByClient = new WeakMap<QueryClient, Map<string, ConversationTasks>>()
 
 /**
  * One collection (and store) per `QueryClient` and conversation, so every reader shares one. Never
- * call it while rendering on the server: every hook that reaches it at render
- * (`useConversationTasksCollection`) runs under `ThreadedConversation`'s `ClientOnly` (the rows,
- * the Tasks tab, `ConversationTaskDemand`) or the Tasks page popup's; `useConversationTasks`, which
- * the server renders, reaches it only from events.
+ * call it while rendering on the server, nor while hydrating: TanStack DB collections are
+ * client-only. The rows and the popup's Task read it after hydration (`useHeldTasks`); the Tasks
+ * tab and `ConversationTaskDemand`, which need the collection itself, sit under `ClientOnly`, as
+ * does the Tasks page popup; `useConversationTasks`, which the server renders, reaches it only
+ * from events.
  */
 export function conversationTasksFor(queryClient: QueryClient, conversationId: string) {
   let byConversation = tasksByClient.get(queryClient);
@@ -62,21 +64,36 @@ export function useConversationTasksCollection(conversationId: string) {
   return conversationTasksFor(useQueryClient(), conversationId);
 }
 
+/** What the server render and a hydrating render show of every conversation's Tasks: none. Never
+ * written; it is not a collection, so reading it creates nothing on the server. */
+const NO_TASKS = createHeldTasksStore();
+
+/**
+ * The store a reader of one Task selects from. The collection is client-only, so the server
+ * render and the hydrating render read `NO_TASKS` and show no Task; the reader moves to the
+ * conversation's own store once it hydrated, and a Task appears when the collection has read it.
+ * `useHydrated` answers per component, so a part that hydrates late (after the collection has
+ * Tasks) still starts from what the server rendered.
+ */
+function useHeldTasks(conversationId: string) {
+  const queryClient = useQueryClient();
+  const hydrated = useHydrated();
+  return hydrated ? conversationTasksFor(queryClient, conversationId).store : NO_TASKS;
+}
+
 /**
  * The conversation's Task `#number`, which a body's task reference names. A reader re-renders only
  * when its own Task changes: the store keeps every other Task's object as it was.
  */
 export function useNumberedTask(conversationId: string, number: number | undefined) {
-  const { store } = useConversationTasksCollection(conversationId);
-  return useSelector(store, (held) =>
+  return useSelector(useHeldTasks(conversationId), (held) =>
     number === undefined ? undefined : held.byNumber.get(number),
   );
 }
 
 /** The Task a message became, read as `useNumberedTask` reads one. */
 export function useMessageTask(conversationId: string, messageId: string) {
-  const { store } = useConversationTasksCollection(conversationId);
-  return useSelector(store, (held) => held.byId.get(messageId));
+  return useSelector(useHeldTasks(conversationId), (held) => held.byId.get(messageId));
 }
 
 /**

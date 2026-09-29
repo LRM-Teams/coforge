@@ -112,6 +112,10 @@ type HeldConversationTasks = {
   byNumber: ReadonlyMap<number, ConversationTask>;
 };
 
+/** A store holding no Tasks: what readers show before the collection has read any. */
+export const createHeldTasksStore = () =>
+  createStore<HeldConversationTasks>({ byId: new Map(), byNumber: new Map() });
+
 /** A new store state from the collection's changes: unchanged Tasks keep their very objects. */
 function heldAfter(
   held: HeldConversationTasks,
@@ -169,7 +173,7 @@ export function createConversationTasks(
     }),
   );
 
-  const store = createStore<HeldConversationTasks>({ byId: new Map(), byNumber: new Map() });
+  const store = createHeldTasksStore();
   // One subscription for every reader; it starts the collection's sync (no read happens until a
   // live query asks) and keeps it for as long as the conversation's page is known.
   collection.subscribeChanges((changes) => store.setState((held) => heldAfter(held, changes)), {
