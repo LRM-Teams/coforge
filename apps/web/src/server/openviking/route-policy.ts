@@ -151,6 +151,17 @@ export function isParam(segment: string): boolean {
 }
 
 /**
+ * A catalog family's route projects to a gateway policy by taking exactly its method, path and
+ * classification: every family route type carries those three, and a family's own fields (limits,
+ * actors, operation) are not the gateway's business.
+ */
+export function toFamilyGatewayPolicies<T extends GatewayRoutePolicy>(
+  routes: readonly T[],
+): GatewayRoutePolicy[] {
+  return routes.map(({ method, path, classification }) => ({ method, path, classification }));
+}
+
+/**
  * Whether `path` matches the URL `template`: same number of segments, and every segment is either a
  * parameter or equal to the template's. The route catalog's one matcher; callers reach it here.
  */
