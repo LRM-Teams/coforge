@@ -48,6 +48,7 @@ describe("Agent message HTTP authentication", () => {
         };
       },
       computerBelongsToWorkspace: async () => true,
+      agentIsActive: async () => true,
     });
     expect(principal).toEqual({
       userId: "owner-a",
@@ -75,6 +76,7 @@ describe("Agent message HTTP authentication", () => {
         computerId: "computer-a",
       }),
       computerBelongsToWorkspace: async () => true,
+      agentIsActive: async () => true,
     });
 
     expect(principal.userId).toBe("agent-owner");
@@ -100,6 +102,7 @@ describe("Agent message HTTP authentication", () => {
         };
       },
       computerBelongsToWorkspace: async () => true,
+      agentIsActive: async () => true,
     };
     for (const candidate of [
       request(undefined, "daemon-token"),
@@ -136,6 +139,7 @@ describe("Agent message HTTP authentication", () => {
           agentApiKeys: keys,
           verifyDaemonApiKey: async () => daemon,
           computerBelongsToWorkspace: async () => true,
+          agentIsActive: async () => true,
         }),
       ).rejects.toThrow();
     await expect(
@@ -147,7 +151,83 @@ describe("Agent message HTTP authentication", () => {
           computerId: "computer-a",
         }),
         computerBelongsToWorkspace: async () => false,
+        agentIsActive: async () => true,
       }),
     ).rejects.toThrow();
+  });
+
+  test("rejects credentials whose Agent was deleted", async () => {
+    const keys = new MemoryAgentApiKeys();
+    const apiKey = await createAgentApiKey({
+      agentId: "agent-a",
+      workspaceId: "workspace-a",
+      ownerId: "owner-a",
+      computerId: "computer-a",
+      repository: keys,
+    });
+    const checked: string[] = [];
+    await expect(
+      authenticateAgentMessageRequest(request(apiKey, "daemon-token"), {
+        agentApiKeys: keys,
+        verifyDaemonApiKey: async () => ({
+          userId: "owner-a",
+          workspaceId: "workspace-a",
+          computerId: "computer-a",
+        }),
+        computerBelongsToWorkspace: async () => true,
+        agentIsActive: async (workspaceId, agentId) => {
+          checked.push(`${workspaceId}/${agentId}`);
+          return false;
+        },
+      }),
+    ).rejects.toThrow();
+    expect(checked).toEqual(["workspace-a/agent-a"]);
+  });
+
+  test("reads independent credential and scope records together, in two waves", async () => {
+    const keys = new MemoryAgentApiKeys();
+    const apiKey = await createAgentApiKey({
+      agentId: "agent-a",
+      workspaceId: "workspace-a",
+      ownerId: "owner-a",
+      computerId: "computer-a",
+      repository: keys,
+    });
+    // Each read records which other reads were still unanswered when it started.
+    const pending = new Set<string>();
+    const overlaps = new Map<string, string[]>();
+    const read = async <T>(name: string, answer: () => Promise<T>) => {
+      overlaps.set(name, [...pending]);
+      pending.add(name);
+      try {
+        return await answer();
+      } finally {
+        pending.delete(name);
+      }
+    };
+    await authenticateAgentMessageRequest(request(apiKey, "daemon-token"), {
+      agentApiKeys: {
+        ...keys,
+        replaceActive: (record) => keys.replaceActive(record),
+        revoke: () => keys.revoke(),
+        findByHash: (hash) => read("agent key", () => keys.findByHash(hash)),
+      },
+      verifyDaemonApiKey: () =>
+        read("daemon key", async () => ({
+          userId: "owner-a",
+          workspaceId: "workspace-a",
+          computerId: "computer-a",
+        })),
+      computerBelongsToWorkspace: () => read("computer", async () => true),
+      agentIsActive: () => read("agent", async () => true),
+    });
+    expect(overlaps).toEqual(
+      new Map([
+        ["agent key", []],
+        ["daemon key", ["agent key"]],
+        ["computer", []],
+        ["agent", ["computer"]],
+      ]),
+    );
   });
 });
