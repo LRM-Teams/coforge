@@ -17,6 +17,10 @@ import type { AgentMessageDelivery } from "@lrm/coforge-sdk/internal";
  */
 export type AgentDeliveryMode = "steer" | "queue_until_idle";
 
+/** A notice a steer-mode session accepted but never showed the model, held for redelivery with
+ * the tracked deliveries it carried. */
+export type FallbackNotice = Readonly<{ text: string; deliveryIds?: readonly string[] }>;
+
 /** Why deliveries to an Agent are explicitly held: a runtime-error backoff after a rate limit or
  * after another retryable error, or the fingerprint fence after the same failure repeated. */
 export type DeliveryHoldReason =
@@ -62,9 +66,10 @@ export class AgentDeliveryQueue {
   /** Fallback notice text held for redelivery after a `steer` provider's own busy-delivery
    * protocol accepted a notice (`notify` resolved) but later learned it never actually reached
    * the model (the `notice-undelivered` event) — raw text, not an `AgentMessageDelivery`,
-   * since the original delivery this text came from was already ACKed (or never had one, for an
-   * App Inbox notice); redelivering it must never touch ACK bookkeeping again. */
-  readonly #heldFallbackNotices = new Map<string, string[]>();
+   * since an untracked delivery this text came from was already ACKed (or never had one, for an
+   * App Inbox notice). The tracked mentions it carried stay unacknowledged until its redelivery
+   * settles them. */
+  readonly #heldFallbackNotices = new Map<string, FallbackNotice[]>();
   /** An explicit hold from `hold()`, keyed by Agent, with its reason. Presence alone means
    * "held", regardless of busy/idle. */
   readonly #explicitHolds = new Map<string, DeliveryHoldReason>();
@@ -185,19 +190,19 @@ export class AgentDeliveryQueue {
   /** Records a notice's text for redelivery once this Agent is next idle
    * (`notice-undelivered`). Order is not meaningful here (unlike `enqueue`'s deliveries) — each
    * text is redelivered as its own independent `notify` call, never coalesced. */
-  holdFallbackNotice(agentId: string, text: string): void {
+  holdFallbackNotice(agentId: string, notice: FallbackNotice): void {
     const list = this.#heldFallbackNotices.get(agentId) ?? [];
-    list.push(text);
+    list.push(notice);
     this.#heldFallbackNotices.set(agentId, list);
   }
 
-  /** Drains and returns the fallback notice texts held for the Agent — unconditionally, like
+  /** Drains and returns the fallback notices held for the Agent — unconditionally, like
    * `discardPending`/`releaseAppItems`; the caller (`DaemonRuntime`) only calls this once the
    * Agent is genuinely idle (turn end), and redelivers each text as an ordinary `notify` call. */
-  releaseFallbackNotices(agentId: string): string[] {
-    const texts = this.#heldFallbackNotices.get(agentId);
+  releaseFallbackNotices(agentId: string): FallbackNotice[] {
+    const notices = this.#heldFallbackNotices.get(agentId);
     this.#heldFallbackNotices.delete(agentId);
-    return texts ?? [];
+    return notices ?? [];
   }
 
   /**

@@ -19,6 +19,7 @@ export { getCoforgeAgentDir, getCoforgeSessionDir, prepareAgentSessionDirectory 
 export type {
   AgentActivity,
   AgentActivityLevel,
+  AgentNoticeOptions,
   AgentRuntimeConfig,
   AgentRuntimeEvent,
   AgentRuntimeProviderConfig,

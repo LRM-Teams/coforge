@@ -85,7 +85,10 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   `QUOTA_LIMITED` (rate-limit backoff), `UNSUPPORTED_DELIVERY_PATH` (a provider
   that takes notices only between turns, while busy), or `DELIVERY_REJECTED`
   (another backoff or the fence, a refused notice, a process gone before it
-  accepted the notice, an inbox purge). A runner hold queues it
+  accepted the notice, an inbox purge). Told during a turn, it stays pending
+  until the turn ends, then is drained if the current session was told it and
+  rejected otherwise; one named by `notice-undelivered` is settled instead by
+  the redelivery of that notice (drained once accepted). A runner hold queues it
   unacknowledged; one still queued for an Agent without a session when the
   hold lifts is refused. Nothing is reported when a process exits.
 - While a server Start is pending for such an Agent

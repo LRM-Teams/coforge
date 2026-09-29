@@ -436,6 +436,95 @@ test("Kiro's notify still accepts and surfaces notice-undelivered when _session/
   }
 });
 
+test("Kiro's notice-undelivered names the tracked deliveries its notice carried", async () => {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-steer-delivery-ids-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.notify!("events"); // busy; the fixture leaves this turn open
+
+    // Refused outright: the event is raised before notify resolves.
+    await session.notify!("steer-not-found MARKER-3", { deliveryIds: ["delivery-3"] });
+    expect(events).toContainEqual({
+      type: "notice-undelivered",
+      text: "steer-not-found MARKER-3",
+      deliveryIds: ["delivery-3"],
+    });
+
+    // Accepted, then cleared without ever being injected.
+    const undelivered = Promise.withResolvers<void>();
+    const stopWaiting = session.subscribe((event) => {
+      if (event.type === "notice-undelivered" && event.text.includes("MARKER-4"))
+        undelivered.resolve();
+    });
+    await session.notify!("steer-clear-without-inject MARKER-4", { deliveryIds: ["delivery-4"] });
+    await undelivered.promise;
+    stopWaiting();
+    expect(events).toContainEqual({
+      type: "notice-undelivered",
+      text: "steer-clear-without-inject MARKER-4",
+      deliveryIds: ["delivery-4"],
+    });
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+/** Drives one busy turn whose steer outcome is observed only after the prompt response, and
+ * returns the session's events up to and including that turn's `completed`. */
+async function steerOutcomeAfterTurnEnd(steer: string) {
+  const cwd = await mkdtemp(join(tempRoot, "kiro-steer-outcome-order-"));
+  const session = await new KiroProvider({ command }).createAgentSession({
+    agentWorkspaceDirectory: cwd,
+    instructions: "Keep the asymmetric marker 719 in the system prompt.",
+  });
+  const events: AgentRuntimeEvent[] = [];
+  const completed = Promise.withResolvers<void>();
+  session.subscribe((event) => {
+    events.push(event);
+    if (event.type === "completed") completed.resolve();
+  });
+  try {
+    await session.notify!("events"); // busy; the fixture leaves this turn open
+    await session.notify!(steer, { deliveryIds: ["delivery-5"] });
+    // Ends the turn: the fixture writes the prompt response, then the first steer's outcome.
+    await session.notify!("steer-end-turn");
+    await completed.promise;
+    return events.filter(
+      (event) =>
+        (event.type === "notice-undelivered" && event.text !== "steer-end-turn") ||
+        event.type === "completed",
+    );
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
+  }
+}
+
+test("Kiro reports a steer the turn end cleared uninjected before that turn's completed, even when the clear is observed after the prompt response", async () => {
+  // The daemon settles tracked mentions on `completed`: a notice-undelivered after it would come
+  // too late, the mention already drained and ACKed.
+  expect(await steerOutcomeAfterTurnEnd("steer-outcome-after-turn-end MARKER-5")).toEqual([
+    {
+      type: "notice-undelivered",
+      text: "steer-outcome-after-turn-end MARKER-5",
+      deliveryIds: ["delivery-5"],
+    },
+    { type: "completed", status: "completed" },
+  ]);
+});
+
+test("Kiro waits for a steer injected just before the turn end instead of reporting it undelivered", async () => {
+  expect(await steerOutcomeAfterTurnEnd("steer-outcome-after-turn-end injected MARKER-6")).toEqual([
+    { type: "completed", status: "completed" },
+  ]);
+});
+
 test("Kiro reports a compaction-started event per in_progress update, and compaction-finished from CompactionUpdate.status=completed", async () => {
   // The adapter relays the raw signal as-is; de-duping repeated "in_progress" updates into a
   // single reported episode is the daemon core's job now (agent-runtime/compaction-tracker.ts,

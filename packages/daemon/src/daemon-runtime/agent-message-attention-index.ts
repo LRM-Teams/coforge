@@ -16,6 +16,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import type { AgentHistoryConsumptionScope } from "@lrm/coforge-sdk/agent";
 import type { AgentProcessManager } from "#src/agent-runtime/agent-process-manager";
+import { isTrackedMention } from "./mention-delivery-tracker";
 import type {
   AgentConsumedSeqEntry,
   AgentConsumedSeqPort,
@@ -586,8 +587,14 @@ Inbox update: ${totalCount} message${totalCount === 1 ? "" : "s"} delivered or h
 ${rows.join("\n")}
 ${INBOX_DRAIN_HINT}]`,
     );
+    // The session names these back if the notice never reaches the model (`notice-undelivered`).
+    const trackedIds = announced.filter(isTrackedMention).map((delivery) => delivery.deliveryId);
     const notification = Promise.resolve()
-      .then(() => session.notify!(notice))
+      .then(() =>
+        trackedIds.length
+          ? session.notify!(notice, { deliveryIds: trackedIds })
+          : session.notify!(notice),
+      )
       .then(() => {
         if (this.#generations.get(message.agentId) === generation) {
           generation.notified.add(message.deliveryId);

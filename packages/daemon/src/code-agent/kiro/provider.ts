@@ -1,6 +1,7 @@
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type {
+  AgentNoticeOptions,
   AgentSession,
   AgentSessionOptions,
   AgentRuntimeEvent,
@@ -35,6 +36,10 @@ const TOOL_KIND_NAMES: Readonly<Partial<Record<ToolKind, string>>> = {
   search: "grep",
   fetch: "web_fetch",
 };
+
+/** How long a turn end waits for the steering outcome Kiro wrote before its prompt response. The
+ * frames are already on the wire, so this only bounds a pathological dispatch delay. */
+const STEERING_OUTCOME_WAIT_MS = 1_000;
 
 // A stop reason outside the standard ACP `end_turn`/`cancelled` pair (Kiro's private "error"
 // value included) always ends the turn as a failure; these are the fixed, CoForge-worded
@@ -141,7 +146,12 @@ class KiroSession implements AgentSession {
    * `_session/steer` call that returned `queued: true`; drained by the matching
    * `steering_cleared` (Kiro's `steer` delivery mode).
    */
-  readonly #steeredMessages = new Map<string, { text: string; injected: boolean }>();
+  readonly #steeredMessages = new Map<
+    string,
+    { text: string; injected: boolean; options?: AgentNoticeOptions }
+  >();
+  /** Wakes `#settleTurnSteering` when a steering outcome arrives. */
+  #steeringObserved: (() => void) | undefined;
   #generation = 0;
   #disposed = false;
   #dispose: Promise<void> | undefined;
@@ -278,9 +288,9 @@ class KiroSession implements AgentSession {
    * delivery mode now applies to Kiro too, matching Kiro CLI's own default steer
    * behavior.
    */
-  notify(message: string): Promise<void> {
+  notify(message: string, options?: AgentNoticeOptions): Promise<void> {
     const accepted = this.#admissions.then(() =>
-      this.#turn ? this.#steer(message) : this.#prompt(message),
+      this.#turn ? this.#steer(message, options) : this.#prompt(message),
     );
     this.#admissions = accepted.catch(() => {});
     return accepted;
@@ -300,13 +310,15 @@ class KiroSession implements AgentSession {
         prompt: [{ type: "text", text: message }],
       })
       .then(
-        (response) => {
+        async (response) => {
           if (this.#pending === admitted)
             admitted.reject(new Error("Kiro ended a turn without accepting its input"));
           // Cleared here, before emitting "completed" below, not only in the `finally` block's
           // safety net - a listener reacting to "completed" (a held fallback notice's
           // redelivery) must already see this Agent as idle.
           if (this.#turn === turn) this.#turn = undefined;
+          if (generation !== this.#generation || this.#disposed) return;
+          await this.#settleTurnSteering();
           if (generation !== this.#generation || this.#disposed) return;
           // ACP's standard `StopReason` union has no "error" member, but Kiro sends it; widen
           // to `string` so every value the CLI can actually send is handled explicitly below.
@@ -337,9 +349,10 @@ class KiroSession implements AgentSession {
             });
           this.#emit({ type: "completed", status: "failed" });
         },
-        (error: unknown) => {
+        async (error: unknown) => {
           if (this.#pending === admitted) admitted.reject(new Error("Kiro rejected input"));
           if (this.#turn === turn) this.#turn = undefined;
+          if (generation === this.#generation && !this.#disposed) await this.#settleTurnSteering();
           if (generation === this.#generation && !this.#disposed) {
             // The JSON-RPC error's own message is a real, specific fact ("Instructions not
             // selected", an upstream auth failure, …); scrub it the same way every other
@@ -392,7 +405,7 @@ class KiroSession implements AgentSession {
    * this notice was never accepted at all: emit the same fallback event immediately and reject,
    * so the daemon core never ACKs a delivery that never reached the model.
    */
-  async #steer(message: string): Promise<void> {
+  async #steer(message: string, options?: AgentNoticeOptions): Promise<void> {
     if (this.#disposed || this.#interrupting || !this.#identity)
       throw new Error("Kiro cannot accept input");
     const sessionId = this.#identity.sessionId;
@@ -408,7 +421,7 @@ class KiroSession implements AgentSession {
       // Falls through to the shared "not accepted" handling below.
     }
     if (response?.queued && this.#turn) {
-      this.#steeredMessages.set(response.messageId, { text: message, injected: false });
+      this.#steeredMessages.set(response.messageId, { text: message, injected: false, options });
       return;
     }
     if (response?.queued)
@@ -420,7 +433,50 @@ class KiroSession implements AgentSession {
     // Not steered, but still accepted: the daemon core redelivers this text once the Agent is
     // idle (`notice-undelivered`). Resolving keeps the delivery's single ACK; rejecting would
     // leave it unacknowledged and the server would redeliver it on top of the fallback.
-    this.#emit({ type: "notice-undelivered", text: message });
+    this.#emitUndelivered(message, options);
+  }
+
+  /**
+   * Settles this turn's steers before the turn is reported ended. Kiro writes a turn's steering
+   * outcome before its prompt response: `acp-server.js` (kiro-cli 2.24.1) runs
+   * `clearSteeringAtTurnBoundary` — `steering_cleared` for every unread steer, after its own
+   * continuation retries — before `return {stopReason}`, and a cancel clears the buffer first.
+   * The ACP client dispatches notifications through async handlers, though, so a
+   * `steering_injected`/`steering_cleared` written before the response can still reach `#update`
+   * after it. Waits (at most `STEERING_OUTCOME_WAIT_MS`) until every steer is injected or
+   * cleared; one still unconfirmed then never reached the model and is reported undelivered —
+   * before `completed`, whose listener settles what that turn was told.
+   */
+  async #settleTurnSteering(): Promise<void> {
+    // This turn's steers only: a turn prompted while this one waits steers its own.
+    const turnSteers = [...this.#steeredMessages.keys()];
+    const unconfirmed = () =>
+      turnSteers.some((id) => this.#steeredMessages.get(id)?.injected === false);
+    const deadline = Date.now() + STEERING_OUTCOME_WAIT_MS;
+    while (unconfirmed() && !this.#disposed) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const observed = Promise.withResolvers<void>();
+      this.#steeringObserved = observed.resolve;
+      const timer = setTimeout(observed.resolve, remaining);
+      await observed.promise;
+      clearTimeout(timer);
+      this.#steeringObserved = undefined;
+    }
+    for (const id of turnSteers) {
+      const entry = this.#steeredMessages.get(id);
+      this.#steeredMessages.delete(id);
+      if (entry && !entry.injected) this.#emitUndelivered(entry.text, entry.options);
+    }
+  }
+
+  /** A notice that never reached the model, named with the deliveries `notify` said it carried. */
+  #emitUndelivered(text: string, options: AgentNoticeOptions | undefined): void {
+    this.#emit({
+      type: "notice-undelivered",
+      text,
+      ...(options?.deliveryIds?.length ? { deliveryIds: options.deliveryIds } : {}),
+    });
   }
 
   #update(notification: SessionNotification) {
@@ -499,6 +555,7 @@ class KiroSession implements AgentSession {
     ) {
       const entry = this.#steeredMessages.get(meta.messageId);
       if (entry) entry.injected = true;
+      this.#steeringObserved?.();
     }
     if (
       update.sessionUpdate === "session_info_update" &&
@@ -513,8 +570,9 @@ class KiroSession implements AgentSession {
         if (typeof id !== "string") continue;
         const entry = this.#steeredMessages.get(id);
         this.#steeredMessages.delete(id);
-        if (entry && !entry.injected) this.#emit({ type: "notice-undelivered", text: entry.text });
+        if (entry && !entry.injected) this.#emitUndelivered(entry.text, entry.options);
       }
+      this.#steeringObserved?.();
     }
     if (
       update.sessionUpdate === "session_info_update" &&

@@ -59,7 +59,13 @@ export type MentionDeliveryPorts = {
 };
 
 type TrackedState = "received" | "pending" | "drained";
-type Tracked = { message: TrackedMentionDelivery; state: TrackedState };
+type Tracked = {
+  message: TrackedMentionDelivery;
+  state: TrackedState;
+  /** The session reported that the notice carrying it never reached the model; that notice's
+   * redelivery settles it. */
+  undelivered?: true;
+};
 
 /** Tracked mentions remembered at most, oldest forgotten first. A mention the server issues again
  * after it was forgotten is judged afresh, which only repeats a report the server already has. */
@@ -166,6 +172,50 @@ export class MentionDeliveryTracker {
     return true;
   }
 
+  /**
+   * The Agent's turn ended: each mention still pending for it ends here, or it would stay pending
+   * with nothing left to tell the Agent and every re-issue would only be coalesced. One the current
+   * session was told, or the Agent consumed, is drained; one whose notice the session reported lost
+   * waits for that notice's redelivery; any other (told to a process that has since exited) is
+   * rejected.
+   */
+  async settleTurnEnd(agentId: string): Promise<void> {
+    const pending = this.#pending.get(agentId);
+    if (!pending) return;
+    for (const deliveryId of [...pending]) {
+      const tracked = this.#tracked.get(deliveryId);
+      if (!tracked || tracked.undelivered) continue;
+      const { message } = tracked;
+      if (this.ports.told(message) || this.ports.consumed(message)) await this.#drain(message);
+      else await this.refuse(message, MENTION_DELIVERY_TERMINAL_CODES.DELIVERY_REJECTED);
+    }
+  }
+
+  /** Records that the session never showed the model the notice carrying these deliveries: they
+   * stay unacknowledged until that notice's redelivery settles them (`settleRedelivery`). */
+  markUndelivered(agentId: string, deliveryIds: readonly string[]): void {
+    for (const deliveryId of deliveryIds) {
+      const tracked = this.#tracked.get(deliveryId);
+      if (tracked?.message.agentId === agentId && tracked.state !== "drained")
+        tracked.undelivered = true;
+    }
+  }
+
+  /** The notice that carried these deliveries was delivered again after its turn ended: drained
+   * once the session accepted it, rejected when it did not. */
+  async settleRedelivery(
+    agentId: string,
+    deliveryIds: readonly string[],
+    accepted: boolean,
+  ): Promise<void> {
+    for (const deliveryId of deliveryIds) {
+      const tracked = this.#tracked.get(deliveryId);
+      if (tracked?.message.agentId !== agentId || !tracked.undelivered) continue;
+      if (accepted) await this.#drain(tracked.message);
+      else await this.refuse(tracked.message, MENTION_DELIVERY_TERMINAL_CODES.DELIVERY_REJECTED);
+    }
+  }
+
   /** Reports that the daemon will not tell a mention, and forgets it. */
   async refuse(message: TrackedMentionDelivery, code: MentionDeliveryTerminalCode): Promise<void> {
     this.#forget(message.deliveryId);
@@ -205,10 +255,15 @@ export class MentionDeliveryTracker {
 
   #set(message: TrackedMentionDelivery, state: TrackedState): void {
     const { deliveryId, agentId } = message;
-    if (!this.#tracked.has(deliveryId) && this.#tracked.size >= REMEMBERED_MENTIONS)
+    const previous = this.#tracked.get(deliveryId);
+    if (!previous && this.#tracked.size >= REMEMBERED_MENTIONS)
       this.#forget(this.#tracked.keys().next().value!);
     this.#tracked.delete(deliveryId);
-    this.#tracked.set(deliveryId, { message, state });
+    this.#tracked.set(deliveryId, {
+      message,
+      state,
+      ...(previous?.undelivered && state !== "drained" ? { undelivered: true } : {}),
+    });
     const pending = this.#pending.get(agentId);
     if (state === "pending") {
       if (pending) pending.add(deliveryId);

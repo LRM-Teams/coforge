@@ -2680,8 +2680,14 @@ export class DaemonRuntime {
       // the model (Kiro's own steering buffer discarded it, or the steer call itself was never
       // accepted). Hold the exact text for redelivery once this Agent is next idle — no ACK
       // bookkeeping here; whatever originally accepted this text already settled its own ACK (or
-      // never had one, for an App Inbox notice).
-      this.#deliveryQueue.holdFallbackNotice(agentId, event.text);
+      // never had one, for an App Inbox notice). The tracked mentions it carried were not told:
+      // that redelivery settles them, not this turn's end.
+      this.#deliveryQueue.holdFallbackNotice(agentId, {
+        text: event.text,
+        ...(event.deliveryIds?.length ? { deliveryIds: event.deliveryIds } : {}),
+      });
+      if (event.deliveryIds?.length)
+        this.#mentionDeliveries.markUndelivered(agentId, event.deliveryIds);
       return;
     }
     if (event.type !== "completed") return;
@@ -2704,6 +2710,8 @@ export class DaemonRuntime {
     // *next* turn end instead of racing the notice the flush just started sending.
     this.#releaseHeldAppItems(agentId);
     this.#releaseFallbackNotices(agentId);
+    // Tracked mentions told during this turn end with it.
+    void this.#mentionDeliveries.settleTurnEnd(agentId);
     // A turn ending means a still-open compaction is done; report that before the turn's own
     // idle/failed/interrupted Activity.
     if (this.#compactionTracker.finish(agentId) === "finished")
@@ -4753,18 +4761,30 @@ export class DaemonRuntime {
    * losing it.
    */
   #releaseFallbackNotices(agentId: string): void {
-    const texts = this.#deliveryQueue.releaseFallbackNotices(agentId);
-    if (!texts.length) return;
+    const notices = this.#deliveryQueue.releaseFallbackNotices(agentId);
+    if (!notices.length) return;
     const session = this.#agentProcessManager.session(agentId);
-    if (!session?.notify) return;
-    for (const text of texts)
-      void session.notify(text).catch((error: unknown) => {
-        logger.warn("A steered notice could not be redelivered after its turn ended", {
-          event: "agent.delivery_queue.fallback_notice_rejected",
-          agent_id: agentId,
-          error_code: error instanceof Error ? error.name : "UnknownError",
-        });
-      });
+    for (const { text, deliveryIds = [] } of notices) {
+      if (!session?.notify) {
+        void this.#mentionDeliveries.settleRedelivery(agentId, deliveryIds, false);
+        continue;
+      }
+      // The tracked mentions it carries are drained once it is accepted, so it names them again.
+      const redelivery = deliveryIds.length
+        ? session.notify(text, { deliveryIds })
+        : session.notify(text);
+      void redelivery.then(
+        () => this.#mentionDeliveries.settleRedelivery(agentId, deliveryIds, true),
+        (error: unknown) => {
+          logger.warn("A steered notice could not be redelivered after its turn ended", {
+            event: "agent.delivery_queue.fallback_notice_rejected",
+            agent_id: agentId,
+            error_code: error instanceof Error ? error.name : "UnknownError",
+          });
+          return this.#mentionDeliveries.settleRedelivery(agentId, deliveryIds, false);
+        },
+      );
+    }
   }
 
   #agentIdForContext(context: string): string {

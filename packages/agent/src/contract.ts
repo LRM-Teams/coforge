@@ -156,8 +156,12 @@ export type AgentRuntimeEvent =
    * injecting. `text` is the exact notice text `notify` was given; the daemon core is the only
    * one that decides whether and how to redeliver it (the daemon-owned delivery queue) —
    * the provider does not retry on its own and does not know about ACK/attention state.
+   * `deliveryIds` echoes the ones `notify` was given for this notice, unchanged, if any.
    */
-  | { type: "notice-undelivered"; text: string };
+  | { type: "notice-undelivered"; text: string; deliveryIds?: readonly string[] };
+/** What the daemon says about a notice beyond its text. `deliveryIds` names the tracked
+ * deliveries the notice carries; a provider only echoes them on `notice-undelivered`. */
+export type AgentNoticeOptions = { deliveryIds?: readonly string[] };
 export interface AgentSession {
   sendMessage(message: string): Promise<void>;
   readSessionIdentity?(): Promise<AgentSessionIdentity | undefined>;
@@ -169,7 +173,7 @@ export interface AgentSession {
    * Reject failed delivery without ending an otherwise active run.
    * Adapters own native steering/queued-input protocols; callers own retry/ACK.
    */
-  notify?(notice: string): Promise<void>;
+  notify?(notice: string, options?: AgentNoticeOptions): Promise<void>;
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
   interrupt(): Promise<void>;
   onExit(listener: () => void): () => void;

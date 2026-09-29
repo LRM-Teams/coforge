@@ -78,6 +78,8 @@ let replaced: Message | undefined;
 let admissions = 0;
 let clientRequestId = 1000;
 let steerCounter = 0;
+/** A queued steer whose outcome waits for the turn to end ("steer-end-turn"). */
+let deferredSteer: { messageId: string; content: string; injected: boolean } | undefined;
 const permissionRequests = new Map<number, string | undefined>();
 const write = (message: object) => console.log(JSON.stringify({ jsonrpc: "2.0", ...message }));
 const result = (request: Message, value: unknown) => write({ id: request.id, result: value });
@@ -407,9 +409,52 @@ async function handle(request: Message) {
           sessionUpdate: "session_info_update",
           _meta: { kiro: { kind: "steering_cleared", messageIds: [messageId] } },
         });
+      } else if (params.message.includes("steer-outcome-after-turn-end")) {
+        // Its outcome is written only when "steer-end-turn" ends the turn, after the response.
+        deferredSteer = {
+          messageId,
+          content: params.message,
+          injected: params.message.includes("injected"),
+        };
+      } else if (params.message.includes("steer-end-turn") && active) {
+        // Real Kiro writes a turn's steering outcome before its prompt response
+        // (`clearSteeringAtTurnBoundary` runs before `return {stopReason}`), but the ACP client
+        // dispatches notifications through async handlers, so the provider can observe them after
+        // the response. This writes that worst case: the response first, then the outcome.
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: { kiro: { kind: "steering_injected", messageId, content: params.message } },
+        });
+        result(active, { stopReason: "end_turn" });
+        active = undefined;
+        const deferred = deferredSteer;
+        deferredSteer = undefined;
+        if (deferred?.injected)
+          update({
+            sessionUpdate: "session_info_update",
+            _meta: {
+              kiro: {
+                kind: "steering_injected",
+                messageId: deferred.messageId,
+                content: deferred.content,
+              },
+            },
+          });
+        update({
+          sessionUpdate: "session_info_update",
+          _meta: {
+            kiro: {
+              kind: "steering_cleared",
+              messageIds: [messageId, ...(deferred ? [deferred.messageId] : [])],
+            },
+          },
+        });
       }
       break;
     }
+    case "_session/steer/clear":
+      result(request, { cleared: true, messageIds: [] });
+      break;
     case "session/cancel":
       if (active) {
         if (JSON.stringify(active.params).includes("busy-old")) replaced = active;

@@ -70,6 +70,8 @@ async function harness(
       else waiters.push(waiter);
   };
   const notices: string[] = [];
+  /** The tracked deliveries each notice carried, as the session was told them. */
+  const noticeDeliveryIds: Array<readonly string[] | undefined> = [];
   const noticeWritten = Promise.withResolvers<void>();
   const listeners = new Set<(event: AgentRuntimeEvent) => void>();
   const exitListeners = new Set<() => void>();
@@ -89,9 +91,10 @@ async function harness(
         if (options.reportSession !== false) await sessionOptions.onSessionId?.("native-1");
         return {
           async sendMessage() {},
-          async notify(notice: string) {
+          async notify(notice: string, noticeOptions?: { deliveryIds?: readonly string[] }) {
             if (options.refuseNotice) throw new Error("the session refused the notice");
             notices.push(notice);
+            noticeDeliveryIds.push(noticeOptions?.deliveryIds);
             noticeWritten.resolve();
             await options.noticeGate;
           },
@@ -163,6 +166,7 @@ async function harness(
     runtime,
     frames,
     notices,
+    noticeDeliveryIds,
     /** Resolves once the session has been handed its first notice. */
     noticeWritten: noticeWritten.promise,
     /** Resolves once a launch after the first has reached `launchGate`. */
@@ -681,6 +685,100 @@ test("a mention already steered into the running turn is pending, not drained", 
         outcome: "accepted",
       },
     ]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a mention told during a turn is drained and ACKed when that turn ends", async () => {
+  const { runtime, frames, envelope, deliver, emit, frameSent } = await harness();
+  try {
+    emit({ type: "progress" });
+    await deliver(1, envelope(1));
+    expect(frames.some((frame) => frame.kind === "ack")).toBe(false);
+
+    emit({ type: "completed", status: "completed" });
+    await frameSent((frame) => frame.kind === "ack");
+    expect(frames.slice(2)).toEqual([
+      {
+        kind: "transition",
+        deliveryId: "delivery-1",
+        stage: "daemon_drained",
+        outcome: "accepted",
+      },
+      { kind: "ack", deliveryId: "delivery-1", mentionDelivery: envelope(1) },
+    ]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a mention whose steered notice was lost is drained once that notice is redelivered", async () => {
+  const { runtime, frames, notices, noticeDeliveryIds, envelope, deliver, emit, frameSent } =
+    await harness();
+  try {
+    emit({ type: "progress" });
+    await deliver(1, envelope(1));
+    // The session is told which tracked deliveries its notice carries, and names them back if the
+    // notice never reaches the model.
+    expect(noticeDeliveryIds).toEqual([["delivery-1"]]);
+    emit({ type: "notice-undelivered", text: "the steered notice", deliveryIds: ["delivery-1"] });
+
+    emit({ type: "completed", status: "completed" });
+    await frameSent((frame) => frame.kind === "ack");
+    expect(notices.at(-1)).toBe("the steered notice");
+    expect(noticeDeliveryIds.at(-1)).toEqual(["delivery-1"]);
+    expect(frames.slice(2)).toEqual([
+      {
+        kind: "transition",
+        deliveryId: "delivery-1",
+        stage: "daemon_drained",
+        outcome: "accepted",
+      },
+      { kind: "ack", deliveryId: "delivery-1", mentionDelivery: envelope(1) },
+    ]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a mention whose lost notice is refused again on redelivery is rejected", async () => {
+  const options = { refuseNotice: false };
+  const { runtime, frames, envelope, deliver, emit, frameSent } = await harness(options);
+  try {
+    emit({ type: "progress" });
+    await deliver(1, envelope(1));
+    emit({ type: "notice-undelivered", text: "the steered notice", deliveryIds: ["delivery-1"] });
+    options.refuseNotice = true;
+
+    emit({ type: "completed", status: "completed" });
+    await frameSent((frame) => frame.kind === "terminal");
+    expect(frames.slice(2)).toEqual([
+      { kind: "terminal", deliveryId: "delivery-1", code: "DELIVERY_REJECTED" },
+    ]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a mention left pending by a launch that exited is rejected when the next launch's turn ends", async () => {
+  const { runtime, frames, envelope, deliver, emit, exit, frameSent } = await harness();
+  try {
+    emit({ type: "progress" });
+    await deliver(1, envelope(1));
+    // The process exits mid-turn: nothing is reported then.
+    exit();
+    expect(frames.some((frame) => frame.kind === "terminal")).toBe(false);
+
+    await runtime.startAgent("agent-a", config);
+    emit({ type: "completed", status: "completed" });
+    await frameSent((frame) => frame.kind === "terminal");
+    expect(frames.at(-1)).toEqual({
+      kind: "terminal",
+      deliveryId: "delivery-1",
+      code: "DELIVERY_REJECTED",
+    });
+    expect(frames.some((frame) => frame.kind === "ack")).toBe(false);
   } finally {
     await runtime.stop();
   }
