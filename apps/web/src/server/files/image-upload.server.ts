@@ -1,11 +1,13 @@
 import { AppError } from "#src/lib/app-error";
+import { IMAGE_MAX_BYTES, type IMAGE_UPLOAD_TYPES } from "#src/lib/image-upload";
 
-export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
-const CONTENT_SIGNATURES = {
+export { IMAGE_MAX_BYTES };
+
+const CONTENT_SIGNATURES: Record<(typeof IMAGE_UPLOAD_TYPES)[number], readonly number[]> = {
   "image/jpeg": [0xff, 0xd8, 0xff],
   "image/png": [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
   "image/webp": [0x52, 0x49, 0x46, 0x46],
-} as const;
+};
 
 export async function validateImage(file: File) {
   const signature = CONTENT_SIGNATURES[file.type as keyof typeof CONTENT_SIGNATURES];

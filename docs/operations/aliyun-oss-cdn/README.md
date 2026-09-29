@@ -11,7 +11,7 @@ URL-signed 下载仍是后续步骤，尚未实现。
 适用范围：三个 private content bucket、三个加速域名 `files.coforge.cn`、
 `releases.coforge.cn` 与 `images.coforge.cn`、最小权限 RAM、访问日志、验收与回滚
 
-profile image 域名（头像与项目图标）
+profile image 域名（头像、项目图标与 Workspace 图标）
 是第三个 trust zone，staging 与生产都尚未 provision；[第 11 节](profile-image-domain.md)是它的专用步骤，其余各节
 的通用要求同样适用。
 
@@ -30,4 +30,4 @@ profile image 域名（头像与项目图标）
 - [8. 回滚与删除](rollback.md): 按逆序回滚与删除的步骤。
 - [9. 官方依据](references.md): 阿里云官方依据链接。
 - [10. Staging 实际配置记录（2026-09-04）](staging-record.md): Staging 已执行并验证的实际配置记录（2026-09-04 起）。
-- [11. Profile image 域名（尚未 provision）](profile-image-domain.md): Profile image 域名（头像与项目图标）的专用执行清单与回滚。
+- [11. Profile image 域名（尚未 provision）](profile-image-domain.md): Profile image 域名（头像、项目图标与 Workspace 图标）的专用执行清单与回滚。

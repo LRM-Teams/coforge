@@ -1,7 +1,10 @@
 import { useSubmitGuard } from "#src/hooks/use-submit-guard";
 import { useEffect, useId, useRef, useState, type ChangeEvent } from "react";
+import { Button as AriaButton, FileTrigger } from "react-aria-components";
 import {
   BellRinging01 as BellRing,
+  Building07 as Building,
+  Camera01,
   Check,
   ChevronLeft,
   Clock as Clock3,
@@ -27,11 +30,15 @@ import { Input } from "#src/components/base/input/input";
 import { TextArea } from "#src/components/base/textarea/textarea";
 import { Skeleton } from "#src/components/ui/skeleton";
 import { Select } from "#src/components/base/select/select";
+import { Tooltip } from "#src/components/base/tooltip/tooltip";
 import { SelectItem } from "#src/components/base/select/select-item";
 import { Toggle } from "#src/components/base/toggle/toggle";
 import { Checkbox } from "#src/components/base/checkbox/checkbox";
 import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/button-group";
 import { WorkspaceMembersPanel } from "#src/features/workspaces/workspace-members-panel";
+import { WorkspaceIcon } from "#src/features/workspaces/workspace-icon";
+import { WORKSPACE_NAME_MAX_LENGTH } from "#src/features/workspaces/workspace.schemas";
+import { IMAGE_MAX_BYTES, IMAGE_UPLOAD_TYPES } from "#src/lib/image-upload";
 import { GitHubSettings } from "#src/features/integrations/github-settings";
 import { TEXT_SIZE_OPTIONS, type TextSizeValue } from "#src/features/settings/text-size";
 import {
@@ -57,6 +64,7 @@ type Theme = "system" | "light" | "dark";
 type SettingsSection =
   | "account"
   | "language-region"
+  | "workspace-profile"
   | "members"
   | "preferences"
   | "notifications"
@@ -133,6 +141,10 @@ interface SettingsContentProps {
    * who alone see the System channels section of Settings → Members. */
   generalChannelHidden: boolean | null;
   onGeneralChannelHiddenSave: (hidden: boolean) => Promise<void>;
+  /** The Workspace the page URL names. */
+  workspace: { id: string; slug: string; name: string; iconUrl: string | null };
+  onWorkspaceRename: (name: string) => Promise<void>;
+  onWorkspaceIconUpload: (file: File) => Promise<void>;
 }
 
 export function SettingsPending() {
@@ -155,7 +167,10 @@ export function SettingsPending() {
                 m.settings_integrations(),
               ],
             },
-            { label: m.settings_workspace_group(), items: [m.settings_members()] },
+            {
+              label: m.settings_workspace_group(),
+              items: [m.settings_workspace_profile(), m.settings_members()],
+            },
           ].map((group) => (
             <SettingsNavigationGroup key={group.label} label={group.label}>
               {group.items.map((label) => (
@@ -210,6 +225,7 @@ export function SettingsContent(props: SettingsContentProps) {
   const sectionLabels: Record<SettingsSection, string> = {
     account: m.settings_account(),
     "language-region": m.settings_language_region(),
+    "workspace-profile": m.settings_workspace_profile(),
     members: m.settings_members(),
     preferences: m.settings_preferences(),
     notifications: m.settings_notifications(),
@@ -268,6 +284,12 @@ export function SettingsContent(props: SettingsContentProps) {
           </SettingsNavigationGroup>
           <SettingsNavigationGroup label={m.settings_workspace_group()}>
             <SettingsNavigationButton
+              active={section === "workspace-profile"}
+              icon={Building}
+              label={m.settings_workspace_profile()}
+              onClick={() => selectSection("workspace-profile")}
+            />
+            <SettingsNavigationButton
               active={section === "members"}
               icon={Users}
               label={m.settings_members()}
@@ -302,6 +324,15 @@ export function SettingsContent(props: SettingsContentProps) {
               <AccountSettings {...props} />
             ) : section === "language-region" ? (
               <LanguageRegionSettings {...props} />
+            ) : section === "workspace-profile" ? (
+              <WorkspaceProfileSettings
+                // A rename lands through the loader; a fresh Workspace starts a fresh form.
+                key={props.workspace.id}
+                workspace={props.workspace}
+                canEdit={props.members.actorRole === "owner" || props.members.actorRole === "admin"}
+                onRename={props.onWorkspaceRename}
+                onIconUpload={props.onWorkspaceIconUpload}
+              />
             ) : section === "members" ? (
               <WorkspaceMembersPanel
                 actorUserId={props.members.actorUserId}
@@ -1169,6 +1200,171 @@ function SystemChannelsSettings({
         </Button>
       </SettingsCardFooter>
     </section>
+  );
+}
+
+/** Settings → Workspace profile: the Workspace's icon and name, which its owner or an admin
+ * change; everyone else sees the same card read-only. The slug is shown but never edited here,
+ * because every link into the Workspace carries it. */
+function WorkspaceProfileSettings({
+  workspace,
+  canEdit,
+  onRename,
+  onIconUpload,
+}: {
+  workspace: SettingsContentProps["workspace"];
+  canEdit: boolean;
+  onRename: (name: string) => Promise<void>;
+  onIconUpload: (file: File) => Promise<void>;
+}) {
+  const [name, setName] = useState(workspace.name);
+  const [saving, guardSave] = useSubmitGuard();
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<SaveError | null>(null);
+  const [uploading, guardUpload] = useSubmitGuard();
+  const [iconError, setIconError] = useState<SaveError | null>(null);
+  useEffect(() => {
+    if (!saved) return;
+    const timer = setTimeout(() => setSaved(false), 2000);
+    return () => clearTimeout(timer);
+  }, [saved]);
+
+  const trimmed = name.trim();
+  const changed = trimmed.length > 0 && trimmed !== workspace.name;
+
+  function save() {
+    void guardSave(async () => {
+      setSaveError(null);
+      setSaved(false);
+      try {
+        await onRename(trimmed);
+        setName(trimmed);
+        setSaved(true);
+      } catch (cause) {
+        setSaveError(
+          saveErrorFrom(
+            isAppError(cause) && cause.code === "ACCESS_DENIED"
+              ? m.settings_workspace_profile_access_denied()
+              : m.settings_workspace_profile_save_error(),
+            cause,
+          ),
+        );
+      }
+    });
+  }
+
+  function upload(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    setIconError(null);
+    if (file.size > IMAGE_MAX_BYTES) {
+      setIconError({ message: m.settings_workspace_icon_too_large() });
+      return;
+    }
+    void guardUpload(async () => {
+      try {
+        await onIconUpload(file);
+      } catch (cause) {
+        setIconError(saveErrorFrom(m.settings_workspace_icon_error(), cause));
+      }
+    });
+  }
+
+  const icon = (
+    <WorkspaceIcon name={workspace.name} url={workspace.iconUrl} className="size-16 text-2xl" />
+  );
+  const uploadLabel = uploading
+    ? m.settings_workspace_icon_uploading()
+    : m.settings_workspace_icon_upload();
+
+  return (
+    <SettingsPage>
+      <SettingsGroup icon={Building} label={m.settings_workspace_profile_heading()}>
+        <SettingsCard>
+          <div className="flex flex-col gap-3">
+            <div className="flex min-w-0 items-center gap-4">
+              {canEdit ? (
+                <FileTrigger acceptedFileTypes={WORKSPACE_ICON_TYPES} onSelect={upload}>
+                  <Tooltip title={uploadLabel}>
+                    <AriaButton
+                      aria-label={uploadLabel}
+                      isPending={uploading}
+                      className="group relative shrink-0 cursor-pointer rounded-lg outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2 pending:cursor-default pending:opacity-60"
+                    >
+                      {icon}
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-0 hidden items-center justify-center rounded-lg bg-overlay/70 text-white group-hover:flex group-pending:hidden"
+                      >
+                        <Camera01 className="size-5" />
+                      </span>
+                    </AriaButton>
+                  </Tooltip>
+                </FileTrigger>
+              ) : (
+                icon
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-lg font-semibold text-primary">{workspace.name}</p>
+                <p className="truncate font-mono text-sm text-tertiary">/{workspace.slug}</p>
+              </div>
+            </div>
+            {iconError && <SaveErrorMessage error={iconError} />}
+          </div>
+          <div className="flex flex-col gap-6 border-t border-secondary pt-6">
+            <div className="grid max-w-xl gap-6">
+              <Input
+                label={m.settings_workspace_name()}
+                value={name}
+                maxLength={WORKSPACE_NAME_MAX_LENGTH}
+                isReadOnly={!canEdit}
+                isDisabled={saving}
+                hideRequiredIndicator
+                onChange={(next) => {
+                  setName(next);
+                  setSaved(false);
+                }}
+              />
+              <Input
+                label={m.settings_workspace_slug()}
+                value={workspace.slug}
+                icon={SlugPrefix}
+                inputClassName="font-mono"
+                isReadOnly
+                excludeFromTabOrder
+              />
+            </div>
+            {canEdit && (
+              <div className="flex flex-col items-start gap-2">
+                {saveError && <SaveErrorMessage error={saveError} />}
+                <Button
+                  type="button"
+                  iconLeading={saved ? Check : undefined}
+                  isDisabled={saving || !changed}
+                  onPress={save}
+                >
+                  {saving
+                    ? m.settings_profile_saving()
+                    : saved
+                      ? m.settings_workspace_profile_saved()
+                      : m.settings_workspace_profile_save()}
+                </Button>
+              </div>
+            )}
+          </div>
+        </SettingsCard>
+      </SettingsGroup>
+    </SettingsPage>
+  );
+}
+
+/** FileTrigger takes a mutable list; built once rather than on every render. */
+const WORKSPACE_ICON_TYPES = [...IMAGE_UPLOAD_TYPES];
+
+/** The `/` a Workspace slug follows in every URL, in the slug field's leading icon slot. */
+function SlugPrefix({ className }: { className?: string }) {
+  return (
+    <span className={cn(className, "flex items-center justify-center font-mono text-md")}>/</span>
   );
 }
 

@@ -19,8 +19,8 @@ test("lists the User's Workspaces in creation order", async () => {
     slug: "grace",
   });
   expect(await catalog.listForUser(ada)).toEqual([
-    { id: "workspace-ada", slug: "ada", name: "Ada's Workspace" },
-    { id: "workspace-research", slug: "research", name: "Research" },
+    { id: "workspace-ada", slug: "ada", name: "Ada's Workspace", iconUrl: null },
+    { id: "workspace-research", slug: "research", name: "Research", iconUrl: null },
   ]);
 });
 
@@ -32,6 +32,7 @@ test("selects the preferred Workspace when the User is a member", async () => {
     id: "workspace-research",
     slug: "research",
     name: "Research",
+    iconUrl: null,
   });
 });
 
@@ -43,11 +44,13 @@ test("falls back to the earliest Workspace when the preference is missing", asyn
     id: "workspace-ada",
     slug: "ada",
     name: "Ada's Workspace",
+    iconUrl: null,
   });
   expect(await catalog.selectForUser(ada)).toEqual({
     id: "workspace-ada",
     slug: "ada",
     name: "Ada's Workspace",
+    iconUrl: null,
   });
 });
 
@@ -86,10 +89,57 @@ test("does not expose unexpected persistence errors", async () => {
   ).rejects.toThrow("workspace creation failed");
 });
 
+test("an owner or admin renames the Workspace to the trimmed name", async () => {
+  const catalog = new WorkspaceCatalog(memoryStore());
+  const workspace = await catalog.createForUser(ada, { name: "Ada's Workspace", slug: "ada" });
+
+  expect(await catalog.rename(workspace.id, "owner", "  Research Lab  ")).toEqual({
+    id: "workspace-ada",
+    slug: "ada",
+    name: "Research Lab",
+    iconUrl: null,
+  });
+  await catalog.rename(workspace.id, "admin", "Grace's Lab");
+  expect(await catalog.listForUser(ada)).toEqual([
+    { id: "workspace-ada", slug: "ada", name: "Grace's Lab", iconUrl: null },
+  ]);
+});
+
+test("a plain member, or an unrecognized role, cannot rename the Workspace", async () => {
+  const catalog = new WorkspaceCatalog(memoryStore());
+  const workspace = await catalog.createForUser(ada, { name: "Ada's Workspace", slug: "ada" });
+
+  for (const role of ["member", "guest"])
+    await expect(catalog.rename(workspace.id, role, "Taken over")).rejects.toEqual(
+      new AppError("ACCESS_DENIED"),
+    );
+  expect((await catalog.listForUser(ada))[0]?.name).toBe("Ada's Workspace");
+});
+
+test("a Workspace name is 1 to 100 characters after trimming", async () => {
+  const catalog = new WorkspaceCatalog(memoryStore());
+  const workspace = await catalog.createForUser(ada, { name: "Ada's Workspace", slug: "ada" });
+
+  await expect(catalog.rename(workspace.id, "owner", "   ")).rejects.toEqual(
+    new AppError("INVALID_INPUT"),
+  );
+  await expect(catalog.rename(workspace.id, "owner", "x".repeat(101))).rejects.toEqual(
+    new AppError("INVALID_INPUT"),
+  );
+  expect((await catalog.rename(workspace.id, "owner", ` ${"x".repeat(100)} `)).name).toBe(
+    "x".repeat(100),
+  );
+});
+
 function memoryStore(): WorkspaceCatalogStore {
   const workspaces: WorkspaceRecord[] = [];
   const members = new Map<string, string[]>();
   return {
+    async rename(workspaceId, name) {
+      const workspace = workspaces.find((candidate) => candidate.id === workspaceId)!;
+      workspace.name = name;
+      return { ...workspace };
+    },
     async listForUser(userId) {
       const slugs = members.get(userId) ?? [];
       return slugs
@@ -104,12 +154,13 @@ function memoryStore(): WorkspaceCatalogStore {
         id: `workspace-${input.slug}`,
         slug: input.slug,
         name: input.name,
+        iconUrl: null,
       };
       workspaces.push(workspace);
       const slugs = members.get(input.userId) ?? [];
       slugs.push(workspace.slug);
       members.set(input.userId, slugs);
-      return workspace;
+      return { ...workspace };
     },
   };
 }

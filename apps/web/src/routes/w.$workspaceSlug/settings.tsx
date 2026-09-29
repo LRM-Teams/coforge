@@ -53,6 +53,10 @@ import {
 } from "#src/features/conversations/channels.functions";
 import { useRefreshSidebarChannels } from "#src/features/conversations/sidebar-lists";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
+import {
+  renameWorkspace,
+  uploadWorkspaceIcon,
+} from "#src/features/workspaces/workspaces.functions";
 
 type Theme = "system" | "light" | "dark";
 
@@ -61,6 +65,7 @@ const appRoute = getRouteApi("/w/$workspaceSlug");
 const settingsSections = [
   "account",
   "language-region",
+  "workspace-profile",
   "members",
   "preferences",
   "notifications",
@@ -119,7 +124,7 @@ function SettingsPage() {
     members,
     generalChannelHidden,
   } = Route.useLoaderData();
-  const { user: profile, notifications } = appRoute.useLoaderData();
+  const { user: profile, notifications, currentWorkspace } = appRoute.useLoaderData();
   const [notificationPermission, setNotificationPermission] = useState<
     NotificationPermission | "unsupported"
   >("unsupported");
@@ -131,6 +136,8 @@ function SettingsPage() {
   const sendTestNotification = useServerFn(sendTestBrowserNotification);
   const saveProfile = useServerFn(saveUserProfile);
   const saveGeneralChannelHidden = useServerFn(setGeneralChannelHidden);
+  const saveWorkspaceName = useServerFn(renameWorkspace);
+  const saveWorkspaceIcon = useServerFn(uploadWorkspaceIcon);
   const refreshSidebarChannels = useRefreshSidebarChannels();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -299,6 +306,20 @@ function SettingsPage() {
     await router.invalidate({ sync: true });
   }
 
+  // The switcher and this page both read the Workspace from the loaders, so a reload shows the
+  // new name or icon everywhere without a page refresh.
+  async function changeWorkspaceName(name: string) {
+    await saveWorkspaceName({ data: { name } });
+    await router.invalidate({ sync: true });
+  }
+
+  async function changeWorkspaceIcon(file: File) {
+    const form = new FormData();
+    form.set("file", file);
+    await saveWorkspaceIcon({ data: form });
+    await router.invalidate({ sync: true });
+  }
+
   async function uploadAvatar(file: File) {
     const form = new FormData();
     form.set("file", file);
@@ -357,6 +378,9 @@ function SettingsPage() {
       onTestBrowserNotification={testBrowserNotification}
       generalChannelHidden={generalChannelHidden}
       onGeneralChannelHiddenSave={changeGeneralChannelHidden}
+      workspace={currentWorkspace}
+      onWorkspaceRename={changeWorkspaceName}
+      onWorkspaceIconUpload={changeWorkspaceIcon}
     />
   );
 }

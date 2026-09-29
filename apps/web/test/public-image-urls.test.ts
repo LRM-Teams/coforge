@@ -10,6 +10,7 @@ import {
   workspaceUserAvatarUrl,
 } from "#src/server/db/repositories/user-profile.repositories.server";
 import { projectIconUrl } from "#src/server/projects/project-images.server";
+import { workspaceIconUrl } from "#src/server/workspaces/workspace-images.server";
 
 const delivery = createPublicImageDelivery({ baseUrl: "https://images-staging.coforge.cn" });
 const publicImageUrl = (objectKey: string, style: ProfileImageStyle) =>
@@ -18,11 +19,13 @@ const noDelivery = () => null;
 
 const avatarKey = "users/user-1/avatars/avatar-1/original";
 const iconKey = "workspaces/workspace-1/projects/project-1/icons/icon-1/original";
+const workspaceIconKey = "workspaces/workspace-1/icons/icon-2/original";
 
 test("an unset image gives no URL at all", () => {
   expect(avatarUrl(null, publicImageUrl)).toBeNull();
   expect(workspaceUserAvatarUrl("workspace-1", "user-1", null, publicImageUrl)).toBeNull();
   expect(projectIconUrl("project-1", null, publicImageUrl)).toBeNull();
+  expect(workspaceIconUrl("workspace-1", null, publicImageUrl)).toBeNull();
   expect(computerCreatorAvatarUrl("computer-1", "workspace-1", null, publicImageUrl)).toBeNull();
 });
 
@@ -35,6 +38,9 @@ test("configured delivery addresses every profile image on the image CDN at a bo
   );
   expect(projectIconUrl("project-1", iconKey, publicImageUrl)).toBe(
     `https://images-staging.coforge.cn/${iconKey}?x-oss-process=style/icon256`,
+  );
+  expect(workspaceIconUrl("workspace-1", workspaceIconKey, publicImageUrl)).toBe(
+    `https://images-staging.coforge.cn/${workspaceIconKey}?x-oss-process=style/icon256`,
   );
 });
 
@@ -51,6 +57,9 @@ test("without delivery every image falls back to its authenticated route", () =>
   );
   expect(projectIconUrl("project-1", iconKey, noDelivery)).toBe(
     "/api/projects/project-1/icon?v=icon-1",
+  );
+  expect(workspaceIconUrl("workspace-1", workspaceIconKey, noDelivery)).toBe(
+    "/api/workspaces/workspace-1/icon?v=icon-2",
   );
   expect(computerCreatorAvatarUrl("computer-1", "workspace-1", avatarKey, noDelivery)).toBe(
     "/api/computers/computer-1/creator-avatar?workspaceId=workspace-1&v=avatar-1",

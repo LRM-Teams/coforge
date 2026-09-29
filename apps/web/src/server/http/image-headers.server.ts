@@ -2,10 +2,10 @@ import { IMMUTABLE_IMAGE_CACHE_CONTROL } from "./cache-control.server";
 
 /**
  * The headers for serving a private image's bytes: the viewer's own avatar, an agent's, a Workspace
- * member's, the Computer creator's, and a project's icon.
+ * member's, the Computer creator's, a project's icon, and the Workspace's icon.
  *
- * All five routes answer the same way and have to keep answering the same way, which is why the
- * block lives here rather than five times: the image is shown inline (`Content-Disposition:
+ * All six routes answer the same way and have to keep answering the same way, which is why the
+ * block lives here rather than six times: the image is shown inline (`Content-Disposition:
  * inline`), the browser is told not to reinterpret it as anything else (`nosniff` — these are
  * user-supplied bytes), the viewer may keep it for the year the URL's version token makes safe, and
  * the answer varies by cookie because who may see it depends on the session.

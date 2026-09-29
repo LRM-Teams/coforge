@@ -12,6 +12,8 @@ model Workspace {
   id                     String                  @id @default(uuid()) @db.Uuid
   slug                   String                  @unique
   name                   String
+  iconObjectKey          String?
+  iconContentType        String?
   members                WorkspaceMembership[]
   invitations            WorkspaceInvitation[]
   computers              WorkspaceComputer[]

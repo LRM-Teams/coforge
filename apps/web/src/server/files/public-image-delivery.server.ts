@@ -5,7 +5,7 @@ import {
 } from "./delivery-base-url.server";
 
 /**
- * Public CDN delivery for profile images — user avatars and project icons.
+ * Public CDN delivery for profile images — user avatars, project icons, and Workspace icons.
  *
  * These images are addressed by an unguessable, immutable object key and rendered on every
  * message row, member list, and sidebar, so the product treats "holding the URL" as the access
@@ -50,7 +50,7 @@ import {
 export const PROFILE_IMAGE_STYLES = {
   /** Every user avatar, at twice the largest place one is drawn. */
   avatar: "avatar192",
-  /** Every project icon. */
+  /** Every project icon and Workspace icon. */
   icon: "icon256",
 } as const;
 
@@ -200,7 +200,8 @@ export type PublicImageUrlResolver = (objectKey: string, style: ProfileImageStyl
  * id as `?v=`), so it must not be built when there is no key to build it from. Six image URLs used
  * to spell this rule out — four avatars, the Computer creator's avatar and a project icon — each
  * with its own doc paragraph saying the same thing. The census said five until the project icon was
- * folded in; it had been the sixth all along, which is the kind of counting this rule punishes.
+ * folded in; it had been the sixth all along, which is the kind of counting this rule punishes. The
+ * Workspace icon, the seventh, arrived calling this rule rather than restating it.
  */
 export function publicImageUrlOrFallback(
   objectKey: string | null,

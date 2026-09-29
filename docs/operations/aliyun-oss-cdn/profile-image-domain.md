@@ -1,6 +1,6 @@
 # 11. Profile image 域名（尚未 provision）
 
-头像与项目图标是第三个内容类：匿名、不签名、永不过期的 URL，访问控制是不可枚举的
+头像、项目图标与 Workspace 图标是第三个内容类：匿名、不签名、永不过期的 URL，访问控制是不可枚举的
 object key 本身。这一节是它
 在 staging 与生产的执行清单；前面各节的通用要求（private bucket、Block Public Access、
 单一 origin、Cookie 删除、HTTPS、日志）同样适用，不在此重复。
@@ -15,15 +15,17 @@ object key 本身。这一节是它
 
 1. 按[第 4 节](oss-origins.md)创建 `${IMAGES_BUCKET}`（同账号、同 Region、`private`、Block Public
    Access），logging prefix `oss/images/`。该 bucket 只允许
-   `users/{user_id}/avatars/{avatar_id}/original` 与
-   `workspaces/{workspace_id}/projects/{project_id}/icons/{icon_id}/original` 两种 key。
+   `users/{user_id}/avatars/{avatar_id}/original`、
+   `workspaces/{workspace_id}/agents/{agent_id}/avatars/{avatar_id}/original`、
+   `workspaces/{workspace_id}/projects/{project_id}/icons/{icon_id}/original` 与
+   `workspaces/{workspace_id}/icons/{icon_id}/original` 四种 key。
 2. 在该 bucket 创建图片样式，名字必须与代码里的 `PROFILE_IMAGE_STYLES` 完全一致：
    `avatar192`（等比缩放宽 192，不放大）与 `icon256`（等比缩放宽 256，不放大）。
    Web 发出的每个 profile image URL 都带 `?x-oss-process=style/<name>`，样式不存在就是
    全站头像 400。存原图不做变体是不可接受的：上传上限 5 MB，而头像最大只画到约 96px。
-3. 把现有对象从 `${FILES_BUCKET}` 复制到 `${IMAGES_BUCKET}`：上述两个 key 前缀，key 保持
+3. 把现有对象从 `${FILES_BUCKET}` 复制到 `${IMAGES_BUCKET}`：上述四种 key 前缀，key 保持
    完全不变（两个 bucket 布局相同，所以不改数据库、不改 key、不需要发版）。确认逐个对象
-   的 SHA-256 一致后，再从 `${FILES_BUCKET}` 删除这两个前缀。
+   的 SHA-256 一致后，再从 `${FILES_BUCKET}` 删除这四种前缀。
 4. 按[第 5 节](cdn-domains.md)添加域名：staging 是 `images-staging.coforge.cn` 回源
    `coforge-images-staging`，生产是 `images.coforge.cn` 回源生产 `${IMAGES_BUCKET}`。单一 origin
    指向 `${IMAGES_BUCKET}`，开启同账号 STS 私有回源，**不启用** URL 鉴权，缓存与响应头
