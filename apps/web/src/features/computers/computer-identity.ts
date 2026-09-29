@@ -57,6 +57,13 @@ export function operatingSystemLabel(computer: ComputerPlatformInfo): string {
     : m.computer_metadata_unknown();
 }
 
+/** What a Computer's CoForge version reads as. The list row and the detail panel both show it, so it
+ * is stated here rather than twice; a Computer that has never reported one reads as an em dash in the
+ * panel, while the list row omits the version entirely rather than repeat that in every row. */
+export function computerVersionLabel(computer: { computerVersion?: string | null }): string {
+  return computer.computerVersion || "—";
+}
+
 /** Compare the numeric portions of release versions without treating an unknown format as newer. */
 export function isComputerUpdateAvailable(
   currentVersion: string | null | undefined,
