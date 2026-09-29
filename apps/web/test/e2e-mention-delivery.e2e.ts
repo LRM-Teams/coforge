@@ -140,10 +140,7 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
       credentials,
       {
         create: () =>
-          new DaemonConnection(
-            centrifugoWsUrl,
-            defaultCentrifugeWorkspaceClientFactory,
-          ),
+          new DaemonConnection(centrifugoWsUrl, defaultCentrifugeWorkspaceClientFactory),
       },
       proxy,
       {

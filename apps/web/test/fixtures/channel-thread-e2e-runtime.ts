@@ -98,7 +98,12 @@ async function call(input: {
       "content-type": "application/json",
     },
     // The plan file keeps its own `body` name; the Agent HTTP path calls the same text `content`.
-    body: JSON.stringify({ ...input, body: undefined, content: input.body, idempotencyKey: crypto.randomUUID() }),
+    body: JSON.stringify({
+      ...input,
+      body: undefined,
+      content: input.body,
+      idempotencyKey: crypto.randomUUID(),
+    }),
   });
   if (!response.ok)
     throw new Error(`Agent proxy returned ${response.status}: ${await response.text()}`);
