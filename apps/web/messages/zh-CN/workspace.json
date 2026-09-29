@@ -198,7 +198,8 @@
   "workspace_join_open": "进入 {name}",
   "workspace_join_signed_in_as": "当前账号 {email}",
   "workspace_join_switch_account": "换一个账号",
-  "workspace_join_failed": "加入失败，请稍后重试。",
+  "workspace_join_failed": "加入失败，请检查网络后重试。",
+  "workspace_join_signed_out": "登录已过期，请重新登录后加入。",
   "workspace_join_invalid_title": "邀请链接不可用",
   "workspace_join_invalid_description": "这个邀请链接无效或已过期，请向邀请你的人要一个新链接。",
   "workspace_join_back": "返回 CoForge"
