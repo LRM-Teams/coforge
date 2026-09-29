@@ -15,9 +15,11 @@ These rules apply to `src/server/computers/`.
 - A flow that removes a Computer from a Workspace calls
   `DaemonCredentialRevocations.recordForComputer(tx, {workspaceId, computerId})`
   inside its transaction, before anything revokes or cascades those daemon
-  keys, so the Computer parks that binding with `computer_unlinked`. Deleting a
-  Computer row or its owner cascades the keys without a record: those
-  Computers get the ordinary retryable failure. Add a record there too when
-  such a delete path is built.
+  keys, so the Computer parks that binding with `computer_unlinked`. After the
+  commit it calls `reconnectDaemon` for that binding: the open connection is
+  not re-checked until it reconnects, and the reconnect meets the refusal.
+  Deleting a Computer row or its owner cascades the keys without a record:
+  those Computers get the ordinary retryable failure. Add a record there too
+  when such a delete path is built.
 - `computer-lifecycle-memory.server.ts` is the only store of a shutdown
   reason and of the last daemon instance whose return was announced.
