@@ -24,6 +24,11 @@ export class PrismaOpenVikingBindingStore implements OpenVikingBindingStore {
     return decoded;
   }
 
+  /** Removes the binding; the identities mapped under it go with it (`Cascade`). */
+  async remove(workspaceId: string): Promise<void> {
+    await this.db.openVikingBinding.deleteMany({ where: { workspaceId } });
+  }
+
   async compareAndSet(input: {
     workspaceId: string;
     expectedGeneration: number;
