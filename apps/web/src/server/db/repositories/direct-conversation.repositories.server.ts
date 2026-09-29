@@ -22,6 +22,7 @@ import { AgentMessageValidationError } from "#src/server/conversations/agent-mes
 import { messageAnchorWhere, messageIdMatchesAnchor } from "#src/server/db/message-anchor.server";
 import {
   channelAgentRecipients,
+  enrollThreadReplyFollowers,
   getAgentChannel,
   PublicChannels,
 } from "#src/server/conversations/public-channels.server";
@@ -2320,31 +2321,19 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           bindings: mentions ?? [],
         },
       );
-      if (conversation.channelName && root) {
-        // Everyone the reply mentions follows the thread: exactly the members its stored mention
-        // rows name (each mention's key is the member id), plus every `--mention` binding.
-        const followerIds = new Set([
-          sender.id,
-          ...stored.mentions.map((mention) => mention.key),
-          ...mentionedMemberIds,
-        ]);
-        // Enroll the root author only for the first reply. An explicit unfollow is a durable
-        // choice and later replies must not silently add that member back.
-        const existingFollower = await tx.threadFollow.findFirst({
-          where: { rootMessageId: root.id },
-          select: { memberId: true },
+      // Everyone the reply mentions follows the thread: exactly the members its stored mention
+      // rows name (each mention's key is the member id), plus every `--mention` binding.
+      if (conversation.channelName && root)
+        await enrollThreadReplyFollowers(tx, {
+          workspaceId: conversation.workspaceId,
+          conversationId,
+          root,
+          participantMemberIds: [
+            sender.id,
+            ...stored.mentions.map((mention) => mention.key),
+            ...mentionedMemberIds,
+          ],
         });
-        if (root.senderMemberId && !existingFollower) followerIds.add(root.senderMemberId);
-        await tx.threadFollow.createMany({
-          data: [...followerIds].map((memberId) => ({
-            memberId,
-            rootMessageId: root.id,
-            conversationId,
-            workspaceId: conversation.workspaceId,
-          })),
-          skipDuplicates: true,
-        });
-      }
       // A DM wakes no Agent: its only Agent is the sender.
       const recipients = conversation.channelName
         ? await channelAgentRecipients(tx, {
