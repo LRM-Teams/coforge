@@ -12,6 +12,7 @@ import {
 } from "#src/server/attachments/message-attachments.server";
 import { allocateSequence } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
+import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
 import { storeMessageBody } from "./message-references.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
@@ -42,7 +43,7 @@ export async function openPeopleDirectConversation(
   const where = { workspaceId_directKey: { workspaceId, directKey } };
   const existing = await db.conversation.findUnique({ where, select: { id: true } });
   if (existing) {
-    // Leaving the Workspace deletes a member's rows; coming back restores them.
+    // A member's row can be missing altogether; opening the conversation again restores it.
     await db.conversationMember.createMany({
       data: userIds.map((userId) => ({ conversationId: existing.id, workspaceId, userId })),
       skipDuplicates: true,
@@ -99,7 +100,11 @@ export class UserDirectConversations {
     const { workspaceId, conversationId, senderUserId } = input;
     const conversation = await this.db.conversation.findFirst({
       where: { id: conversationId, workspaceId },
-      select: { directKey: true, members: { select: { id: true, userId: true } } },
+      // Someone who left the Workspace neither sends here nor hears of new messages.
+      select: {
+        directKey: true,
+        members: { where: ACTIVE_MEMBER_WHERE, select: { id: true, userId: true } },
+      },
     });
     const members = conversation?.members ?? [];
     const sender = members.find((member) => member.userId === senderUserId);
