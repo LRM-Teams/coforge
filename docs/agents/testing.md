@@ -50,6 +50,16 @@ to add tests or run stress checks.
 - A test removes every directory it creates under the OS temp root, in `afterEach`/`afterAll` or a `finally`, whether it passes or fails. Register the path when you create it (`mkdtemp`, or a random-suffix path a component creates), not afterwards. Injecting a stub `remove`/`cleanup` into the code under test is not a reason to leave its real directory behind.
 - State that defaults to a machine-wide directory shared by every process of the user (the Agent send drafts and consumed cursor under `tmpdir()/coforge-cli-*`) must not be written by a test. Test packages that can run a `DaemonRuntime` (`packages/daemon`, `apps/web`) preload `packages/daemon/test/cli-temp-state.preload.ts` from their `bunfig.toml`, which points `COFORGE_CLI_DRAFT_STATE_DIR` and `COFORGE_CLI_CONSUMED_SEQ_STATE_DIR` at a directory of the test process's own. Extend that preload for another override rather than adding a second mechanism, and never change a production default to make a test tidy.
 - Measure leaks with a fresh `TMPDIR` (`TMPDIR=$(mktemp -d) bun test`), then list it: only third-party tool directories (`jiti`, `kiro-log`, ...) may remain.
+- Process environment is machine-wide state a test reads as well as writes. A test whose
+  assertion is about behaviour derived from an environment variable gives the process the value
+  that behaviour needs, clears the variable it does not, and restores the host's value — absence
+  included — in a `finally`/`afterEach`: proxy settings and `NO_PROXY`, locale, `PATH`, an
+  injected `GIT_CONFIG_*`. Inheriting the value lets the host, not the code, decide the outcome,
+  so a defect in that code reads as an environment failure and the suite disagrees with CI. When
+  the runner applies the process value on top of the argument under test (Bun's `fetch` honours
+  the process `NO_PROXY` beside a per-request `proxy`), say so in the test and clear the process
+  variable there. Baseline a failure that appears in only one environment against the same test
+  file on a clean `origin/main` in the same worktree before reading it as a regression.
 
 ## Investigating intermittent failures
 
