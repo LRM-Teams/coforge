@@ -7,22 +7,14 @@ import { HUMAN_UNREAD_MESSAGE_SQL } from "#src/server/conversations/human-unread
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { viewerDirectConversationWhere } from "#src/server/conversations/viewer-direct-conversations.server";
 import { peopleDirectPeerId } from "#src/features/conversations/direct-key";
-import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
+import {
+  peoplePeer,
+  peoplePeerUserFields,
+  type DirectConversationPeer,
+} from "#src/server/conversations/direct-conversation-peer.server";
 
 /** A direct conversation of the viewer's, by its id, and the viewer's own member row in it. */
 export type ViewerDirectMembership = { conversationId: string; memberId: string };
-
-/** Who a listed DM is with: the viewer's Agent, or a member (the viewer themself in their own). */
-export type DirectConversationPeer =
-  | { kind: "agent"; agentId: string }
-  | {
-      kind: "people";
-      userId: string;
-      username: string;
-      /** The member's display name, or their username when they have none. */
-      displayName: string;
-      avatarUrl: string | null;
-    };
 
 /**
  * The viewer's own list preferences for their DMs (pinned, marked unread, closed) and the sidebar's
@@ -152,7 +144,7 @@ export class PrismaDirectConversationPreferences {
     const people = peerIds.size
       ? await this.db.user.findMany({
           where: { id: { in: [...new Set(peerIds.values())] } },
-          select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+          select: peoplePeerUserFields,
         })
       : [];
     const profiles = new Map(people.map((person) => [person.id, person]));
@@ -182,14 +174,7 @@ export class PrismaDirectConversationPreferences {
       return agentId ? { kind: "agent", agentId } : undefined;
     }
     const person = profiles.get(peerId);
-    if (!person) return undefined;
-    return {
-      kind: "people",
-      userId: person.id,
-      username: person.username,
-      displayName: person.displayName?.trim() || person.username,
-      avatarUrl: workspaceUserAvatarUrl(workspaceId, person.id, person.avatarObjectKey),
-    };
+    return person ? peoplePeer(workspaceId, person) : undefined;
   }
 
   /**

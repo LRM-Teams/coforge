@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
+import { peopleDirectKey } from "#src/features/conversations/direct-key";
 import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 
 /**
@@ -12,7 +13,8 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
  * previews; the Mentions view
  * keeps only the thread; the card menu offers read, Done and unfollow; Done removes a card for
  * good; opening the thread card lands in its thread pane at the first unread reply, and a thread
- * read to the end opens at its newest reply.
+ * read to the end opens at its newest reply. A direct message with a member, and the viewer's with
+ * themself, list under that member's name and face, and opening one reads it.
  *
  * Opt-in like the other browser E2Es: real local Web + `agent-browser`. The channel, its peer and
  * its messages are seeded deterministically and reset on every run. Screenshots of the wide and
@@ -34,9 +36,15 @@ function seededUuid(key: string): string {
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
-test("the Activity page lists, filters, marks Done and opens inbox items", async () => {
-  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
-  const session = `activity-inbox-${process.pid}`;
+/**
+ * TanStack Start has hydrated the page: its SSR bootstrap (`$_TSR`) is marked hydrated, and
+ * deleted once the stream has also ended. Server-rendered cards already satisfy the card waits,
+ * and a click before hydration lands on inert HTML.
+ */
+const hydrated = `(!window.$_TSR || window.$_TSR.hydrated === true)`;
+
+/** One agent-browser session: its commands, and a page expression read back as JSON. */
+function browserSession(session: string) {
   async function browser(...args: string[]) {
     const child = Bun.spawn([browserPath!, "--session", session, ...args], {
       stdout: "pipe",
@@ -53,12 +61,13 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
   async function evaluate<T>(expression: string): Promise<T> {
     return JSON.parse(JSON.parse(await browser("eval", `JSON.stringify(${expression})`))) as T;
   }
-  /**
-   * TanStack Start has hydrated the page: its SSR bootstrap (`$_TSR`) is marked hydrated, and
-   * deleted once the stream has also ended. Server-rendered cards already satisfy the card waits,
-   * and a click before hydration lands on inert HTML.
-   */
-  const hydrated = `(!window.$_TSR || window.$_TSR.hydrated === true)`;
+  return { browser, evaluate };
+}
+
+test("the Activity page lists, filters, marks Done and opens inbox items", async () => {
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+  const session = `activity-inbox-${process.pid}`;
+  const { browser, evaluate } = browserSession(session);
   /** The text of every card this test seeded, in page order. */
   const seededCards = `[...document.querySelectorAll("ol > li")]
     .map((card) => card.textContent)
@@ -362,6 +371,140 @@ test("the Activity page lists, filters, marks Done and opens inbox items", async
       ),
     ).toBe(true);
     await browser("screenshot", join(artifacts, "phone.png"));
+  } finally {
+    await browser("close").catch(() => undefined);
+    await db.$disconnect();
+  }
+}, 90_000);
+
+test("a direct message with a member, and the one with themself, list with the member's face and name", async () => {
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+  const session = `activity-inbox-dm-${process.pid}`;
+  const { browser, evaluate } = browserSession(session);
+  /** One seeded card's text and avatar initial, found by a message it previews. */
+  const card = (text: string) =>
+    `(() => { const card = [...document.querySelectorAll("ol > li")].find((item) => item.textContent.includes(${JSON.stringify(text)})); return card ? { text: card.textContent, avatar: card.querySelector("[data-avatar]")?.textContent ?? null } : null; })()`;
+  try {
+    const { workspaceId, workspace } = await db.workspaceMembership.findFirstOrThrow({
+      where: { userId: DEV_BROWSER_USER.id },
+      include: { workspace: { select: { slug: true } } },
+    });
+    const workspacePath = `/en/w/${workspace.slug}`;
+    const peer = await db.user.upsert({
+      where: { id: seededUuid("e2e-activity-inbox:dm-peer") },
+      update: {},
+      create: {
+        id: seededUuid("e2e-activity-inbox:dm-peer"),
+        username: "e2e-activity-dm-peer",
+        displayName: "Activity DM Peer",
+      },
+    });
+    await db.workspaceMembership.upsert({
+      where: { workspaceId_userId: { workspaceId, userId: peer.id } },
+      update: {},
+      create: { workspaceId, userId: peer.id },
+    });
+    const viewer = await db.user.findUniqueOrThrow({ where: { id: DEV_BROWSER_USER.id } });
+    const viewerName = viewer.displayName?.trim() || viewer.username;
+    /** A DM between people and each member's row in it, with the viewer's Done cursor cleared. */
+    async function directConversation(key: string, otherUserId: string) {
+      const directKey = peopleDirectKey(DEV_BROWSER_USER.id, otherUserId);
+      const conversation = await db.conversation.upsert({
+        where: { workspaceId_directKey: { workspaceId, directKey } },
+        update: {},
+        create: { id: seededUuid(key), workspaceId, directKey },
+      });
+      const members = await Promise.all(
+        [...new Set([DEV_BROWSER_USER.id, otherUserId])].map((userId) =>
+          db.conversationMember.upsert({
+            where: { conversationId_userId: { conversationId: conversation.id, userId } },
+            update: { leftAt: null, hiddenAt: null, doneThroughSequence: null },
+            create: { conversationId: conversation.id, workspaceId, userId },
+          }),
+        ),
+      );
+      return { conversationId: conversation.id, members };
+    }
+    /** Posts this run's copy of a seeded message as the conversation's newest. */
+    async function post(conversationId: string, key: string, senderMemberId: string, body: string) {
+      const id = seededUuid(key);
+      await db.message.deleteMany({ where: { id } });
+      const newest = await db.message.findFirst({
+        where: { conversationId },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      });
+      await db.message.create({
+        data: {
+          id,
+          conversationId,
+          workspaceId,
+          senderMemberId,
+          body,
+          sequence: (newest?.sequence ?? 0) + 1,
+        },
+      });
+      return id;
+    }
+    // The peer is this test's own, so their DM starts empty and unread on every run. The viewer's
+    // DM with themself is theirs: only this test's note is replaced.
+    const withPeer = await directConversation("e2e-activity-inbox:dm", peer.id);
+    await db.message.deleteMany({ where: { conversationId: withPeer.conversationId } });
+    await db.conversationMember.updateMany({
+      where: { conversationId: withPeer.conversationId },
+      data: { readThroughSequence: 0, unreadFromSequence: null },
+    });
+    const withSelf = await directConversation("e2e-activity-inbox:self-dm", DEV_BROWSER_USER.id);
+    await post(
+      withSelf.conversationId,
+      "e2e-activity-inbox:dm-note",
+      withSelf.members[0]!.id,
+      "E2E activity note to self",
+    );
+    const helloId = await post(
+      withPeer.conversationId,
+      "e2e-activity-inbox:dm-hello",
+      withPeer.members.find((member) => member.userId === peer.id)!.id,
+      "E2E activity DM hello",
+    );
+    await mkdir(artifacts, { recursive: true });
+
+    await browser("set", "viewport", "1440", "900");
+    await browser("open", `${origin}${workspacePath}/activity`);
+    await browser(
+      "wait",
+      "--fn",
+      `${card("E2E activity DM hello")} !== null && ${card("E2E activity note to self")} !== null && ${hydrated}`,
+    );
+    // The member's DM goes by their name and face, unread; the viewer's own by theirs, "(you)".
+    const dm = await evaluate<{ text: string; avatar: string | null }>(
+      card("E2E activity DM hello"),
+    );
+    expect(dm.text).toContain("@Activity DM Peer");
+    expect(dm.text).toContain("Activity DM Peer: E2E activity DM hello");
+    expect(dm.text).toContain("1 new");
+    expect(dm.avatar).toBe("A");
+    const self = await evaluate<{ text: string; avatar: string | null }>(
+      card("E2E activity note to self"),
+    );
+    expect(self.text).toContain(`@${viewerName} (you)`);
+    expect(self.text).not.toMatch(/\d+ new/);
+    expect(self.avatar).not.toBeNull();
+    await browser("screenshot", join(artifacts, "member-dm.png"));
+
+    // Opening the card lands in the DM at the unread message and reads it.
+    await browser("find", "text", "E2E activity DM hello", "click");
+    await browser(
+      "wait",
+      "--fn",
+      `location.pathname === ${JSON.stringify(`${workspacePath}/dm/${withPeer.conversationId}`)}`,
+    );
+    await browser("wait", "--fn", `document.getElementById("message-${helloId}") !== null`);
+    await browser("open", `${origin}${workspacePath}/activity`);
+    await browser("wait", "--fn", `${card("E2E activity DM hello")} !== null && ${hydrated}`);
+    expect((await evaluate<{ text: string }>(card("E2E activity DM hello"))).text).not.toContain(
+      "1 new",
+    );
   } finally {
     await browser("close").catch(() => undefined);
     await db.$disconnect();
