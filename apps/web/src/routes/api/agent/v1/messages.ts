@@ -34,7 +34,10 @@ import { CentrifugoConversationRealtime } from "#src/server/conversations/conver
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { isAppError } from "#src/lib/app-error";
 import { AgentSendRejectedError } from "#src/server/conversations/agent-send-rejected-error.server";
-import { dmPeerNotInWorkspaceResponse } from "#src/server/agents/agent-target-status.server";
+import {
+  dmPeerNotInWorkspaceResponse,
+  unknownTargetUserResponse,
+} from "#src/server/agents/agent-target-status.server";
 
 export type AgentMessagesGetPrincipal = { workspaceId: string; agentId: string };
 
@@ -299,7 +302,8 @@ export async function handleAgentMessagesPost(
         { error: "this direct message is private and read-only for this Agent" },
         { status: 403 },
       );
-    const refused = dmPeerNotInWorkspaceResponse(error, body.target);
+    const refused =
+      dmPeerNotInWorkspaceResponse(error, body.target) ?? unknownTargetUserResponse(error);
     if (refused) return refused;
     throw error;
   }
