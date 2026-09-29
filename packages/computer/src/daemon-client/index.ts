@@ -27,7 +27,8 @@ export function createCommand(input: {
   start(workspace?: string): Promise<void>;
   stop(workspace?: string): Promise<void>;
   /** Resolves with the post-restart snapshot of every locally registered binding, so a caller can
-   * report which ones an unscoped restart left stopped because they were disabled. */
+   * report which ones an unscoped restart left stopped because they were disabled. Start and
+   * restart reject with `WORKSPACE_NOT_CONNECTED` when a Workspace they started did not connect. */
   restart(workspace?: string): Promise<ManagedRuntimeIdentity[]>;
 } {
   const resolve = async (workspace?: string) =>
@@ -53,32 +54,46 @@ export function createCommand(input: {
       throw parkedWorkspaceError(error, error.code, refused);
     }
   };
-  /** One line per Workspace the command started that has not connected, with the next step. */
-  const notConnected = async (runtimes: readonly ManagedRuntimeIdentity[]) =>
-    Promise.all(
-      runtimes
-        .filter((runtime) => runtime.cloudConnection && runtime.cloudConnection !== "connected")
-        .map(async (runtime) => {
-          const name = terminalText(
-            (await resolve(runtime.workspaceId).catch(() => undefined))?.slug ??
-              runtime.workspaceId,
-          );
-          return runtime.cloudConnection === "connecting"
-            ? `  ${name}: still connecting. Run 'coforge-computer status' to follow it.`
-            : `  ${name}: not connected (${terminalText(runtime.cloudConnectionError ?? "unknown error")}). Run 'coforge-computer status' to check it.`;
-        }),
-    );
-  /** "Online" only when every started Workspace connected; otherwise the header and one line per
-   * Workspace that did not. */
+  /**
+   * "Online" only when every started Workspace connected. Otherwise the header, then one line per
+   * Workspace still under way (with `status` to follow it) or that did not connect (with why), and
+   * a failure naming the restart to run for each one that did not connect.
+   */
   const report = async (
+    operation: "start" | "restart",
     runtimes: readonly ManagedRuntimeIdentity[],
     online: string,
     pendingHeader: string,
   ) => {
-    const pending = await notConnected(runtimes);
-    if (!pending.length) return write(online);
+    const unsettled = runtimes.filter(
+      (runtime) => runtime.cloudConnection && runtime.cloudConnection !== "connected",
+    );
+    if (!unsettled.length) return write(online);
     write(pendingHeader);
-    for (const line of pending) write(line);
+    const failed: string[] = [];
+    for (const runtime of unsettled) {
+      const name = terminalText(
+        (await resolve(runtime.workspaceId).catch(() => undefined))?.slug ?? runtime.workspaceId,
+      );
+      if (runtime.cloudConnection === "connecting") {
+        const under = operation === "start" ? "still starting" : "still restarting";
+        write(`  ${name}: ${under}. Run 'coforge-computer status' to follow it.`);
+        continue;
+      }
+      failed.push(name);
+      write(
+        `  ${name}: not connected (${terminalText(runtime.cloudConnectionError ?? "unknown error")}).`,
+      );
+    }
+    if (!failed.length) return;
+    const restarts = failed.map((name) => `'coforge-computer restart --workspace ${name}'`);
+    throw new CliError(
+      "WORKSPACE_NOT_CONNECTED",
+      failed.length === 1
+        ? `Workspace ${failed[0]} did not connect to CoForge.`
+        : `Workspaces ${failed.join(", ")} did not connect to CoForge.`,
+      `Run ${restarts.join(" and ")} to try again, or 'coforge-computer status' to check ${failed.length === 1 ? "it" : "them"}.`,
+    );
   };
   return {
     async start(workspace) {
@@ -88,6 +103,7 @@ export function createCommand(input: {
       const runtimes = await run("start", workspace);
       input.logger?.info("Computer start completed", { event: "computer:started" });
       await report(
+        "start",
         runtimes,
         "CoForge Computer is online.",
         "CoForge Computer started, but not every Workspace is connected yet:",
@@ -106,6 +122,7 @@ export function createCommand(input: {
       const runtimes = await run("restart", workspace);
       input.logger?.info("Computer restart completed", { event: "computer:restarted" });
       await report(
+        "restart",
         runtimes,
         workspace
           ? `Workspace ${workspace} restarted and is back online.`
