@@ -423,7 +423,7 @@ test("createTemplate with scheduleEnabled writes applied and ensures a format", 
   const createdReports: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
       count: async () => 0,
     },
     weeklyReportTemplate: {
@@ -475,11 +475,39 @@ test("createTemplate with scheduleEnabled writes applied and ensures a format", 
   });
 });
 
+test("createTemplate denies a regular Workspace member", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReportTemplate: {
+      create: async () => {
+        throw new Error("should not create");
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await expect(
+    new RecordCatalog(db).createTemplate({
+      workspaceId: "workspace-1",
+      userId: "member-a",
+      name: "算法汇报",
+      frequency: "weekly",
+      sendTime: "15:00",
+      sendWeekday: 5,
+      scheduleEnabled: false,
+      sections: [{ title: "Summary", children: [] }],
+      allMembers: true,
+      recipientUserIds: [],
+    }),
+  ).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+});
+
 test("createTemplate with scheduleEnabled false stays inactive", async () => {
   const createdTemplates: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReportTemplate: {
       create: async (query: { data: Record<string, unknown> }) => {
@@ -518,7 +546,7 @@ test("updateTemplate syncs applied with scheduleEnabled and ensures format when 
   const createdReports: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
       count: async () => 0,
     },
     weeklyReportTemplate: {
@@ -797,7 +825,7 @@ test("dismissWeeklyFormatSend stamps the current ISO week so a stale cycle canno
   };
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
       findMany: async () => [],
     },
     weeklyReport: {
@@ -947,7 +975,7 @@ test("getSubject marks a submitted member assignment read-only for the Leader", 
 test("getSubject keeps a submitted assignment editable for its author", async () => {
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => ({
@@ -985,7 +1013,7 @@ test("listTemplates only returns settings owned by the viewer", async () => {
   const queried: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReportTemplate: {
       findMany: async (query: { where: Record<string, unknown> }) => {
@@ -1007,7 +1035,7 @@ test("loadTemplateForReport returns the settings linked to the viewer's format",
   const queried: { report?: unknown; template?: unknown } = {};
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async (query: { where: unknown }) => {
@@ -1067,7 +1095,7 @@ test("loadTemplateForReport returns the settings linked to the viewer's format",
 test("loadTemplateForReport rejects a format the viewer does not own", async () => {
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => null,
@@ -1091,7 +1119,7 @@ test("loadTemplateForReport rejects a format the viewer does not own", async () 
 test("createTemplate rejects a send time that is not an on-the-hour slot", async () => {
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReportTemplate: {
       create: async () => {
@@ -1119,7 +1147,7 @@ test("createTemplate rejects a send time that is not an on-the-hour slot", async
 test("loadCatalog hides other leaders' template parents under 成员周报", async () => {
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReportCycle: {
       findMany: async () => [
@@ -1238,7 +1266,7 @@ test("loadCatalog creates a personal format when send settings are applied", asy
   const updates: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReportCycle: {
       findMany: async () => [],
@@ -1307,7 +1335,7 @@ test("loadCatalog exposes one chip per applied settings stream", async () => {
   const created: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReportCycle: {
       findMany: async () => [
@@ -1423,7 +1451,7 @@ test("applyTemplate ensures a personal format when activating settings", async (
   const created: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReportTemplate: {
       findFirst: async () => ({
@@ -1473,7 +1501,7 @@ test("applyTemplate ensures a personal format when activating settings", async (
 test("getSubject rejects unrelated members opening another leader's format", async () => {
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async (query: { where?: { sourceTemplateId?: string; authorId?: string } }) => {
@@ -1507,7 +1535,7 @@ test("getSubject rejects unrelated members opening another leader's format", asy
 test("getSubject rejects unrelated members opening another member's assignment", async () => {
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => ({
@@ -1542,7 +1570,7 @@ test("getSubject overview children only include the assignee's own submission", 
   const childQueries: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async (query: { where?: { sourceTemplateId?: string; authorId?: string } }) => {
@@ -1610,7 +1638,7 @@ test("getSubject overview lists every assignment for the Leader including drafts
   const childQueries: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => ({
@@ -1682,7 +1710,7 @@ test("applyTemplate scopes activation to the owner without clearing peers", asyn
   const ops: string[] = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReportTemplate: {
       findFirst: async (query: { where?: { ownerId?: string } }) => {
@@ -1729,7 +1757,7 @@ test("saveReportContent syncs H1/H2 outline back to applied settings", async () 
   const updates: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => ({
@@ -1782,7 +1810,7 @@ test("saveReportContent syncs H1/H2 outline back to applied settings", async () 
 test("sendWeeklyAssignments rejects sending another leader's format", async () => {
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => null,
@@ -1804,7 +1832,7 @@ test("sendWeeklyAssignments rejects sending another leader's format", async () =
 test("getSubject still opens a favorited member report after its overview parent is gone", async () => {
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => ({
@@ -1842,7 +1870,7 @@ test("getSubject still opens a favorited member report after its overview parent
 test("getSubject reports whether the viewer favorited a member report", async () => {
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => ({
@@ -1890,7 +1918,7 @@ test("setReportFavorite adds and removes a favorite for an accessible member rep
   const deletes: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => ({
@@ -1937,7 +1965,7 @@ test("setReportFavorite adds and removes a favorite for an accessible member rep
 test("setReportFavorite rejects reports the viewer cannot open", async () => {
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => ({
@@ -1981,7 +2009,7 @@ test("saveReportContent with askToSend cancels auto-send and leaves offer-send t
   };
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
       findMany: async () => [],
     },
     weeklyReport: {
@@ -2078,7 +2106,7 @@ test("ensureAssistantIntro posts the offer-send for the current ISO week when th
   };
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
       findMany: async () => [],
     },
     weeklyReportCycle: {
@@ -2204,7 +2232,7 @@ test("ensureAssistantIntro appends this week's offer-send and leaves an older ca
   };
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
       findMany: async () => [],
     },
     weeklyReportCycle: {
@@ -2323,7 +2351,7 @@ test("saveReportContent autosave does not ask to send", async () => {
   const comments: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
+      findUnique: async () => ({ role: "owner" }),
     },
     weeklyReport: {
       findFirst: async () => ({
@@ -2375,7 +2403,7 @@ test("loadNavAttention reads every applied stream with two batched queries", asy
   const now = new Date("2026-09-16T01:30:00Z");
   let findManyCalls = 0;
   const db = {
-    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
     weeklyReportTemplate: {
       findMany: async () => [
         { id: "settings-late", sendWeekday: 3, sendTime: "15:00" },
@@ -2407,7 +2435,7 @@ test("loadNavAttention reads every applied stream with two batched queries", asy
 test("loadNavAttention stays quiet when the only armed stream was already sent", async () => {
   const now = new Date("2026-09-16T01:30:00Z");
   const db = {
-    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
     weeklyReportTemplate: {
       findMany: async () => [{ id: "settings-sent", sendWeekday: 3, sendTime: "10:00" }],
     },
@@ -2429,7 +2457,7 @@ test("loadNavAttention stays quiet when the only armed stream was already sent",
 
 test("loadNavAttention lights the Records rail when the viewer has an unread assignment", async () => {
   const db = {
-    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
     weeklyReportTemplate: { findMany: async () => [] },
     weeklyReport: {
       findFirst: async (args: {
@@ -2461,7 +2489,7 @@ test("loadNavAttention lights the Records rail when the viewer has an unread ass
 
 test("loadNavAttention stays quiet when the member has no unread assignment", async () => {
   const db = {
-    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
     weeklyReportTemplate: { findMany: async () => [] },
     weeklyReport: {
       findFirst: async () => null,
@@ -2628,7 +2656,7 @@ test("saveReportContent first member submit starts personal key-point extraction
   const contentWrites: unknown[] = [];
   let memberStatus: "draft" | "submitted" = "draft";
   const db = {
-    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
     weeklyReport: {
       findFirst: async (query: {
         where?: { id?: string; kind?: string; settingsId?: string | null };
@@ -2744,7 +2772,7 @@ test("saveReportContent first member submit starts personal key-point extraction
 test("saveReportContent does not re-trigger key-point extraction when already submitted", async () => {
   let extractionLookups = 0;
   const db = {
-    workspaceMembership: { findUnique: async () => ({ role: "member" }) },
+    workspaceMembership: { findUnique: async () => ({ role: "owner" }) },
     weeklyReport: {
       findFirst: async (query: { select?: { sourceTemplate?: unknown } }) => {
         if (query.select?.sourceTemplate) extractionLookups += 1;

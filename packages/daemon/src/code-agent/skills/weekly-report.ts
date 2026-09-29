@@ -72,6 +72,10 @@ description: >-
 - Prefer conclusions grounded in authorized source metadata.
 - Distinguish template structure, submitted member reports, and favorites.
 - When comparing members or cycles, state which sources you used.
+- For a current-week draft, inspect the same author's most recent submitted cycles when
+  the user asks for continuity or the platform supplies a collect-synthesis turn. Use
+  prior weeks to connect unfinished plans to current outcomes; never imply continuity
+  when the prior report is missing.
 - Call out missing submissions or empty/weak sections without inventing content.
 - If required data is not in the current manifest, request a scoped read rather
   than guessing.

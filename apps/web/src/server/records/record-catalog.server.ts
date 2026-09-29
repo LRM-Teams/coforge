@@ -109,6 +109,15 @@ async function requireMembership(db: Db, workspaceId: string, userId: string) {
   return row;
 }
 
+/** Only Workspace owners and admins may configure recurring weekly reports. */
+async function requireWeeklyReportLeader(db: Db, workspaceId: string, userId: string) {
+  const membership = await requireMembership(db, workspaceId, userId);
+  if (membership.role !== "owner" && membership.role !== "admin") {
+    throw new AppError("ACCESS_DENIED");
+  }
+  return membership;
+}
+
 type TemplateInput = {
   name: string;
   frequency: "weekly";
@@ -246,7 +255,7 @@ export class RecordCatalog {
   }
 
   async loadCatalog(input: { workspaceId: string; userId: string; now?: Date }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
+    const membership = await requireMembership(this.db, input.workspaceId, input.userId);
     const [cycles, favorites, notes, me] = await Promise.all([
       this.db.weeklyReportCycle.findMany({
         where: { workspaceId: input.workspaceId },
@@ -480,6 +489,8 @@ export class RecordCatalog {
 
     return {
       actorUserId: input.userId,
+      actorRole: membership.role,
+      canManageWeeklyReports: membership.role === "owner" || membership.role === "admin",
       actorDisplayName: me?.displayName ?? me?.username ?? "",
       actorAvatarUrl: me
         ? workspaceUserAvatarUrl(input.workspaceId, me.id, me.avatarObjectKey)
@@ -2218,7 +2229,7 @@ export class RecordCatalog {
   }
 
   async listTemplates(input: { workspaceId: string; userId: string }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const templates = await this.db.weeklyReportTemplate.findMany({
       where: { workspaceId: input.workspaceId, ownerId: input.userId },
       orderBy: [{ applied: "desc" }, { updatedAt: "desc" }],
@@ -2233,7 +2244,7 @@ export class RecordCatalog {
 
   /** Settings row behind a viewer's own format, for the template-detail dialog. */
   async loadTemplateForReport(input: { workspaceId: string; userId: string; reportId: string }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const report = await this.db.weeklyReport.findFirst({
       where: {
         id: input.reportId,
@@ -2265,6 +2276,7 @@ export class RecordCatalog {
    * Uses the newest applied settings stream, else the newest owned settings row.
    */
   async loadKeyPointPrompts(input: { workspaceId: string; userId: string }) {
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const { emptyKeyPointPrompts } = await import("#src/features/records/records-content");
     const format = await this.resolvePromptFormatDoc(input);
     if (!format) return emptyKeyPointPrompts();
@@ -2280,7 +2292,7 @@ export class RecordCatalog {
     const { emptyKeyPointPrompts, withKeyPointPrompts } =
       await import("#src/features/records/records-content");
     const { mergeKeyPointPromptSlot } = await import("./weekly-report-key-points.server");
-    await requireMembership(this.db, input.workspaceId, input.userId);
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const settings = await this.db.weeklyReportTemplate.findFirst({
       where: { workspaceId: input.workspaceId, ownerId: input.userId },
       orderBy: [{ applied: "desc" }, { updatedAt: "desc" }],
@@ -2320,7 +2332,7 @@ export class RecordCatalog {
   }) {
     const { emptyKeyPointPrompts, removeKeyPointPromptHistoryEntry, withKeyPointPrompts } =
       await import("#src/features/records/records-content");
-    await requireMembership(this.db, input.workspaceId, input.userId);
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const settings = await this.db.weeklyReportTemplate.findFirst({
       where: { workspaceId: input.workspaceId, ownerId: input.userId },
       orderBy: [{ applied: "desc" }, { updatedAt: "desc" }],
@@ -2490,7 +2502,7 @@ export class RecordCatalog {
   /** Toggle whether this send-settings row is an active send stream (multiple allowed).
    * Product「是否启用」keeps `applied` and `scheduleEnabled` in lockstep (WR-33). */
   async applyTemplate(input: { workspaceId: string; userId: string; templateId: string }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const template = await this.db.weeklyReportTemplate.findFirst({
       where: { id: input.templateId, workspaceId: input.workspaceId, ownerId: input.userId },
       select: { id: true, name: true, applied: true, dimensions: true },
@@ -2524,7 +2536,7 @@ export class RecordCatalog {
     templateId: string;
     scheduleEnabled: boolean;
   }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const template = await this.db.weeklyReportTemplate.findFirst({
       where: { id: input.templateId, workspaceId: input.workspaceId, ownerId: input.userId },
       select: { id: true, name: true, applied: true, dimensions: true },
@@ -2569,7 +2581,7 @@ export class RecordCatalog {
   }
 
   async createTemplate(input: TemplateInput & { workspaceId: string; userId: string }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const { sections, enabled } = await this.validateTemplateInput(input);
     const created = await this.db.weeklyReportTemplate.create({
       data: {
@@ -2594,7 +2606,7 @@ export class RecordCatalog {
   async updateTemplate(
     input: TemplateInput & { workspaceId: string; userId: string; templateId: string },
   ) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const template = await this.db.weeklyReportTemplate.findFirst({
       where: { id: input.templateId, workspaceId: input.workspaceId, ownerId: input.userId },
       select: { id: true, applied: true, name: true },
@@ -2622,7 +2634,7 @@ export class RecordCatalog {
   }
 
   async deleteTemplate(input: { workspaceId: string; userId: string; templateId: string }) {
-    await requireMembership(this.db, input.workspaceId, input.userId);
+    await requireWeeklyReportLeader(this.db, input.workspaceId, input.userId);
     const template = await this.db.weeklyReportTemplate.findFirst({
       where: { id: input.templateId, workspaceId: input.workspaceId, ownerId: input.userId },
       select: { id: true },

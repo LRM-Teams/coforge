@@ -551,7 +551,7 @@ export function RecordsLayout({
             </TabPanel>
 
             <div className="relative border-t border-secondary px-2 py-2">
-              {formatEditing && !settingsHintDismissed ? (
+              {catalog.canManageWeeklyReports && formatEditing && !settingsHintDismissed ? (
                 <div className="absolute bottom-full left-2 z-20 mb-2 w-60 rounded-xl border border-brand bg-brand-primary px-3 py-2 text-xs text-brand-secondary shadow-sm">
                   <div className="flex items-start gap-2">
                     <p className="min-w-0 flex-1">
@@ -604,7 +604,7 @@ export function RecordsLayout({
                           }),
                         });
                       }
-                      if (key === "settings") {
+                      if (key === "settings" && catalog.canManageWeeklyReports) {
                         setShowMobileList(false);
                         void navigate({
                           to: "/w/$workspaceSlug/records/settings",
@@ -617,7 +617,9 @@ export function RecordsLayout({
                     }}
                   >
                     <Dropdown.Item id="stats" icon={LineChart} label={m.records_stats()} />
-                    <Dropdown.Item id="settings" icon={Settings} label={m.records_settings()} />
+                    {catalog.canManageWeeklyReports ? (
+                      <Dropdown.Item id="settings" icon={Settings} label={m.records_settings()} />
+                    ) : null}
                   </Dropdown.Menu>
                 </Dropdown.Popover>
               </Dropdown.Root>
