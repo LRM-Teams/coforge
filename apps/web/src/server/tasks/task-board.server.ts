@@ -952,8 +952,9 @@ export class TaskBoard {
       if (firstTaskNumber === undefined) throw new AppError("NOT_FOUND");
       const firstSequence = (lastMessage?.sequence ?? 0) + 1;
       // A human's Task wakes the conversation's Agents: in a DM its Agent, in a channel every
-      // unmuted Agent plus each muted Agent the Task's own title mentions. An Agent's Task wakes
-      // nobody. Never deliver a Task to a deleted Agent.
+      // unmuted Agent (only the coordinator, when the channel has one) plus each muted Agent the
+      // Task's own title mentions. An Agent's Task wakes nobody. Never deliver a Task to a deleted
+      // Agent.
       const agentMembers = member.userId
         ? await tx.conversationMember.findMany({
             where: {
@@ -1022,12 +1023,15 @@ export class TaskBoard {
             .filter((mention) => mention.type === "agent")
             .map((mention) => mention.id),
         );
-        const recipients = agentMembers.filter(({ agentId, channelMuted }) =>
-          assignee?.agentId === agentId || mentionedAgentIds.size
-            ? assignee?.agentId === agentId || mentionedAgentIds.has(agentId!)
-            : coordinator?.coordinatorAgentId
+        // A mention adds its Agent to the audience and never narrows it. The assignee is not
+        // added for being the assignee: a muted assignee is reached by the assignment receipt
+        // below, once per create however many Tasks it holds.
+        const recipients = agentMembers.filter(
+          ({ agentId, channelMuted }) =>
+            mentionedAgentIds.has(agentId!) ||
+            (coordinator?.coordinatorAgentId
               ? agentId === coordinator.coordinatorAgentId
-              : !scope.channel || !channelMuted,
+              : !scope.channel || !channelMuted),
         );
         const message = await tx.message.create({
           data: {
