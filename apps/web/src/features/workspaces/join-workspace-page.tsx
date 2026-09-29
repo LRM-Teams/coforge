@@ -188,7 +188,7 @@ export function JoinWorkspacePage({
               )}
             </span>
             <span aria-hidden="true">·</span>
-            {/* Signing out goes through Authing and lands on the homepage. */}
+            {/* Signing out goes through Authing, then straight back to sign-in and this page. */}
             <Button
               color="link-gray"
               size="sm"
