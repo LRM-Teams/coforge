@@ -79,9 +79,11 @@ export class AgentDeliveryRejections {
 
   async #wake(agent: AgentControlAgent): Promise<AgentDeliveryRejectionOutcome> {
     const recovery = await this.conversations.readAgentRecoveryContext(agent.workspaceId, agent.id);
+    // `agent` is this rejection's read under the lock, so recovery does not read it again.
     await this.control.recover(
       { ...agentStartIntent(agent, agent.computerId), ...recovery },
       agent.ownerId,
+      agent,
     );
     return "woken";
   }
