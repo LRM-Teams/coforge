@@ -12,6 +12,7 @@ import {
   sanitizeOpenVikingTransportFailure,
   type GatewayCapability,
   type RoutePolicyDecision,
+  templateMatches,
 } from "../route-policy";
 
 export const MEMORY_SKILL_FAMILY_KINDS = ["skill", "session", "compile", "evolution"] as const;
@@ -314,16 +315,6 @@ export function toMemorySkillFamilyPolicies(
     path: route.path,
     classification: route.classification,
   }));
-}
-
-function templateMatches(template: string, path: string): boolean {
-  const templateSegments = template.split("/");
-  const pathSegments = path.split("/");
-  if (templateSegments.length !== pathSegments.length) return false;
-  return templateSegments.every((segment, index) => {
-    const value = pathSegments[index];
-    return (segment.startsWith("{") && segment.endsWith("}")) || segment === value;
-  });
 }
 
 export function lookupMemorySkillFamilyRoute(
