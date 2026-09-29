@@ -42,6 +42,11 @@ import { PiJsonlFixtureProvider } from "@lrm/coforge-daemon/test/fixtures/pi-jso
  * would exercise.
  */
 const databaseUrl = requireEnvironment("DATABASE_URL");
+// The standard stack (the managed infra compose) publishes Web on 8789 and Centrifugo on 8000;
+// hosts where those host ports are taken point these elsewhere through the environment.
+const serverHttpUrl = process.env.COFORGE_E2E_SERVER_HTTP_URL ?? "http://127.0.0.1:8789";
+const centrifugoWsUrl =
+  process.env.COFORGE_E2E_CENTRIFUGO_WS_URL ?? "ws://127.0.0.1:8000/connection/websocket";
 const workspaceRoot = join(import.meta.dir, `../../../.amp/e2e/mention-${crypto.randomUUID()}`);
 const daemonStateDirectory = `${workspaceRoot}-state`;
 
@@ -125,7 +130,7 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
         workspaceId: workspace.id,
         computerId: registration.computerId,
         workspaceRoot,
-        serverHttpUrl: "http://127.0.0.1:8789",
+        serverHttpUrl,
       },
       () =>
         new PiJsonlFixtureProvider([
@@ -135,10 +140,7 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
       credentials,
       {
         create: () =>
-          new DaemonConnection(
-            "ws://127.0.0.1:8000/connection/websocket",
-            defaultCentrifugeWorkspaceClientFactory,
-          ),
+          new DaemonConnection(centrifugoWsUrl, defaultCentrifugeWorkspaceClientFactory),
       },
       proxy,
       {
@@ -154,7 +156,7 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
       workspaceId: workspace.id,
       computerId: registration.computerId,
       workspaceRoot,
-      serverHttpUrl: "http://127.0.0.1:8789",
+      serverHttpUrl,
     });
     const alphaRoot = agentRoot(workspace.id, alpha.agent.id);
     const betaRoot = agentRoot(workspace.id, beta.agent.id);
@@ -180,6 +182,9 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
             operation: "send",
             target: "#general",
             body: `@${beta.agent.name} please handle this @${gamma.agent.name} please handle this too`,
+            // Alpha holds the send on its own unread frontier (the human mention that woke it);
+            // the fixture emulates the CLI's continue-anyway here.
+            continueAnyway: true,
           },
         ],
       }),
@@ -195,7 +200,12 @@ test("a tracked @mention is delivered to a running Agent and refused for a stopp
       join(alphaRoot, ".e2e-mention-first.json"),
     );
     expect(first[0]).toMatchObject({ accepted: true, messageId: expect.any(String) });
-    const mentionMessageId = first[0]!.messageId;
+    // Pin the send's message id from the result file's own bytes: the in-memory object's field
+    // can degrade to an empty object when read back later in this same turn (Bun 1.4's lazy JSON
+    // values), which the CLI below would then receive as --message {}.
+    const mentionMessageId = /"messageId":"([0-9a-f-]{36})"/.exec(
+      await Bun.file(join(alphaRoot, ".e2e-mention-first.json")).text(),
+    )![1]!;
 
     // Beta is running and tracked: the envelope reaches its session, and the fixture provider
     // settles the turn on its own, which drains the delivery and ACKs it with the envelope
@@ -363,7 +373,7 @@ async function waitForFiles(...paths: string[]) {
 
 async function waitForJson<T>(path: string): Promise<T> {
   await waitFor(async () => Bun.file(path).exists());
-  return (await Bun.file(path).json()) as T;
+  return JSON.parse(await Bun.file(path).text()) as T;
 }
 
 async function waitFor(check: () => boolean | Promise<boolean>) {

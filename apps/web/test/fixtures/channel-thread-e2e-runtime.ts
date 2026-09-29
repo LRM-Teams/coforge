@@ -55,6 +55,7 @@ async function handle(command: { id: string; type: string; message?: string }) {
             operation: "read" | "send" | "thread-unfollow";
             target: string;
             body?: string;
+            continueAnyway?: boolean;
           }>;
         };
         const results = [];
@@ -88,6 +89,7 @@ async function call(input: {
   operation: "read" | "send" | "thread-unfollow";
   target: string;
   body?: string;
+  continueAnyway?: boolean;
 }) {
   const response = await fetch(Bun.env.COFORGE_AGENT_PROXY_URL!, {
     method: "POST",
@@ -95,7 +97,13 @@ async function call(input: {
       authorization: `Bearer ${Bun.env.COFORGE_AGENT_CONTEXT}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ ...input, idempotencyKey: crypto.randomUUID() }),
+    // The plan file keeps its own `body` name; the Agent HTTP path calls the same text `content`.
+    body: JSON.stringify({
+      ...input,
+      body: undefined,
+      content: input.body,
+      idempotencyKey: crypto.randomUUID(),
+    }),
   });
   if (!response.ok)
     throw new Error(`Agent proxy returned ${response.status}: ${await response.text()}`);

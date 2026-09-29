@@ -82,6 +82,10 @@ amp orb services ensure >/dev/null || {
 ./scripts/e2e/run-agent-direct-message.sh
 """
 
+[tasks."test:e2e:mention-delivery"]
+description = "Run the tracked @mention delivery end-to-end slice"
+run = "./scripts/e2e/run-mention-delivery.sh"
+
 [tasks."check:web"]
 description = "Run Web package checks"
 run = "bun run --cwd packages/coforge-sdk generate && cd apps/web && bun run check"
