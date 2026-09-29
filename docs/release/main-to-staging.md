@@ -13,11 +13,12 @@ The automated cloud path is:
 5. Validate the Compose configuration, including the Centrifugo configuration
    checked by running Centrifugo's own `checkconfig` subcommand inside the
    pinned Centrifugo image and the Caddyfile checked by `caddy validate`
-   inside the pinned Caddy image, before any service is recreated. Caddy and
-   Centrifugo are recreated only when their shipped file's SHA-256 changes
-   (Caddy runs with its admin API off, so it cannot reload in place); set the service
-   image to the exact digest, pull it, and recreate the affected service with
-   `--no-build`.
+   inside the pinned Caddy image, before any service is recreated. A rejected
+   candidate puts the last healthy files back on their live paths. Caddy and
+   Centrifugo are recreated when their service definition or their shipped
+   file's SHA-256 changes (Caddy runs with its admin API off and cannot reload
+   in place); set the service image to the exact digest, pull it, and recreate
+   the affected service with `--no-build`.
 6. Use a bounded wait for Compose health, then run the complete verification set
    in [Health verification](health-verification.md#cloud-application).
 7. Record the digest as healthy only after every required check passes.

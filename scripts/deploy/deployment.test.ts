@@ -497,6 +497,9 @@ describe("Centrifugo configuration guard and release snapshot", () => {
       await Bun.write(join(root, "centrifugo/config.yaml"), "client: {}\n");
       await mkdir(join(root, "caddy"));
       await Bun.write(join(root, "caddy/Caddyfile"), "staging.example.test {\n}\n");
+      await mkdir(join(root, "last-healthy/centrifugo"), { recursive: true });
+      const healthyConfig = "client: {}\n# last healthy\n";
+      await Bun.write(join(root, "last-healthy/centrifugo/config.yaml"), healthyConfig);
       await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
       for (const name of requiredSecretNames) {
         await Bun.write(join(root, "secrets", name), "fixture-private-value");
@@ -547,6 +550,10 @@ exit 0
       expect(outputs.outcome).toBe("failed");
       expect(outputs.healthResult).toBe("failed: Centrifugo configuration validation failed");
       expect(await Bun.file(join(root, "state.env")).text()).toBe(state);
+      expect(await Bun.file(join(root, "centrifugo/config.yaml")).text()).toBe(healthyConfig);
+      expect(await Bun.file(join(root, ".env")).text()).toContain(
+        `COFORGE_CENTRIFUGO_CONFIG_SHA256=${createHash("sha256").update(healthyConfig).digest("hex")}`,
+      );
       const calls = await Bun.file(join(root, "calls")).text();
       expect(calls).not.toMatch(/ up -d/);
       expect(calls).toContain("pull --quiet centrifugo");
@@ -635,6 +642,9 @@ exit 0
         join(root, "caddy/Caddyfile"),
         "staging.example.test {\n\tnot_a_directive\n}\n",
       );
+      await mkdir(join(root, "last-healthy/caddy"), { recursive: true });
+      const healthyCaddyfile = "staging.example.test {\n}\n# last healthy\n";
+      await Bun.write(join(root, "last-healthy/caddy/Caddyfile"), healthyCaddyfile);
       await Bun.write(join(root, "docker-compose.yml"), "services: {}\n");
       for (const name of requiredSecretNames) {
         await Bun.write(join(root, "secrets", name), "fixture-private-value");
@@ -685,6 +695,14 @@ exit 0
       expect(outputs.outcome).toBe("failed");
       expect(outputs.healthResult).toBe("failed: Caddy configuration validation failed");
       expect(await Bun.file(join(root, "state.env")).text()).toBe(state);
+      // The rejected file must not stay live: a later Caddy restart (host
+      // reboot, daemon restart) would load it and take the site down.
+      expect(await Bun.file(join(root, "caddy/Caddyfile")).text()).toBe(healthyCaddyfile);
+      const env = await Bun.file(join(root, ".env")).text();
+      expect(env).toContain(`COFORGE_WEB_IMAGE=${previous}\n`);
+      expect(env).toContain(
+        `COFORGE_CADDYFILE_SHA256=${createHash("sha256").update(healthyCaddyfile).digest("hex")}`,
+      );
       const calls = await Bun.file(join(root, "calls")).text();
       expect(calls).not.toMatch(/ up -d/);
       expect(calls).toContain("run --rm --no-deps caddy caddy validate");
@@ -898,6 +916,26 @@ exit 0
   });
 });
 
+test("Caddy and Centrifugo are recreated when their bind-mounted configuration changes", async () => {
+  // Compose does not track bind-mount contents; each service reads the hash
+  // remote-deploy.sh writes, so a changed file changes the service definition.
+  const compose = await Bun.file(
+    new URL("../../infra/staging/docker-compose.yml", import.meta.url),
+  ).text();
+  const service = (name: string) => {
+    const start = compose.indexOf(`\n  ${name}:\n`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const next = compose.slice(start + 1).search(/\n  [a-z]/);
+    return compose.slice(start, next < 0 ? undefined : start + 1 + next);
+  };
+  expect(service("caddy")).toMatch(
+    /^ {6}COFORGE_CADDYFILE_SHA256: \$\{COFORGE_CADDYFILE_SHA256:\?[^}]*\}$/m,
+  );
+  expect(service("centrifugo")).toMatch(
+    /^ {6}COFORGE_CENTRIFUGO_CONFIG_SHA256: \$\{COFORGE_CENTRIFUGO_CONFIG_SHA256:\?[^}]*\}$/m,
+  );
+});
+
 describe("check-centrifugo-config.sh", () => {
   test("checks both configuration files against the digest-pinned image the staging Compose file ships", async () => {
     const script = await Bun.file(new URL("./check-centrifugo-config.sh", import.meta.url)).text();
@@ -929,6 +967,18 @@ describe("check-centrifugo-config.sh", () => {
     const packageJson = await Bun.file(new URL("../../package.json", import.meta.url)).text();
     expect(packageJson).toContain("check-centrifugo-config.sh");
     expect(packageJson).toContain("remote-deploy.sh");
+  });
+});
+
+describe("check-caddy-config.sh", () => {
+  test("validates the staging Caddyfile with the digest-pinned image the staging Compose file ships, in check:deploy", async () => {
+    const script = await Bun.file(new URL("./check-caddy-config.sh", import.meta.url)).text();
+    expect(script).toContain("set -euo pipefail");
+    expect(script).toContain("infra/staging/caddy/Caddyfile");
+    expect(script).toContain("caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile");
+    expect(script).toContain("is not pinned to a digest");
+    const packageJson = await Bun.file(new URL("../../package.json", import.meta.url)).text();
+    expect(packageJson).toContain("check-caddy-config.sh");
   });
 });
 
