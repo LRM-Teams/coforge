@@ -31,6 +31,7 @@ import type { DaemonConfig } from "#src/daemon-runtime/runtime";
 import type { DaemonCredentialStore } from "#src/credentials/credential-store";
 import type { DaemonConfigStore } from "#src/persistence/daemon-config";
 import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
+import { WorkspaceLifecycleSupersededError } from "#src/supervisor/lifecycle-superseded-error";
 
 const logger = getLogger(["coforge", "daemon", "local-rpc"]);
 
@@ -331,7 +332,12 @@ class LocalRpcDispatcher {
     });
   }
 
-  /** Saves the credential and connection, rolling both back if the runtime refuses them. */
+  /**
+   * Saves the credential and connection, rolling both back if the runtime refuses them. A configure
+   * a later stop or setup superseded is not refused: the cloud already registered this key (and
+   * revoked the one before it), so it stays. A rollback also restores only what this attempt
+   * wrote, never a key a newer setup saved since.
+   */
   async #adoptConfiguration(request: {
     workspaceId: string;
     computerId: string;
@@ -355,7 +361,9 @@ class LocalRpcDispatcher {
       await runtime.configure(connection);
       await configStore?.save(connection);
     } catch (error) {
-      if (credentialChanged) {
+      if (error instanceof WorkspaceLifecycleSupersededError) throw error;
+      const current = await credentials.load(workspaceId, computerId);
+      if (credentialChanged && current === request.daemonApiKey) {
         if (saved !== null) await credentials.save(workspaceId, computerId, saved);
         else await credentials.delete(workspaceId, computerId);
       }
