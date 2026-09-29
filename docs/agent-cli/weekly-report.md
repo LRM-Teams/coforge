@@ -40,6 +40,9 @@ A section is `{ "title": "Summary", "children": ["Work Summary", "Next Steps"] }
 `requestId` is a UUID reused when retrying creation; supply `templateId` to edit
 existing owned settings. Template names accept 1–100 characters. Discovery pages
 have at most 50 results; follow `nextCursor` through workflow actions.
+Creation commits settings and any initial live format together; an initialization
+failure rolls both back and can be retried with the same `requestId`. Updating
+sections also updates an existing live format when the recurring schedule is off.
 
 Schedules use Asia/Shanghai, ISO weekdays 1–7, and whole-hour `HH:00` times.
 One-off sending works without enabling a recurring schedule. All send entry

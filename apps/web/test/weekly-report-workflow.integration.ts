@@ -8,6 +8,154 @@ const connectionString = Bun.env.WEEKLY_REPORT_TEST_DATABASE_URL;
 if (!connectionString)
   throw new Error("Set WEEKLY_REPORT_TEST_DATABASE_URL to an isolated test database");
 
+test("disabled schedule configuration updates the format used by an immediate send", async () => {
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const user = await db.user.create({ data: { username: `edit-${crypto.randomUUID()}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `edit-${crypto.randomUUID()}`,
+      name: "Template edits",
+      members: { create: { userId: user.id, role: "owner" } },
+    },
+  });
+  const actor = { workspaceId: workspace.id, userId: user.id };
+  const workflow = new WeeklyReportWorkflow(db, {
+    notify: async () => ({ status: "notified" }),
+  });
+  try {
+    const configuration = {
+      type: "configure" as const,
+      requestId: crypto.randomUUID(),
+      name: "Editable format",
+      sections: [{ title: "Old", children: [] }],
+      allMembers: true,
+      recipientUserIds: [],
+      scheduleEnabled: true,
+      sendWeekday: 5,
+      sendTime: "15:00",
+    };
+    const template = (await workflow.execute(actor, configuration)) as { id: string };
+    await workflow.execute(actor, {
+      ...configuration,
+      templateId: template.id,
+      scheduleEnabled: false,
+      sections: [{ title: "Technique", children: ["Results"] }],
+    });
+    await workflow.execute(actor, { type: "send", templateId: template.id });
+    const inbox = (await workflow.execute(actor, { type: "inbox" })) as {
+      reports: Array<{ id: string; kind: string }>;
+    };
+    const { RecordCatalog } = await import("#src/server/records/record-catalog.server");
+    expect(
+      await new RecordCatalog(db).readAssistantReportSection({
+        ...actor,
+        reportId: inbox.reports.find((report) => report.kind === "member")!.id,
+        section: "Technique",
+      }),
+    ).toMatchObject({ markdown: "## Results" });
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+  }
+}, 30_000);
+
+test("template creation reports initialization failures and retries the complete configuration", async () => {
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const user = await db.user.create({ data: { username: `retry-${crypto.randomUUID()}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `retry-${crypto.randomUUID()}`,
+      name: "Creation retries",
+      members: { create: { userId: user.id, role: "owner" } },
+    },
+  });
+  const actor = { workspaceId: workspace.id, userId: user.id };
+  let rejectFormatWrite = true;
+  let synchronizeCreationReads = false;
+  let missingTemplateReads = 0;
+  const bothReadsCompleted = Promise.withResolvers<void>();
+  const failingDb = db.$extends({
+    query: {
+      weeklyReportTemplate: {
+        findFirst: async ({ args, query }) => {
+          const template = await query(args);
+          if (synchronizeCreationReads && !template) {
+            missingTemplateReads += 1;
+            if (missingTemplateReads === 2) bothReadsCompleted.resolve();
+            await bothReadsCompleted.promise;
+          }
+          return template;
+        },
+      },
+      weeklyReport: {
+        create: ({ args, query }) => {
+          if (rejectFormatWrite) throw new Error("format write unavailable");
+          return query(args);
+        },
+      },
+    },
+  });
+  const notifier = { notify: async () => ({ status: "notified" as const }) };
+  const workflow = new WeeklyReportWorkflow(failingDb as PrismaClient, notifier);
+  const configuration = {
+    type: "configure" as const,
+    requestId: crypto.randomUUID(),
+    name: "Retry format",
+    sections: [{ title: "Technique", children: ["Results"] }],
+    allMembers: true,
+    recipientUserIds: [],
+    scheduleEnabled: true,
+    sendWeekday: 5,
+    sendTime: "15:00",
+  };
+  try {
+    await expect(workflow.execute(actor, configuration)).rejects.toThrow(
+      "format write unavailable",
+    );
+    expect(await workflow.execute(actor, { type: "templates" })).toEqual({
+      templates: [],
+      nextCursor: null,
+    });
+    rejectFormatWrite = false;
+    synchronizeCreationReads = true;
+    const [created, concurrentRetry] = (await Promise.all([
+      workflow.execute(actor, configuration),
+      workflow.execute(actor, configuration),
+    ])) as Array<{ id: string }>;
+    synchronizeCreationReads = false;
+    expect(missingTemplateReads).toBe(2);
+    expect(concurrentRetry).toEqual(created!);
+    expect(await workflow.execute(actor, configuration)).toEqual(created);
+    expect(await workflow.execute(actor, { type: "templates" })).toMatchObject({
+      templates: [{ id: created!.id, sections: configuration.sections }],
+      nextCursor: null,
+    });
+    const { RecordCatalog } = await import("#src/server/records/record-catalog.server");
+    const catalog = new RecordCatalog(db, notifier);
+    const sent = await catalog.runDueScheduledWeeklyAssignments({
+      now: new Date("2030-01-04T07:00:00Z"),
+    });
+    expect(sent.sent).toBe(1);
+    const inbox = (await workflow.execute(actor, { type: "inbox" })) as {
+      reports: Array<{ id: string; kind: string }>;
+    };
+    expect(inbox.reports.filter((report) => report.kind === "template")).toHaveLength(2);
+    expect(
+      await catalog.readAssistantReportSection({
+        ...actor,
+        reportId: inbox.reports.find((report) => report.kind === "member")!.id,
+        section: "Technique",
+      }),
+    ).toMatchObject({ markdown: "## Results" });
+  } finally {
+    bothReadsCompleted.resolve();
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+  }
+}, 30_000);
+
 test("conversation configures, sends once, collects a member submission and writes the team summary", async () => {
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   const suffix = crypto.randomUUID();

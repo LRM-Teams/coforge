@@ -1,6 +1,7 @@
 import type { WeeklyReportWorkflowAction } from "@lrm/coforge-sdk/internal";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 import { RecordCatalog } from "./record-catalog.server";
 import {
   distributeWeeklyReport,
@@ -88,6 +89,7 @@ export class WeeklyReportWorkflow {
           frequency: "weekly",
         });
       } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
         const replay = await this.db.weeklyReportTemplate.findFirst({
           where: { id, workspaceId: actor.workspaceId, ownerId: actor.userId },
           select: { id: true },

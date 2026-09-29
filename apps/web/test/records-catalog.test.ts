@@ -467,6 +467,8 @@ test("createTemplate with scheduleEnabled writes applied and ensures a format", 
       }),
     },
   } as unknown as PrismaClient;
+  db.$transaction = (async (callback: (tx: PrismaClient) => Promise<unknown>) =>
+    callback(db)) as unknown as typeof db.$transaction;
 
   const result = await new RecordCatalog(db).createTemplate({
     workspaceId: "workspace-1",
@@ -503,6 +505,8 @@ test("createTemplate allows a regular Workspace member during MVP rollout", asyn
       create: async () => ({ id: "member-settings" }),
     },
   } as unknown as PrismaClient;
+  db.$transaction = (async (callback: (tx: PrismaClient) => Promise<unknown>) =>
+    callback(db)) as unknown as typeof db.$transaction;
 
   await expect(
     new RecordCatalog(db).createTemplate({
@@ -538,6 +542,8 @@ test("createTemplate with scheduleEnabled false stays inactive", async () => {
       },
     },
   } as unknown as PrismaClient;
+  db.$transaction = (async (callback: (tx: PrismaClient) => Promise<unknown>) =>
+    callback(db)) as unknown as typeof db.$transaction;
 
   await new RecordCatalog(db).createTemplate({
     workspaceId: "workspace-1",
