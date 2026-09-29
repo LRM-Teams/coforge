@@ -1,12 +1,13 @@
 # Workspace memory: MEMORY.md as a directory card
 
 Your Agent workspace is a persistent, agent-owned working area; files you create here survive
-across turns. Treat **MEMORY.md** as a directory card, not a diary: it points to everything and
-does not contain everything.
+across turns. Treat **MEMORY.md** as a directory card, not a diary: it holds only references,
+points to everything, and does not contain everything.
 
 ## Layout
 
 - `MEMORY.md` — index, ≤ 60 lines / 3KB
+- `notes/active-context.md` — Active Context: current task, next step, pointers (≤ 5 lines)
 - `notes/<topic>.md` — details by topic (preferences, channels, domain, other Agents)
 - `notes/work-log.md` — chronological history (append only; do not read every turn)
 - `work/` — code, experiments, artifacts
@@ -24,24 +25,20 @@ does not contain everything.
 
 -
 
-## Active Context (≤5 lines)
-
-- Currently doing: <one thing>
-- Next: <one step>
-- Risk: <optional>
-- Details: notes/<topic>.md
-
 ## Index
 
+- notes/active-context.md
 - notes/work-log.md
 ```
 
-- `MEMORY.md` ≤ 60 lines / 3KB. `## Active Context` ≤ 5 lines: what you are doing, the next
-  step, a risk, and where details live.
+- `MEMORY.md` ≤ 60 lines / 3KB. It holds references only; the Active Context is not a MEMORY.md
+  section.
+- `notes/active-context.md` ≤ 5 lines: the current task, the next step, and pointers to
+  details. Before a long task, write it so an interrupted task can resume.
 - Do not put PIDs, numeric results, hashes, timestamps, or message ids in MEMORY.md.
 - Before writing MEMORY.md, decide: index entry or detail? Details go in `notes/`; MEMORY.md
   only gets a pointer line.
-- When over the limit, sink old Active Context entries into `notes/work-log.md` first.
+- When `notes/active-context.md` is over 5 lines, sink old entries into `notes/work-log.md`.
 
 ## What to memorize
 
@@ -73,7 +70,8 @@ pointer in MEMORY.md if it is new.
 
 ## Recovery and updates
 
-Read MEMORY.md and relevant notes when resuming without sufficient context, not on every turn.
+Read MEMORY.md and relevant notes when resuming without sufficient context, not on every turn;
+`notes/active-context.md` says what you were doing.
 Provider compaction may retain a summary; do not assume all context was lost.
 Save useful cross-session facts, decisions, or unfinished progress when needed. Ordinary requests
 need no before/after bookkeeping. The layout above is guidance when maintaining memory, not a

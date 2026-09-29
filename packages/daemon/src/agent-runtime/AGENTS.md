@@ -76,9 +76,12 @@ Rules for Agent lifecycle, control, Session state, and Activity in
 
 ## Agent memory seed
 
-- `agent-memory-seed.ts` seeds a starter `MEMORY.md` right after the workspace
-  directory is created. It only creates the file (`flag: "wx"`, `EEXIST`
-  ignored) and never overwrites one the Agent already wrote. A seed failure is
-  logged and never fails the launch.
+- `agent-memory-seed.ts` seeds a starter `MEMORY.md`, `notes/active-context.md`
+  and `notes/work-log.md` right after the workspace directory is created. It
+  only creates files (`flag: "wx"`, `EEXIST` ignored) and never overwrites one
+  the Agent already wrote. A seed failure is logged and never fails the launch.
+- `MEMORY.md` holds references only; the Active Context lives in
+  `notes/active-context.md`. Older workspaces get the missing notes files, but
+  an existing `MEMORY.md` is never migrated or rewritten.
 - Seed `MEMORY.md` for on-demand recovery. Do not require per-turn memory
   maintenance in the standing instructions.
