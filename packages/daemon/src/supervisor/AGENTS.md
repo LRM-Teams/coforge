@@ -38,12 +38,21 @@ Rules for the machine Coordinator in `src/supervisor/`. They extend
   goes through it, a refusal records the park before the process shuts down
   and exits 0, and its handshake reports where the latest cloud connect stands
   (`connecting`, `connected`, `not_connected` with why).
-- `workspace-start-outcome.ts` owns an operator `start`/`restart`: one
-  deadline for the whole command (`OPERATOR_COMMAND_BUDGET_MS`, below the local
-  lifecycle client's 35 s timeout) covers process readiness and each started
-  Workspace's first cloud connect. Past it, a Workspace is answered as still
-  starting or connecting, never a client timeout; every started Workspace is
-  checked at least once; a park refuses the command. Recovery never waits.
+- An operator `start`/`restart` has one deadline for the whole command
+  (`OPERATOR_COMMAND_BUDGET_MS` in `workspace-start-outcome.ts`, below the
+  local lifecycle client's 35 s timeout). It bounds the answer, not the work:
+  `MachineSupervisor.command` answers by then even while still queued, holding,
+  stopping, or starting, and names those Workspaces `pending`; their work
+  finishes in the serialized queue afterwards, so the instance is still adopted
+  and a restart's result still recorded. A restart's runner hold draws from
+  what is left of the deadline. Finished Workspaces are answered with their
+  first cloud connect (`awaitCloudConnections`, watched side by side, each
+  checked at least once); pending ones as still connecting. A park refuses the
+  command. Recovery passes no deadline.
+- What an operator reads (`daemon:snapshot`, a command's answer) comes from
+  `MachineSupervisor.view()`, which never waits behind a mutation, so neither
+  `status` nor a command answer can end in a client timeout. The Coordinator's
+  own steps keep the serialized `snapshot()`.
 - The snapshot reports a parked Workspace's `park_reason`; an upgrade treats it
   as down on purpose, not as an unhealthy runtime set.
 - systemd Workspace units restart on failure after cgroup cleanup.

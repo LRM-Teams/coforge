@@ -241,17 +241,18 @@ test("an unscoped restart refused for a deleted Workspace names that Workspace a
   });
 });
 
-test("start names each Workspace that is not connected yet and why, instead of saying online", async () => {
+const runtime = (workspaceId: string, extra: object) => ({
+  workspaceId,
+  computerId: "c",
+  enabled: true,
+  processId: 7,
+  instanceId: "i",
+  version: "v",
+  ...extra,
+});
+
+test("start names each Workspace still under way, and fails naming the restart for one that did not connect", async () => {
   const progress = output();
-  const runtime = (workspaceId: string, extra: object) => ({
-    workspaceId,
-    computerId: "c",
-    enabled: true,
-    processId: 7,
-    instanceId: "i",
-    version: "v",
-    ...extra,
-  });
   const command = createCommand({
     daemon: {
       ensureRunning: async () => {},
@@ -269,12 +270,57 @@ test("start names each Workspace that is not connected yet and why, instead of s
     write: progress.write,
   });
 
-  await command.start();
+  const failure = await command.start().catch((error: unknown) => error);
 
   expect(progress.lines).toEqual([
     "Starting CoForge...",
     "CoForge Computer started, but not every Workspace is connected yet:",
-    "  slug-ws-b: still connecting. Run 'coforge-computer status' to follow it.",
-    "  slug-ws-c: not connected (transport closed (2)). Run 'coforge-computer status' to check it.",
+    "  slug-ws-b: still starting. Run 'coforge-computer status' to follow it.",
+    "  slug-ws-c: not connected (transport closed (2)).",
   ]);
+  expect(failure).toBeInstanceOf(CliError);
+  expect(failure).toMatchObject({
+    code: "WORKSPACE_NOT_CONNECTED",
+    message: "Workspace slug-ws-c did not connect to CoForge.",
+    hint: "Run 'coforge-computer restart --workspace slug-ws-c' to try again, or 'coforge-computer status' to check it.",
+  });
+});
+
+test("a restart still under way at its deadline says so and succeeds", async () => {
+  const progress = output();
+  const command = createCommand({
+    daemon: {
+      ensureRunning: async () => {},
+      command: async () => [runtime("ws-a", { cloudConnection: "connecting" })],
+    },
+    resolveWorkspace: async (selector) => ({ id: selector, slug: `slug-${selector}` }),
+    write: progress.write,
+  });
+
+  await command.restart("ws-a");
+
+  expect(progress.lines).toEqual([
+    "Restarting Workspace ws-a...",
+    "Workspace ws-a restarted, but is not connected yet:",
+    "  slug-ws-a: still restarting. Run 'coforge-computer status' to follow it.",
+  ]);
+});
+
+test("a restart naming several Workspaces that did not connect gives the command for each", async () => {
+  const command = createCommand({
+    daemon: {
+      ensureRunning: async () => {},
+      command: async () => [
+        runtime("ws-a", { cloudConnection: "not_connected", cloudConnectionError: "x" }),
+        runtime("ws-b", { cloudConnection: "not_connected", cloudConnectionError: "y" }),
+      ],
+    },
+    resolveWorkspace: async (selector) => ({ id: selector, slug: `slug-${selector}` }),
+  });
+
+  await expect(command.restart()).rejects.toMatchObject({
+    code: "WORKSPACE_NOT_CONNECTED",
+    message: "Workspaces slug-ws-a, slug-ws-b did not connect to CoForge.",
+    hint: "Run 'coforge-computer restart --workspace slug-ws-a' and 'coforge-computer restart --workspace slug-ws-b' to try again, or 'coforge-computer status' to check them.",
+  });
 });

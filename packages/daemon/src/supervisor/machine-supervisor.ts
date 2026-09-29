@@ -1,10 +1,9 @@
 import { getLogger } from "@logtape/logtape";
 import type { DaemonConnectRejectionReason } from "@lrm/coforge-sdk/internal";
 import type { DaemonConfig } from "#src/daemon-runtime/runtime";
-import { holdRunnersUntilQuiescent, type RunnerHoldSnapshot } from "./runner-hold";
+import { holdRunnersUntilQuiescent, RUNNER_HOLD_MS, type RunnerHoldSnapshot } from "./runner-hold";
 import { UpgradeLaunchesPausedError, UpgradeOperationPendingError } from "./upgrade-error";
 import { WorkspaceParkedError } from "./workspace-health-journal";
-import { WorkspaceStillStartingError } from "./workspace-start-outcome";
 
 export type RestartProgress = {
   requestId: string;
@@ -86,13 +85,25 @@ export interface BindingStore {
   load(): Promise<ManagedBinding[]>;
   save(bindings: ManagedBinding[]): Promise<void>;
 }
-/** An operator command's one deadline (epoch ms) for its whole start; recovery passes none. */
-export type StartOptions = { deadline?: number };
+/**
+ * An operator command's one deadline (epoch ms). It bounds when the command answers, not the work:
+ * what is still under way at the deadline finishes in the serialized queue after the answer.
+ */
+export type CommandOptions = { deadline?: number };
+/** Which targeted Workspaces an operator command finished starting, and which were still under
+ * way (queued, holding, stopping, or starting) when its deadline came. */
+export type CommandAnswer = { started: string[]; pending: string[] };
+
+/** What one command has got through so far, read when its deadline answers before it finishes. */
+type CommandProgress = {
+  targets?: string[];
+  settled: Set<string>;
+  started: string[];
+  refused?: WorkspaceParkedError;
+};
 
 export interface WorkspaceProcesses {
-  /** Throws `WorkspaceStillStartingError` when `options.deadline` passes before the process
-   * answers. */
-  start(binding: ManagedBinding, options?: StartOptions): Promise<string>;
+  start(binding: ManagedBinding): Promise<string>;
   stop(binding: ManagedBinding): Promise<void>;
   instance(binding: ManagedBinding): Promise<string | null>;
   /**
@@ -184,65 +195,130 @@ export class MachineSupervisor {
   }
 
   /**
-   * Starts, stops, or restarts the targeted bindings. An operator start passes one `deadline` for
-   * the whole command; a Workspace whose process has not answered by then is named in
-   * `stillStarting` rather than failing the command. Resolves with the Workspaces it started.
+   * Starts, stops, or restarts the targeted bindings and resolves with the Workspaces it started.
+   * With a `deadline` the command answers by then even if it is still queued or under way: the
+   * Workspaces it has not finished are `pending`, and their work completes in the serialized
+   * queue afterwards, so an adopted instance and a restart's result are still recorded.
    */
   command(
     operation: "start" | "stop" | "restart",
     workspaceId?: string,
     requestId?: string,
-    options: StartOptions = {},
-  ): Promise<{ started: string[]; stillStarting: string[] }> {
-    return this.#serialize(async () => {
-      this.#assertMutable();
-      await this.#refresh();
-      const targets = this.#bindings.filter(
-        (binding) => !workspaceId || binding.workspaceId === workspaceId,
-      );
-      if (workspaceId && !targets.length) throw new Error("Workspace is not registered locally");
-      let refused: WorkspaceParkedError | undefined;
-      const started: string[] = [];
-      const stillStarting: string[] = [];
-      for (let binding of targets) {
-        if (operation === "restart" && !workspaceId && !binding.enabled) continue;
-        if (operation === "stop") {
-          binding = await this.#saveBinding({
-            ...binding,
-            enabled: false,
-            restart: undefined,
-            restartResults: binding.restart
-              ? [
-                  ...(binding.restartResults ?? []),
-                  { requestId: binding.restart.requestId, status: "cancelled" as const },
-                ].slice(-128)
-              : binding.restartResults,
-          });
-          await this.#stop(binding);
-          continue;
-        }
-        // The other targets still start; the refusal names the parked one once they have.
-        const reason = await this.processes.parkedReason?.(binding);
-        // A parked binding the operator stopped stays out of an unscoped start.
-        if (reason && !workspaceId && !binding.enabled) continue;
-        if (reason) {
-          refused ??= new WorkspaceParkedError(binding.workspaceId, reason);
-          continue;
-        }
-        try {
-          if (await this.#startForOperator(operation, binding, requestId, options))
-            started.push(binding.workspaceId);
-        } catch (error) {
-          // It parked as it started (the cloud refused it at once): the rest still start.
-          if (error instanceof WorkspaceParkedError) refused ??= error;
-          else if (error instanceof WorkspaceStillStartingError)
-            stillStarting.push(binding.workspaceId);
-          else throw error;
-        }
-      }
-      if (refused) throw refused;
-      return { started, stillStarting };
+    options: CommandOptions = {},
+  ): Promise<CommandAnswer> {
+    const progress: CommandProgress = { settled: new Set(), started: [] };
+    const work = this.#serialize(() =>
+      this.#command(operation, workspaceId, requestId, options, progress),
+    );
+    if (options.deadline === undefined) return work;
+    return this.#answerBy(options.deadline, work, () => {
+      if (progress.refused) throw progress.refused;
+      const targets = progress.targets ?? this.#targets(operation, workspaceId);
+      return {
+        started: [...progress.started],
+        pending: targets.filter((id) => !progress.settled.has(id)),
+      };
     });
+  }
+
+  /**
+   * The bindings as this supervisor last recorded them, each with its live OS instance, without
+   * waiting behind a lifecycle mutation still under way. What an operator reads (`status`, a
+   * command's answer) comes from here, so it never outlasts its caller.
+   */
+  async view() {
+    return Promise.all(
+      this.#bindings.map(async (binding) => ({
+        ...binding,
+        instanceId: await this.processes.instance(binding),
+      })),
+    );
+  }
+
+  /** The Workspaces a command acts on: an unscoped restart leaves disabled bindings alone. */
+  #targets(operation: "start" | "stop" | "restart", workspaceId?: string): string[] {
+    return this.#bindings
+      .filter((binding) => !workspaceId || binding.workspaceId === workspaceId)
+      .filter((binding) => !(operation === "restart" && !workspaceId && !binding.enabled))
+      .map((binding) => binding.workspaceId);
+  }
+
+  async #command(
+    operation: "start" | "stop" | "restart",
+    workspaceId: string | undefined,
+    requestId: string | undefined,
+    options: CommandOptions,
+    progress: CommandProgress,
+  ): Promise<CommandAnswer> {
+    this.#assertMutable();
+    await this.#refresh();
+    if (workspaceId && !this.#bindings.some((binding) => binding.workspaceId === workspaceId))
+      throw new Error("Workspace is not registered locally");
+    progress.targets = this.#targets(operation, workspaceId);
+    for (const id of progress.targets) {
+      let binding = this.#bindings.find((entry) => entry.workspaceId === id)!;
+      if (operation === "stop") {
+        binding = await this.#saveBinding({
+          ...binding,
+          enabled: false,
+          restart: undefined,
+          restartResults: binding.restart
+            ? [
+                ...(binding.restartResults ?? []),
+                { requestId: binding.restart.requestId, status: "cancelled" as const },
+              ].slice(-128)
+            : binding.restartResults,
+        });
+        await this.#stop(binding);
+        progress.settled.add(id);
+        continue;
+      }
+      // The other targets still start; the refusal names the parked one once they have.
+      const reason = await this.processes.parkedReason?.(binding);
+      // A parked binding the operator stopped stays out of an unscoped start.
+      if (reason && (workspaceId || binding.enabled))
+        progress.refused ??= new WorkspaceParkedError(id, reason);
+      if (reason) {
+        progress.settled.add(id);
+        continue;
+      }
+      try {
+        if (await this.#startForOperator(operation, binding, requestId, options))
+          progress.started.push(id);
+      } catch (error) {
+        // It parked as it started (the cloud refused it at once): the rest still start.
+        if (!(error instanceof WorkspaceParkedError)) throw error;
+        progress.refused ??= error;
+      }
+      progress.settled.add(id);
+    }
+    if (progress.refused) throw progress.refused;
+    return { started: progress.started, pending: [] };
+  }
+
+  /**
+   * Settles with `work` if it finishes by `deadline`, otherwise with `early()`. Work that outlives
+   * the answer keeps running; a later failure is logged, since nobody is waiting for it any more.
+   * The timer is always cleared (see `answeredWithin` for why a leftover one matters).
+   */
+  async #answerBy<T>(deadline: number, work: Promise<T>, early: () => T): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<"expired">((resolve) => {
+      timer = setTimeout(() => resolve("expired"), Math.max(0, deadline - this.now()));
+    });
+    try {
+      const first = await Promise.race([work.then(() => "finished" as const), expired]);
+      if (first === "finished") return work;
+    } finally {
+      clearTimeout(timer);
+    }
+    work.catch((error: unknown) => {
+      logger.warn("A lifecycle command failed after it had already answered", {
+        event: "lifecycle:command_failed_after_answer",
+        error_message: error instanceof Error ? error.message : String(error),
+      });
+    });
+    return early();
   }
 
   /** Resolves false for a restart this request already completed (nothing started). */
@@ -250,7 +326,7 @@ export class MachineSupervisor {
     operation: "start" | "restart",
     binding: ManagedBinding,
     requestId: string | undefined,
-    options: StartOptions,
+    options: CommandOptions,
   ): Promise<boolean> {
     // Reached only for "start" and "restart": an explicit operator lifecycle command, the one
     // seam that is allowed to clear the health latch (see `WorkspaceProcesses.clearHealth`).
@@ -262,7 +338,9 @@ export class MachineSupervisor {
         throw new Error("Workspace restart was cancelled by stop");
       if (result) return false;
       if (binding.restart && binding.restart.requestId !== id)
-        throw new Error("Workspace restart is already in progress");
+        throw new Error(
+          `Workspace ${binding.workspaceId} has an unfinished restart. Run 'coforge-computer start --workspace ${binding.workspaceId}' to finish it, then restart again.`,
+        );
       if (!binding.restart)
         binding = await this.#saveBinding({
           ...binding,
@@ -275,7 +353,7 @@ export class MachineSupervisor {
         });
       await this.#advanceRestart(binding, options);
     } else if (binding.restart) await this.#advanceRestart(binding, options);
-    else await this.#start(await this.#saveBinding({ ...binding, enabled: true }), options);
+    else await this.#start(await this.#saveBinding({ ...binding, enabled: true }));
     return true;
   }
 
@@ -434,7 +512,7 @@ export class MachineSupervisor {
       throw new WorkspaceRecoveryError(failures, "Workspace recovery incomplete");
   }
 
-  async #advanceRestart(binding: ManagedBinding, options: StartOptions = {}): Promise<void> {
+  async #advanceRestart(binding: ManagedBinding, options: CommandOptions = {}): Promise<void> {
     const restart = binding.restart!;
     if (restart.phase === "stopping") {
       const current = await this.processes.instance(binding);
@@ -442,7 +520,7 @@ export class MachineSupervisor {
       // start below still validates the replacement through its scoped handshake.
       if (current === null || current === restart.previousInstanceId) {
         // Only a live instance is worth holding; a dead one has no Agents left to drain.
-        if (current !== null) await this.#holdRunners(binding);
+        if (current !== null) await this.#holdRunners(binding, options.deadline);
         try {
           await this.#stop(binding);
         } catch (error) {
@@ -454,7 +532,7 @@ export class MachineSupervisor {
       }
       binding = await this.#saveBinding({ ...binding, restart: { ...restart, phase: "starting" } });
     }
-    const instanceId = await this.#start(binding, options);
+    const instanceId = await this.#start(binding);
     if (instanceId === restart.previousInstanceId)
       throw new Error("Workspace restart did not replace the old instance");
     await this.#saveBinding({
@@ -483,17 +561,21 @@ export class MachineSupervisor {
    *
    * The wait runs inside the serialized mutation, so other lifecycle commands queue behind it for
    * up to `RUNNER_HOLD_MS`. That is accepted: an upgrade's `pauseLaunches` already blocks the same
-   * queue for as long, and a restart that raced ahead of the drain would defeat the point.
+   * queue for as long, and a restart that raced ahead of the drain would defeat the point. An
+   * operator restart's hold draws from what is left of its command's deadline instead.
    *
    * Every failure resolves towards proceeding: `holdRunnersUntilQuiescent` reports quiescent when
    * the hold cannot be asked at all, and a Workspace that answers `accepted: false` or times out
    * is counted as idle. A restart is never failed because of the hold.
    */
-  async #holdRunners(binding: ManagedBinding): Promise<void> {
+  async #holdRunners(binding: ManagedBinding, deadline?: number): Promise<void> {
     if (!this.processes.hold) return;
+    const holdMs = this.restartHold.holdMs ?? RUNNER_HOLD_MS;
     const outcome = await holdRunnersUntilQuiescent({
       hold: () => this.processes.hold!(binding, "restart"),
       ...this.restartHold,
+      holdMs:
+        deadline === undefined ? holdMs : Math.min(holdMs, Math.max(0, deadline - this.now())),
     });
     logger.info("Runner hold completed before a Workspace restart", {
       event: outcome.quiescent ? "restart:runner_hold_quiescent" : "restart:runner_hold_expired",
@@ -523,11 +605,11 @@ export class MachineSupervisor {
     this.#bindings = await this.store.load();
     this.#reloadRequired = false;
   }
-  async #start(binding: ManagedBinding, options: StartOptions = {}): Promise<string> {
+  async #start(binding: ManagedBinding): Promise<string> {
     const expected = this.#instances.get(binding.workspaceId);
     if (expected && (await this.processes.instance(binding)) === expected) return expected;
     this.#instances.delete(binding.workspaceId);
-    const instanceId = await this.processes.start(binding, options);
+    const instanceId = await this.processes.start(binding);
     this.#instances.set(binding.workspaceId, instanceId);
     return instanceId;
   }

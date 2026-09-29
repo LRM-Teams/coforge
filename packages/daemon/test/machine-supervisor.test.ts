@@ -7,7 +7,6 @@ import {
   type PendingUpgradeSettler,
 } from "#src/supervisor/machine-supervisor";
 import { WorkspaceParkedError } from "#src/supervisor/workspace-health-journal";
-import { WorkspaceStillStartingError } from "#src/supervisor/workspace-start-outcome";
 import {
   UpgradeLaunchesPausedError,
   UpgradeOperationPendingError,
@@ -544,7 +543,7 @@ test("stop durably supersedes a pending restart and rejects its later replay", a
   fixture.failAt("before-spawn");
   await expect(supervisor.command("restart", "a", "request")).rejects.toThrow("fault");
   await expect(supervisor.command("restart", "a", "different-request")).rejects.toThrow(
-    "in progress",
+    "unfinished restart. Run 'coforge-computer start --workspace a' to finish it",
   );
   fixture.failAt("before-stop");
   await expect(supervisor.command("stop", "a")).rejects.toThrow("fault");
@@ -908,31 +907,124 @@ test("a Workspace that parks while it starts is reported after the other Workspa
   expect(started).toEqual(["live"]);
 });
 
-test("an operator start passes its deadline to each start and names the Workspaces it started and those still starting", async () => {
-  const deadlines: Array<number | undefined> = [];
+/** A Workspace process that starts only once the test lets it, so a command can outlive its
+ * deadline while its start is still under way. */
+function gatedFixture(bindings: ManagedBinding[]) {
+  let saved = structuredClone(bindings);
+  const running = new Map<string, string>(
+    bindings.filter((binding) => binding.enabled).map((binding) => [binding.workspaceId, "old"]),
+  );
+  const gate = Promise.withResolvers<void>();
+  const starts: string[] = [];
+  let gated = true;
   const supervisor = new MachineSupervisor(
     {
-      load: async () => [
-        { workspaceId: "slow", computerId: "c", workspaceRoot: "/slow", enabled: false },
-        { workspaceId: "fast", computerId: "c", workspaceRoot: "/fast", enabled: false },
-      ],
-      save: async () => {},
+      load: async () => structuredClone(saved),
+      save: async (next) => {
+        saved = structuredClone(next);
+      },
     },
     {
-      start: async (binding, options) => {
-        deadlines.push(options?.deadline);
-        if (binding.workspaceId === "slow") throw new WorkspaceStillStartingError("slow");
-        return "instance";
+      instance: async (binding) => running.get(binding.workspaceId) ?? null,
+      // Adopts a live instance, as the OS units do; only a fresh start waits for the gate.
+      async start(binding) {
+        const live = running.get(binding.workspaceId);
+        if (live) return live;
+        starts.push(binding.workspaceId);
+        if (gated) await gate.promise;
+        const id = `new-${starts.length}`;
+        running.set(binding.workspaceId, id);
+        return id;
       },
-      stop: async () => {},
-      instance: async () => null,
+      stop: async (binding) => {
+        running.delete(binding.workspaceId);
+      },
     },
   );
-  await supervisor.recover();
+  return {
+    supervisor,
+    starts,
+    saved: () => saved,
+    open() {
+      gated = false;
+      gate.resolve();
+    },
+  };
+}
 
-  expect(await supervisor.command("start", undefined, undefined, { deadline: 1_234 })).toEqual({
-    started: ["fast"],
-    stillStarting: ["slow"],
+const binding = (workspaceId: string, enabled = true): ManagedBinding => ({
+  workspaceId,
+  computerId: "c",
+  workspaceRoot: `/${workspaceId}`,
+  enabled,
+});
+
+test("an operator start answers by its deadline with the Workspaces still under way", async () => {
+  const fixture = gatedFixture([binding("slow", false)]);
+  await fixture.supervisor.recover();
+  const asked = Date.now();
+
+  expect(
+    await fixture.supervisor.command("start", undefined, undefined, { deadline: asked + 100 }),
+  ).toEqual({ started: [], pending: ["slow"] });
+  expect(Date.now() - asked).toBeLessThan(1_000);
+  fixture.open();
+});
+
+test("a start that outlived its command's deadline still finishes and is adopted", async () => {
+  const fixture = gatedFixture([binding("slow", false)]);
+  await fixture.supervisor.recover();
+  await fixture.supervisor.command("start", "slow", undefined, { deadline: Date.now() + 50 });
+
+  fixture.open();
+  // Serialized behind the start still under way: resolves once it has finished.
+  expect((await fixture.supervisor.snapshot())[0]?.instanceId).toBe("new-1");
+  await fixture.supervisor.command("start", "slow");
+  expect(fixture.starts).toEqual(["slow"]);
+});
+
+test("a restart that outlived its command's deadline still records its result, and the next restart runs", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+
+  expect(
+    await fixture.supervisor.command("restart", "a", "first", { deadline: Date.now() + 50 }),
+  ).toEqual({ started: [], pending: ["a"] });
+  fixture.open();
+  await fixture.supervisor.snapshot();
+
+  const [saved] = fixture.saved();
+  expect(saved?.restart).toBeUndefined();
+  expect(saved?.restartResults).toEqual([
+    { requestId: "first", status: "completed", instanceId: "new-1" },
+  ]);
+  expect(await fixture.supervisor.command("restart", "a", "second")).toEqual({
+    started: ["a"],
+    pending: [],
   });
-  expect(deadlines).toEqual([1_234, 1_234]);
+});
+
+test("a command queued behind another lifecycle mutation still answers by its deadline", async () => {
+  const fixture = gatedFixture([binding("a", false), binding("b", false)]);
+  await fixture.supervisor.recover();
+  const first = fixture.supervisor.command("start", "a");
+
+  expect(
+    await fixture.supervisor.command("start", "b", undefined, { deadline: Date.now() + 50 }),
+  ).toEqual({ started: [], pending: ["b"] });
+  fixture.open();
+  await first;
+  await fixture.supervisor.snapshot();
+  expect(fixture.starts).toEqual(["a", "b"]);
+});
+
+test("the view answers while a lifecycle mutation is still under way", async () => {
+  const fixture = gatedFixture([binding("a")]);
+  await fixture.supervisor.recover();
+  void fixture.supervisor.command("restart", "a", "request");
+
+  const view = await fixture.supervisor.view();
+
+  expect(view.map((entry) => entry.workspaceId)).toEqual(["a"]);
+  fixture.open();
 });

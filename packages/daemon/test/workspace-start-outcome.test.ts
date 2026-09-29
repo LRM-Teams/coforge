@@ -60,3 +60,17 @@ test("a Workspace that parks during the wait refuses the command, after the othe
   expect(refusal).toBeInstanceOf(WorkspaceParkedError);
   expect(refusal).toMatchObject({ workspaceId: "gone", code: "workspace_deleted" });
 });
+
+test("Workspaces are watched side by side, so a slow one does not hold back the others' checks", async () => {
+  const asked: string[] = [];
+  const subject = ports({ slow: [{ state: "connecting" }], fast: [{ state: "connecting" }] });
+  const cloudConnection = subject.cloudConnection;
+  subject.cloudConnection = async (workspaceId) => {
+    asked.push(workspaceId);
+    return cloudConnection(workspaceId);
+  };
+
+  await awaitCloudConnections(subject, ["slow", "fast"], 100);
+
+  expect(asked.slice(0, 2)).toEqual(["slow", "fast"]);
+});

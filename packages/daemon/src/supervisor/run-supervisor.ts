@@ -33,7 +33,6 @@ import {
   awaitCloudConnections,
   OPERATOR_COMMAND_BUDGET_MS,
   throwIfParked,
-  WorkspaceStillStartingError,
   type WorkspaceStartPorts,
 } from "./workspace-start-outcome";
 import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
@@ -64,6 +63,8 @@ const RUNNER_HOLD_WORKSPACE_TIMEOUT_MS = 5_000;
 /** How long a Workspace start waits for its process to answer, and an operator start then waits
  * for its first cloud connect to settle. */
 const WORKSPACE_READINESS_MS = 30_000;
+/** How long one post-start handshake read may take before it counts as not answering. */
+const CLOUD_CONNECTION_PROBE_MS = 2_000;
 
 export async function runMachineSupervisor(
   args: string[],
@@ -178,9 +179,13 @@ async function runWithSupervisorLock(
       return health.status === "parked" ? health.reason : undefined;
     },
     async cloudConnection(id) {
-      const reported = await childClient(id)
-        .identity()
-        .catch(() => null);
+      // Bounded well inside the command's margin: a child socket that accepts and then stalls
+      // must not hold the operator's answer.
+      const reported = await answeredWithin(
+        childClient(id).identity(),
+        CLOUD_CONNECTION_PROBE_MS,
+        "Workspace handshake timed out",
+      ).catch(() => null);
       return reported?.cloudConnection
         ? {
             state: reported.cloudConnection,
@@ -354,7 +359,7 @@ async function runWithSupervisorLock(
   const supervisor = new MachineSupervisor(
     bindings,
     {
-      async start(binding, options = {}) {
+      async start(binding) {
         const directory = workspaceDirectory(binding.workspaceId);
         // A degraded Workspace must fail fast, not spend up to 30s discovering the OS unit will
         // never open local RPC: the replacement child would itself observe the same latch and
@@ -397,10 +402,9 @@ async function runWithSupervisorLock(
           osInstanceId: observed.invocationId,
         });
         const client = childClient(binding.workspaceId);
-        // An operator command's own deadline caps readiness: past it, the Workspace is reported
-        // still starting instead of the command outlasting its caller.
-        const commandDeadline = options.deadline ?? Number.POSITIVE_INFINITY;
-        const deadline = Math.min(Date.now() + WORKSPACE_READINESS_MS, commandDeadline);
+        // Readiness keeps its own bound whoever asked: an operator command answers by its own
+        // deadline while this start finishes behind it, so the instance is still adopted.
+        const deadline = Date.now() + WORKSPACE_READINESS_MS;
         try {
           while (Date.now() < deadline) {
             const reported = await client.identity().catch(() => null);
@@ -417,8 +421,6 @@ async function runWithSupervisorLock(
             if (!reported) await throwIfParked(startPorts, binding.workspaceId);
             await Bun.sleep(50);
           }
-          if (deadline === commandDeadline)
-            throw new WorkspaceStillStartingError(binding.workspaceId);
           throw new Error(`Workspace ${binding.workspaceId} failed process readiness`);
         } catch (error) {
           // A failed handshake is not permission to kill an adopted live unit.
@@ -434,12 +436,14 @@ async function runWithSupervisorLock(
         children.delete(binding.workspaceId);
       },
       async instance(binding) {
+        const before = children.get(binding.workspaceId);
         const observed = await workspaceInstance(binding.workspaceId).identity();
         // Require `active`: a durable Windows record can keep mainPid after death; treating that
         // as the live instance would skip ensureStarted and leave the Workspace down.
         if (observed?.active) return observed.invocationId;
-        // A child that exited on its own (a parked Workspace does) is reaped here.
-        children.delete(binding.workspaceId);
+        // A child that exited on its own (a parked Workspace does) is reaped here, unless a start
+        // running beside this read (the view does not wait for it) recorded a new one meanwhile.
+        if (children.get(binding.workspaceId) === before) children.delete(binding.workspaceId);
         return null;
       },
       // Per-Workspace, so a restart never reaches past its own target: an unscoped restart holds
@@ -462,9 +466,10 @@ async function runWithSupervisorLock(
   const scopedCredentials = (workspaceId: string) =>
     new FileDaemonCredentialStore(workspaceDirectory(workspaceId));
   /**
-   * An operator start or restart under one deadline for the whole command: every Workspace it
-   * started is answered with where its first cloud connect stands, and one the cloud refused for
-   * good refuses the command with its park.
+   * An operator start or restart answers under one deadline for the whole command: every
+   * Workspace it started is answered with where its first cloud connect stands, one still under
+   * way (queued, holding, stopping, or starting) as still connecting while its work finishes
+   * behind the answer, and one the cloud refused for good refuses the command with its park.
    */
   const startForOperator = async (
     operation: "start" | "restart",
@@ -472,20 +477,17 @@ async function runWithSupervisorLock(
     requestId: string,
   ) => {
     const deadline = Date.now() + OPERATOR_COMMAND_BUDGET_MS;
-    const { started, stillStarting } = await supervisor.command(
+    const { started, pending } = await supervisor.command(
       operation,
       workspaceId,
       operation === "restart" ? requestId : undefined,
       { deadline },
     );
-    // A Workspace still starting past the deadline is checked once more and answers "connecting".
-    const outcomes = await awaitCloudConnections(
-      startPorts,
-      [...started, ...stillStarting],
-      deadline,
-    );
+    // Only finished Workspaces are asked: one still restarting may be answered by its old process.
+    const outcomes = await awaitCloudConnections(startPorts, started, deadline);
     const answered = new Map(outcomes.map((outcome) => [outcome.workspaceId, outcome]));
-    return (await snapshot()).map((runtime) => {
+    for (const id of pending) answered.set(id, { workspaceId: id, cloudConnection: "connecting" });
+    return (await view()).map((runtime) => {
       const outcome = answered.get(runtime.workspaceId);
       if (!outcome) return runtime;
       return {
@@ -497,9 +499,9 @@ async function runWithSupervisorLock(
   };
   /** Each binding's live identity, or processId 0 once its OS instance is gone (a child that
    * exited, e.g. after parking, is reaped here), plus why it is parked, when it is. */
-  const snapshot = async () =>
+  const runtimes = async (bindings: Awaited<ReturnType<typeof supervisor.snapshot>>) =>
     Promise.all(
-      (await supervisor.snapshot()).map(async (binding) => {
+      bindings.map(async (binding) => {
         const child = children.get(binding.workspaceId);
         if (child && binding.instanceId === child.osInstanceId)
           return { ...child.identity, enabled: binding.enabled };
@@ -517,6 +519,11 @@ async function runWithSupervisorLock(
         };
       }),
     );
+  /** After every lifecycle mutation queued so far: what the Coordinator's own steps act on. */
+  const snapshot = async () => runtimes(await supervisor.snapshot());
+  /** Without waiting behind a mutation still under way: what an operator reads (`status`, a
+   * command's answer), so it never outlasts the local lifecycle client. */
+  const view = async () => runtimes(await supervisor.view());
   const completeUpgrade = async (
     workspaceId: string,
     requestId: string,
@@ -764,11 +771,11 @@ async function runWithSupervisorLock(
                 throw new Error("unknown lifecycle operation");
               if (operation === "stop") {
                 await supervisor.command(operation, request.workspaceId);
-                return snapshot();
+                return view();
               }
               return startForOperator(operation, request.workspaceId, request.requestId);
             }
-            return snapshot();
+            return view();
           },
         },
       });
