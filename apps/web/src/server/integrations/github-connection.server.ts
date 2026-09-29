@@ -116,7 +116,7 @@ const graphqlGitActorSchema = z.object({
 const graphqlCommitNodeSchema = z.object({
   oid: gitObjectIdSchema,
   messageHeadline: z.string().max(100_000),
-  committedDate: z.string().datetime().nullable(),
+  committedDate: z.iso.datetime().nullable(),
   author: graphqlGitActorSchema.nullable(),
   /** Git author plus `Co-authored-by` trailers; the git author is always first. */
   authors: z.object({ nodes: z.array(graphqlGitActorSchema).max(5) }),
@@ -160,7 +160,7 @@ const repositoryOverviewQuerySchema = z.object({
 const graphqlPathCommitSchema = z.object({
   oid: gitObjectIdSchema,
   messageHeadline: z.string().max(100_000),
-  committedDate: z.string().datetime().nullable(),
+  committedDate: z.iso.datetime().nullable(),
 });
 const pathHistoryQuerySchema = z.object({
   data: z
@@ -220,7 +220,7 @@ const graphqlPathLatestCommitSchema = z.object({
                         z.object({
                           oid: gitObjectIdSchema,
                           messageHeadline: z.string().max(100_000),
-                          committedDate: z.string().datetime().nullable(),
+                          committedDate: z.iso.datetime().nullable(),
                           /** Git author plus `Co-authored-by` trailers; the git author is first. */
                           authors: z.object({ nodes: z.array(graphqlGitActorSchema).max(5) }),
                           committer: graphqlGitActorSchema.nullable(),

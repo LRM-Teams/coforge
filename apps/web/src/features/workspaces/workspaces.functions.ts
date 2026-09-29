@@ -66,7 +66,7 @@ export type MemberDirectorySummary = Awaited<ReturnType<typeof loadMemberDirecto
 
 const pageInput = {
   query: z.string().max(200).default(""),
-  cursor: z.string().uuid().optional(),
+  cursor: z.uuid().optional(),
   limit: z.number().int().min(1).max(MEMBER_PAGE_MAX),
 };
 

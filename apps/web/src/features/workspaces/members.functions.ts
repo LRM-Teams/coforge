@@ -20,12 +20,12 @@ const inviteInputSchema = z.object({
 });
 
 const updateRoleInputSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.uuid(),
   role: z.enum(["admin", "member"]),
 });
 
-const targetUserInputSchema = z.object({ userId: z.string().uuid() });
-const invitationIdInputSchema = z.object({ invitationId: z.string().uuid() });
+const targetUserInputSchema = z.object({ userId: z.uuid() });
+const invitationIdInputSchema = z.object({ invitationId: z.uuid() });
 
 export const loadWorkspaceMembers = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
