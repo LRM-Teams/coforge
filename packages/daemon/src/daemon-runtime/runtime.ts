@@ -978,7 +978,8 @@ export class DaemonRuntime {
       (value, run) =>
         heldControl.latestFor(value.agentId, kind, run);
     const control: Hold<unknown> = (_value, run) => heldControl.add(run);
-    const notice: Hold<unknown> = (_value, run) => heldMessages.notice(run);
+    const notice: Hold<{ agentId: string }> = (value, run) =>
+      heldMessages.notice(value.agentId, run);
     const failure =
       <Request extends AgentStopIntent | AgentWorkspaceResetRequest | AgentMessageDelivery>(
         operation: "stop" | "workspace_reset" | "message_delivery",

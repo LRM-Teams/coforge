@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { WorkspaceParkedError } from "#src/supervisor/workspace-health-journal";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { dirname } from "node:path";
 import {
   awaitCloudConnections,
+  readWorkspaceCloudConnection,
+  workspaceSocketPath,
   type WorkspaceStartPorts,
 } from "#src/supervisor/workspace-start-outcome";
 
@@ -87,4 +91,24 @@ test("Workspaces are watched side by side, so a slow one does not hold back the 
   await awaitCloudConnections(subject, ["slow", "fast"], 100);
 
   expect(asked.slice(0, 2)).toEqual(["slow", "fast"]);
+});
+
+test("a Workspace that accepts its socket and never answers is reported unknown, and its socket is closed", async () => {
+  // Short on purpose: a Unix socket path has a small length limit.
+  const stateRoot = await mkdtemp("/tmp/cf-");
+  const socketPath = workspaceSocketPath(stateRoot, "w");
+  await mkdir(dirname(socketPath), { recursive: true });
+  const closed = Promise.withResolvers<void>();
+  const listener = Bun.listen({
+    unix: socketPath,
+    socket: { data() {}, close: () => closed.resolve() },
+  });
+  try {
+    expect(await readWorkspaceCloudConnection(stateRoot, "w")).toBeNull();
+    // Closed by the probe itself, not left for the lifecycle request's own 35 s timeout.
+    await closed.promise;
+  } finally {
+    listener.stop(true);
+    await rm(stateRoot, { recursive: true, force: true });
+  }
 });

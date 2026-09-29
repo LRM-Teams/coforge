@@ -616,7 +616,9 @@ export class DaemonConnection implements DaemonConnectionClient {
       client.on("connected", () => {
         if (client !== this.#client) return;
         this.#failPendingStart = undefined;
-        this.#stableSinceMs = undefined;
+        // A connection that proved stable ended its outage even if it came back without an error
+        // in between: whatever fails on this new connection begins a new one.
+        this.#endOutageIfStable(this.#nowMs());
         this.#connectFailure = undefined;
         const reconnect = this.#hasConnected;
         this.#connected = true;
@@ -689,6 +691,8 @@ export class DaemonConnection implements DaemonConnectionClient {
     const now = this.#nowMs();
     this.#endOutageIfStable(now);
     this.#connectFailure = failure;
+    // The connection itself is what fails now; a ready failure from before no longer describes it.
+    this.#readyFailure = undefined;
     const outage = (this.#outage ??= { failures: 0, sinceMs: now, resumes: 0 });
     outage.failures += 1;
     const properties = {
@@ -1685,8 +1689,9 @@ export class DaemonConnection implements DaemonConnectionClient {
     // The common case: nothing is held, so nothing is allocated either.
     if (!held) return void slot.current?.(value);
     const run = () => slot.current?.(value);
-    if (hold === "notice") held.notice(run);
-    else if (hold) held.latestFor(value.agentId ?? "", hold, run);
+    const agentId = value.agentId ?? "";
+    if (hold === "notice") held.notice(agentId, run);
+    else if (hold) held.latestFor(agentId, hold, run);
     else held.add(run);
   }
 

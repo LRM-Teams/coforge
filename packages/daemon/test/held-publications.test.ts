@@ -11,20 +11,22 @@ test("a keyed item replaces the earlier one under its key and takes the newer ar
   expect(held.take()).toEqual({ items: ["stop-1", "purge-1", "start-2"], dropped: 0 });
 });
 
-test("delivery notices past the cap are dropped and counted, never held", () => {
+test("past the cap, each Agent keeps only its latest notice and the rest are dropped and counted", () => {
   const held = new HeldPublications<string>(2);
 
-  for (const notice of ["a", "b", "c", "d"]) held.notice(notice);
+  for (const notice of ["a1", "a2", "a3", "a4"]) held.notice("agent-a", notice);
+  held.notice("agent-b", "b1");
 
-  expect(held.take()).toEqual({ items: ["a", "b"], dropped: 2 });
+  expect(held.take()).toEqual({ items: ["a1", "a2", "a4", "b1"], dropped: 1 });
 });
 
 test("take empties the buffer and starts a fresh count", () => {
   const held = new HeldPublications<string>(1);
-  held.notice("a");
-  held.notice("b");
+  held.notice("agent-a", "a");
+  held.notice("agent-a", "b");
+  held.notice("agent-a", "x");
   held.take();
 
-  held.notice("c");
+  held.notice("agent-a", "c");
   expect(held.take()).toEqual({ items: ["c"], dropped: 0 });
 });
