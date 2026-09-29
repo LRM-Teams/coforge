@@ -8,11 +8,16 @@ export class UserIdentityRepository {
     providerSubject: string,
     profile?: { email?: string | null; preferredUsername?: string | null },
   ) {
+    // The provider's latest email is stored on every login; it never selects the User.
+    const email = profile?.email || undefined;
     const identity = await this.db.userIdentity.findUnique({
       where: { provider_providerSubject: { provider, providerSubject } },
       include: { user: true },
     });
-    if (identity) return identity.user;
+    if (identity) {
+      if (!email || identity.user.email === email) return identity.user;
+      return this.db.user.update({ where: { id: identity.user.id }, data: { email } });
+    }
     const id = crypto.randomUUID();
     const preferred = validUsername(profile?.preferredUsername);
     const local = normalizeUsername(profile?.email?.split("@", 1)[0] ?? "") || "user";
@@ -30,6 +35,7 @@ export class UserIdentityRepository {
         data: {
           id,
           username,
+          email,
           identities: { create: { provider, providerSubject } },
         },
       });
