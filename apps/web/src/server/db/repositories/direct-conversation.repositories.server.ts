@@ -58,6 +58,7 @@ import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
 import {
   browserMessageFields,
+  browserRootMessageFields,
   mapBrowserMessage,
   type BrowserMessageRow,
 } from "#src/server/conversations/conversation-history.server";
@@ -1135,10 +1136,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         // itself is re-sorted by sequence below, so only the overflow row's presence matters.
         orderBy: { sequence: forward ? ("asc" as const) : ("desc" as const) },
         take: limit + 1,
-        select: {
-          ...browserMessageFields,
-          replies: { orderBy: { sequence: "asc" }, select: browserMessageFields },
-        },
+        select: browserRootMessageFields,
       }),
     ]);
     const overflow = windowRows.length > limit;
