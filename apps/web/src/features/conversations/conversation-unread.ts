@@ -9,8 +9,10 @@ import {
 import {
   decodeChannelUpdatedEvent,
   decodeMessageAvailableEvent,
+  decodeViewerEvent,
   userConversationChannel,
   workspaceConversationChannel,
+  type ViewerEvent,
 } from "./conversation-realtime";
 
 /**
@@ -108,6 +110,63 @@ export function clearUnread(
 }
 
 /**
+ * The viewer's read cursor in a channel moved (`channel.marked.v1`): read or marked unread here,
+ * in another tab or on another device. The badge takes the count the move left, as Slack's
+ * `channel_marked` sets `unread_count`; the sequence boundary stays. The channel on screen keeps
+ * no badge, like `applyUnreadEvent`.
+ */
+export function applyChannelMarked(
+  current: UnreadCounts,
+  event: Extract<ViewerEvent, { type: "channel.marked.v1" }>,
+  options: { openConversationId?: string },
+): UnreadCounts {
+  const key = event.conversationId;
+  if (key === options.openConversationId) return current;
+  if ((current[key] ?? 0) === event.unreadCount) return current;
+  const next = { ...current };
+  if (event.unreadCount > 0) next[key] = event.unreadCount;
+  else delete next[key];
+  return next;
+}
+
+/** A sidebar list the Chat page keeps: the channel rows or the DM rows. */
+export type SidebarList = "channels" | "dms";
+
+/**
+ * Which of the sidebar's lists a viewer event makes stale, for the page to re-read those alone. A
+ * read carries its own count (`applyChannelMarked`) and needs none; pins are one order across
+ * channels and DMs, so they touch both.
+ */
+export function sidebarListsChangedBy(event: ViewerEvent): readonly SidebarList[] {
+  if (event.type === "channel.marked.v1") return [];
+  if (event.type === "pref.changed.v1" && event.name === "pins") return ["channels", "dms"];
+  return ["channels"];
+}
+
+/**
+ * Coalesces sidebar re-reads: lists named before a re-read starts go into it, and lists named
+ * while one is running go into a single re-read after it, so a burst of events costs at most one
+ * read in flight and one queued. Each call settles once a re-read covering its lists has.
+ */
+export function sidebarRefreshQueue(read: (lists: ReadonlySet<SidebarList>) => Promise<void>) {
+  let running: Promise<void> = Promise.resolve();
+  let queued: { lists: Set<SidebarList>; done: Promise<void> } | undefined;
+  return (lists: readonly SidebarList[]): Promise<void> => {
+    if (!queued) {
+      const batch = new Set<SidebarList>();
+      const done = running.then(() => {
+        queued = undefined;
+        return read(batch);
+      });
+      running = done.catch(() => undefined);
+      queued = { lists: batch, done };
+    }
+    for (const list of lists) queued.lists.add(list);
+    return queued.done;
+  };
+}
+
+/**
  * The highest top-level sequence in a loaded conversation page — the boundary "I have read
  * everything shown in the main pane". Thread replies never advance it. Shared by
  * the channel and DM routes so the two mark-read paths cannot drift.
@@ -191,7 +250,7 @@ export function useChannelUnread({
   openConversationId,
   listedConversationIds,
   onClosedConversationActivity,
-  onChannelUpdated,
+  onSidebarListsChanged,
 }: {
   workspaceId?: string;
   /** The viewer, whose own direct-message signal channel carries their DM badges. */
@@ -204,8 +263,9 @@ export function useChannelUnread({
   listedConversationIds: ReadonlySet<string>;
   /** A new message arrived in a closed chat: the sidebar re-reads its list to bring it back. */
   onClosedConversationActivity: () => void;
-  /** A channel was renamed, described, archived or unarchived: the sidebar re-reads its list. */
-  onChannelUpdated: () => void;
+  /** These lists are stale: a channel was renamed, described, archived or unarchived
+   * (`channel.updated.v1`), or the viewer's own place in a chat changed elsewhere (`ViewerEvent`). */
+  onSidebarListsChanged: (lists: readonly SidebarList[]) => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
@@ -215,20 +275,20 @@ export function useChannelUnread({
     openConversationId,
     listedConversationIds,
     onClosedConversationActivity,
-    onChannelUpdated,
+    onSidebarListsChanged,
   });
   refs.current = {
     channels,
     openConversationId,
     listedConversationIds,
     onClosedConversationActivity,
-    onChannelUpdated,
+    onSidebarListsChanged,
   };
 
   const onPublication = useCallback((publication: { data: unknown }) => {
     try {
       decodeChannelUpdatedEvent(publication.data);
-      refs.current.onChannelUpdated();
+      refs.current.onSidebarListsChanged(["channels"]);
       return;
     } catch {
       // Not a channel update; the other payload is a message signal.
@@ -259,10 +319,26 @@ export function useChannelUnread({
     getToken: workspaceId ? getWorkspaceToken : undefined,
     onPublication,
   });
+  // The viewer's own channel also carries their `ViewerEvent`s; the Workspace channel never does.
+  const onUserPublication = useCallback(
+    (publication: { data: unknown }) => {
+      const event = decodeViewerEvent(publication.data);
+      if (!event) return onPublication(publication);
+      if (event.type === "channel.marked.v1")
+        setCounts((current) =>
+          applyChannelMarked(current, event, {
+            openConversationId: refs.current.openConversationId,
+          }),
+        );
+      const lists = sidebarListsChangedBy(event);
+      if (lists.length > 0) refs.current.onSidebarListsChanged(lists);
+    },
+    [onPublication],
+  );
   useRealtimeSubscription({
     channel: userId ? userConversationChannel(userId) : undefined,
     getToken: userId ? getUserToken : undefined,
-    onPublication,
+    onPublication: onUserPublication,
   });
 
   const clear = useCallback(

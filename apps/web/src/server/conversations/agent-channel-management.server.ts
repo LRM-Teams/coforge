@@ -13,7 +13,11 @@ import {
   channelAuthorityDeniedError,
 } from "./agent-channel-management-error.server";
 import { PublicChannels } from "./public-channels.server";
-import { announceMemberChanged, type ConversationRealtime } from "./conversation-realtime.server";
+import {
+  announceMemberChanged,
+  announceJoinedOrLeft,
+  type ConversationRealtime,
+} from "./conversation-realtime.server";
 import {
   hasChannelAdminAuthority,
   resolveChannelAuthority,
@@ -394,6 +398,7 @@ export class AgentChannelManagement {
       throw new AgentChannelManagementError(400, "cannot remove a member from #general");
     let wasMember: boolean;
     let removedAgentId: string | undefined;
+    let removedUserIds: string[] = [];
     if (kind === "agent") {
       const agentRow = await this.db.agent.findFirst({
         where: { workspaceId, name: handle },
@@ -434,9 +439,15 @@ export class AgentChannelManagement {
         data: { leftAt: new Date() },
       });
       wasMember = result.count > 0;
+      if (wasMember) removedUserIds = [user.id];
     }
     if (wasMember)
-      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
+      await announceJoinedOrLeft(this.realtime, {
+        workspaceId,
+        conversationId: channel.id,
+        change: "left",
+        userIds: removedUserIds,
+      });
     if (removedAgentId)
       await this.inboxPurge.purge({
         workspaceId,

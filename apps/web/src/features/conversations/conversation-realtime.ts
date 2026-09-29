@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { utf8Decoder } from "@lrm/coforge-sdk/internal";
 export const conversationRealtimeChannel = (conversationId: string) => `chat:${conversationId}`;
 
@@ -18,7 +19,8 @@ export const workspaceConversationChannel = (workspaceId: string) =>
  * The viewer's own direct-message signal channel. A DM event is published here (and on its
  * conversation channel) instead of the workspace channel, so direct-message metadata never
  * reaches every Workspace member; each publication names who is on the other side, which is how
- * the sidebar tells a DM's event from a channel's.
+ * the sidebar tells a DM's event from a channel's. It also carries the viewer's own
+ * `ViewerEvent`s (their reads, joins, closes, mutes and pins, wherever they made them).
  */
 export const userConversationChannel = (userId: string) => `chat:user:${userId}`;
 
@@ -200,4 +202,57 @@ export function decodeChannelUpdatedEvent(value: unknown): ChannelUpdatedEvent {
   )
     throw new Error("invalid conversation event");
   return { type, conversationId, workspaceId };
+}
+
+/**
+ * Something about the viewer's own place in a channel changed, wherever they changed it (this tab,
+ * another tab, another device) or whoever changed it for them (added to or removed from a
+ * channel). Published only on the viewer's own `chat:user:<user_id>` channel, the way Slack sends
+ * `channel_marked`, `channel_joined`, `channel_left` and `pref_change` to every connection of one
+ * user. Like the other signals it names ids only, except that `channel.marked.v1` carries the
+ * channel's unread count after the move, as Slack's `channel_marked` does, so a read in the open
+ * channel updates the sidebar without a list re-read per message.
+ *
+ * - `channel.marked.v1`: the read cursor moved (read, marked unread, marked Done).
+ * - `channel.joined.v1` / `channel.left.v1`: the viewer joined, was added, created, left or was removed.
+ * - `channel.closed.v1` / `channel.opened.v1`: the viewer closed the chat in their list, or brought it back.
+ * - `pref.changed.v1`: the viewer's `muted` state of a channel, or their `pins` (pin, unpin, order).
+ */
+const viewerEventIds = { workspaceId: z.string().min(1), conversationId: z.string().min(1) };
+const viewerEvent = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("channel.marked.v1"),
+    ...viewerEventIds,
+    unreadCount: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.enum([
+      "channel.joined.v1",
+      "channel.left.v1",
+      "channel.closed.v1",
+      "channel.opened.v1",
+    ]),
+    ...viewerEventIds,
+  }),
+  z.object({
+    type: z.literal("pref.changed.v1"),
+    workspaceId: z.string().min(1),
+    name: z.enum(["muted", "pins"]),
+  }),
+]);
+
+export type ViewerEvent = z.infer<typeof viewerEvent>;
+
+/** The event, or undefined for any other publication on the viewer's channel (most are messages). */
+export function decodeViewerEvent(value: unknown): ViewerEvent | undefined {
+  let data = value;
+  if (value instanceof Uint8Array) {
+    try {
+      data = JSON.parse(utf8Decoder.decode(value)) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  const parsed = viewerEvent.safeParse(data);
+  return parsed.success ? parsed.data : undefined;
 }

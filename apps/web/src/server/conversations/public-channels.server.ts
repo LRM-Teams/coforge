@@ -5,7 +5,11 @@ import { AppError, isAppError } from "#src/lib/app-error";
 import { CHANNEL_NAME_PATTERN } from "@lrm/coforge-sdk/internal";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
-import { HUMAN_UNREAD_MESSAGE_SQL, markUnreadAnchor } from "./human-unread.server";
+import {
+  HUMAN_UNREAD_MESSAGE_SQL,
+  humanUnreadCount,
+  markUnreadAnchor,
+} from "./human-unread.server";
 import {
   channelActorMemberWhere,
   deriveChannelAdminBasis,
@@ -57,7 +61,8 @@ import { toggleUserMessageReaction } from "./user-message-reactions.server";
 import {
   announceChannelTasksDeleted,
   announceChannelUpdated,
-  announceMemberChanged,
+  announceJoinedOrLeft,
+  announceViewerEvent,
   type ConversationRealtime,
 } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
@@ -94,6 +99,29 @@ export async function softLeaveMember(
     data: { leftAt: new Date() },
   });
   return result.count > 0;
+}
+
+/**
+ * Sets fields on a person's active membership row unless they already hold `unless`, and says
+ * whether anything changed, so an unchanged write announces nothing. A person who is not an active
+ * member is refused with `ACCESS_DENIED`.
+ */
+async function changeMemberRow(
+  tx: Prisma.TransactionClient,
+  member: { conversationId: string; userId: string },
+  change: {
+    unless: Prisma.ConversationMemberWhereInput;
+    data: Prisma.ConversationMemberUpdateManyMutationInput;
+  },
+): Promise<boolean> {
+  const where = { ...member, ...ACTIVE_MEMBER_WHERE };
+  const updated = await tx.conversationMember.updateMany({
+    where: { ...where, NOT: change.unless },
+    data: change.data,
+  });
+  if (updated.count > 0) return true;
+  if ((await tx.conversationMember.count({ where })) === 0) throw new AppError("ACCESS_DENIED");
+  return false;
 }
 
 /** Nested creation keeps a new Workspace's `#general` inside the Workspace creation write, with
@@ -396,14 +424,22 @@ export class PublicChannels {
 
   async setUserMuted(workspaceId: string, userId: string, channelId: string, muted: boolean) {
     const channel = await this.channel(workspaceId, userId, channelId);
-    await this.db.$transaction(async (tx) => {
+    const changed = await this.db.$transaction(async (tx) => {
       await lockConversation(tx, channel.id);
-      const updated = await tx.conversationMember.updateMany({
-        where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
-        data: { channelMuted: muted },
-      });
-      if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
+      return changeMemberRow(
+        tx,
+        { conversationId: channel.id, userId },
+        {
+          unless: { channelMuted: muted },
+          data: { channelMuted: muted },
+        },
+      );
     });
+    if (changed)
+      await announceViewerEvent(this.realtime, {
+        userIds: [userId],
+        event: { type: "pref.changed.v1", workspaceId, name: "muted" },
+      });
     return { muted };
   }
 
@@ -435,7 +471,7 @@ export class PublicChannels {
     sortOrder?: number,
   ) {
     const channel = await this.channel(workspaceId, userId, channelId);
-    await this.db.$transaction(async (tx) => {
+    const changed = await this.db.$transaction(async (tx) => {
       await lockMemberPins(tx, workspaceId, userId);
       await lockConversation(tx, channel.id);
       const member = await tx.conversationMember.findFirst({
@@ -443,13 +479,18 @@ export class PublicChannels {
         select: { id: true },
       });
       if (!member) throw new AppError("ACCESS_DENIED");
-      await setConversationPin(
+      return setConversationPin(
         tx,
         { workspaceId, userId, conversationId: channel.id, memberId: member.id },
         pinned,
         sortOrder,
       );
     });
+    if (changed)
+      await announceViewerEvent(this.realtime, {
+        userIds: [userId],
+        event: { type: "pref.changed.v1", workspaceId, name: "pins" },
+      });
     return { pinned };
   }
 
@@ -459,11 +500,11 @@ export class PublicChannels {
   async setUserUnread(workspaceId: string, userId: string, channelId: string, unread: boolean) {
     const channel = await this.channel(workspaceId, userId, channelId);
     let marker: number | null = null;
-    await this.db.$transaction(async (tx) => {
+    const changed = await this.db.$transaction(async (tx) => {
       await lockConversation(tx, channel.id);
       const member = await tx.conversationMember.findFirst({
         where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
-        select: { id: true },
+        select: { id: true, unreadFromSequence: true },
       });
       if (!member) throw new AppError("ACCESS_DENIED");
       if (unread) marker = await markUnreadAnchor(tx, channel.id, member.id);
@@ -473,7 +514,18 @@ export class PublicChannels {
         data: { unreadFromSequence: marker },
       });
       if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
+      return member.unreadFromSequence !== marker;
     });
+    if (changed)
+      await announceViewerEvent(this.realtime, {
+        userIds: [userId],
+        event: {
+          type: "channel.marked.v1",
+          workspaceId,
+          conversationId: channel.id,
+          unreadCount: await humanUnreadCount(this.db, channel.id, userId),
+        },
+      });
     return { unread: marker !== null };
   }
 
@@ -482,14 +534,26 @@ export class PublicChannels {
    * the conversations stays readable. */
   async setUserHidden(workspaceId: string, userId: string, channelId: string, hidden: boolean) {
     const channel = await this.channel(workspaceId, userId, channelId);
-    await this.db.$transaction(async (tx) => {
+    const changed = await this.db.$transaction(async (tx) => {
       await lockConversation(tx, channel.id);
-      const updated = await tx.conversationMember.updateMany({
-        where: { conversationId: channel.id, userId, ...ACTIVE_MEMBER_WHERE },
-        data: { hiddenAt: hidden ? new Date() : null },
-      });
-      if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
+      return changeMemberRow(
+        tx,
+        { conversationId: channel.id, userId },
+        {
+          unless: { hiddenAt: hidden ? { not: null } : null },
+          data: { hiddenAt: hidden ? new Date() : null },
+        },
+      );
     });
+    if (changed)
+      await announceViewerEvent(this.realtime, {
+        userIds: [userId],
+        event: {
+          type: hidden ? "channel.closed.v1" : "channel.opened.v1",
+          workspaceId,
+          conversationId: channel.id,
+        },
+      });
     return { hidden };
   }
 
@@ -795,8 +859,9 @@ export class PublicChannels {
       });
       if (!project) throw new AppError("INVALID_INPUT");
     }
+    let created: { id: string };
     try {
-      return await this.db.conversation.create({
+      created = await this.db.conversation.create({
         data: {
           workspaceId,
           channelName: name,
@@ -811,6 +876,11 @@ export class PublicChannels {
       if (isUniqueViolation(error)) throw new AppError("CONFLICT");
       throw error;
     }
+    await announceViewerEvent(this.realtime, {
+      userIds: [userId],
+      event: { type: "channel.joined.v1", workspaceId, conversationId: created.id },
+    });
+    return created;
   }
 
   /**
@@ -1118,7 +1188,10 @@ export class PublicChannels {
     // an admin Agent has a row with `leftAt` set, which re-joining must clear rather than skip.
     // (Re-)joining starts already-read at the channel's current top-level end: the badge
     // counts what arrives *after* you joined, never the backlog that existed before.
-    await this.db.$transaction(async (tx) => {
+    const alreadyIn = await this.db.$transaction(async (tx) => {
+      const active = await tx.conversationMember.count({
+        where: { conversationId: channelId, userId, ...ACTIVE_MEMBER_WHERE },
+      });
       await tx.conversationMember.upsert({
         where: { conversationId_userId: { conversationId: channelId, userId } },
         create: { workspaceId, userId, conversationId: channelId },
@@ -1133,8 +1206,15 @@ export class PublicChannels {
         where: { conversationId: channelId, userId },
         data: { readThroughSequence: latest?.sequence ?? 0 },
       });
+      return active > 0;
     });
-    await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channelId] });
+    if (!alreadyIn)
+      await announceJoinedOrLeft(this.realtime, {
+        workspaceId,
+        conversationId: channelId,
+        change: "joined",
+        userIds: [userId],
+      });
   }
 
   /**
@@ -1147,15 +1227,15 @@ export class PublicChannels {
     await this.channel(workspaceId, userId, channelId);
     if (!Number.isSafeInteger(throughSequence) || throughSequence < 1)
       throw new AppError("INVALID_INPUT");
-    await this.db.$transaction(async (tx) => {
+    const moved = await this.db.$transaction(async (tx) => {
       const latest = await tx.message.findFirst({
         where: { conversationId: channelId },
         orderBy: { sequence: "desc" },
         select: { sequence: true },
       });
       const boundary = Math.min(throughSequence, latest?.sequence ?? 0);
-      if (boundary < 1) return;
-      await tx.conversationMember.updateMany({
+      if (boundary < 1) return undefined;
+      const advanced = await tx.conversationMember.updateMany({
         where: {
           conversationId: channelId,
           userId,
@@ -1166,7 +1246,7 @@ export class PublicChannels {
       });
       // Reading past the forced `mark as unread` marker consumes it, so the badge does not come
       // back on the next render (see the marker's note in the schema).
-      await tx.conversationMember.updateMany({
+      const consumed = await tx.conversationMember.updateMany({
         where: {
           conversationId: channelId,
           userId,
@@ -1175,6 +1255,20 @@ export class PublicChannels {
         },
         data: { unreadFromSequence: null },
       });
+      if (advanced.count === 0 && consumed.count === 0) return undefined;
+      return { throughLatest: boundary === latest?.sequence };
+    });
+    // A read that moved the cursor tells the reader's other pages the badge it leaves (Slack's
+    // `channel_marked`); one that moved nothing says nothing, so an open channel reading along
+    // with new messages announces only real moves. Read through the newest message, nothing is
+    // left; otherwise the count is read after the commit, outside the write.
+    if (!moved) return;
+    const unreadCount = moved.throughLatest
+      ? 0
+      : await humanUnreadCount(this.db, channelId, userId);
+    await announceViewerEvent(this.realtime, {
+      userIds: [userId],
+      event: { type: "channel.marked.v1", workspaceId, conversationId: channelId, unreadCount },
     });
   }
 
@@ -1190,7 +1284,12 @@ export class PublicChannels {
     if (channel.channelName === "general") throw new AppError("CONFLICT");
     const wasMember = await softLeaveMember(this.db, channel.id, { userId });
     if (!wasMember) throw new AppError("ACCESS_DENIED");
-    await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
+    await announceJoinedOrLeft(this.realtime, {
+      workspaceId,
+      conversationId: channel.id,
+      change: "left",
+      userIds: [userId],
+    });
     return { left: true };
   }
 
@@ -1231,7 +1330,12 @@ export class PublicChannels {
     if (!authority.capabilities.remove_member) throw new AppError("ACCESS_DENIED");
     const wasMember = await softLeaveMember(this.db, channel.id, target);
     if (wasMember)
-      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channel.id] });
+      await announceJoinedOrLeft(this.realtime, {
+        workspaceId,
+        conversationId: channel.id,
+        change: "left",
+        userIds: "userId" in target ? [target.userId] : [],
+      });
     if (wasMember && "agentId" in target)
       await this.inboxPurge.purge({
         workspaceId,
@@ -1510,7 +1614,12 @@ export class PublicChannels {
     const added =
       userIds.length - alreadyMemberUserIds.length + agentIds.length - alreadyMemberAgentIds.length;
     if (added > 0)
-      await announceMemberChanged(this.realtime, { workspaceId, conversationIds: [channelId] });
+      await announceJoinedOrLeft(this.realtime, {
+        workspaceId,
+        conversationId: channelId,
+        change: "joined",
+        userIds: userIds.filter((userId) => !alreadyActiveUserIds.has(userId)),
+      });
 
     const result = await this.members(workspaceId, actor, channelId);
     return { ...result, alreadyMemberUserIds, alreadyMemberAgentIds };

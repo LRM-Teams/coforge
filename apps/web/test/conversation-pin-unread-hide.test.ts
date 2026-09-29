@@ -63,6 +63,7 @@ function fixture(options: { member?: boolean; newestSequence?: number } = {}) {
     },
     conversationMember: {
       findFirst: async () => (options.member === false ? null : { id: memberId }),
+      count: async () => (options.member === false ? 0 : 1),
       updateMany: async ({ data }: { data: Partial<MemberState> }) => {
         if (options.member === false) return { count: 0 };
         writes.push(data);

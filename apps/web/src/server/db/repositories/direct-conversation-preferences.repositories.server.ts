@@ -28,20 +28,21 @@ export type ViewerDirectMembership = { conversationId: string; memberId: string 
 export class PrismaDirectConversationPreferences {
   constructor(private readonly db: PrismaClient) {}
 
-  /** Pins the viewer's DM above the rest of their list, or unpins it (#121). The conversation lock
-   * orders it against concurrent writes the way the channel side does. */
+  /** Pins the viewer's DM above the rest of their list, or unpins it (#121), and says whether the
+   * pin changed. The conversation lock orders it against concurrent writes the way the channel
+   * side does. */
   async setPinned(
     workspaceId: string,
     userId: string,
     { conversationId, memberId }: ViewerDirectMembership,
     pinned: boolean,
   ) {
-    await this.db.$transaction(async (tx) => {
+    const changed = await this.db.$transaction(async (tx) => {
       await lockMemberPins(tx, workspaceId, userId);
       await lockConversation(tx, conversationId);
-      await setConversationPin(tx, { workspaceId, userId, conversationId, memberId }, pinned);
+      return setConversationPin(tx, { workspaceId, userId, conversationId, memberId }, pinned);
     });
-    return { pinned };
+    return { pinned, changed };
   }
 
   /** Marks the viewer's DM unread, anchored on the newest top-level message someone else sent, or

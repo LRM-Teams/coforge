@@ -8,7 +8,10 @@ import { PrismaChangeAgentVisibilityStore } from "#src/server/db/repositories/ag
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
 import { PrismaWorkspaceMemberDirectoryStore } from "#src/server/workspaces/member-directory-store.server";
 import type { ConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
-import { conversationRealtimeChannel } from "#src/features/conversations/conversation-realtime";
+import {
+  conversationRealtimeChannel,
+  userConversationChannel,
+} from "#src/features/conversations/conversation-realtime";
 
 /**
  * Every write that changes who is in a channel tells the channel's open pages that their member
@@ -136,20 +139,36 @@ test.skipIf(!connectionString)(
       // The page's server functions build the service like this, with no publisher injected.
       await new PublicChannels(db).join(workspace.id, bob.id, team.id);
 
-      expect(published).toEqual([
-        {
-          method: "publish",
-          params: {
-            channel: conversationRealtimeChannel(team.id),
-            data: {
-              type: "member.changed.v1",
-              conversationId: team.id,
-              workspaceId: workspace.id,
+      // The channel's pages hear its member list changed; Bob's own pages hear he joined.
+      expect(published).toHaveLength(2);
+      expect(published).toEqual(
+        expect.arrayContaining([
+          {
+            method: "publish",
+            params: {
+              channel: conversationRealtimeChannel(team.id),
+              data: {
+                type: "member.changed.v1",
+                conversationId: team.id,
+                workspaceId: workspace.id,
+              },
+              idempotency_key: expect.any(String),
             },
-            idempotency_key: expect.any(String),
           },
-        },
-      ]);
+          {
+            method: "broadcast",
+            params: {
+              channels: [userConversationChannel(bob.id)],
+              data: {
+                type: "channel.joined.v1",
+                workspaceId: workspace.id,
+                conversationId: team.id,
+              },
+              idempotency_key: expect.any(String),
+            },
+          },
+        ]),
+      );
     } finally {
       restoreEnv("COFORGE_CENTRIFUGO_API_URL", env.url);
       restoreEnv("COFORGE_CENTRIFUGO_API_KEY", env.key);

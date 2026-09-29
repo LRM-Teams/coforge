@@ -41,7 +41,10 @@ These rules apply to `src/features/conversations/`.
   outside the sidebar (a channel's rename or archive, here or signalled by
   `channel.updated.v1`, or the viewer leaving, muting or pinning it from the
   settings panel) re-reads only the
-  channel list through `useRefreshSidebarChannels`.
+  channel list through `useRefreshSidebarChannels`. The viewer's own changes made on another
+  page, tab or device arrive as a `ViewerEvent` on their `chat:user:` channel (Slack's
+  `channel_marked`, `channel_joined`, `pref_change`): a read sets the badge from the event's
+  count, and any other re-reads only the lists `sidebarListsChangedBy` names.
 - A message row's Task, thread and Agent status data is read by the part that
   shows it, by id, as Mattermost and Telegram Web do. An Agent's avatar
   (`MessageAgentAvatar`) reads its one Agent through `useLiveAgentDisplay`. The Task a message became

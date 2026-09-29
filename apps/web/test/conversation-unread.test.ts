@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   activityInClosedConversation,
+  applyChannelMarked,
   applyUnreadEvent,
+  sidebarListsChangedBy,
+  sidebarRefreshQueue,
   clearUnread,
   seedUnreadCounts,
   replaceUnreadCounts,
@@ -368,4 +371,81 @@ test("a new top-level message in a chat the sidebar is not showing is activity i
     ),
   ).toBe(false);
   expect(activityInClosedConversation({ ...message, threadRootId: "root-1" }, listed)).toBe(false);
+});
+
+describe("the viewer's own channel events", () => {
+  const marked = (conversationId: string, unreadCount: number) => ({
+    type: "channel.marked.v1" as const,
+    workspaceId: "workspace-a",
+    conversationId,
+    unreadCount,
+  });
+
+  test("a read elsewhere sets the channel's badge to the count it left, keeping its boundary", () => {
+    const current = { "channel-a": 4, "channel-a:seq": 9, "channel-b": 2 };
+    expect(applyChannelMarked(current, marked("channel-a", 1), {})).toEqual({
+      "channel-a": 1,
+      "channel-a:seq": 9,
+      "channel-b": 2,
+    });
+    expect(applyChannelMarked(current, marked("channel-a", 0), {})).toEqual({
+      "channel-a:seq": 9,
+      "channel-b": 2,
+    });
+    // Marked unread in another tab: the badge appears here too.
+    expect(applyChannelMarked({}, marked("channel-b", 3), {})).toEqual({ "channel-b": 3 });
+  });
+
+  test("the channel on screen keeps no badge, whatever the count", () => {
+    const current = { "channel-a:seq": 9 };
+    expect(
+      applyChannelMarked(current, marked("channel-a", 2), { openConversationId: "channel-a" }),
+    ).toBe(current);
+  });
+
+  test("names the one list each event makes stale, and none for a read", () => {
+    const ids = { workspaceId: "workspace-a", conversationId: "channel-a" };
+    expect(sidebarListsChangedBy(marked("channel-a", 0))).toEqual([]);
+    for (const type of [
+      "channel.joined.v1",
+      "channel.left.v1",
+      "channel.closed.v1",
+      "channel.opened.v1",
+    ] as const)
+      expect(sidebarListsChangedBy({ type, ...ids })).toEqual(["channels"]);
+    expect(
+      sidebarListsChangedBy({ type: "pref.changed.v1", workspaceId: "workspace-a", name: "muted" }),
+    ).toEqual(["channels"]);
+    // Pins are one order across channels and DMs.
+    expect(
+      sidebarListsChangedBy({ type: "pref.changed.v1", workspaceId: "workspace-a", name: "pins" }),
+    ).toEqual(["channels", "dms"]);
+  });
+});
+
+describe("sidebarRefreshQueue", () => {
+  test("lists named while a re-read is running are read once, together, after it", async () => {
+    const reads: string[][] = [];
+    const running: (() => void)[] = [];
+    const refresh = sidebarRefreshQueue(
+      (lists) =>
+        new Promise<void>((resolve) => {
+          reads.push([...lists].sort());
+          running.push(resolve);
+        }),
+    );
+    const first = refresh(["channels"]);
+    await Promise.resolve();
+    expect(reads).toEqual([["channels"]]);
+
+    const second = refresh(["dms"]);
+    const third = refresh(["channels"]);
+    expect(second).toBe(third);
+    running.shift()!();
+    await first;
+    await Promise.resolve();
+    expect(reads).toEqual([["channels"], ["channels", "dms"]]);
+    running.shift()!();
+    await second;
+  });
 });

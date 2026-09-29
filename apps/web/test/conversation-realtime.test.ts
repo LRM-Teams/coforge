@@ -5,6 +5,7 @@ import {
   decodeChannelUpdatedEvent,
   decodeMessageAvailableEvent,
   decodeNotificationAvailableEvent,
+  decodeViewerEvent,
 } from "#src/features/conversations/conversation-realtime";
 
 describe("conversation realtime", () => {
@@ -20,6 +21,42 @@ describe("conversation realtime", () => {
     );
     expect(() => decodeChannelUpdatedEvent({ ...event, type: "member.changed.v1" })).toThrow();
     expect(() => decodeChannelUpdatedEvent({ ...event, workspaceId: "" })).toThrow();
+  });
+
+  test("decodes the viewer's own channel events, which name only ids and the unread count", () => {
+    const ids = { workspaceId: "workspace-a", conversationId: "conversation-a" };
+    const marked = { type: "channel.marked.v1" as const, ...ids, unreadCount: 3 };
+    expect(decodeViewerEvent(marked)).toEqual(marked);
+    expect(decodeViewerEvent(new TextEncoder().encode(JSON.stringify(marked)))).toEqual(marked);
+    for (const type of [
+      "channel.joined.v1",
+      "channel.left.v1",
+      "channel.closed.v1",
+      "channel.opened.v1",
+    ] as const)
+      expect(decodeViewerEvent({ type, ...ids })).toEqual({ type, ...ids });
+    for (const name of ["muted", "pins"] as const)
+      expect(
+        decodeViewerEvent({ type: "pref.changed.v1", workspaceId: "workspace-a", name }),
+      ).toEqual({ type: "pref.changed.v1", workspaceId: "workspace-a", name });
+
+    expect(decodeViewerEvent({ ...marked, unreadCount: -1 })).toBeUndefined();
+    expect(decodeViewerEvent({ ...marked, unreadCount: 1.5 })).toBeUndefined();
+    expect(decodeViewerEvent({ ...marked, conversationId: "" })).toBeUndefined();
+    expect(decodeViewerEvent({ type: "channel.joined.v1", workspaceId: "w" })).toBeUndefined();
+    expect(
+      decodeViewerEvent({ type: "pref.changed.v1", workspaceId: "w", name: "theme" }),
+    ).toBeUndefined();
+    // The same `chat:user:` channel carries message and notification signals; the viewer decoder
+    // passes them by.
+    expect(
+      decodeViewerEvent({
+        type: "message.available.v1",
+        conversationId: "conversation-a",
+        messageId: "message-a",
+        sequence: 1,
+      }),
+    ).toBeUndefined();
   });
 
   test("decodes only the versioned message-available contract", () => {
