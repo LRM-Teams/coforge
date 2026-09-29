@@ -125,17 +125,23 @@ const config = defineConfig({
           output: {
             codeSplitting: {
               groups: [
-                // Rolldown makes a chunk for every icon that two lazy chunks share: about
-                // thirty files of 0.3-1 KB on a chat page. Icons are leaf modules without
-                // side effects, so one chunk for the shared ones is safe. Do not add a group
-                // for app modules: merging them across sharing sets drags Records-only code
-                // into chat and reorders execution between chunks (a trial failed at load
-                // with `e is not a constructor`).
+                // Without a group Rolldown makes a chunk of 0.3-1 KB for every icon that two
+                // lazy chunks share: a chat page loads 181 files instead of 150. Icon modules
+                // are leaves (they import only `react`; the package sets `sideEffects: false`),
+                // so one chunk for all of them is safe. `includeDependenciesRecursively: false`
+                // keeps React out of it: the default pulls `react` into this chunk and makes
+                // 108 chunks import it. Rolldown recommends `strictExecutionOrder` and
+                // `preserveEntrySignatures` with that option, to avoid chunks that import each
+                // other; nothing an icon imports imports the icons chunk back, and the build
+                // shows no such cycle. Do not add a group for app modules: merging them across
+                // sharing sets drags Records-only code into chat and reorders execution
+                // between chunks (a trial failed at load with `e is not a constructor`).
+                // https://rolldown.rs/reference/OutputOptions.codeSplitting
                 // https://rolldown.rs/in-depth/manual-code-splitting
                 {
                   name: "icons",
                   test: /node_modules[\\/]@untitledui[\\/]icons[\\/]/,
-                  minShareCount: 2,
+                  includeDependenciesRecursively: false,
                 },
               ],
             },
