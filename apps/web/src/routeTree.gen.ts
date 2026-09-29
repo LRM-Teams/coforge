@@ -22,6 +22,7 @@ import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthLogoutRouteImport } from './routes/auth/logout'
 import { Route as ComputerInstallDotps1RouteImport } from './routes/computer.install[.]ps1'
 import { Route as ComputerInstallDotshRouteImport } from './routes/computer.install[.]sh'
+import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as NotificationsOpenRouteImport } from './routes/notifications.open'
 import { Route as OauthDeviceRouteImport } from './routes/oauth/device'
 import { Route as OauthTokenRouteImport } from './routes/oauth/token'
@@ -175,6 +176,11 @@ const ComputerInstallDotps1Route = ComputerInstallDotps1RouteImport.update({
 const ComputerInstallDotshRoute = ComputerInstallDotshRouteImport.update({
   id: '/computer/install.sh',
   path: '/computer/install.sh',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JoinTokenRoute = JoinTokenRouteImport.update({
+  id: '/join/$token',
+  path: '/join/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NotificationsOpenRoute = NotificationsOpenRouteImport.update({
@@ -687,6 +693,7 @@ export interface FileRoutesByFullPath {
   '/auth/logout': typeof AuthLogoutRoute
   '/computer/install.ps1': typeof ComputerInstallDotps1Route
   '/computer/install.sh': typeof ComputerInstallDotshRoute
+  '/join/$token': typeof JoinTokenRoute
   '/notifications/open': typeof NotificationsOpenRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
@@ -788,6 +795,7 @@ export interface FileRoutesByTo {
   '/auth/logout': typeof AuthLogoutRoute
   '/computer/install.ps1': typeof ComputerInstallDotps1Route
   '/computer/install.sh': typeof ComputerInstallDotshRoute
+  '/join/$token': typeof JoinTokenRoute
   '/notifications/open': typeof NotificationsOpenRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
@@ -888,6 +896,7 @@ export interface FileRoutesById {
   '/auth/logout': typeof AuthLogoutRoute
   '/computer/install.ps1': typeof ComputerInstallDotps1Route
   '/computer/install.sh': typeof ComputerInstallDotshRoute
+  '/join/$token': typeof JoinTokenRoute
   '/notifications/open': typeof NotificationsOpenRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
@@ -993,6 +1002,7 @@ export interface FileRouteTypes {
     | '/auth/logout'
     | '/computer/install.ps1'
     | '/computer/install.sh'
+    | '/join/$token'
     | '/notifications/open'
     | '/oauth/device'
     | '/oauth/token'
@@ -1094,6 +1104,7 @@ export interface FileRouteTypes {
     | '/auth/logout'
     | '/computer/install.ps1'
     | '/computer/install.sh'
+    | '/join/$token'
     | '/notifications/open'
     | '/oauth/device'
     | '/oauth/token'
@@ -1193,6 +1204,7 @@ export interface FileRouteTypes {
     | '/auth/logout'
     | '/computer/install.ps1'
     | '/computer/install.sh'
+    | '/join/$token'
     | '/notifications/open'
     | '/oauth/device'
     | '/oauth/token'
@@ -1297,6 +1309,7 @@ export interface RootRouteChildren {
   AuthLogoutRoute: typeof AuthLogoutRoute
   ComputerInstallDotps1Route: typeof ComputerInstallDotps1Route
   ComputerInstallDotshRoute: typeof ComputerInstallDotshRoute
+  JoinTokenRoute: typeof JoinTokenRoute
   NotificationsOpenRoute: typeof NotificationsOpenRoute
   OauthDeviceRoute: typeof OauthDeviceRoute
   OauthTokenRoute: typeof OauthTokenRoute
@@ -1442,6 +1455,13 @@ declare module '@tanstack/react-router' {
       path: '/computer/install.sh'
       fullPath: '/computer/install.sh'
       preLoaderRoute: typeof ComputerInstallDotshRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/join/$token': {
+      id: '/join/$token'
+      path: '/join/$token'
+      fullPath: '/join/$token'
+      preLoaderRoute: typeof JoinTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notifications/open': {
@@ -2245,6 +2265,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthLogoutRoute: AuthLogoutRoute,
   ComputerInstallDotps1Route: ComputerInstallDotps1Route,
   ComputerInstallDotshRoute: ComputerInstallDotshRoute,
+  JoinTokenRoute: JoinTokenRoute,
   NotificationsOpenRoute: NotificationsOpenRoute,
   OauthDeviceRoute: OauthDeviceRoute,
   OauthTokenRoute: OauthTokenRoute,

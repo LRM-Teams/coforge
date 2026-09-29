@@ -10,6 +10,10 @@ These rules apply to `src/routes/`.
   `computers`, `computer/$computerId`, `settings`, plus `projects` and
   `records`; a direct message is `dm/$dmId`, by its conversation id. Pathless layouts (`_chat`, `_computers`) share chrome between
   pages without adding a URL segment. Old URLs are not redirected.
+- Pages opened before someone is in a Workspace — `login`, `join/$token`,
+  `oauth/verify` — stay outside `/w/$workspaceSlug`; sign-in and invite links
+  share `features/auth/auth-split-layout.tsx`. A page that needs sign-in sends
+  people to `/login?returnTo=<its path>`.
 - The page URL names the Workspace: server functions act on it
   (`workspaceUserMiddleware`), and a Workspace the User is not in is a 404.
   Build in-app links as typed `to` paths with `params` (`useWorkspaceSlug()`

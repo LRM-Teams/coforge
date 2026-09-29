@@ -170,5 +170,38 @@
   "workspace_join_link_prepare_failed": "The invite link could not be prepared. Try again later.",
   "workspace_join_link_update_failed": "The link could not be updated. Try again later.",
   "workspace_join_link_revoke_failed": "The link could not be revoked. Try again later.",
-  "workspace_join_link_create_failed": "The link could not be created. Try again later."
+  "workspace_join_link_create_failed": "The link could not be created. Try again later.",
+  "workspace_join_title": "Join {name}",
+  "workspace_join_description": "Use this link to join {name} on CoForge.",
+  "workspace_join_count_members": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} member",
+        "countPlural=other": "{count} members"
+      }
+    }
+  ],
+  "workspace_join_count_agents": [
+    {
+      "declarations": ["input count", "local countPlural = count: plural"],
+      "selectors": ["countPlural"],
+      "match": {
+        "countPlural=one": "{count} Agent",
+        "countPlural=other": "{count} Agents"
+      }
+    }
+  ],
+  "workspace_join_counts_both": "It has {members} and {agents}.",
+  "workspace_join_counts_one": "It has {count}.",
+  "workspace_join_sign_in": "Sign in to join",
+  "workspace_join_submit": "Join {name}",
+  "workspace_join_open": "Open {name}",
+  "workspace_join_signed_in_as": "Signed in as {email}",
+  "workspace_join_switch_account": "Use another account",
+  "workspace_join_failed": "Couldn’t join. Try again later.",
+  "workspace_join_invalid_title": "This invite link can’t be used",
+  "workspace_join_invalid_description": "This invite link is invalid or has expired. Ask the person who invited you for a new link.",
+  "workspace_join_back": "Back to CoForge"
 }

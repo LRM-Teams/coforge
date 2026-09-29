@@ -1,5 +1,10 @@
 import { cx } from "#src/utils/cx";
 
+/** What a Workspace without an icon shows: the first letter of its name. */
+export function workspaceInitial(name: string): string {
+  return Array.from(name.trim())[0]?.toUpperCase() ?? "W";
+}
+
 /** The Workspace's uploaded icon, or the first letter of its name on a plain tile. */
 export function WorkspaceIcon({
   name,
@@ -18,11 +23,7 @@ export function WorkspaceIcon({
         className,
       )}
     >
-      {url ? (
-        <img src={url} alt="" className="size-full object-cover" />
-      ) : (
-        (Array.from(name.trim())[0]?.toUpperCase() ?? "W")
-      )}
+      {url ? <img src={url} alt="" className="size-full object-cover" /> : workspaceInitial(name)}
     </span>
   );
 }
