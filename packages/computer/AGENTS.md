@@ -99,7 +99,9 @@ that environment; login, setup, and lifecycle adapters share that public seam.
 - `daemon-client/` contains the Computer-side Daemon lifecycle requests; it
   does not implement Daemon supervision or cloud WSS behavior.
 - `status/` only reads through its injected ports; it never starts, stops, or
-  configures anything.
+  configures anything. A running Workspace's `cloud=` comes from its own
+  handshake, asked with a bounded wait; its error is remote text and is
+  printed through `terminalText`.
 - Do not add a catch-all `shared/` or utilities module. A value belongs to the
   module that owns its domain.
 

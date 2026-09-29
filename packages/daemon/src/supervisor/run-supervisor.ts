@@ -32,7 +32,9 @@ import { answeredWithin } from "./runner-hold";
 import {
   awaitCloudConnections,
   OPERATOR_COMMAND_BUDGET_MS,
+  readWorkspaceCloudConnection,
   throwIfParked,
+  workspaceSocketPath,
   type WorkspaceStartPorts,
 } from "./workspace-start-outcome";
 import { COFORGE_DAEMON_SERVER_URL } from "#src/connection/built-server";
@@ -62,8 +64,6 @@ const UPGRADE_RECEIPT_POLL_MS = 2_000;
 const RUNNER_HOLD_WORKSPACE_TIMEOUT_MS = 5_000;
 /** How long a Workspace start waits for its process to answer. */
 const WORKSPACE_READINESS_MS = 30_000;
-/** How long one post-start handshake read may take before it counts as not answering. */
-const CLOUD_CONNECTION_PROBE_MS = 2_000;
 
 export async function runMachineSupervisor(
   args: string[],
@@ -177,21 +177,7 @@ async function runWithSupervisorLock(
       const health = await workspaceHealth(id).state();
       return health.status === "parked" ? health.reason : undefined;
     },
-    async cloudConnection(id) {
-      // Bounded well inside the command's margin: a child socket that accepts and then stalls
-      // must not hold the operator's answer.
-      const reported = await answeredWithin(
-        childClient(id).identity(),
-        CLOUD_CONNECTION_PROBE_MS,
-        "Workspace handshake timed out",
-      ).catch(() => null);
-      return reported?.cloudConnection
-        ? {
-            state: reported.cloudConnection,
-            ...(reported.cloudConnectionError ? { error: reported.cloudConnectionError } : {}),
-          }
-        : null;
-    },
+    cloudConnection: (id) => readWorkspaceCloudConnection(stateDirectory, id),
   };
   const children = new Map<
     string,
@@ -200,7 +186,7 @@ async function runWithSupervisorLock(
   const childClient = (workspaceId: string) =>
     new LocalDaemonLauncher({
       executablePath: process.execPath,
-      socketPath: join(workspaceDirectory(workspaceId), "daemon.sock"),
+      socketPath: workspaceSocketPath(stateDirectory, workspaceId),
       spawn: () => {},
     });
   const workspaceInstance = (workspaceId: string): WorkspaceInstance => {
@@ -208,7 +194,7 @@ async function runWithSupervisorLock(
       stateRoot: stateDirectory,
       workspaceId,
       executablePath: process.execPath,
-      socketPath: join(workspaceDirectory(workspaceId), "daemon.sock"),
+      socketPath: workspaceSocketPath(stateDirectory, workspaceId),
       stateDirectory: workspaceDirectory(workspaceId),
       unitDirectory:
         process.platform === "darwin"

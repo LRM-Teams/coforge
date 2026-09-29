@@ -197,7 +197,7 @@ const logger = getLogger(["coforge", "daemon", "connection"]);
 
 /** A run of failed connect attempts: how many, since when, and how many of them were the
  * daemon's own reconnects after the client gave up (those set the resume delay). */
-type ConnectOutage = { failures: number; sinceMs: number; resumes: number };
+type ConnectOutage = { failures: number; sinceMs: number; resumes: number; lastFailure: string };
 
 /** Whether the `attempt`-th consecutive failure is logged as an error: the first one at
  * `escalateAfter`, then every `RETRY_ESCALATE_EVERY`-th, so a long outage stays visible
@@ -316,6 +316,8 @@ export interface DaemonConnectionClient {
   sendAgentContextScanResult?(response: AgentContextScanResponse): Promise<void>;
   sendUpgradeResult?(result: ComputerUpgradeResult): Promise<boolean>;
   stop(): Promise<void>;
+  /** Why the latest connect attempt failed, while the connection is not up. */
+  connectFailure?(): string | undefined;
   onReconnect?(callback: () => void): () => void;
   /** The cloud refused an already-running connection for good; the connection no longer
    * reconnects. A refusal while `start` is connecting rejects `start` instead. */
@@ -583,7 +585,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       if (!refusal) {
         // A disconnect this connection asked for is followed by whatever connect it wanted.
         if (context?.code !== disconnectedCodes.disconnectCalled)
-          this.#resumeAfterGiveUp(client, scope, context?.code);
+          this.#resumeAfterGiveUp(client, scope, context);
         return;
       }
       // The client does not reconnect after a terminal disconnect code.
@@ -637,7 +639,10 @@ export class DaemonConnection implements DaemonConnectionClient {
         // temporary connect error (the connect proxy failing, or answering non-200) or a
         // transport that closed before it opened.
         if (type === "connect" || type === "transport")
-          this.#recordConnectFailure({ ...details, retry_by: "client" });
+          this.#recordConnectFailure(`${type} error ${error.code}: ${error.message}`, {
+            ...details,
+            retry_by: "client",
+          });
         else
           logger.warning("Daemon cloud connection client reported an error", {
             event: "daemon_connection:client_error",
@@ -660,10 +665,16 @@ export class DaemonConnection implements DaemonConnectionClient {
   }
 
   /** Logs one failed connect attempt; a run of them escalates to an error naming the outage. */
-  #recordConnectFailure(details: Record<string, unknown>): ConnectOutage {
+  #recordConnectFailure(failure: string, details: Record<string, unknown>): ConnectOutage {
     const now = this.#nowMs();
-    const outage = (this.#outage ??= { failures: 0, sinceMs: now, resumes: 0 });
+    const outage = (this.#outage ??= {
+      failures: 0,
+      sinceMs: now,
+      resumes: 0,
+      lastFailure: failure,
+    });
     outage.failures += 1;
+    outage.lastFailure = failure;
     const properties = {
       event: "daemon_connection:retry_scheduled",
       ...details,
@@ -689,13 +700,16 @@ export class DaemonConnection implements DaemonConnectionClient {
   #resumeAfterGiveUp(
     client: CentrifugeWorkspaceClient,
     scope: Record<string, unknown>,
-    disconnectCode: number | undefined,
+    disconnect: { code: number; reason: string } | undefined,
   ): void {
     const resumes = this.#outage?.resumes ?? 0;
     const delayMs = Math.min(RESUME_CONNECT_MAX_MS, RESUME_CONNECT_MS * 2 ** resumes);
-    const outage = this.#recordConnectFailure({
+    const failure = disconnect
+      ? `disconnected ${disconnect.code}: ${disconnect.reason}`
+      : "disconnected";
+    const outage = this.#recordConnectFailure(failure, {
       ...scope,
-      ...(disconnectCode === undefined ? {} : { disconnect_code: disconnectCode }),
+      ...(disconnect ? { disconnect_code: disconnect.code } : {}),
       retry_by: "daemon",
       retry_delay_ms: delayMs,
     });
@@ -704,6 +718,12 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#resumeTimer = undefined;
       if (client === this.#client) client.connect();
     }, delayMs);
+  }
+
+  /** Why the latest connect attempt failed, while the connection is not up; `undefined` once it
+   * is. Remote text: a caller that prints it must make it terminal-safe. */
+  connectFailure(): string | undefined {
+    return this.#outage?.lastFailure;
   }
 
   #cancelResume(): void {

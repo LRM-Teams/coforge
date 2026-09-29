@@ -54,3 +54,21 @@ test("announcing to nobody publishes nothing, and a failed publish never fails t
     announceViewerEvent(new CentrifugoConversationRealtime(failing), { userIds: ["ada"], event }),
   ).resolves.toBeUndefined();
 });
+
+test("a created channel is announced to the whole Workspace", async () => {
+  const { centrifugo, published } = recordingCentrifugo();
+  await new CentrifugoConversationRealtime(centrifugo).channelCreated({
+    workspaceId: "workspace-1",
+    conversationId: "conversation-1",
+  });
+  expect(published).toEqual([
+    {
+      channel: "chat:workspace:workspace-1",
+      data: {
+        type: "channel.created.v1",
+        workspaceId: "workspace-1",
+        conversationId: "conversation-1",
+      },
+    },
+  ]);
+});

@@ -4,6 +4,7 @@ import type {
   ComputerStatusReport,
   PendingRequest,
   UnsettledUpgradeOperation,
+  WorkspaceCloudStatus,
   WorkspaceHealth,
 } from "./types";
 
@@ -80,8 +81,10 @@ function renderWorkspaces(report: ComputerStatusReport): string[] {
   for (const workspace of workspaces.workspaces) {
     const pid = workspace.pid === null ? "-" : `${workspace.pid} (${workspace.pidSource})`;
     lines.push(
-      `  ${terminalText(workspace.workspaceId)}  server=${workspace.serverHttpUrl ? terminalText(workspace.serverHttpUrl) : "-"}  enabled=${workspace.enabled ? "yes" : "no"}  running=${workspace.running ? "yes" : "no"}  pid=${pid}`,
+      `  ${terminalText(workspace.workspaceId)}  server=${workspace.serverHttpUrl ? terminalText(workspace.serverHttpUrl) : "-"}  enabled=${workspace.enabled ? "yes" : "no"}  running=${workspace.running ? "yes" : "no"}  pid=${pid}  cloud=${workspace.cloudConnection?.state ?? "-"}`,
     );
+    const cloudDetail = renderCloudConnection(workspace.cloudConnection);
+    if (cloudDetail) lines.push(`    cloud: ${cloudDetail}`);
     for (const pending of workspace.pending) lines.push(`    pending: ${renderPending(pending)}`);
     for (const unsettled of workspace.unsettledUpgrades)
       lines.push(`    unsettled upgrade: ${renderUnsettledUpgrade(unsettled)}`);
@@ -89,6 +92,16 @@ function renderWorkspaces(report: ComputerStatusReport): string[] {
     if (workspace.health.status === "parked") lines.push(...renderParkedHealth(workspace));
   }
   return lines;
+}
+
+/** Why a Workspace's cloud connection is not up, when its handshake said so. The error is remote
+ * text, so it is made terminal-safe. */
+function renderCloudConnection(connection: WorkspaceCloudStatus | null): string | undefined {
+  if (!connection?.error) return undefined;
+  const error = terminalText(connection.error);
+  if (connection.state === "connecting") return `retrying after ${error}`;
+  if (connection.state === "not_connected") return `not connected (${error})`;
+  return undefined;
 }
 
 /** Only printed when a Workspace is actually degraded, so a healthy Workspace's output stays as

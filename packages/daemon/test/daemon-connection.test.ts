@@ -1253,6 +1253,33 @@ test("a run of failed connect attempts escalates to an error, then repeats it on
   expect(errorAttempts).toEqual([8, 10, 20]);
 });
 
+test("the latest failed connect attempt is readable while connecting and cleared once connected", async () => {
+  const fake = fakeClient();
+  fake.client.connect = () => undefined;
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const start = transport.start("secret", config);
+  expect(transport.connectFailure()).toBeUndefined();
+
+  fake.fail(connectError);
+  expect(transport.connectFailure()).toBe("connect error 100: internal server error");
+  fake.fail(transportError);
+  expect(transport.connectFailure()).toBe("transport error 2: transport closed");
+
+  fake.connect();
+  await start;
+  expect(transport.connectFailure()).toBeUndefined();
+});
+
+test("a give-up disconnect is readable as the latest failed connect attempt", async () => {
+  const fake = fakeClient();
+  fake.client.connect = () => fake.disconnect({ code: 3501, reason: "bad request" });
+  const { transport } = manualConnection(fake);
+  void transport.start("secret", config).catch(() => {});
+
+  expect(transport.connectFailure()).toBe("disconnected 3501: bad request");
+  await transport.stop();
+});
+
 test("a client error that is not a connect attempt is not reported as a retry", async () => {
   const fake = fakeClient();
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);

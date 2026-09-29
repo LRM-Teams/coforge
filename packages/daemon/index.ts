@@ -51,6 +51,10 @@ export {
 export type { WorkspaceHealthState } from "#src/supervisor/workspace-health-journal";
 export { runMachineSupervisor } from "#src/supervisor/run-supervisor";
 export {
+  readWorkspaceCloudConnection,
+  type WorkspaceCloudConnectionReport,
+} from "#src/supervisor/workspace-start-outcome";
+export {
   holdRunnersUntilQuiescent,
   RUNNER_HOLD_MS,
   RUNNER_HOLD_POLL_MS,
@@ -212,7 +216,12 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       // Before any real work (Agent proxy, Workspace connection): let the health journal say
       // whether the previous run(s) died unexpectedly often enough to stop this restart loop.
       const guard = await guardWorkspaceRunnerStart(healthJournal);
-      const parking = new WorkspaceParking(healthJournal, () => config?.workspaceId);
+      let runtime: DaemonRuntime | undefined;
+      const parking = new WorkspaceParking(
+        healthJournal,
+        () => config?.workspaceId,
+        () => runtime?.cloudConnectFailure(),
+      );
       if (guard.action === "parked") {
         parking.logParked(guard.reason);
         await dispose();
@@ -248,7 +257,6 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           });
         }
       }
-      let runtime: DaemonRuntime | undefined;
       const requireRuntime = (): DaemonRuntime => {
         if (!runtime) throw new Error("daemon runtime is not running");
         return runtime;
