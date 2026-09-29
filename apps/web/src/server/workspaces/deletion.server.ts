@@ -11,6 +11,16 @@ import {
 } from "#src/server/centrifugo/server-api.server";
 import { workspaceConversationChannel } from "#src/features/conversations/conversation-realtime";
 import type { WorkspaceDeletedEvent } from "#src/features/workspaces/workspace-realtime";
+import { PrismaOpenVikingBindingStore } from "#src/server/db/repositories/openviking-binding.repositories.server";
+import { PrismaWorkspaceMemoryCleanupStore } from "#src/server/db/repositories/workspace-memory-cleanup.repositories.server";
+import {
+  createWorkspaceMemoryCleanup,
+  type WorkspaceMemoryCleanup,
+} from "#src/server/workspace-memory/cleanup.server";
+import {
+  WORKSPACE_DELETION_CLEANUP_OWNER,
+  createProductionWorkspaceMemoryCleanupRemotes,
+} from "#src/server/workspace-memory/cleanup-remotes.server";
 import type { WorkspaceFileCleanup } from "./file-cleanup.server";
 import { assertCanDeleteWorkspace } from "./member-role.server";
 import { workspaceMemberRole } from "./members.server";
@@ -26,6 +36,32 @@ export type WorkspaceDeletionSignals = {
 
 /** Removes a deleted Workspace's stored files. */
 export type WorkspaceFileRemoval = Pick<WorkspaceFileCleanup, "remove">;
+
+/** Removes the Workspace's memory outside its own rows (its OpenViking account, then the binding
+ * naming it), as durable cleanup work the delete can find again. */
+export type WorkspaceMemoryRemoval = Pick<
+  WorkspaceMemoryCleanup,
+  "enqueueWorkspaceDeletion" | "run"
+>;
+
+/** The memory removal of production: durable cleanup work over the database, with OpenViking and
+ * the binding as its remotes. */
+export function workspaceMemoryRemoval(db: PrismaClient): WorkspaceMemoryRemoval {
+  return createWorkspaceMemoryCleanup({
+    store: new PrismaWorkspaceMemoryCleanupStore(db),
+    remotes: createProductionWorkspaceMemoryCleanupRemotes({
+      bindings: new PrismaOpenVikingBindingStore(db),
+    }),
+  });
+}
+
+/** The cleanup work of a Workspace's deletion: one operation per Workspace, so pressing Delete
+ * again picks up the work where a failed press left it. */
+export const WORKSPACE_MEMORY_REMOVAL_OPERATION_ID = "workspace-deletion";
+
+/** Longer than one OpenViking request may take, so a press that died holding the lease blocks the
+ * next for seconds, not minutes. */
+const MEMORY_REMOVAL_LEASE_MS = 30_000;
 
 /**
  * The signals over Centrifugo. Pages get `workspace.deleted.v1` and are never disconnected; each
@@ -63,12 +99,14 @@ const MESSAGE_DELETE_BATCH = 5_000;
 const DELETE_ATTEMPTS = 3;
 
 /**
- * Deleting a Workspace for good; its owner only, confirming with its slug. Its messages go in
- * batches first; everything else goes in one transaction: the daemon keys it held are recorded as
- * revoked, so its Computers park the binding when they next connect; what members wrote goes
- * before the Workspace, since messages and Tasks name their sender, owner and creator member with
- * `Restrict`. Afterwards the open pages and the Computers hear of it, and its stored files are
- * removed in the background, best effort.
+ * Deleting a Workspace for good; its owner only, confirming with its slug. Its memory goes first,
+ * before any row: the OpenViking account, then the binding naming it, and a memory that cannot be
+ * removed keeps the Workspace whole for another try. Its messages go in batches next; everything
+ * else goes in one transaction: the daemon keys it held are recorded as revoked, so its Computers
+ * park the binding when they next connect; what members wrote goes before the Workspace, since
+ * messages and Tasks name their sender, owner and creator member with `Restrict`. Afterwards the
+ * open pages and the Computers hear of it, and its stored files are removed in the background,
+ * best effort.
  */
 export class WorkspaceDeletion {
   constructor(
@@ -76,6 +114,7 @@ export class WorkspaceDeletion {
     private readonly effects: {
       files: WorkspaceFileRemoval;
       signals: WorkspaceDeletionSignals;
+      memory: WorkspaceMemoryRemoval;
     },
   ) {}
 
@@ -91,8 +130,9 @@ export class WorkspaceDeletion {
     // The slug never changes, so one check against the typed confirmation is enough.
     if (input.confirmSlug !== workspace.slug) throw new AppError("INVALID_INPUT");
 
-    // Refused before anything goes; checked again under the locks.
-    await refuseForMemory(this.db, workspaceId);
+    // Nothing of the Workspace's memory may outlive it, so it goes before any row does: a memory
+    // that cannot be removed leaves the Workspace as it was.
+    await this.#removeMemory(workspaceId);
     await this.#deleteMessagesInBatches(workspaceId);
     const { computerIds, fileKeys } = await this.#retrying(workspaceId, () =>
       this.db.$transaction((tx) => this.#deleteRowsIn(tx, workspaceId), {
@@ -109,6 +149,59 @@ export class WorkspaceDeletion {
       .remove(workspaceId, fileKeys)
       .catch((error: unknown) => logEffectFailure("file_removal", workspaceId, error));
     await this.#announce(workspaceId, computerIds);
+  }
+
+  /**
+   * Removes the OpenViking account and the binding, when the Workspace has either, or cleanup an
+   * earlier press left unfinished. The press that finds another holding the work, or OpenViking
+   * failing, is refused with a retryable error; the work stays and the next press resumes it.
+   */
+  async #removeMemory(workspaceId: string) {
+    const [binding, unfinished] = await Promise.all([
+      this.db.openVikingBinding.findUnique({
+        where: { workspaceId },
+        select: { workspaceId: true },
+      }),
+      this.db.workspaceMemoryCleanupWork.findFirst({
+        where: { workspaceId, state: { not: "settled" } },
+        select: { id: true },
+      }),
+    ]);
+    if (!binding && !unfinished) return;
+    const operationId = WORKSPACE_MEMORY_REMOVAL_OPERATION_ID;
+    // A binding found after our own work was marked done appeared since (memory provisioned again
+    // meanwhile): that work is stale, and would otherwise finish at once and leave it standing.
+    if (binding)
+      await this.db.workspaceMemoryCleanupWork.deleteMany({
+        where: {
+          workspaceId,
+          operationId,
+          state: "settled",
+        },
+      });
+    const { memory } = this.effects;
+    await memory.enqueueWorkspaceDeletion({ workspaceId, operationId });
+    const run = await memory.run({
+      workspaceId,
+      operationId,
+      owner: WORKSPACE_DELETION_CLEANUP_OWNER,
+      now: new Date(),
+      ttlMs: MEMORY_REMOVAL_LEASE_MS,
+    });
+    if (run.status === "completed") return;
+    console.warn(
+      JSON.stringify({
+        event: "workspace_deletion:memory_removal_failed",
+        workspace_id: workspaceId,
+        status: run.status,
+        ...(run.status === "retryable_failure" && {
+          target: run.failedTarget,
+          error: run.work.sanitizedError,
+        }),
+        ...(run.status === "not_leased" && { target: run.target }),
+      }),
+    );
+    throw memoryRemovalRefused();
   }
 
   /**
@@ -155,9 +248,11 @@ export class WorkspaceDeletion {
       SELECT "iconObjectKey" FROM "workspaces" WHERE "id" = ${workspaceId}::uuid FOR UPDATE`;
     if (!locked) throw new AppError("NOT_FOUND");
     await lockWorkspaceConversations(tx, workspaceId);
-    await refuseForMemory(tx, workspaceId);
-    // Cleanup finished for good is bookkeeping for a Workspace about to go; its rows name the
-    // Workspace with `Restrict`.
+    // Memory bound meanwhile (provisioned again after its removal) is still there to remove.
+    if (await tx.openVikingBinding.findUnique({ where: { workspaceId } }))
+      throw memoryRemovalRefused();
+    // Cleanup work is bookkeeping for a Workspace about to go; its rows name the Workspace with
+    // `Restrict`.
     await tx.workspaceMemoryCleanupWork.deleteMany({ where: { workspaceId } });
     // Read under the locks, so no file uploaded meanwhile is left out.
     const fileKeys = {
@@ -229,22 +324,9 @@ export class WorkspaceDeletion {
   }
 }
 
-/**
- * Workspace memory keeps state in OpenViking that only its own cleanup removes. A binding still
- * present refuses the delete (an operator removes it), and so does cleanup not yet finished.
- */
-async function refuseForMemory(
-  db: Pick<Prisma.TransactionClient, "openVikingBinding" | "workspaceMemoryCleanupWork">,
-  workspaceId: string,
-) {
-  if (await db.openVikingBinding.findUnique({ where: { workspaceId } }))
-    throw new AppError("CONFLICT", { errorId: "workspace-memory-bound" });
-  if (
-    await db.workspaceMemoryCleanupWork.findFirst({
-      where: { workspaceId, state: { not: "settled" } },
-    })
-  )
-    throw new AppError("CONFLICT", { errorId: "workspace-memory-cleanup-pending" });
+/** The delete could not remove the Workspace's memory: try again in a moment. */
+function memoryRemovalRefused() {
+  return new AppError("TEMPORARILY_UNAVAILABLE", { errorId: "workspace-memory-removal-failed" });
 }
 
 function logEffectFailure(effect: string, workspaceId: string, error: unknown) {

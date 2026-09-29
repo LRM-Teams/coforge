@@ -147,7 +147,7 @@ responsibility.
 - `server/tasks/` — the message-backed TaskBoard, the Tasks page's overview reads, its Task view, history records, and notice wording.
 - `server/workspaces/` — Workspace catalog (name and icon), selection,
   enrollment, member roles, member directory, join links, admitting a member (one step for
-  invitations and join links), deleting a Workspace and removing its stored files, and going
+  invitations and join links), deleting a Workspace, removing its memory first and its stored files after, and going
   out of a Workspace (leaving or deleting it) to the next one.
 - `prisma/` (app root) — schema and migrations; `messages/` — UI translations.
 
@@ -190,6 +190,6 @@ it, so a deletion trips this as easily as an addition. Reproduce what CI sees be
 
 Dependencies point downward. Routes and background entrypoints assemble these modules; they do not own profile transitions or OpenViking HTTP details. The write path (peer, two-phase commit, crash redrive, offer echo stripping) is [OpenViking channel memory](../../docs/memory/openviking.md).
 
-- `workspace-memory/` — profile (`off | openviking`), generation fencing, Admitted PublicChannel Segment detection, one-sink dispatch, the Memory Agent route, Memory Offers, and citation policy. It does not import OpenViking HTTP paths.
+- `workspace-memory/` — profile (`off | openviking`), generation fencing, Admitted PublicChannel Segment detection, one-sink dispatch, the Memory Agent route, Memory Offers, citation policy, and the cleanup a Workspace deletion runs (`cleanup.server.ts`, and `cleanup-remotes.server.ts` for the remotes it calls). It does not import OpenViking HTTP paths.
 - `openviking/` — typed account/user/ACL provisioning, the deny-by-default route catalog, `OpenVikingPolicyGateway`, the private runtime client, and Memory Agent read shaping. It does not own profile transitions.
 - `db/repositories/workspace-memory-*.server.ts` and `openviking-binding.repositories.server.ts` — Prisma adapters. Credential plaintext does not belong in ordinary business tables.

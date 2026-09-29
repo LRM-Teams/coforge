@@ -173,10 +173,8 @@ function LeaveWorkspaceDialog({ open, workspaceName, onClose }: DialogProps) {
 
 /** What a refused delete says, by the refusal's `errorId`, else its code. */
 function deleteRefusalMessage(refusal: AppError | undefined, slug: string) {
-  if (refusal?.errorId === "workspace-memory-bound")
-    return m.settings_delete_workspace_memory_bound();
-  if (refusal?.errorId === "workspace-memory-cleanup-pending")
-    return m.settings_delete_workspace_memory_cleanup();
+  if (refusal?.errorId === "workspace-memory-removal-failed")
+    return m.settings_delete_workspace_memory_error();
   if (refusal?.code === "INVALID_INPUT") return m.settings_delete_workspace_mismatch({ slug });
   if (refusal?.code === "ACCESS_DENIED") return m.settings_delete_workspace_denied();
   return m.settings_delete_workspace_error();
