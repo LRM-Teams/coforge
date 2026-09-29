@@ -25,6 +25,24 @@ class MemoryStore implements ReminderReceiptStore {
   }
 }
 
+/** A store whose writes can be held from the moment a test asks, so the scheduler can be stopped
+ * while one is under way. */
+class HoldableStore extends MemoryStore {
+  holding = false;
+  writes = 0;
+  readonly started = Promise.withResolvers<void>();
+  readonly release = Promise.withResolvers<void>();
+  override async write(agentId: string, receipts: readonly ReminderReceipt[]) {
+    if (this.holding) {
+      this.holding = false;
+      this.started.resolve();
+      await this.release.promise;
+    }
+    await super.write(agentId, receipts);
+    this.writes++;
+  }
+}
+
 class Clock implements ReminderClock {
   time = Date.parse("2026-09-08T12:00:00Z");
   timers: Array<{ at: number; callback: () => void }> = [];
@@ -252,6 +270,66 @@ test("stop during a pending fire prevents its response from waking or arming", a
   });
   await scheduler.awaitIdle();
   expect(wakes).toBe(0);
+  expect(clock.timers).toHaveLength(0);
+});
+
+test("a receipt write under way when the scheduler stops still lands and arms no retry", async () => {
+  const store = new HoldableStore();
+  const clock = new Clock();
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => ({ ...request, result: "accepted", fired: true, catchup: false }),
+    async () => {
+      // The refused wake is recorded next: hold that write.
+      store.holding = true;
+      throw new Error("wake refused");
+    },
+    clock,
+  );
+  await scheduler.apply(snapshot([job]));
+  await clock.advance(1000);
+  await store.started.promise;
+  const writesWhenStopped = store.writes;
+
+  scheduler.stop();
+  store.release.resolve();
+  await scheduler.awaitIdle();
+
+  expect(store.writes).toBe(writesWhenStopped + 1);
+  expect(store.receipts[0]).toMatchObject({ serverResult: "accepted", wakeAccepted: false });
+  expect(clock.timers).toHaveLength(0);
+});
+
+test("a premature answer whose receipt is deleted after the scheduler stopped arms no server retry", async () => {
+  const store = new HoldableStore();
+  const clock = new Clock();
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => {
+      // Later than one retry budget: the occurrence is deleted and rearmed from the schedule.
+      store.holding = true;
+      return {
+        ...request,
+        result: "premature",
+        fired: false,
+        catchup: false,
+        retryAfterMs: 16 * 60_000,
+      };
+    },
+    async () => false,
+    clock,
+  );
+  await scheduler.apply(snapshot([job]));
+  await clock.advance(1000);
+  await store.started.promise;
+
+  scheduler.stop();
+  store.release.resolve();
+  await scheduler.awaitIdle();
+
+  expect(store.receipts).toEqual([]);
   expect(clock.timers).toHaveLength(0);
 });
 

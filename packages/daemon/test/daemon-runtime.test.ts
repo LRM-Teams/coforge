@@ -40,6 +40,7 @@ import {
   DaemonConnection,
   type CentrifugeWorkspaceClient,
 } from "#src/connection/daemon-connection";
+import { DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS } from "#src/connection/shutdown-notice-timeout";
 import { startAgentProxy, type AgentProxy } from "#src/agent-proxy";
 import { AgentPreflightError } from "#src/daemon-runtime/agent-preflight-error";
 import { AgentSendVerdictError } from "#src/daemon-runtime/agent-send-verdict";
@@ -119,16 +120,7 @@ const connection: WorkspaceConfig = {
   workspaceRoot,
 };
 
-/** State directories a runtime may still write into after its test's own `rm`: a reminder retry
- * already in flight when `runtime.stop()` returns lands its receipt after the directory is gone. */
-const lateWrittenStateDirectories: string[] = [];
-afterAll(async () => {
-  await Promise.all(
-    [workspaceRoot, ...lateWrittenStateDirectories].map((path) =>
-      rm(path, { recursive: true, force: true }),
-    ),
-  );
-});
+afterAll(() => rm(workspaceRoot, { recursive: true, force: true }));
 
 const config: AgentRuntimeConfig = {
   provider: "pi",
@@ -7976,7 +7968,6 @@ describe("DaemonRuntime", () => {
 
   test("a reminder-triggered restart waits for the shared notice outcome before becoming terminal", async () => {
     const stateDirectory = join(tempRoot, `coforge-reminder-notice-${crypto.randomUUID()}`);
-    lateWrittenStateDirectories.push(stateDirectory);
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const notify = Promise.withResolvers<void>();
@@ -8153,6 +8144,142 @@ describe("DaemonRuntime", () => {
       await runtime.stop();
       await rm(stateDirectory, { recursive: true, force: true });
     }
+  });
+
+  describe("a stop with a reminder fire request in flight", () => {
+    /** A runtime whose cloud never answers the fire request until the test says so, with one
+     * overdue reminder delivered: the fire request is in flight when `start` returns to the test. */
+    async function withFireInFlight(
+      run: (harness: {
+        runtime: DaemonRuntime;
+        stateDirectory: string;
+        fireStarted: Promise<void>;
+        answerFire: () => void;
+        fireAnswered: () => boolean;
+      }) => Promise<void>,
+    ) {
+      const stateDirectory = join(tempRoot, `coforge-reminder-stop-${crypto.randomUUID()}`);
+      const credentials = new InMemoryDaemonCredentialStore();
+      await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+      const fireStarted = Promise.withResolvers<void>();
+      const answer = Promise.withResolvers<void>();
+      let answered = false;
+      let receiveReminder!: (sync: import("@lrm/coforge-sdk/internal").ReminderSync) => void;
+      const runtime = new DaemonRuntime(
+        connection,
+        () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+        credentials,
+        {
+          create: () => ({
+            async start() {},
+            async ready() {},
+            async stop() {},
+            onReminderSync(callback) {
+              receiveReminder = callback;
+              return () => undefined;
+            },
+            async fireReminder(request) {
+              fireStarted.resolve();
+              await answer.promise;
+              answered = true;
+              return { ...request, result: "accepted", fired: true, catchup: false } as const;
+            },
+            async revokeAgentApiKey() {},
+          }),
+        },
+        undefined,
+        emptyCodeAgentDiscovery,
+        stateDirectory,
+      );
+      try {
+        await runtime.start(connection);
+        receiveReminder({
+          protocolMajor: 1,
+          requestId: "reminder-snapshot",
+          workspaceId: connection.workspaceId,
+          computerId: connection.computerId,
+          agentId: "agent-a",
+          operation: "snapshot",
+          messageType: "coforge.rpc.v1.ReminderSync",
+          jobs: [
+            {
+              reminderId: "123e4567-e89b-42d3-a456-426614174000",
+              ownerAgentId: "agent-a",
+              version: 1,
+              title: "Check the build",
+              target: "@frank",
+              messageId: "123e4567-e89b-42d3-a456-426614174001",
+              fireAt: new Date(Date.now() - 1_000).toISOString(),
+            },
+          ],
+        });
+        await fireStarted.promise;
+        await run({
+          runtime,
+          stateDirectory,
+          fireStarted: fireStarted.promise,
+          answerFire: answer.resolve,
+          fireAnswered: () => answered,
+        });
+      } finally {
+        answer.resolve();
+        await runtime.stop();
+        await rm(stateDirectory, { recursive: true, force: true });
+      }
+    }
+
+    test("does not finish until the request has settled, and the late answer changes nothing", async () => {
+      await withFireInFlight(async ({ runtime, stateDirectory, answerFire, fireAnswered }) => {
+        const stopping = runtime.stop();
+        const early = await Promise.race([
+          stopping.then(() => "stopped" as const),
+          new Promise<"still stopping">((resolve) =>
+            setTimeout(() => resolve("still stopping"), 100),
+          ),
+        ]);
+        expect(early).toBe("still stopping");
+
+        answerFire();
+        await stopping;
+
+        expect(fireAnswered()).toBe(true);
+        const receipts = (await Bun.file(
+          join(
+            stateDirectory,
+            "reminder-receipts",
+            connection.workspaceId,
+            "agent-a",
+            "receipts.json",
+          ),
+        ).json()) as { receipts: Array<Record<string, unknown>> };
+        // The answer arrived after the stop: it neither recorded a result nor woke the Agent. The
+        // receipt keeps the request identity written before the fire, so the next daemon repeats
+        // the same request.
+        expect(receipts.receipts).toHaveLength(1);
+        expect(receipts.receipts[0]).toMatchObject({ attempt: 1, wakeAccepted: false });
+        expect(receipts.receipts[0]!.serverResult).toBeUndefined();
+      });
+    });
+
+    test(
+      "gives up after the shutdown bound when the request never settles, and says so",
+      async () => {
+        await withFireInFlight(async ({ runtime, fireAnswered }) => {
+          const { records } = await captureDaemonLogs(() => runtime.stop());
+
+          expect(fireAnswered()).toBe(false);
+          const gaveUp = records.filter(
+            (record) => record.properties.event === "daemon_runtime:reminder_settle_timed_out",
+          );
+          expect(gaveUp).toHaveLength(1);
+          expect(gaveUp[0]).toMatchObject({
+            level: "info",
+            properties: { outcome: "unknown", duration_ms: DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS },
+          });
+        });
+      },
+      DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS + 5_000,
+    );
   });
 
   test.each(["deleted", "damaged"] as const)(

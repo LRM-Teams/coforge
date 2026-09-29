@@ -22,6 +22,11 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   closes. Only a hold renewed within `SHUTDOWN_HOLD_REASON_WINDOW_MS` names
   the reason (`shutdown-reason.ts`); a stale or absent hold is
   `computer_stop`. Hold reasons are `RunnerHoldReason` values, never literals.
+- The same `stop` also waits, within the same bound
+  (`DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS`) and alongside the notice, for reminder
+  work already running (a fire request, a wake, a receipt write) to settle, so
+  no receipt write lands after `stop` resolves. When the bound passes it logs
+  `daemon_runtime:reminder_settle_timed_out` at info and goes on.
 - Context-usage change detection lives here: skip an unchanged reading and
   forget the last reading on launch end or dispose. `connection/` only sends.
 

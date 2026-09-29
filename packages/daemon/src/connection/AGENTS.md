@@ -91,3 +91,7 @@ Session invalidate (`sendSessionInvalidate`) and Agent context usage
   it. It is bounded by `DAEMON_SHUTDOWN_NOTICE_TIMEOUT_MS` (the whole stop must
   fit launchd's 5 s grace), never retried or buffered, skipped when not
   connected, and never throws.
+- That constant lives in `shutdown-notice-timeout.ts` because `daemon-runtime/`
+  shares it. `daemon-runtime/` takes only types from `daemon-connection.ts`: the
+  macOS lifecycle fixture build (`test/fixtures/build-macos-computer.ts`)
+  replaces that module, so a value import from it breaks the build.
