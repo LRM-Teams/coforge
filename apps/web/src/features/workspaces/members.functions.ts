@@ -6,6 +6,7 @@ import { authMiddleware, workspaceUserMiddleware } from "#src/features/auth/func
 import { requireDatabaseClient } from "#src/server/db/client.server";
 import { workspaceMemberDirectory } from "#src/server/workspaces/member-directory-store.server";
 import { INVITABLE_WORKSPACE_ROLES } from "#src/server/workspaces/member-role.server";
+import { canManageMembers } from "./workspace-roles";
 
 const inviteInputSchema = z.object({
   username: z.string().trim().min(1),
@@ -30,10 +31,9 @@ export const loadWorkspaceMembers = createServerFn({ method: "GET" })
     });
     if (!actor) throw new AppError("ACCESS_DENIED");
     const list = await members.listMembers({ workspaceId, actorUserId: user.id });
-    const pendingInvitations =
-      actor.role === "owner" || actor.role === "admin"
-        ? await members.listPendingInvitations({ workspaceId, actorUserId: user.id })
-        : [];
+    const pendingInvitations = canManageMembers(actor.role)
+      ? await members.listPendingInvitations({ workspaceId, actorUserId: user.id })
+      : [];
     return {
       workspaceId,
       actorUserId: user.id,
