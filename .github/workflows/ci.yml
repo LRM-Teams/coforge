@@ -457,7 +457,7 @@ jobs:
           install_args: ${{ matrix.tools }}
 
       - name: Add the Rust target
-        run: mise exec -- rustup target add "${{ matrix.rust_target }}"
+        run: mise exec rust -- rustup target add "${{ matrix.rust_target }}"
 
       - name: Install the musl C compiler for ring
         if: startsWith(matrix.release_target, 'linux')
@@ -469,18 +469,18 @@ jobs:
 
       - name: Check formatting
         if: matrix.release_target == 'linux-x64'
-        run: mise exec -- cargo fmt --check
+        run: mise exec rust -- cargo fmt --check
 
       # Per target: cfg(unix) and cfg(windows) code differs.
       - name: Lint
-        run: mise exec -- cargo clippy --locked --all-targets --target "${{ matrix.rust_target }}" -- -D warnings
+        run: mise exec rust -- cargo clippy --locked --all-targets --target "${{ matrix.rust_target }}" -- -D warnings
 
       - name: Test
         if: matrix.native
-        run: mise exec -- cargo test --locked --target "${{ matrix.rust_target }}"
+        run: mise exec rust -- cargo test --locked --target "${{ matrix.rust_target }}"
 
       - name: Build release binary
-        run: mise exec -- cargo build --locked --release --target "${{ matrix.rust_target }}"
+        run: mise exec rust -- cargo build --locked --release --target "${{ matrix.rust_target }}"
 
       - name: Ad-hoc sign the x86_64 darwin binary
         if: matrix.release_target == 'darwin-x64'
