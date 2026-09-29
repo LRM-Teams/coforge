@@ -157,11 +157,12 @@ These rules apply to `src/server/conversations/`.
 
 - `channel-authority.server.ts` is the single authority seam for channel
   administration on both the human and Agent sides. Do not add
-  `Agent.role`-only or Workspace-role-only channel checks elsewhere. The two
-  Workspace-level channel actions, hiding `#general` and deleting a channel,
-  are decided there by server role alone (`canHideGeneralChannel`,
-  `canDeleteChannel`) and stay out of the capability matrix, which Agents also
-  receive.
+  `Agent.role`-only or Workspace-role-only channel checks elsewhere. The three
+  Workspace-level channel actions, hiding `#general`, deleting a channel and
+  listing every archived channel in Workspace settings, are decided there by
+  server role alone (`canHideGeneralChannel`, `canDeleteChannel`,
+  `canListArchivedChannels`) and stay out of the capability matrix, which
+  Agents also receive.
 - `ConversationMember.channelRole` (`admin | member`, default `member`) is
   stored on the membership. A channel's creator, human or Agent, gets
   `admin` on their own row.

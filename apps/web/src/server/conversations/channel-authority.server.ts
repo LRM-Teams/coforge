@@ -93,6 +93,13 @@ export function canDeleteChannel(channelName: string, serverRole: string | undef
   return channelName !== "general" && isElevatedServerRole(serverRole);
 }
 
+/** Only a Workspace owner or admin sees every archived channel in Workspace settings. That same
+ * role is the admin basis granting `unarchive` on every channel but `#general`, so each one listed
+ * is one they may unarchive; a channel admin unarchives their own channel from its settings. */
+export function canListArchivedChannels(serverRole: string | undefined) {
+  return isElevatedServerRole(serverRole);
+}
+
 /** A `ConversationMember` `where` clause identifying `actor`'s own row in a channel. Shared by
  * `PublicChannels` (which otherwise duplicated this as a private method) and this module. */
 export function channelActorMemberWhere(actor: ChannelActor) {

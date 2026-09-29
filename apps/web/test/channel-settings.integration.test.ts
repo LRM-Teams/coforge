@@ -348,3 +348,49 @@ test.skipIf(!connectionString)(
     }
   },
 );
+
+test.skipIf(!connectionString)(
+  "Workspace settings list the archived channels, newest archive first, to an owner or admin only; unarchiving one takes it off the list",
+  async () => {
+    const { db, channels, suffix, workspace, owner, creator, bob, team } = await setup();
+    const admin = await db.user.create({ data: { username: `cs-admin-${suffix}` } });
+    try {
+      await db.workspaceMembership.create({
+        data: { workspaceId: workspace.id, userId: admin.id, role: "admin" },
+      });
+      const alpha = await channels.create(workspace.id, creator.id, `alpha-${suffix}`);
+      const beta = await channels.create(workspace.id, creator.id, `beta-${suffix}`);
+      await channels.create(workspace.id, creator.id, `open-${suffix}`);
+      // Fixed archive times, one of them shared, so the order is exact: newest archive first,
+      // then by name.
+      const newer = new Date("2026-09-16T15:23:00Z");
+      const older = new Date("2026-09-10T08:00:00Z");
+      for (const [id, archivedAt] of [
+        [team.id, older],
+        [beta.id, newer],
+        [alpha.id, newer],
+      ] as const)
+        await db.conversation.update({ where: { id }, data: { archivedAt } });
+
+      const expected = [
+        { id: alpha.id, name: `alpha-${suffix}`, archivedAt: newer },
+        { id: beta.id, name: `beta-${suffix}`, archivedAt: newer },
+        { id: team.id, name: `team-${suffix}`, archivedAt: older },
+      ];
+      expect(await channels.archived(workspace.id, owner.id)).toEqual(expected);
+      expect(await channels.archived(workspace.id, admin.id)).toEqual(expected);
+
+      // A plain member sees no such list, even the admin of an archived channel: they unarchive
+      // it from that channel's own settings.
+      expect(await appErrorCode(channels.archived(workspace.id, bob.id))).toBe("ACCESS_DENIED");
+      expect(await appErrorCode(channels.archived(workspace.id, creator.id))).toBe("ACCESS_DENIED");
+
+      // Every listed channel is one the viewer may unarchive through the channel's own write.
+      await channels.setArchived(workspace.id, { userId: admin.id }, beta.id, false);
+      expect(await channels.archived(workspace.id, owner.id)).toEqual([expected[0], expected[2]]);
+      expect((await channels.open(workspace.id, bob.id, beta.id)).archived).toBe(false);
+    } finally {
+      await teardown(db, workspace.id, [owner.id, creator.id, bob.id, admin.id]);
+    }
+  },
+);

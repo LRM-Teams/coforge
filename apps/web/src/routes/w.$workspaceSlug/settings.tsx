@@ -48,8 +48,10 @@ import { isAppError } from "#src/lib/app-error";
 import type { TimeFormat } from "#src/lib/time-format";
 import { m } from "#src/paraglide/messages";
 import {
+  loadArchivedChannels,
   loadGeneralChannelHidden,
   setGeneralChannelHidden,
+  setPublicChannelArchived,
 } from "#src/features/conversations/channels.functions";
 import { useRefreshSidebarChannels } from "#src/features/conversations/sidebar-lists";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
@@ -80,15 +82,18 @@ export const Route = createFileRoute("/w/$workspaceSlug/settings")({
     github: z.enum(["connected", "error", "wrong_account"]).optional().catch(undefined),
   }),
   loader: async () => {
-    const [preferences, members, incomingInvitations, generalChannel] = await Promise.all([
-      getUserPreferences(),
-      loadWorkspaceMembers(),
-      loadMyWorkspaceInvitations(),
-      loadGeneralChannelHidden(),
-    ]);
+    const [preferences, members, incomingInvitations, generalChannel, archivedChannels] =
+      await Promise.all([
+        getUserPreferences(),
+        loadWorkspaceMembers(),
+        loadMyWorkspaceInvitations(),
+        loadGeneralChannelHidden(),
+        loadArchivedChannels(),
+      ]);
     return {
       ...preferences,
       generalChannelHidden: generalChannel?.hidden ?? null,
+      archivedChannels,
       members: {
         actorUserId: members.actorUserId,
         actorRole: members.actorRole,
@@ -123,6 +128,7 @@ function SettingsPage() {
     conversationOpenMode: savedOpenMode,
     members,
     generalChannelHidden,
+    archivedChannels,
   } = Route.useLoaderData();
   const { user: profile, notifications, currentWorkspace } = appRoute.useLoaderData();
   const [notificationPermission, setNotificationPermission] = useState<
@@ -136,6 +142,7 @@ function SettingsPage() {
   const sendTestNotification = useServerFn(sendTestBrowserNotification);
   const saveProfile = useServerFn(saveUserProfile);
   const saveGeneralChannelHidden = useServerFn(setGeneralChannelHidden);
+  const saveChannelArchived = useServerFn(setPublicChannelArchived);
   const saveWorkspaceName = useServerFn(renameWorkspace);
   const saveWorkspaceIcon = useServerFn(uploadWorkspaceIcon);
   const refreshSidebarChannels = useRefreshSidebarChannels();
@@ -219,6 +226,18 @@ function SettingsPage() {
   // other open pages.
   async function changeGeneralChannelHidden(hidden: boolean) {
     await saveGeneralChannelHidden({ data: { hidden } });
+    void refreshSidebarChannels();
+    await router.invalidate({ sync: true });
+  }
+
+  // Unarchiving puts the channel back in every sidebar (this one here, others through its realtime
+  // signal) and takes it off the archived list. A channel deleted meanwhile just leaves the list.
+  async function unarchiveChannel(channelId: string) {
+    try {
+      await saveChannelArchived({ data: { channelId, archived: false } });
+    } catch (cause) {
+      if (!isAppError(cause) || cause.code !== "NOT_FOUND") throw cause;
+    }
     void refreshSidebarChannels();
     await router.invalidate({ sync: true });
   }
@@ -381,6 +400,8 @@ function SettingsPage() {
       workspace={currentWorkspace}
       onWorkspaceRename={changeWorkspaceName}
       onWorkspaceIconUpload={changeWorkspaceIcon}
+      archivedChannels={archivedChannels}
+      onChannelUnarchive={unarchiveChannel}
     />
   );
 }

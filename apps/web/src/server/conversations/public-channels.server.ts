@@ -15,6 +15,7 @@ import {
   resolveChannelAuthority,
   canDeleteChannel,
   canHideGeneralChannel,
+  canListArchivedChannels,
 } from "./channel-authority.server";
 import {
   assertCanManageWorkspaceSettings,
@@ -1048,6 +1049,31 @@ export class PublicChannels {
     });
     await announceChannelUpdated(this.realtime, { workspaceId, conversationId: channel.id });
     return { id: channel.id, archived };
+  }
+
+  /**
+   * Every archived channel of the Workspace, for Workspace settings: the most recently archived
+   * first, then by name. Owner/admin only (`canListArchivedChannels`); each one is unarchived
+   * through `setArchived`.
+   */
+  async archived(workspaceId: string, userId: string) {
+    const serverRole = await resolveActorServerRole(this.db, workspaceId, { userId });
+    if (!canListArchivedChannels(serverRole)) throw new AppError("ACCESS_DENIED");
+    const channels = await this.db.conversation.findMany({
+      where: {
+        workspaceId,
+        channelName: { not: null },
+        archivedAt: { not: null },
+        ...VISIBLE_CONVERSATION_WHERE,
+      },
+      orderBy: [{ archivedAt: "desc" }, { channelName: "asc" }],
+      select: { id: true, channelName: true, archivedAt: true },
+    });
+    return channels.map((channel) => ({
+      id: channel.id,
+      name: channel.channelName!,
+      archivedAt: channel.archivedAt!,
+    }));
   }
 
   private async findChannelById(workspaceId: string, channelId: string) {
