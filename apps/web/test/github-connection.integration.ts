@@ -1893,13 +1893,19 @@ test("repositoryDirectoryCommits returns the directory's latest commit and each 
                           nodes: [
                             {
                               name: "Dir Author",
+                              email: "dir-author@example.com",
                               avatarUrl: "https://avatars.githubusercontent.com/u/1?s=80",
                               user: { login: "dir-author" },
                             },
-                            { name: "Pair", avatarUrl: null, user: null },
+                            { name: "Pair", email: null, avatarUrl: null, user: null },
                           ],
                         },
-                        committer: { name: "GitHub", avatarUrl: null, user: { login: "web-flow" } },
+                        committer: {
+                          name: "GitHub",
+                          email: "noreply@github.com",
+                          avatarUrl: null,
+                          user: { login: "web-flow" },
+                        },
                       },
                     ],
                   },
