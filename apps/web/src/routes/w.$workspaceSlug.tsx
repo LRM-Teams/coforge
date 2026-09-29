@@ -1,7 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { Outlet, createFileRoute, notFound, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import type { QueryClient } from "@tanstack/react-query";
 
 import { AppShell } from "#src/components/app-shell";
 import { TimeFormatProvider } from "#src/lib/time-format-context";
@@ -27,9 +26,8 @@ import { getPanelTabOrders } from "#src/features/panel-tabs/panel-tabs.functions
 import { PanelTabOrderProvider } from "#src/features/panel-tabs/panel-tab-order-context";
 import { useLastLocationMemory } from "#src/features/workspaces/use-last-location-memory";
 import { useSearchShortcut } from "#src/features/search/search-shortcut";
-
-/** The Workspace each QueryClient (one per browser app, one per server request) last showed. */
-const shownWorkspace = new WeakMap<QueryClient, string>();
+import { markShownWorkspace, shownWorkspace } from "#src/features/workspaces/shown-workspace";
+import { LeaveDeletedWorkspace } from "#src/features/workspaces/leave-deleted-workspace";
 
 export const Route = createFileRoute("/w/$workspaceSlug")({
   staleTime: Infinity,
@@ -39,7 +37,7 @@ export const Route = createFileRoute("/w/$workspaceSlug")({
     // A preload runs while the browser URL still names the Workspace on screen: it must neither
     // check the target Workspace against that one nor clear what is on screen.
     if (preload) return;
-    const shown = shownWorkspace.get(context.queryClient);
+    const shown = shownWorkspace(context.queryClient);
     if (shown === params.workspaceSlug) return;
     // Runs before any page loader: a Workspace the User is not in is a page that does not exist
     // for them. Checked once per Workspace entered; every server call re-checks it anyway.
@@ -49,7 +47,7 @@ export const Route = createFileRoute("/w/$workspaceSlug")({
     });
     // Query keys are not scoped by Workspace, so moving to another one starts from an empty cache.
     if (shown) context.queryClient.clear();
-    shownWorkspace.set(context.queryClient, params.workspaceSlug);
+    markShownWorkspace(context.queryClient, params.workspaceSlug);
   },
   loader: async () => {
     const [user, switcher, notifications, agents, preferences, tabOrders, recordsNav] =
@@ -93,7 +91,7 @@ function AppLayout() {
   // Hydration does not re-run `beforeLoad`, so the browser learns here which Workspace the server
   // rendered; otherwise the first switch away would keep this Workspace's cache.
   useEffect(() => {
-    shownWorkspace.set(queryClient, currentWorkspace.slug);
+    markShownWorkspace(queryClient, currentWorkspace.slug);
   }, [queryClient, currentWorkspace.slug]);
   useLastLocationMemory();
   useSearchShortcut(currentWorkspace.id, user.id);
@@ -110,6 +108,8 @@ function AppLayout() {
         <WorkspacePresenceProvider workspaceId={currentWorkspace.id}>
           <WorkspaceAgentsProvider workspaceId={currentWorkspace.id} agents={agents}>
             <PanelTabOrderProvider workspaceId={currentWorkspace.id} orders={tabOrders}>
+              {/* Every open page leaves a Workspace its owner deleted. */}
+              <LeaveDeletedWorkspace workspaceId={currentWorkspace.id} />
               {/* The server prunes dead web-push subscriptions (404/410), and nothing else ever
             re-registers them — without this the phone stays silent until a manual toggle. */}
               <BrowserPushLifecycle

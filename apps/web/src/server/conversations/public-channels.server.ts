@@ -70,10 +70,7 @@ import { AgentMessageValidationError } from "./agent-message-validation-error.se
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { getFileStorage, type FileStorage } from "#src/server/files/file-storage.server";
-import {
-  conversationAttachmentKeys,
-  removeAttachmentFiles,
-} from "#src/server/attachments/attachment.server";
+import { attachmentKeys, removeAttachmentFiles } from "#src/server/attachments/attachment.server";
 import {
   agentVisibilityViewerForUser,
   canSeeAgent,
@@ -1056,7 +1053,7 @@ export class PublicChannels {
         select: { agentId: true },
       }),
       this.db.task.findMany({ where: { conversationId: channel.id }, select: { messageId: true } }),
-      conversationAttachmentKeys(this.db, channel.id),
+      attachmentKeys(this.db, { conversationId: channel.id }),
     ]);
     await Promise.all(
       agentMembers.map(({ agentId }) =>

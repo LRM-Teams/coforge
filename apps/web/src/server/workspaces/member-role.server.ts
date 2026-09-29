@@ -1,5 +1,6 @@
 import { AppError } from "#src/lib/app-error";
 import {
+  canDeleteWorkspace,
   canLeaveWorkspace,
   canManageMembers,
   canManageWorkspaceSettings,
@@ -112,4 +113,8 @@ export function assertCanRemoveMember(
 
 export function assertCanLeaveWorkspace(actorRole: WorkspaceMemberRole): void {
   if (!canLeaveWorkspace(actorRole)) throw new AppError("CONFLICT");
+}
+
+export function assertCanDeleteWorkspace(actorRole: string | undefined): void {
+  if (!canDeleteWorkspace(actorRole)) throw new AppError("ACCESS_DENIED");
 }

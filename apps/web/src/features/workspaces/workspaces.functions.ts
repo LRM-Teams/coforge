@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import {
   createWorkspaceInputSchema,
+  deleteWorkspaceInputSchema,
   renameWorkspaceInputSchema,
   workspaceIconUploadInput,
 } from "./workspace.schemas";
@@ -14,8 +15,17 @@ import {
 } from "#src/server/workspaces/catalog.server";
 import {
   preferredWorkspaceSlugFromRequest,
+  rememberedWorkspaceCookie,
   writePreferredWorkspaceSlug,
 } from "#src/server/workspaces/selection.server";
+import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { getFileStorage } from "#src/server/files/file-storage.server";
+import { getPublicImageStorage } from "#src/server/files/public-image-storage.server";
+import { WorkspaceDeparture } from "#src/server/workspaces/departure.server";
+import {
+  centrifugoWorkspaceDeletionSignals,
+  WorkspaceDeletion,
+} from "#src/server/workspaces/deletion.server";
 import { WorkspaceMembers, workspaceMemberRole } from "#src/server/workspaces/members.server";
 import { WorkspaceImages } from "#src/server/workspaces/workspace-images.server";
 import { MEMBER_PAGE_MAX } from "./member-directory";
@@ -126,3 +136,23 @@ export const uploadWorkspaceIcon = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) =>
     new WorkspaceImages(context.db).store(context.workspaceId, context.user.id, data.file),
   );
+
+/**
+ * Deletes the Workspace the page URL names for good; its owner only, confirming with its slug
+ * (INVALID_INPUT otherwise). Answers which Workspace to open next, `null` when the owner is in no
+ * other; `/` remembers that one from now on.
+ */
+export const deleteWorkspace = createServerFn({ method: "POST" })
+  .middleware([workspaceUserMiddleware])
+  .validator(deleteWorkspaceInputSchema)
+  .handler(async ({ data, context: { user, db, workspaceId } }) => {
+    await new WorkspaceDeletion(db, {
+      files: getFileStorage,
+      images: getPublicImageStorage,
+      signals: centrifugoWorkspaceDeletionSignals(createCentrifugoServerApi),
+    }).delete({ workspaceId, userId: user.id, confirmSlug: data.confirmSlug });
+    return new WorkspaceDeparture(
+      new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db)),
+      rememberedWorkspaceCookie,
+    ).next(user.id);
+  });

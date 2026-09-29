@@ -29,3 +29,7 @@ mechanics only; domain rules stay in the owning `src/server/` module.
   ([`../workspaces/AGENTS.md`](../workspaces/AGENTS.md)) and Computer removal
   ([`../computers/AGENTS.md`](../computers/AGENTS.md)). Every refusal logs
   `daemon_connect:refused` with its reason.
+- The server API's `disconnect` ends every connection of one user; a daemon's
+  connection user is its key owner, so it also drops that person's pages and
+  other daemons. Pass a code in centrifuge-js's reconnecting 4000-4499 range
+  unless the client must stop for good (4500-4999, as the connect proxy does).

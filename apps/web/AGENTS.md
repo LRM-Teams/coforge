@@ -116,7 +116,7 @@ responsibility.
 - `features/settings/` — preference pages and device-local preferences.
 - `features/search/` — the Workspace search page (`search`): filters, matching channels, Agents and Computers, message results with their preview, and the browser-local search history and frequently used places.
 - `features/tasks/` — Task board, list, overview, and message task actions.
-- `features/workspaces/` — Workspace switcher and creation, the Workspace a page URL names (`/w/<slug>`), member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, join links, human roles, the Settings → Workspace profile Danger zone, and the last page `/` returns to.
+- `features/workspaces/` — Workspace switcher and creation, the Workspace a page URL names (`/w/<slug>`) and the one each QueryClient last showed, member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, join links, human roles, the Settings → Workspace profile Danger zone (leave, or delete for its owner), leaving a page whose Workspace was deleted (`workspace.deleted.v1`), and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,
   visibility, deletion, and the Agent HTTPS API.
 - `server/attachments/` — attachment upload sessions, claiming a sender's uploads for a new message, and delivery.
@@ -141,7 +141,8 @@ responsibility.
 - `server/tasks/` — the message-backed TaskBoard, the Tasks page's overview reads, its Task view, history records, and notice wording.
 - `server/workspaces/` — Workspace catalog (name and icon), selection,
   enrollment, member roles, member directory, join links, admitting a member (one step for
-  invitations and join links), and leaving a Workspace for the next one.
+  invitations and join links), deleting a Workspace, and going out of a Workspace (leaving
+  or deleting it) to the next one.
 - `prisma/` (app root) — schema and migrations; `messages/` — UI translations.
 
 ## Nested rules

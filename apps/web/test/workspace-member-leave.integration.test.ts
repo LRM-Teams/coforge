@@ -92,6 +92,17 @@ async function teardown(db: PrismaClient, workspaceId: string, userIds: string[]
   await db.$disconnect();
 }
 
+/** Leaving the way the Leave Workspace server function does: leave, then go where `departure`
+ * says. */
+async function leaveAndGo(
+  directory: WorkspaceMemberDirectory,
+  departure: WorkspaceDeparture,
+  input: { workspaceId: string; userId: string },
+) {
+  await directory.leave(input);
+  return departure.next(input.userId);
+}
+
 /** The Workspace `/` returns to, kept in memory the way the browser keeps its cookie. */
 function rememberedWorkspace(slug?: string) {
   const remembered = { slug };
@@ -136,7 +147,6 @@ test.skipIf(!connectionString)(
         return {
           ...preference,
           departure: new WorkspaceDeparture(
-            directory,
             new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db)),
             preference.port,
           ),
@@ -146,7 +156,10 @@ test.skipIf(!connectionString)(
       // `/` remembered the Workspace being left: the first one still theirs takes over.
       const leavingOpened = departure(workspace.slug);
       expect(
-        await leavingOpened.departure.leave({ workspaceId: workspace.id, userId: bob.id }),
+        await leaveAndGo(directory, leavingOpened.departure, {
+          workspaceId: workspace.id,
+          userId: bob.id,
+        }),
       ).toEqual({ nextWorkspaceSlug: first.slug });
       expect(leavingOpened.remembered.slug).toBe(first.slug);
 
@@ -154,7 +167,10 @@ test.skipIf(!connectionString)(
       await invite();
       const leavingElsewhere = departure(second.slug);
       expect(
-        await leavingElsewhere.departure.leave({ workspaceId: workspace.id, userId: bob.id }),
+        await leaveAndGo(directory, leavingElsewhere.departure, {
+          workspaceId: workspace.id,
+          userId: bob.id,
+        }),
       ).toEqual({ nextWorkspaceSlug: second.slug });
       expect(leavingElsewhere.remembered.slug).toBe(second.slug);
     } finally {
@@ -172,7 +188,7 @@ test.skipIf(!connectionString)(
       const catalog = new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db));
       const bobs = rememberedWorkspace(workspace.slug);
       expect(
-        await new WorkspaceDeparture(directory, catalog, bobs.port).leave({
+        await leaveAndGo(directory, new WorkspaceDeparture(catalog, bobs.port), {
           workspaceId: workspace.id,
           userId: bob.id,
         }),
@@ -181,7 +197,7 @@ test.skipIf(!connectionString)(
 
       const owners = rememberedWorkspace(workspace.slug);
       await expect(
-        new WorkspaceDeparture(directory, catalog, owners.port).leave({
+        leaveAndGo(directory, new WorkspaceDeparture(catalog, owners.port), {
           workspaceId: workspace.id,
           userId: owner.id,
         }),

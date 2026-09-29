@@ -1,5 +1,4 @@
 import type { WorkspaceCatalog } from "./catalog.server";
-import type { WorkspaceMemberDirectory } from "./member-directory.server";
 
 /** The Workspace the bare app root (`/`) returns to, as the browser remembers it. */
 export type RememberedWorkspace = {
@@ -9,23 +8,19 @@ export type RememberedWorkspace = {
 };
 
 /**
- * A person leaving a Workspace, and where they go next: the Workspace `/` remembers when they are
- * still in it, else the first one they are in, else nowhere (`null`). `/` then remembers that one,
- * or forgets the one they left. The owner cannot leave (CONFLICT), and nothing changes.
+ * Where a person goes once they are out of a Workspace — left it, or deleted it: the Workspace `/`
+ * remembers when they are still in it, else the first one they are in, else nowhere (`null`). `/`
+ * then remembers that one, or forgets the one they went out of. Called only after going out
+ * succeeded, so a refused leave or delete changes nothing.
  */
 export class WorkspaceDeparture {
   constructor(
-    private readonly directory: Pick<WorkspaceMemberDirectory, "leave">,
     private readonly catalog: Pick<WorkspaceCatalog, "selectForUser">,
     private readonly remembered: RememberedWorkspace,
   ) {}
 
-  async leave(input: {
-    workspaceId: string;
-    userId: string;
-  }): Promise<{ nextWorkspaceSlug: string | null }> {
-    await this.directory.leave(input);
-    const next = await this.catalog.selectForUser(input.userId, this.remembered.read());
+  async next(userId: string): Promise<{ nextWorkspaceSlug: string | null }> {
+    const next = await this.catalog.selectForUser(userId, this.remembered.read());
     if (next) this.remembered.remember(next.slug);
     else this.remembered.forget();
     return { nextWorkspaceSlug: next?.slug ?? null };
