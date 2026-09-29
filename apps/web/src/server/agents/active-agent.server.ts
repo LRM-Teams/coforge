@@ -15,6 +15,8 @@ import { AppError } from "#src/lib/app-error";
  * message projections that render a deleted sender.
  */
 export const ACTIVE_AGENT_WHERE = { deletedAt: null } satisfies Prisma.AgentWhereInput;
+// Raw SQL spells the same rule as `"deletedAt" IS NULL` (`viewerDirectConversationSql` and the
+// Activity inbox laterals); change those with it.
 
 /**
  * Refuse a mutation aimed at a deleted Agent. The filter above hides a deleted Agent

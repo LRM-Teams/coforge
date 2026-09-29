@@ -53,6 +53,7 @@ import { useRefreshSidebarLists } from "#src/features/conversations/sidebar-list
 import { TASK_STATUS_COLOR } from "#src/features/tasks/task-workflow";
 import { cn } from "#src/lib/utils";
 import { DeletedAgentBadge } from "#src/features/agents/deleted-agent";
+import { MemberAvatar } from "#src/features/workspaces/member-avatar";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { m } from "#src/paraglide/messages";
 import type { ActivityInboxItem } from "#src/server/inbox/activity-inbox.server";
@@ -183,7 +184,13 @@ export function ActivityInboxView({
         ) : (
           <ol className="flex flex-col gap-2">
             {items.map((item) => (
-              <ActivityInboxCard key={item.key} item={item} filter={filter} actions={actions} />
+              <ActivityInboxCard
+                key={item.key}
+                item={item}
+                filter={filter}
+                actions={actions}
+                viewerId={user.id}
+              />
             ))}
           </ol>
         )}
@@ -511,10 +518,12 @@ const ActivityInboxCard = memo(function ActivityInboxCard({
   item,
   filter,
   actions,
+  viewerId,
 }: {
   item: ActivityInboxItem;
   filter: ActivityInboxFilter;
   actions: ActivityItemActions;
+  viewerId: string;
 }) {
   const router = useRouter();
   const workspaceSlug = useWorkspaceSlug();
@@ -522,8 +531,13 @@ const ActivityInboxCard = memo(function ActivityInboxCard({
   const href = router.buildLocation(target).publicHref;
   const unread = item.unreadCount > 0;
   const { place, thread } = item;
+  // A DM, and a thread in one, goes by who is on the other side, whether an Agent or a member.
   const placeName =
-    place.kind === "channel" ? `#${place.channelName}` : `@${place.agent.displayName}`;
+    place.kind === "channel"
+      ? `#${place.channelName}`
+      : place.peer.kind === "people" && place.peer.userId === viewerId
+        ? `@${place.peer.displayName} ${m.conversation_dm_self_suffix()}`
+        : `@${place.peer.displayName}`;
   const sender =
     item.latest.senderKind === "system" ? m.activity_inbox_system_sender() : item.latest.senderName;
 
@@ -632,12 +646,16 @@ const ActivityInboxCard = memo(function ActivityInboxCard({
 });
 
 function ActivityItemIcon({ item }: { item: ActivityInboxItem }) {
-  if (!item.thread && item.place.kind === "direct")
-    return (
-      <Avatar
+  const { place } = item;
+  if (!item.thread && place.kind === "direct")
+    return place.peer.kind === "agent" ? (
+      <Avatar size="xs" src={place.peer.avatarUrl} alt="" className="mt-0.5 size-4 shrink-0" />
+    ) : (
+      <MemberAvatar
         size="xs"
-        src={item.place.agent.avatarUrl}
-        alt=""
+        userId={place.peer.userId}
+        name={place.peer.displayName}
+        src={place.peer.avatarUrl}
         className="mt-0.5 size-4 shrink-0"
       />
     );

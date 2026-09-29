@@ -8,16 +8,19 @@ export function MemberAvatar({
   name,
   src,
   size,
+  className,
 }: {
   userId: string;
   name: string;
   src: string | null;
   size: AvatarProps["size"];
+  className?: string;
 }) {
   const online = useMemberOnline(userId);
   return (
     <Avatar
       size={size}
+      className={className}
       alt={name}
       src={src ?? undefined}
       initials={avatarInitial(name)}

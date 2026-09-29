@@ -21,14 +21,22 @@ import {
   markThreadsReadSql,
 } from "#src/server/conversations/human-unread.server";
 import { browserSenderName } from "#src/server/conversations/sender-display.server";
+import { viewerDirectConversationSql } from "#src/server/conversations/viewer-direct-conversations.server";
+import {
+  peoplePeer,
+  peoplePeerUserFields,
+} from "#src/server/conversations/direct-conversation-peer.server";
+import { peopleDirectPeerId } from "#src/features/conversations/direct-key";
 import { storedTaskStatus } from "#src/server/tasks/task-view.server";
 
 /**
- * A person's Activity inbox: every joined channel and direct message, every channel thread they
- * follow, and every thread in their direct messages, as long as it has activity past the point
- * where they marked it Done. Reading an item never removes it; Done does, until a newer message
- * arrives. It also lists each message whose sender had them notified of a mention from outside
- * that channel, until they mark it Done.
+ * A person's Activity inbox: every joined channel, every direct message of theirs (with their own
+ * Agent, another member, or themself: the DMs their Direct messages list holds), every channel
+ * thread they follow, and every thread in those direct messages, as long as it has activity past
+ * the point where they marked it Done. Reading an item never removes it; Done does, until a newer
+ * message arrives. It also lists each message whose sender had them notified of a mention from
+ * outside that channel, until they mark it Done. A message between members stores no mentions and
+ * notifies nobody outside the DM, so a DM between members only ever lists as itself or a thread.
  *
  * Unread is the Chat sidebar's rule (`HUMAN_UNREAD_MESSAGE_SQL`), so the two surfaces agree. A
  * conversation item covers top-level messages only; a thread item covers its replies and keeps its
@@ -43,6 +51,8 @@ type ActivityCandidate = {
   conversationId: string;
   rootMessageId: string | null;
   channelName: string | null;
+  /** A direct message's key, which names the member on the other side of a DM between people. */
+  directKey: string | null;
   agentId: string | null;
   latestMessageId: string;
   latestSequence: number;
@@ -95,7 +105,7 @@ export class ActivityInbox {
     const limit = Math.min(MAX_PAGE_SIZE, Math.max(1, options.limit ?? DEFAULT_PAGE_SIZE));
     const end = offset + limit;
     return {
-      items: await this.hydrate(workspaceId, candidates.slice(offset, end)),
+      items: await this.hydrate(workspaceId, userId, candidates.slice(offset, end)),
       /** How many items have something unread, whatever the filter: the Unread tab's count. */
       unreadItemCount: all.filter((candidate) => candidate.unreadCount > 0).length,
       /** How many items have an unread mention, whatever the filter: the Mentions tab's count. */
@@ -173,14 +183,14 @@ export class ActivityInbox {
           ON m."conversationId" = cm."conversationId"
          AND m."threadRootId" IS NULL
          AND ${HUMAN_UNREAD_MESSAGE_SQL}
-        WHERE ${CONVERSATION_ITEM_LISTED_SQL}
+        WHERE ${conversationItemListedSql(userId)}
       ) + (
         SELECT COUNT(*) FROM ${threadItemsSql(workspaceId, userId)}
         JOIN "messages" m
           ON m."conversationId" = threads."conversationId"
          AND m."threadRootId" = threads."rootMessageId"
          AND ${unreadReplySql}
-        WHERE ${THREAD_ITEM_LISTED_SQL}
+        WHERE ${threadItemListedSql(userId)}
       ) + (
         -- Each notified mention is one unread item until the viewer reads it.
         SELECT COUNT(*) FROM "pending_mention_actions" pma
@@ -255,6 +265,7 @@ export class ActivityInbox {
           cm."conversationId" AS "conversationId",
           NULL::uuid AS "rootMessageId",
           c."channelName" AS "channelName",
+          c."directKey" AS "directKey",
           peer."agentId" AS "agentId",
           latest."id" AS "latestMessageId",
           latest."sequence" AS "latestSequence",
@@ -266,7 +277,7 @@ export class ActivityInbox {
         FROM ${conversationItemsSql(workspaceId, userId)}
         ${conversationUnreadLateral}
         ${conversationMentionLateral}
-        WHERE ${CONVERSATION_ITEM_LISTED_SQL}`,
+        WHERE ${conversationItemListedSql(userId)}`,
       this.db.$queryRaw<ActivityCandidate[]>`
         SELECT
           threads."kind" AS "kind",
@@ -274,6 +285,7 @@ export class ActivityInbox {
           threads."conversationId" AS "conversationId",
           threads."rootMessageId" AS "rootMessageId",
           c."channelName" AS "channelName",
+          c."directKey" AS "directKey",
           peer."agentId" AS "agentId",
           latest."id" AS "latestMessageId",
           latest."sequence" AS "latestSequence",
@@ -285,7 +297,7 @@ export class ActivityInbox {
         FROM ${threadItemsSql(workspaceId, userId)}
         ${threadUnreadLateral}
         ${threadMentionLateral}
-        WHERE ${THREAD_ITEM_LISTED_SQL}`,
+        WHERE ${threadItemListedSql(userId)}`,
       this.mentionCandidates(workspaceId, userId),
     ]);
     return [...conversations, ...threads, ...mentions];
@@ -326,6 +338,7 @@ export class ActivityInbox {
       conversationId: row.conversationId,
       rootMessageId: null,
       channelName: row.message.conversation.channelName,
+      directKey: null,
       agentId: null,
       latestMessageId: row.messageId,
       latestSequence: row.message.sequence,
@@ -338,11 +351,13 @@ export class ActivityInbox {
     }));
   }
 
-  /** Loads the messages, Agents, tasks and thread reply totals one page of items renders, in one
-   * query each. */
-  private async hydrate(workspaceId: string, page: readonly ActivityCandidate[]) {
+  /** Loads the messages, DM peers (Agents and members), tasks and thread reply totals one page of
+   * items renders, in one query each. */
+  private async hydrate(workspaceId: string, userId: string, page: readonly ActivityCandidate[]) {
     const messageIds = new Set<string>();
     const agentIds = new Set<string>();
+    // The member on the other side of each DM between people (the viewer, in their own), by key.
+    const peerUserIds = new Map<string, string>();
     const rootIds: string[] = [];
     for (const candidate of page) {
       messageIds.add(candidate.latestMessageId);
@@ -351,8 +366,10 @@ export class ActivityInbox {
         rootIds.push(candidate.rootMessageId);
       }
       if (candidate.agentId) agentIds.add(candidate.agentId);
+      const peerUserId = peopleDirectPeerId(candidate.directKey, userId);
+      if (peerUserId) peerUserIds.set(candidate.conversationId, peerUserId);
     }
-    const [messages, agents, tasks, replyCounts] = await Promise.all([
+    const [messages, agents, people, tasks, replyCounts] = await Promise.all([
       this.db.message.findMany({
         where: { id: { in: [...messageIds] }, workspaceId },
         select: browserMessageFields,
@@ -360,6 +377,11 @@ export class ActivityInbox {
       this.db.agent.findMany({
         where: { id: { in: [...agentIds] }, workspaceId },
         select: { id: true, name: true, displayName: true, avatarObjectKey: true },
+      }),
+      // By the key, not a membership: the member stays named after leaving the Workspace.
+      this.db.user.findMany({
+        where: { id: { in: [...new Set(peerUserIds.values())] } },
+        select: peoplePeerUserFields,
       }),
       this.db.task.findMany({
         where: { messageId: { in: rootIds }, workspaceId },
@@ -390,11 +412,15 @@ export class ActivityInbox {
       agents.map((agent) => [
         agent.id,
         {
-          id: agent.id,
+          kind: "agent" as const,
+          agentId: agent.id,
           displayName: agent.displayName.trim() || agent.name,
           avatarUrl: agentAvatarUrl(workspaceId, agent.id, agent.avatarObjectKey),
         },
       ]),
+    );
+    const personById = new Map(
+      people.map((person) => [person.id, peoplePeer(workspaceId, person)]),
     );
     const taskByRoot = new Map(
       tasks.map((task) => [
@@ -410,7 +436,12 @@ export class ActivityInbox {
     );
     return page.flatMap((candidate) => {
       const latest = messageById.get(candidate.latestMessageId);
-      const agent = candidate.agentId ? agentById.get(candidate.agentId) : undefined;
+      const peerUserId = peerUserIds.get(candidate.conversationId);
+      const peer = peerUserId
+        ? personById.get(peerUserId)
+        : candidate.agentId
+          ? agentById.get(candidate.agentId)
+          : undefined;
       const place =
         candidate.kind === "channel"
           ? {
@@ -418,8 +449,8 @@ export class ActivityInbox {
               conversationId: candidate.conversationId,
               channelName: candidate.channelName ?? "",
             }
-          : agent
-            ? { kind: "direct" as const, conversationId: candidate.conversationId, agent }
+          : peer
+            ? { kind: "direct" as const, conversationId: candidate.conversationId, peer }
             : null;
       const root = candidate.rootMessageId ? messageById.get(candidate.rootMessageId) : null;
       // A row deleted between the two reads leaves the page rather than rendering half an item.
@@ -506,8 +537,8 @@ const threadMentionLateral = Prisma.sql`CROSS JOIN LATERAL (
 ) mention`;
 
 /**
- * The viewer's joined conversations with their Agent peer (`peer`) and newest top-level message
- * (`latest`), as the `FROM` of an item query over `cm` and `c`. `CONVERSATION_ITEM_LISTED_SQL` is
+ * The viewer's joined conversations with a DM's Agent (`peer`) and newest top-level message
+ * (`latest`), as the `FROM` of an item query over `cm` and `c`. `conversationItemListedSql` is
  * its `WHERE`: the list and the nav dot share both, so they cannot disagree on what is listed.
  */
 function conversationItemsSql(workspaceId: string, userId: string) {
@@ -533,14 +564,19 @@ function conversationItemsSql(workspaceId: string, userId: string) {
     ) latest`;
 }
 
-/** A joined conversation is listed when it has an Agent peer or is a channel, with activity past Done. */
-const CONVERSATION_ITEM_LISTED_SQL = Prisma.sql`(c."channelName" IS NOT NULL OR peer."agentId" IS NOT NULL)
-  AND latest."sequence" > COALESCE(cm."doneThroughSequence", 0)`;
+/**
+ * A joined conversation is listed when it is a channel or one of the viewer's own DMs (the ones
+ * their Direct messages list holds), with activity past Done.
+ */
+function conversationItemListedSql(userId: string) {
+  return Prisma.sql`(c."channelName" IS NOT NULL OR ${viewerDirectConversationSql(userId)})
+    AND latest."sequence" > COALESCE(cm."doneThroughSequence", 0)`;
+}
 
 /**
  * The viewer's followed channel threads and direct-message threads (`threads`) with their
- * conversation (`c`), Agent peer (`peer`), thread cursors (`tr`) and newest reply (`latest`), as
- * the `FROM` of an item query. `THREAD_ITEM_LISTED_SQL` is its `WHERE`.
+ * conversation (`c`), a DM's Agent (`peer`), thread cursors (`tr`) and newest reply (`latest`), as
+ * the `FROM` of an item query. `threadItemListedSql` is its `WHERE`.
  */
 function threadItemsSql(workspaceId: string, userId: string) {
   return Prisma.sql`(
@@ -567,6 +603,8 @@ function threadItemsSql(workspaceId: string, userId: string) {
     ) latest`;
 }
 
-/** A thread is listed with a reply past Done; a direct-message thread only with its Agent. */
-const THREAD_ITEM_LISTED_SQL = Prisma.sql`latest."sequence" > COALESCE(tr."doneThroughSequence", 0)
-  AND (threads."kind" = 'channel' OR peer."agentId" IS NOT NULL)`;
+/** A thread is listed with a reply past Done; a direct-message thread only in the viewer's own DMs. */
+function threadItemListedSql(userId: string) {
+  return Prisma.sql`latest."sequence" > COALESCE(tr."doneThroughSequence", 0)
+    AND (threads."kind" = 'channel' OR ${viewerDirectConversationSql(userId)})`;
+}

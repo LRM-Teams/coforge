@@ -2,8 +2,10 @@ import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { PrismaDirectConversationRepository } from "#src/server/db/repositories/direct-conversation.repositories.server";
+import type { DirectConversationPeer } from "#src/server/conversations/direct-conversation-peer.server";
 import { ActivityInbox, type ActivityInboxItem } from "#src/server/inbox/activity-inbox.server";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
+import { openPeopleDirectConversation } from "#src/server/conversations/user-direct-conversations.server";
 
 /**
  * The Activity inbox against PostgreSQL: which conversations and threads a person sees, their
@@ -669,19 +671,132 @@ test("direct messages and their threads are listed with the Agent they belong to
     expect(
       page.items.map((item) => [
         kindOf(item),
-        item.place.kind === "direct" ? item.place.agent.id : null,
+        item.place.kind === "direct" && item.place.peer.kind === "agent"
+          ? item.place.peer.agentId
+          : null,
       ]),
     ).toEqual([
       ["thread", agent.id],
       ["direct", agent.id],
     ]);
     const direct = page.items[1]!.place;
-    expect(direct.kind === "direct" && direct.agent.displayName).toBe("Helper");
+    expect(direct.kind === "direct" && direct.peer.displayName).toBe("Helper");
 
     // A deleted Agent's conversation stays readable in Chat but leaves the inbox.
     await db.agent.update({ where: { id: agent.id }, data: { deletedAt: new Date() } });
     page = await inbox.list(workspace.id, alice.id, { filter: "all" });
     expect(page.items).toEqual([]);
+  } finally {
+    await cleanup(db, suffix);
+  }
+});
+
+test("direct messages between members, and a member's with themself, are listed with the member on the other side", async () => {
+  const db = database();
+  const suffix = crypto.randomUUID();
+  try {
+    const { alice, bob, workspace, post } = await seed(db, suffix);
+    const carol = await db.user.create({
+      data: { username: `inbox-carol-${suffix}`, displayName: "  " },
+    });
+    await db.workspaceMembership.create({ data: { workspaceId: workspace.id, userId: carol.id } });
+    const memberOf = (conversationId: string, userId: string) =>
+      db.conversationMember.findFirstOrThrow({ where: { conversationId, userId } });
+
+    const withBob = await openPeopleDirectConversation(db, workspace.id, alice.id, bob.id);
+    const withSelf = await openPeopleDirectConversation(db, workspace.id, alice.id, alice.id);
+    const aliceWithBob = await memberOf(withBob.conversationId, alice.id);
+    const bobWithAlice = await memberOf(withBob.conversationId, bob.id);
+    const aliceWithSelf = await memberOf(withSelf.conversationId, alice.id);
+    const root = await post(withBob.conversationId, aliceWithBob.id, "lunch?");
+    await post(withBob.conversationId, bobWithAlice.id, "sure", { threadRootId: root.id });
+    await post(withSelf.conversationId, aliceWithSelf.id, "a note to self");
+    await post(withBob.conversationId, bobWithAlice.id, "see you at noon");
+
+    // Neither a DM between two other members that holds a stray row of hers, nor an Agent's DM
+    // she is in but did not create, is one of her direct messages.
+    const others = await openPeopleDirectConversation(db, workspace.id, bob.id, carol.id);
+    await db.conversationMember.create({
+      data: { conversationId: others.conversationId, workspaceId: workspace.id, userId: alice.id },
+    });
+    const othersBob = await memberOf(others.conversationId, bob.id);
+    await post(others.conversationId, othersBob.id, "between bob and carol");
+    const bobsAgent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: bob.id,
+        name: `bobs-${suffix.slice(0, 8)}`,
+        displayName: "Bob's",
+        runtimeConfig: {},
+      },
+    });
+    const repo = new PrismaDirectConversationRepository(db);
+    const bobsDm = await repo.openForUser(workspace.id, bob.id, bobsAgent.id);
+    await db.conversationMember.create({
+      data: { conversationId: bobsDm.conversationId, workspaceId: workspace.id, userId: alice.id },
+    });
+    await post(bobsDm.conversationId, bobsDm.senderMemberId, "bob to his Agent");
+
+    const inbox = new ActivityInbox(db);
+    const page = await inbox.list(workspace.id, alice.id, { filter: "all" });
+    // Neither has an avatar, so each goes by their display name alone.
+    const peopleAt = (
+      user: { id: string; username: string },
+      displayName: string,
+    ): Extract<DirectConversationPeer, { kind: "people" }> => ({
+      kind: "people",
+      userId: user.id,
+      username: user.username,
+      displayName,
+      avatarUrl: null,
+    });
+    const bobPeer = peopleAt(bob, "bob");
+    expect(
+      page.items.map((item) => [
+        kindOf(item),
+        item.place.conversationId,
+        item.place.kind === "direct" ? item.place.peer : null,
+        item.unreadCount,
+      ]),
+    ).toEqual([
+      ["direct", withBob.conversationId, bobPeer, 1],
+      ["direct", withSelf.conversationId, peopleAt(alice, "alice"), 0],
+      ["thread", withBob.conversationId, bobPeer, 1],
+    ]);
+    expect(await inbox.navAttention(workspace.id, alice.id)).toEqual({ unread: 2 });
+
+    // Done takes the DM and its thread out, the same as a channel's.
+    const latest = await db.message.findFirstOrThrow({
+      where: { conversationId: withBob.conversationId, threadRootId: null },
+      orderBy: { sequence: "desc" },
+    });
+    const reply = await db.message.findFirstOrThrow({
+      where: { conversationId: withBob.conversationId, threadRootId: root.id },
+    });
+    await inbox.markDone(workspace.id, alice.id, {
+      kind: "conversation",
+      conversationId: withBob.conversationId,
+      throughSequence: latest.sequence,
+    });
+    await inbox.markDone(workspace.id, alice.id, {
+      kind: "thread",
+      conversationId: withBob.conversationId,
+      rootMessageId: root.id,
+      throughSequence: reply.sequence,
+    });
+    expect(
+      (await inbox.list(workspace.id, alice.id, { filter: "all" })).items.map(
+        (item) => item.place.conversationId,
+      ),
+    ).toEqual([withSelf.conversationId]);
+    expect(await inbox.navAttention(workspace.id, alice.id)).toEqual({ unread: 0 });
+
+    // A member without a display name goes by their username.
+    const withCarol = await openPeopleDirectConversation(db, workspace.id, alice.id, carol.id);
+    const carolWithAlice = await memberOf(withCarol.conversationId, carol.id);
+    await post(withCarol.conversationId, carolWithAlice.id, "hi alice");
+    const [newest] = (await inbox.list(workspace.id, alice.id, { filter: "all" })).items;
+    expect(newest!.place.kind === "direct" && newest!.place.peer.displayName).toBe(carol.username);
   } finally {
     await cleanup(db, suffix);
   }

@@ -24,8 +24,13 @@ These rules apply to `src/server/conversations/`.
 - `viewerDirectConversationWhere` (`viewer-direct-conversations.server.ts`)
   is the one filter for the DMs a viewer's list holds (the ones `authorize`
   lets them open, less a deleted Agent's); the list and a pin drag both use
-  it. A DM the viewer closed comes back when someone other than them posts a
+  it, and the Activity inbox lists exactly these DMs through its raw SQL twin
+  `viewerDirectConversationSql` in the same file. Change the two together.
+  A DM the viewer closed comes back when someone other than them posts a
   top-level message after the close.
+- `direct-conversation-peer.server.ts` owns who a DM is with as every DM
+  surface shows it (the sidebar, the Activity inbox): an Agent, or a member by
+  the DM's key, still named after they leave the Workspace.
 - `UserDirectConversations` (`user-direct-conversations.server.ts`) owns
   direct conversations between Workspace members (and a member with
   themself): one per pair and sending in it. It never delivers to an
