@@ -27,16 +27,31 @@ export async function humanUnreadCount(
   conversationId: string,
   userId: string,
 ): Promise<number> {
-  const [row] = await db.$queryRaw<{ count: number }[]>`
-    SELECT COUNT(*)::int AS "count"
+  return (await humanUnreadCounts(db, userId, [conversationId])).get(conversationId) ?? 0;
+}
+
+/** `humanUnreadCount` for several of the person's conversations in one read, by conversation id;
+ * a conversation they are not in has no entry. */
+export async function humanUnreadCounts(
+  db: Pick<Prisma.TransactionClient, "$queryRaw">,
+  userId: string,
+  conversationIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (conversationIds.length === 0) return new Map();
+  const rows = await db.$queryRaw<{ conversationId: string; count: number }[]>`
+    SELECT cm."conversationId" AS "conversationId", unread."count" AS "count"
     FROM "conversation_members" cm
-    JOIN "messages" m ON m."conversationId" = cm."conversationId"
-    WHERE cm."conversationId" = ${conversationId}::uuid
-      AND cm."userId" = ${userId}::uuid
-      AND cm."leftAt" IS NULL
-      AND m."threadRootId" IS NULL
-      AND ${HUMAN_UNREAD_MESSAGE_SQL}`;
-  return row?.count ?? 0;
+    CROSS JOIN LATERAL (
+      SELECT COUNT(*)::int AS "count"
+      FROM "messages" m
+      WHERE m."conversationId" = cm."conversationId"
+        AND m."threadRootId" IS NULL
+        AND ${HUMAN_UNREAD_MESSAGE_SQL}
+    ) unread
+    WHERE cm."userId" = ${userId}::uuid
+      AND cm."conversationId" = ANY(${[...conversationIds]}::uuid[])
+      AND cm."leftAt" IS NULL`;
+  return new Map(rows.map((row) => [row.conversationId, row.count]));
 }
 
 /**
@@ -150,7 +165,8 @@ export function markThreadDoneSql(
 
 /**
  * Reads every conversation one person belongs to through its newest top-level message posted at
- * or before `before`, consuming mark-as-unread markers at or below that point.
+ * or before `before`, consuming mark-as-unread markers at or below that point. Touches only the
+ * rows that move, and returns each one's conversation and whether it is a channel.
  */
 export function markConversationsReadSql(workspaceId: string, userId: string, before: Date) {
   return Prisma.sql`
@@ -169,7 +185,10 @@ export function markConversationsReadSql(workspaceId: string, userId: string, be
       AND c."workspaceId" = ${workspaceId}::uuid
       AND cm."userId" = ${userId}::uuid
       AND cm."workspaceId" = ${workspaceId}::uuid
-      AND cm."leftAt" IS NULL`;
+      AND cm."leftAt" IS NULL
+      AND (cm."readThroughSequence" < latest."sequence"
+        OR cm."unreadFromSequence" <= latest."sequence")
+    RETURNING cm."conversationId" AS "conversationId", c."channelName" IS NOT NULL AS "channel"`;
 }
 
 /**
