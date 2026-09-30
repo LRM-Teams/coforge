@@ -23,6 +23,10 @@ the crate's commands, toolchain, and gotchas.
   Node's `lib/path.js` as Bun runs them, so `paths.rs` writes the same strings
   as the Computer's `paths.ts`.
 - `src/version.rs`: which release version strings are acceptable.
+- `src/active.rs`: the active version. Reads `<install root>/active.json`, writes it
+  atomically, and points the `active` link (symlink; NTFS junction on Windows) and the
+  `coforge-computer` PATH shim at that version. It trusts the caller to have verified the
+  version's bytes. Tests in `src/active/tests.rs`; they also emit `contract/rust/active.v1.json`.
 - `src/contract.rs`: serde types for every file and JSON shape shared with the
   product (manifests, `active.json`, `installation.json`, receipts,
   `__lifecycle` output, lock, service names, paths). Tests in
@@ -126,6 +130,9 @@ mise exec -- cargo about generate --locked --fail --output-file THIRD_PARTY_NOTI
 
 - `crates/installer/Cargo.toml` keeps `publish = false` and no `license` field; the repository
   has no license. `deny.toml` and `about.toml` ignore the private crate itself.
+- `junction` (NTFS junctions, Windows only) is pinned `=1.2.0`. Its newer releases want
+  `windows-sys` >= 0.59, but `ring` uses 0.52, and `multiple-versions = "deny"` rejects two.
+  Move both together, never add a `deny.toml` `skip` for it.
 - The license allow list in `deny.toml` is the gate. Adding a license to it is a
   licensing decision for Frank, not a CI fix. Keep `about.toml`'s `accepted`
   list in step with it.

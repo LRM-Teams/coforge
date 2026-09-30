@@ -17,3 +17,9 @@ sha2 = "0.11"
 # Content-Encoding transparently, but the manifest checksum is over the exact wire bytes.
 # `rustls` = rustls with the ring provider and the webpki-roots (Mozilla) trust store.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+
+# NTFS junctions, for the `active` link on Windows (no elevation, unlike a symlink). Pinned: 1.3
+# and later need windows-sys >= 0.59, but ring (through rustls) uses 0.52 and deny.toml denies
+# two versions of a crate. Move both together.
+[target."cfg(windows)".dependencies]
+junction = { version = "=1.2.0", default-features = false }

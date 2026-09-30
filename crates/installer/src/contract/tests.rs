@@ -311,18 +311,6 @@ fn feed_environments() {
     );
 }
 
-#[test]
-fn emits_active_state() {
-    emit(
-        "active.v1.json",
-        &to_file_json(&ActiveState {
-            schema_version: ACTIVE_STATE_SCHEMA_VERSION,
-            current: "0.2.0".into(),
-            previous: Some("0.1.0".into()),
-        }),
-    );
-}
-
 fn identity(size: u64, byte: char) -> ArtifactIdentity {
     ArtifactIdentity {
         size,
