@@ -20,7 +20,7 @@ import {
   conversationUpdatesCursorSchema,
 } from "./conversation.schemas";
 import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
-import { chatStreamPositions } from "#src/server/conversations/chat-stream-positions.server";
+import { readAfterStreamPositions } from "#src/server/conversations/chat-stream-positions.server";
 import { userConversationChannel, workspaceConversationChannel } from "./conversation-realtime";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
@@ -54,20 +54,25 @@ export const listPublicChannels = createServerFn({ method: "GET" })
     const { channels, workspaceId, userId } = channelScope(context);
     // Both signal channels keep the list live (messages on the Workspace's, the viewer's own
     // read and membership changes on theirs); their positions are read first.
-    const streamPositions = await chatStreamPositions([
-      workspaceConversationChannel(workspaceId),
-      userConversationChannel(userId),
-    ]);
-    return { streamPositions, channels: await channels.list(workspaceId, userId) };
+    const { streamPositions, data } = await readAfterStreamPositions(
+      [workspaceConversationChannel(workspaceId), userConversationChannel(userId)],
+      () => channels.list(workspaceId, userId),
+    );
+    return { streamPositions, channels: data };
   });
 
 /** Every channel's id and current name, closed ones included: what a body's channel references
- * link by. */
+ * link by, read with the Workspace channel's stream position, the one channel that keeps it live
+ * (`channel.created.v1` and `channel.updated.v1`). */
 export const listChannelNames = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
-    return channels.names(workspaceId, userId);
+    const { streamPositions, data } = await readAfterStreamPositions(
+      [workspaceConversationChannel(workspaceId)],
+      () => channels.names(workspaceId, userId),
+    );
+    return { streamPositions, names: data };
   });
 
 export const createPublicChannel = createServerFn({ method: "POST" })

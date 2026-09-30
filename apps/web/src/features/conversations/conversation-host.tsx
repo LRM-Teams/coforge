@@ -57,7 +57,8 @@ export function ConversationHostProvider({
   const dbClient = useDbClient();
   const queryClient = useQueryClient();
   const savedMessages = useMemo<SavedMessagesState>(() => {
-    const cached = () => queryClient.getQueryData(savedMessagesQuery(workspaceId).queryKey) ?? [];
+    const cached = () =>
+      queryClient.getQueryData(savedMessagesQuery(workspaceId).queryKey)?.entries ?? [];
     const store = savedMessagesStore(
       materializeSavedMessages(dbClient, workspaceId, cached(), {
         list: () => listSavedMessages(),

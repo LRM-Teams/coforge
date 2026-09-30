@@ -3,6 +3,9 @@ import type { SubscribedContext } from "centrifuge/build/protobuf";
 /** A place in a channel's stream: its `epoch` and the `offset` of a publication in it. */
 export type StreamPosition = { offset: number; epoch: string };
 
+/** Stream positions by channel name. */
+export type StreamPositions = Readonly<Record<string, StreamPosition>>;
+
 /**
  * The two flags of a Centrifuge `subscribed` event that say what the subscribe replayed, and, on a
  * channel whose namespace keeps history, where the stream stands for the subscription whenever it
@@ -26,6 +29,24 @@ export function streamMovedSince(
 ): boolean {
   if (!read || !subscribed || read.epoch !== subscribed.epoch) return true;
   return read.offset < subscribed.offset;
+}
+
+/**
+ * The positions a list built from two reads stands at: per channel, the older of the two, since
+ * the list may lack what either read did. A channel only one read has a position for, or whose
+ * two positions are in different epochs (an offset is meaningful only within its epoch), has none.
+ */
+export function olderStreamPositions(
+  left: StreamPositions,
+  right: StreamPositions,
+): StreamPositions {
+  const older: Record<string, StreamPosition> = {};
+  for (const [channel, first] of Object.entries(left)) {
+    const second = right[channel];
+    if (second && second.epoch === first.epoch)
+      older[channel] = first.offset <= second.offset ? first : second;
+  }
+  return older;
 }
 
 /**

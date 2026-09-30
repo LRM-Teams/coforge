@@ -7,6 +7,7 @@ import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-rea
 import { pickConversationPageSearch } from "#src/features/conversations/conversation-page-search";
 import { ConversationHostProvider } from "#src/features/conversations/conversation-host";
 import { savedMessagesQuery } from "#src/features/conversations/conversation-queries";
+import { NO_SAVED } from "#src/features/conversations/saved-messages-collection";
 import { listSavedMessages } from "#src/features/conversations/saved-messages.functions";
 import { ConversationPage } from "#src/features/conversations/conversation-page";
 import type { ConversationPageTarget } from "#src/features/conversations/conversation-page-loader";
@@ -79,7 +80,7 @@ function PreviewPage({ target }: { target: SearchPreviewTarget }) {
   // The viewer's Saved stars, as Chat shows them; a failed read leaves none, as in Chat.
   useSuspenseQuery({
     ...savedMessagesQuery(workspaceId),
-    queryFn: () => listSavedMessages().catch(() => []),
+    queryFn: () => listSavedMessages().catch(() => NO_SAVED),
   });
   // Only the page's own fields, shared structurally: typing a query does not re-render the page.
   const search = searchRoute.useSearch({

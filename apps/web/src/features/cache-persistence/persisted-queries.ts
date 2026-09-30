@@ -24,6 +24,14 @@ type StoredKind =
  * follows a restore brings the rest. */
 const SAVED_MESSAGES_KEPT = 100;
 
+/** A Saved list as a read of it holds it (`SavedList`): its entries beside the stream positions
+ * it was read at. */
+function isSavedList(data: unknown): data is { entries: unknown[] } {
+  return (
+    typeof data === "object" && data !== null && "entries" in data && Array.isArray(data.entries)
+  );
+}
+
 /** The kept kind of a Query key (`features/conversations/conversation-query-keys.ts`,
  * `conversation-queries.ts`), or `undefined` for a query that is not kept. */
 function storedKindOf(queryKey: QueryKey): StoredKind | undefined {
@@ -143,7 +151,10 @@ function firstPaintOf(queryKey: QueryKey, data: unknown): unknown {
         ? undefined
         : data;
     case "saved-messages":
-      return Array.isArray(data) ? data.slice(0, SAVED_MESSAGES_KEPT) : undefined;
+      // Cut to the newest entries, so it is not the whole list and keeps no position claiming it.
+      return isSavedList(data)
+        ? { streamPositions: {}, entries: data.entries.slice(0, SAVED_MESSAGES_KEPT) }
+        : undefined;
     case "sidebar-channels":
     case "channel-names":
       return data;

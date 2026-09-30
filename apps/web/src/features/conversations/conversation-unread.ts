@@ -222,10 +222,10 @@ export function listsMissedBySubscribe(
 
 /**
  * Re-reads what a subscribe may have missed (`listsMissedBySubscribe`). After a resubscribe that
- * lost publications, every such list. After a first subscribe, a list read without a stream
- * position at once; a list read at one (`readPosition`, which lets a read under way settle first)
- * only if the stream has moved past it (`streamMovedSince`), judged by where the stream stands for
- * the subscription once that read has settled, so a publication delivered meanwhile counts.
+ * lost publications, every such list. After a first subscribe, a list `readPosition` has no answer
+ * for at all, at once; any other only if the stream has moved past the position it settles to
+ * (`streamMovedSince`, where none counts as moved), judged by where the stream stands for the
+ * subscription once that read has settled, so a publication delivered meanwhile counts.
  */
 export async function rereadMissedBySubscribe(
   channel: "workspace" | "user",
@@ -412,7 +412,8 @@ export function useChannelUnread({
    * or a subscribe may have missed what kept them live (`listsMissedBySubscribe`). */
   onSidebarListsChanged: (lists: readonly ChatList[]) => void;
   /** Where a list was read in a signal channel's stream, once a read of it under way has settled;
-   * undefined for a list read without one (`useListReadPosition`). */
+   * it settles to undefined for a list read without one (`useListReadPosition`,
+   * `listReadPosition`), which is then re-read. */
   readPosition: (
     list: ChatList,
     channel: string,

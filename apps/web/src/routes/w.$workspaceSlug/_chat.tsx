@@ -13,6 +13,7 @@ import {
   channelNamesQuery,
   savedMessagesQuery,
 } from "#src/features/conversations/conversation-queries";
+import { NO_SAVED } from "#src/features/conversations/saved-messages-collection";
 
 export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
   // Chat's lists and conversations are read and rendered in the browser: the server sends the app's
@@ -38,7 +39,7 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
       return queryClient.query({ ...query, staleTime: chatListStaleTime(cause) }).catch(() => {
         if (queryClient.getQueryData(query.queryKey) !== undefined) return;
         // Stale at once, so the next navigation reads it rather than keep the stand-in.
-        queryClient.setQueryData(query.queryKey, []);
+        queryClient.setQueryData(query.queryKey, NO_SAVED);
         return queryClient.invalidateQueries({ queryKey: query.queryKey, refetchType: "none" });
       });
     });
@@ -48,9 +49,9 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
     // names behind the channel list just read are read again.
     const channelNames = workspaceId.then(async (workspaceId) => {
       const query = channelNamesQuery(workspaceId);
-      const [names] = await Promise.all([queryClient.ensureQueryData(query), sidebarLists]);
+      const [read] = await Promise.all([queryClient.ensureQueryData(query), sidebarLists]);
       const channels = queryClient.getQueryData(sidebarChannelsQuery(workspaceId).queryKey);
-      if (channels && channelNamesBehind(names, channels.rows))
+      if (channels && channelNamesBehind(read.names, channels.rows))
         await queryClient.fetchQuery({ ...query, staleTime: 0 });
     });
     const [, , , currentWorkspaceId] = await Promise.all([

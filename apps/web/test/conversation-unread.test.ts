@@ -16,6 +16,7 @@ import {
   unreadIdsToKeep,
   latestTopLevelSequence,
   persistReadCursor,
+  type ChatList,
 } from "#src/features/conversations/conversation-unread";
 import {
   decodeMessageAvailableEvent,
@@ -660,6 +661,45 @@ describe("rereadMissedBySubscribe", () => {
     expect(await reread("user", { wasRecovering: true, recovered: true }, channelsAt(1))).toEqual(
       [],
     );
+  });
+
+  describe("with every list read at a position", () => {
+    const at7 = () => ({ offset: 7, epoch: "e1" });
+    /** Each list's own position, as `useListReadPosition` finds it in that list's query. */
+    const read =
+      (offsets: Partial<Record<ChatList, number | undefined>>, epoch = "e1") =>
+      (list: ChatList) => {
+        const offset = offsets[list];
+        return offset === undefined ? undefined : Promise.resolve({ offset, epoch });
+      };
+
+    test("a quiet first subscribe re-reads nothing", async () => {
+      const positions = read({ channels: 7, channelNames: 7, dms: 7, saved: 8 });
+      expect(await reread("workspace", firstSubscribe(at7), positions)).toEqual([]);
+      expect(await reread("user", firstSubscribe(at7), positions)).toEqual([]);
+    });
+
+    test("each list is judged by its own position: only the one the stream moved past is re-read", async () => {
+      const positions = read({ channels: 7, channelNames: 6, dms: 5, saved: 7 });
+      expect(await reread("workspace", firstSubscribe(at7), positions)).toEqual([["channelNames"]]);
+      expect(await reread("user", firstSubscribe(at7), positions)).toEqual([["dms"]]);
+    });
+
+    test("a list read in another epoch is re-read, the others are not", async () => {
+      const positions = (list: ChatList) =>
+        list === "saved"
+          ? Promise.resolve({ offset: 7, epoch: "e0" })
+          : read({ channels: 7, dms: 7 })(list);
+      expect(await reread("user", firstSubscribe(at7), positions)).toEqual([["saved"]]);
+    });
+
+    test("a list without a position is re-read at once, ahead of the judged ones", async () => {
+      const positions = read({ channels: 6, channelNames: 7, dms: 7 });
+      expect(await reread("user", firstSubscribe(at7), positions)).toEqual([
+        ["saved"],
+        ["channels"],
+      ]);
+    });
   });
 });
 

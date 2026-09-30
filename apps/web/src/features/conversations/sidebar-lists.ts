@@ -5,23 +5,18 @@ import { useLiveQuery } from "@tanstack/react-db";
 
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import {
-  channelNamesQueryKey,
-  sidebarChannelsQueryKey,
-  sidebarDirectsQueryKey,
-} from "./conversation-query-keys";
-import {
   applyChannelSignalToLists,
+  chatListQueryKey,
   createSidebar,
+  listReadPosition,
   sidebarChannelsQuery,
   sidebarDirectsQuery,
   type ChannelRow,
   type Sidebar,
 } from "./sidebar-collections";
 import { directListsOf, type DirectRow } from "./sidebar-rows";
-import { savedMessagesQueryKey } from "./saved-messages-collection";
 import { sidebarRefreshQueue, type ChatList } from "./conversation-unread";
 import { compareChannelNames, type ChannelSignal } from "./channel-signals";
-import type { StreamPosition } from "#src/features/realtime/subscription-gap";
 
 // React access to the Chat sidebar's lists (`sidebar-collections.ts`).
 
@@ -93,47 +88,19 @@ export function useSidebarLists() {
   };
 }
 
-/** Resolves once no read of `queryKey` is under way. */
-function readSettled(queryClient: QueryClient, queryKey: readonly unknown[]): Promise<void> {
-  const reading = () => queryClient.isFetching({ queryKey }) > 0;
-  if (!reading()) return Promise.resolve();
-  return new Promise((resolve) => {
-    const unsubscribe = queryClient.getQueryCache().subscribe(() => {
-      if (reading()) return;
-      unsubscribe();
-      resolve();
-    });
-  });
-}
-
 /**
- * Where a list's last server read stands in a signal channel's stream (`chatStreamPositions`), for
- * `rereadMissedBySubscribe`; undefined for a list read without positions (all but the channel
- * list). A read under way settles first, so a subscribe that lands during the chat loader's read,
- * or during the refetch of a stored copy, is judged by that read instead of re-reading over it.
+ * Where each Chat list's last server read stands in a signal channel's stream, for
+ * `rereadMissedBySubscribe` (`listReadPosition`).
  */
 export function useListReadPosition() {
   const queryClient = useQueryClient();
   const workspaceId = useCurrentWorkspaceId() ?? "";
   return useMemo(
-    () =>
-      (list: ChatList, channel: string): Promise<StreamPosition | undefined> | undefined => {
-        if (list !== "channels") return undefined;
-        const { queryKey } = sidebarChannelsQuery(workspaceId);
-        return readSettled(queryClient, queryKey).then(
-          () => queryClient.getQueryData(queryKey)?.streamPositions?.[channel],
-        );
-      },
+    () => (list: ChatList, channel: string) =>
+      listReadPosition(queryClient, workspaceId, list, channel),
     [queryClient, workspaceId],
   );
 }
-
-const listQueryKey: Record<ChatList, (workspaceId: string) => readonly unknown[]> = {
-  channels: sidebarChannelsQueryKey,
-  dms: sidebarDirectsQueryKey,
-  channelNames: channelNamesQueryKey,
-  saved: savedMessagesQueryKey,
-};
 
 /**
  * Re-reads the named lists, and only them, after something outside the sidebar changed them: a
@@ -151,7 +118,7 @@ export function useRefreshSidebar() {
       sidebarRefreshQueue((lists) =>
         Promise.all(
           [...lists].map((list) =>
-            queryClient.invalidateQueries({ queryKey: listQueryKey[list](workspaceId) }),
+            queryClient.invalidateQueries({ queryKey: chatListQueryKey[list](workspaceId) }),
           ),
         ).then(() => undefined),
       ),

@@ -14,6 +14,7 @@ import {
   setPublicConversationHidden,
   setPublicConversationPinned,
   setPublicConversationUnread,
+  type listChannelNames,
 } from "./channels.functions";
 import {
   loadDirectConversationBadges,
@@ -36,13 +37,21 @@ import {
   type PinRef,
 } from "./pinned-conversations";
 import { directRowsOf, type DirectRow } from "./sidebar-rows";
-import { channelNamesAfter, type ChannelName, type ChannelSignal } from "./channel-signals";
+import { channelNamesAfter, type ChannelSignal } from "./channel-signals";
 import type { ChatList } from "./conversation-unread";
+import { savedMessagesQueryKey } from "./saved-messages-collection";
+import {
+  olderStreamPositions,
+  type StreamPosition,
+  type StreamPositions,
+} from "#src/features/realtime/subscription-gap";
 
 // The Chat sidebar's channel and DM lists as TanStack DB collections, and the changes made to them
 // from the sidebar. How they fit with the Query cache and SSR: `features/conversations/AGENTS.md`.
 
 type ChannelList = Awaited<ReturnType<typeof listPublicChannels>>;
+/** What one read of every channel's name holds: the names and the stream position they stand at. */
+type ChannelNamesRead = Awaited<ReturnType<typeof listChannelNames>>;
 type DirectPreferences = Awaited<ReturnType<typeof loadDirectConversationPreferences>>;
 type DirectBadges = Awaited<ReturnType<typeof loadDirectConversationBadges>>;
 export type Arrangement = { pins: readonly PinRef[]; unpinned: readonly PinRef[] };
@@ -86,8 +95,8 @@ export const serverSidebarApi: SidebarApi = {
 
 /**
  * The channel list (shown in `compareChannelNames` order, the server's), when it was read, and the
- * signal channels' stream positions it was read at (`chatStreamPositions`): a direct write to the
- * cache keeps `fetchedAt` and the positions, so only a server read changes them.
+ * signal channels' stream positions it was read at (`readAfterStreamPositions`): a direct write to
+ * the cache keeps `fetchedAt` and the positions, so only a server read changes them.
  */
 function fetchChannels(api: SidebarApi) {
   return async () => {
@@ -99,9 +108,11 @@ function fetchChannels(api: SidebarApi) {
 export type ChannelRow = Awaited<ReturnType<ReturnType<typeof fetchChannels>>>["rows"][number];
 
 /**
- * The DM rows and the viewer's id. A re-read fails as a whole, so the list keeps the rows it has;
- * only a first load (`tolerant`) falls back per read, as the page always has: rows without pins or
- * badges, and no viewer id (so no personal signal channel keyed by an empty id).
+ * The DM rows, the viewer's id, and the stream positions the list stands at: per signal channel the
+ * older of its two reads' (`olderStreamPositions`), since it may lack what either did. A re-read
+ * fails as a whole, so the list keeps the rows it has; only a first load (`tolerant`) falls back per
+ * read, as the page always has: rows without pins or badges, no viewer id (so no personal signal
+ * channel keyed by an empty id), and no positions.
  */
 function fetchDirects(api: SidebarApi, { tolerant }: { tolerant: boolean }) {
   return async () => {
@@ -114,16 +125,19 @@ function fetchDirects(api: SidebarApi, { tolerant }: { tolerant: boolean }) {
       };
     const [preferences, badges] = await Promise.all([
       tolerant
-        ? api.loadDirectPreferences().catch(fallBack({ conversations: [], pinned: [], hidden: [] }))
+        ? api
+            .loadDirectPreferences()
+            .catch(fallBack({ conversations: [], pinned: [], hidden: [], streamPositions: {} }))
         : api.loadDirectPreferences(),
       tolerant
-        ? api.loadDirectBadges().catch(fallBack({ viewerId: "", unread: {} }))
+        ? api.loadDirectBadges().catch(fallBack({ viewerId: "", unread: {}, streamPositions: {} }))
         : api.loadDirectBadges(),
     ]);
     return {
       fetchedAt: Date.now(),
       viewerId: badges.viewerId || undefined,
       rows: directRowsOf(preferences, badges.unread),
+      streamPositions: olderStreamPositions(preferences.streamPositions, badges.streamPositions),
       /** A read fell back: the list is read again on the next navigation. */
       partial,
     };
@@ -199,6 +213,48 @@ export function channelNamesBehind(
 ): boolean {
   const byId = new Map(names.map((channel) => [channel.id, channel.name]));
   return channels.some((channel) => byId.get(channel.id) !== channel.name);
+}
+
+/** The Query each Chat list is read into. Every one's data carries `streamPositions`, where its
+ * last server read stood in the signal channels that keep it live (`readAfterStreamPositions`). */
+export const chatListQueryKey: Record<ChatList, (workspaceId: string) => readonly unknown[]> = {
+  channels: sidebarChannelsQueryKey,
+  dms: sidebarDirectsQueryKey,
+  channelNames: channelNamesQueryKey,
+  saved: savedMessagesQueryKey,
+};
+
+/** Resolves once no read of `queryKey` is under way. */
+function readSettled(queryClient: QueryClient, queryKey: readonly unknown[]): Promise<void> {
+  const reading = () => queryClient.isFetching({ queryKey }) > 0;
+  if (!reading()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = queryClient.getQueryCache().subscribe(() => {
+      if (reading()) return;
+      unsubscribe();
+      resolve();
+    });
+  });
+}
+
+/**
+ * Where a list's last server read stands in a signal channel's stream, for
+ * `rereadMissedBySubscribe`; undefined when the read had no position for that channel (Centrifugo
+ * unavailable, a stream reset between the reads of a DM list, a fallen-back first load), which
+ * means the list is re-read. A read under way settles first, so a subscribe that lands
+ * during the chat loader's read, or during the refetch of a stored copy, is judged by that read
+ * instead of re-reading over it.
+ */
+export async function listReadPosition(
+  queryClient: QueryClient,
+  workspaceId: string,
+  list: ChatList,
+  channel: string,
+): Promise<StreamPosition | undefined> {
+  const queryKey = chatListQueryKey[list](workspaceId);
+  await readSettled(queryClient, queryKey);
+  return queryClient.getQueryData<{ streamPositions?: StreamPositions }>(queryKey)
+    ?.streamPositions?.[channel];
 }
 
 /** The fields of a row that a sidebar change touches, named alike on channel and DM rows. */
@@ -440,12 +496,13 @@ export function applyChannelSignalToLists(
 ): ChatList[] {
   const namesKey = channelNamesQueryKey(workspaceId);
   const reading = (queryKey: QueryKey) => queryClient.isFetching({ queryKey }) > 0;
-  const names = queryClient.getQueryData<ChannelName[]>(namesKey);
-  const known = Boolean(names?.some((channel) => channel.id === signal.conversationId));
+  const read = queryClient.getQueryData<ChannelNamesRead>(namesKey);
+  const known = Boolean(read?.names.some((channel) => channel.id === signal.conversationId));
   const stale: ChatList[] = [];
-  if (names) {
-    const next = channelNamesAfter(names, signal);
-    if (next) queryClient.setQueryData(namesKey, next);
+  if (read) {
+    const next = channelNamesAfter(read.names, signal);
+    // The positions stay: only a server read changes them.
+    if (next) queryClient.setQueryData<ChannelNamesRead>(namesKey, { ...read, names: next });
     if (!next || reading(namesKey)) stale.push("channelNames");
   }
   if (

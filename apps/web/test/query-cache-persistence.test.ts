@@ -599,7 +599,7 @@ describe("storage whose first open is slow once", () => {
       }),
       load.queryClient.fetchQuery({
         queryKey: channelNamesQueryKey("w1"),
-        queryFn: async () => [],
+        queryFn: async () => ({ names: [], streamPositions: {} }),
       }),
       load.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => page(["one"]))),
     ]);
@@ -803,7 +803,10 @@ describe("what the browser keeps", () => {
     await load.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => withAttachment));
     await load.queryClient.fetchQuery({
       queryKey: savedMessagesQuery("w1").queryKey,
-      queryFn: async () => [{ message: { id: "m0", attachments: [attachment] } }],
+      queryFn: async () => ({
+        streamPositions: {},
+        entries: [{ message: { id: "m0", attachments: [attachment] } }],
+      }),
     });
     await disk.written(2);
     const stored = JSON.stringify(queryRows(disk.rows).map((key) => disk.rows.get(key)));
@@ -829,7 +832,10 @@ describe("what the browser keeps", () => {
 describe("the Chat sidebar", () => {
   const channels = { fetchedAt: 1, rows: [{ id: "general", name: "general" }] };
   const directs = { fetchedAt: 1, viewerId: "user-1", rows: [{ id: "dm-1" }], partial: false };
-  const names = [{ id: "general", name: "general" }];
+  const names = {
+    names: [{ id: "general", name: "general" }],
+    streamPositions: { "chat:workspace:w1": { offset: 2, epoch: "e1" } },
+  };
 
   test("opens from storage: its lists and the channel names are on screen before the network answers", async () => {
     const disk = memoryStore();
@@ -890,10 +896,11 @@ describe("the Chat sidebar", () => {
   test("keeps the newest saved messages, which the Chat loader reads before it shows anything", async () => {
     const disk = memoryStore();
     const before = pageLoad(disk.store);
-    const saved = Array.from({ length: 150 }, (_, index) => ({ message: { id: `m${index}` } }));
+    const entries = Array.from({ length: 150 }, (_, index) => ({ message: { id: `m${index}` } }));
+    const streamPositions = { "chat:user:user-1": { offset: 4, epoch: "e1" } };
     await before.queryClient.fetchQuery({
       queryKey: savedMessagesQuery("w1").queryKey,
-      queryFn: async () => saved,
+      queryFn: async () => ({ streamPositions, entries }),
     });
     await disk.written(1);
 
@@ -903,8 +910,9 @@ describe("the Chat sidebar", () => {
       queryKey: savedMessagesQuery("w1").queryKey,
       queryFn: network.read,
     });
-    // The list is newest first; the read that follows brings the rest.
-    expect(opened).toEqual(saved.slice(0, 100));
+    // The list is newest first; the read that follows brings the rest. A copy cut to 100 is not the
+    // whole list, so it does not claim the place in the stream the whole list was read at.
+    expect(opened).toEqual({ streamPositions: {}, entries: entries.slice(0, 100) });
   });
 
   test("does not keep a DM list that fell back per call: the page re-reads it and must not open from it", async () => {
@@ -1160,7 +1168,10 @@ describe("what the page writes itself (realtime, a sent message, the sidebar's c
     const disk = memoryStore();
     const load = pageLoad(disk.store);
     load.queryClient.setQueryData(["agent", "environment", "agent-1"], { API_KEY: "secret" });
-    load.queryClient.setQueryData(channelNamesQueryKey("w1"), [{ id: "general" }]);
+    load.queryClient.setQueryData(channelNamesQueryKey("w1"), {
+      names: [{ id: "general" }],
+      streamPositions: {},
+    });
     await load.persistence.flush();
     await disk.written(1);
     await settle();
@@ -1214,14 +1225,17 @@ describe("what the page writes itself (realtime, a sent message, the sidebar's c
   test("does not keep a stand-in the page marked stale at once", async () => {
     const disk = memoryStore();
     const load = pageLoad(disk.store);
-    const saved = [{ message: { id: "m1" } }];
+    const saved = { streamPositions: {}, entries: [{ message: { id: "m1" } }] };
     await load.queryClient.fetchQuery({
       queryKey: savedMessagesQuery("w1").queryKey,
       queryFn: async () => saved,
     });
     await disk.written(1);
     // The Chat loader's stand-in when the Saved read failed: empty, and stale at once.
-    load.queryClient.setQueryData(savedMessagesQuery("w1").queryKey, []);
+    load.queryClient.setQueryData(savedMessagesQuery("w1").queryKey, {
+      streamPositions: {},
+      entries: [],
+    });
     await load.queryClient.invalidateQueries({
       queryKey: savedMessagesQuery("w1").queryKey,
       refetchType: "none",
@@ -1234,9 +1248,15 @@ describe("what the page writes itself (realtime, a sent message, the sidebar's c
   test("keeps the newest state when the query was rebuilt meanwhile (a Workspace switch)", async () => {
     const disk = memoryStore();
     const load = pageLoad(disk.store);
-    load.queryClient.setQueryData(channelNamesQueryKey("w1"), [{ id: "old" }]);
+    load.queryClient.setQueryData(channelNamesQueryKey("w1"), {
+      names: [{ id: "old" }],
+      streamPositions: {},
+    });
     load.queryClient.clear();
-    load.queryClient.setQueryData(channelNamesQueryKey("w1"), [{ id: "newest" }]);
+    load.queryClient.setQueryData(channelNamesQueryKey("w1"), {
+      names: [{ id: "newest" }],
+      streamPositions: {},
+    });
     await load.persistence.flush();
     await disk.written(1);
     await settle();
@@ -1248,7 +1268,10 @@ describe("what the page writes itself (realtime, a sent message, the sidebar's c
   test("writes nothing once the page has signed out", async () => {
     const disk = memoryStore();
     const load = pageLoad(disk.store);
-    load.queryClient.setQueryData(channelNamesQueryKey("w1"), [{ id: "general" }]);
+    load.queryClient.setQueryData(channelNamesQueryKey("w1"), {
+      names: [{ id: "general" }],
+      streamPositions: {},
+    });
     await load.persistence.purge();
     await load.persistence.flush();
     await settle();
