@@ -3,7 +3,12 @@ import { useCallback, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
 import { useRealtimeSubscription } from "#src/features/realtime/browser-realtime";
-import { subscriptionGap, type SubscribedRecovery } from "#src/features/realtime/subscription-gap";
+import {
+  streamMovedSince,
+  subscriptionGap,
+  type StreamPosition,
+  type SubscribedRecovery,
+} from "#src/features/realtime/subscription-gap";
 import {
   getUserConversationSubscriptionToken,
   getWorkspaceConversationSubscriptionToken,
@@ -200,11 +205,12 @@ export function channelSignalOf(data: unknown): ChannelSignal | undefined {
 }
 
 /**
- * The lists a Chat page must re-read once one of its two signal channels is subscribed, as
- * `subscriptionGap` reads the event: nothing when the subscribe replayed every missed publication;
- * otherwise (a first subscribe, which follows the page's own read, or a resubscribe that lost
- * publications) every list that channel keeps live. The Workspace channel carries channel messages
- * and channel events; the viewer's own channel carries DM messages and their `ViewerEvent`s.
+ * The lists a Chat page may have missed something in once one of its two signal channels is
+ * subscribed, as `subscriptionGap` reads the event: nothing when the subscribe replayed every
+ * missed publication; otherwise (a first subscribe, which follows the page's own reads, or a
+ * resubscribe that lost publications) every list that channel keeps live. The Workspace channel
+ * carries channel messages and channel events; the viewer's own channel carries DM messages and
+ * their `ViewerEvent`s.
  */
 export function listsMissedBySubscribe(
   channel: "workspace" | "user",
@@ -212,6 +218,37 @@ export function listsMissedBySubscribe(
 ): readonly ChatList[] {
   if (subscriptionGap(recovery) === "none") return [];
   return channel === "workspace" ? ["channels", "channelNames"] : ["channels", "dms", "saved"];
+}
+
+/**
+ * Re-reads what a subscribe may have missed (`listsMissedBySubscribe`). After a resubscribe that
+ * lost publications, every such list. After a first subscribe, a list read without a stream
+ * position at once; a list read at one (`readPosition`, which lets a read under way settle first)
+ * only if the stream has moved past it (`streamMovedSince`), judged by where the stream stands for
+ * the subscription once that read has settled, so a publication delivered meanwhile counts.
+ */
+export async function rereadMissedBySubscribe(
+  channel: "workspace" | "user",
+  recovery: SubscribedRecovery,
+  readPosition: (list: ChatList) => Promise<StreamPosition | undefined> | undefined,
+  reread: (lists: readonly ChatList[]) => void,
+): Promise<void> {
+  const lists = listsMissedBySubscribe(channel, recovery);
+  if (subscriptionGap(recovery) !== "unrecovered") {
+    if (lists.length > 0) reread(lists);
+    return;
+  }
+  const positioned = lists.flatMap((list) => {
+    const read = readPosition(list);
+    return read ? [{ list, read }] : [];
+  });
+  const unpositioned = lists.filter((list) => !positioned.some((entry) => entry.list === list));
+  if (unpositioned.length > 0) reread(unpositioned);
+  await Promise.all(
+    positioned.map(async ({ list, read }) => {
+      if (streamMovedSince(await read, recovery.position?.())) reread([list]);
+    }),
+  );
 }
 
 /**
@@ -353,6 +390,7 @@ export function useChannelUnread({
   onClosedConversationActivity,
   onChannelSignal,
   onSidebarListsChanged,
+  readPosition,
 }: {
   workspaceId?: string;
   /** The viewer, whose own direct-message signal channel carries their DM badges, and whose own
@@ -373,6 +411,12 @@ export function useChannelUnread({
   /** These lists are stale: the viewer's own place in a chat changed elsewhere (`ViewerEvent`),
    * or a subscribe may have missed what kept them live (`listsMissedBySubscribe`). */
   onSidebarListsChanged: (lists: readonly ChatList[]) => void;
+  /** Where a list was read in a signal channel's stream, once a read of it under way has settled;
+   * undefined for a list read without one (`useListReadPosition`). */
+  readPosition: (
+    list: ChatList,
+    channel: string,
+  ) => Promise<StreamPosition | undefined> | undefined;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
@@ -385,6 +429,7 @@ export function useChannelUnread({
     onClosedConversationActivity,
     onChannelSignal,
     onSidebarListsChanged,
+    readPosition,
   });
   refs.current = {
     userId,
@@ -394,7 +439,18 @@ export function useChannelUnread({
     onClosedConversationActivity,
     onChannelSignal,
     onSidebarListsChanged,
+    readPosition,
   };
+  const rereadMissed = useCallback(
+    (kind: "workspace" | "user", channel: string, recovery: SubscribedRecovery) =>
+      rereadMissedBySubscribe(
+        kind,
+        recovery,
+        (list) => refs.current.readPosition(list, channel),
+        (lists) => refs.current.onSidebarListsChanged(lists),
+      ),
+    [],
+  );
 
   const onPublication = useCallback((publication: { data: unknown }) => {
     const signal = channelSignalOf(publication.data);
@@ -431,8 +487,8 @@ export function useChannelUnread({
     getToken: workspaceId ? getWorkspaceToken : undefined,
     onPublication,
     onSubscribed: (recovery) => {
-      const lists = listsMissedBySubscribe("workspace", recovery);
-      if (lists.length > 0) refs.current.onSidebarListsChanged(lists);
+      if (workspaceId)
+        void rereadMissed("workspace", workspaceConversationChannel(workspaceId), recovery);
     },
   });
   // The viewer's own channel also carries their `ViewerEvent`s; the Workspace channel never does.
@@ -456,8 +512,7 @@ export function useChannelUnread({
     getToken: userId ? getUserToken : undefined,
     onPublication: onUserPublication,
     onSubscribed: (recovery) => {
-      const lists = listsMissedBySubscribe("user", recovery);
-      if (lists.length > 0) refs.current.onSidebarListsChanged(lists);
+      if (userId) void rereadMissed("user", userConversationChannel(userId), recovery);
     },
   });
 

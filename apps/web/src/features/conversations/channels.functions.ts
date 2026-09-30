@@ -20,6 +20,8 @@ import {
   conversationUpdatesCursorSchema,
 } from "./conversation.schemas";
 import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
+import { chatStreamPositions } from "#src/server/conversations/chat-stream-positions.server";
+import { userConversationChannel, workspaceConversationChannel } from "./conversation-realtime";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "#src/server/notifications/web-push-composition.server";
 import { browserMessageMention } from "#src/server/conversations/mentions.server";
@@ -50,7 +52,13 @@ export const listPublicChannels = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
-    return channels.list(workspaceId, userId);
+    // Both signal channels keep the list live (messages on the Workspace's, the viewer's own
+    // read and membership changes on theirs); their positions are read first.
+    const streamPositions = await chatStreamPositions([
+      workspaceConversationChannel(workspaceId),
+      userConversationChannel(userId),
+    ]);
+    return { streamPositions, channels: await channels.list(workspaceId, userId) };
   });
 
 /** Every channel's id and current name, closed ones included: what a body's channel references

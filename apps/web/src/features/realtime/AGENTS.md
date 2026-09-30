@@ -23,3 +23,10 @@ These rules apply to `src/features/realtime/`.
   `subscriptionGap` (`subscription-gap.ts`) classifies the event, never on
   the client's `connected` event: a channel receives nothing until its own
   subscribe completes, which waits for its subscription token.
+- A read that a channel keeps live carries that channel's stream position, read
+  on the server before the data (`history` without a limit,
+  https://centrifugal.dev/docs/server/history_and_recovery). Compare it with
+  `SubscribedRecovery.position` (`streamMovedSince`) instead of re-reading on
+  every first subscribe. The shared subscription moves that position with each
+  publication it delivers, so a caller joining an already-subscribed channel
+  gets where the stream stands for it.

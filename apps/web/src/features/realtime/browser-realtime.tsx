@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Centrifuge, type ClientInfo, type Subscription } from "centrifuge/build/protobuf";
 
-import type { SubscribedRecovery } from "./subscription-gap";
+import type { StreamPosition, SubscribedRecovery } from "./subscription-gap";
 
 /** The one realtime subscription type for the shared Workspace connection. */
 export type BrowserRealtimeSubscription = Subscription;
@@ -79,6 +79,9 @@ export type RealtimeSubscriptionError = {
 type SharedSubscriptionEntry = {
   subscription: Subscription;
   refCount: number;
+  /** Where the stream stands for this subscription (`SubscribedRecovery.position`); undefined on a
+   * namespace without history, whose subscribe reports none. */
+  position?: StreamPosition;
   publicationHandlers: Set<(publication: RealtimePublication) => void>;
   subscribedHandlers: Set<(recovery: SubscribedRecovery) => void>;
   joinHandlers: Set<(client: RealtimeClient) => void>;
@@ -106,10 +109,28 @@ function acquireSharedSubscription(
     const joinHandlers = new Set<(client: RealtimeClient) => void>();
     const leaveHandlers = new Set<(client: RealtimeClient) => void>();
     const errorHandlers = new Set<(error: RealtimeSubscriptionError) => void>();
+    const created: SharedSubscriptionEntry = {
+      subscription,
+      refCount: 0,
+      publicationHandlers,
+      subscribedHandlers,
+      joinHandlers,
+      leaveHandlers,
+      errorHandlers,
+    };
     subscription.on("subscribed", (context) => {
-      for (const handler of subscribedHandlers) handler(context);
+      created.position = context.streamPosition;
+      const recovery = {
+        wasRecovering: context.wasRecovering,
+        recovered: context.recovered,
+        position: () => created.position,
+      };
+      for (const handler of subscribedHandlers) handler(recovery);
     });
     subscription.on("publication", (publication) => {
+      const position = created.position;
+      if (position && publication.offset !== undefined && publication.offset > position.offset)
+        created.position = { epoch: position.epoch, offset: publication.offset };
       for (const handler of publicationHandlers) handler(publication);
     });
     // Delivered only on a channel whose namespace pushes join/leave (`force_push_join_leave`).
@@ -135,16 +156,8 @@ function acquireSharedSubscription(
       for (const handler of errorHandlers)
         handler({ channel, code: event.code, message: event.reason });
     });
-    entry = {
-      subscription,
-      refCount: 0,
-      publicationHandlers,
-      subscribedHandlers,
-      joinHandlers,
-      leaveHandlers,
-      errorHandlers,
-    };
-    byChannel.set(channel, entry);
+    byChannel.set(channel, created);
+    entry = created;
     subscription.subscribe();
   }
   entry.refCount += 1;
@@ -224,7 +237,11 @@ export function useRealtimeSubscription({
     // A caller joining an already-subscribed shared channel missed its "subscribed" event, and
     // everything published before it joined.
     if (entry.subscription.state === "subscribed")
-      onSubscribedHandler({ wasRecovering: false, recovered: false });
+      onSubscribedHandler({
+        wasRecovering: false,
+        recovered: false,
+        position: () => entry.position,
+      });
     return () => {
       entry.publicationHandlers.delete(onPublicationHandler);
       entry.subscribedHandlers.delete(onSubscribedHandler);

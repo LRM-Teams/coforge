@@ -85,13 +85,15 @@ export const serverSidebarApi: SidebarApi = {
 };
 
 /**
- * The channel list (shown in `compareChannelNames` order, the server's), and when it was read: a direct write to the cache keeps `fetchedAt`, so only a server read changes it.
+ * The channel list (shown in `compareChannelNames` order, the server's), when it was read, and the
+ * signal channels' stream positions it was read at (`chatStreamPositions`): a direct write to the
+ * cache keeps `fetchedAt` and the positions, so only a server read changes them.
  */
 function fetchChannels(api: SidebarApi) {
-  return async () => ({
-    fetchedAt: Date.now(),
-    rows: await api.listChannels(),
-  });
+  return async () => {
+    const { streamPositions, channels } = await api.listChannels();
+    return { fetchedAt: Date.now(), rows: channels, streamPositions };
+  };
 }
 
 export type ChannelRow = Awaited<ReturnType<ReturnType<typeof fetchChannels>>>["rows"][number];
