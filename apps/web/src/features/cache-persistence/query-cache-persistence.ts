@@ -13,7 +13,13 @@ import {
 } from "@tanstack/react-query";
 
 import { isAppError } from "#src/lib/app-error";
-import { persistsQuery, storedQueryData, withReadThrough } from "./persisted-queries";
+import {
+  isStoredData,
+  persistsQuery,
+  storedQueryData,
+  storedShapeBuster,
+  withReadThrough,
+} from "./persisted-queries";
 
 /** Where kept queries go: a key-value store that outlives the page (IndexedDB in the browser). */
 export type PersistedQueryStore = {
@@ -33,6 +39,20 @@ type StoredQuery = {
   queryKey: QueryKey;
   state: { data: unknown; dataUpdatedAt: number };
 };
+
+/** Whether what storage returned for a query is a row this page can open: a row of a shape the
+ * app no longer reads (or that something else wrote) is a miss, not a crash. */
+function isReadableRow(stored: unknown): stored is StoredQuery {
+  if (typeof stored !== "object" || stored === null) return false;
+  const { buster, queryHash, queryKey, state } = stored as Partial<StoredQuery>;
+  return (
+    typeof buster === "string" &&
+    typeof queryHash === "string" &&
+    Array.isArray(queryKey) &&
+    typeof state?.dataUpdatedAt === "number" &&
+    isStoredData(queryKey, state.data)
+  );
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
@@ -61,14 +81,11 @@ export function installQueryCachePersistence(
   {
     store,
     viewerId,
-    buster,
     maxAge = WEEK_MS,
   }: {
     store: PersistedQueryStore;
     /** Who is signed in as of now; storage is inert while this is `undefined`. */
     viewerId: () => string | undefined;
-    /** A different value discards everything stored: the shape of what queries return changed. */
-    buster: string;
     maxAge?: number;
   },
 ) {
@@ -234,14 +251,16 @@ export function installQueryCachePersistence(
   };
   const persister = experimental_createQueryPersister<StoredQuery | undefined>({
     storage,
-    buster,
+    buster: storedShapeBuster,
     maxAge,
     // The read after a restore is `revalidateRestored`'s, not the persister's own (see there).
     refetchOnRestore: false,
     filters: { predicate: (query) => persistsQuery(query.queryKey) },
     serialize: (persisted) => toStored(persisted),
+    // A row this page cannot open makes the persister remove it and read the network (its
+    // "malformed"), on a restore and on the daily sweep alike.
     deserialize: (stored): PersistedQuery => {
-      if (!stored) throw new Error("nothing stored");
+      if (!isReadableRow(stored)) throw new Error("nothing readable stored");
       return {
         buster: stored.buster,
         queryHash: stored.queryHash,
@@ -338,7 +357,7 @@ export function installQueryCachePersistence(
     const query = queryClient.getQueryCache().get(queryHash);
     if (!query || query.state.status !== "success" || query.state.isInvalidated) return;
     const stored = toStored({
-      buster,
+      buster: storedShapeBuster,
       queryHash,
       queryKey: query.queryKey,
       state: query.state,

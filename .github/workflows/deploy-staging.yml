@@ -65,8 +65,6 @@ jobs:
           context: .
           file: apps/web/Dockerfile
           push: true
-          build-args: |
-            COFORGE_BUILD_ID=${{ github.sha }}
           outputs: type=image,name=ghcr.io/${{ env.IMAGE_REPOSITORY }},push-by-digest=true,name-canonical=true
 
       - name: Record image digest

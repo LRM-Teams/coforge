@@ -4,13 +4,9 @@ import { createIdbStore } from "./idb-store";
 import { installQueryCachePersistence } from "./query-cache-persistence";
 
 // The browser's copy of the Query cache (see `features/cache-persistence/AGENTS.md`): the wiring
-// of the persistence to IndexedDB, one QueryClient per page, and the build that decides what a
-// stored query's shape is.
-
-/** Set by `vite.config.ts` at build time: one value per build, so a deploy that changes what a
- * query returns never opens a page from the previous build's shape. Absent under `bun test`. */
-declare const __COFORGE_BUILD_ID__: string | undefined;
-const BUILD_ID = typeof __COFORGE_BUILD_ID__ === "string" ? __COFORGE_BUILD_ID__ : "development";
+// of the persistence to IndexedDB, and one QueryClient per page. What a stored row must look like
+// to be opened is `STORED_SHAPE_VERSION` (`persisted-queries.ts`), not the build: a deploy keeps
+// what is stored.
 
 type Persistence = ReturnType<typeof installQueryCachePersistence>;
 const installed = new WeakMap<QueryClient, Persistence>();
@@ -29,7 +25,6 @@ export function installBrowserQueryCachePersistence(
   const persistence = installQueryCachePersistence(queryClient, {
     store: createIdbStore(),
     viewerId,
-    buster: BUILD_ID,
   });
   installed.set(queryClient, persistence);
   current = persistence;
