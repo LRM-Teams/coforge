@@ -6,15 +6,26 @@
 //! expansion is bounded by a byte cap (the manifest's uncompressed `size`), so a gzip bomb
 //! fails instead of filling the disk. Nothing is renamed into place until every check passes,
 //! and a failure removes the temporary file and leaves any existing destination untouched.
+//! A small metadata object (a pointer, a manifest) is read into memory under a byte cap instead.
+//! No request follows a redirect: the release feed is expected to answer with the object itself.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use flate2::read::GzDecoder;
+use flate2::bufread::MultiGzDecoder;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+
+use ureq::unversioned::resolver::DefaultResolver;
+
+use crate::digest::hex;
+use crate::idle_timeout;
+
+/// How long a transfer may receive nothing before it fails. It is not a limit on the whole
+/// download: a slow link that keeps delivering is never cut off.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The default cap for both the downloaded and the written byte count.
 pub const DEFAULT_MAX_BYTES: u64 = 256 * 1024 * 1024;
@@ -26,7 +37,10 @@ pub struct FetchRequest {
     /// Lowercase hex SHA-256 of the written (expanded) file, when the caller knows it.
     pub expanded_sha256: Option<String>,
     pub out: PathBuf,
-    pub max_bytes: u64,
+    /// Most bytes accepted from the network. Beyond it the download fails.
+    pub max_wire_bytes: u64,
+    /// Most bytes written to `out`: the bound that stops a gzip bomb.
+    pub max_written_bytes: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,40 +94,76 @@ impl FetchError {
 }
 
 /// The production agent: HTTPS only, rustls with the webpki (Mozilla) roots, no transparent
-/// content decoding, and a non-2xx status reported as an error.
+/// content decoding, no redirects, and a non-2xx status reported as an error.
 pub fn https_agent() -> ureq::Agent {
     agent(true)
 }
 
 pub(crate) fn agent(https_only: bool) -> ureq::Agent {
-    ureq::Agent::config_builder()
+    agent_with_idle_timeout(https_only, IDLE_TIMEOUT)
+}
+
+/// An agent whose transfers fail once they have received nothing for `idle`.
+pub(crate) fn agent_with_idle_timeout(https_only: bool, idle: Duration) -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
         .https_only(https_only)
+        // install.sh and install.ps1 refuse every redirect when preparing for the updater, so a
+        // 3xx is an error here, not a hop.
+        .max_redirects(0)
         .timeout_connect(Some(Duration::from_secs(30)))
         .timeout_recv_response(Some(Duration::from_secs(60)))
-        .build()
-        .new_agent()
+        .build();
+    ureq::Agent::with_parts(
+        config,
+        idle_timeout::connector(idle),
+        DefaultResolver::default(),
+    )
 }
 
 pub fn fetch(agent: &ureq::Agent, request: &FetchRequest) -> Result<FetchReceipt, FetchError> {
     let started = Instant::now();
-    let response = agent
-        .get(&request.url)
-        .call()
-        .map_err(|error| match error {
-            ureq::Error::StatusCode(status) => FetchError::new(
-                FetchErrorCode::HttpStatus,
-                format!("{} answered HTTP {status}", request.url),
-            ),
-            other => FetchError::new(
-                FetchErrorCode::Download,
-                format!("{}: {other}", request.url),
-            ),
-        })?;
-    let body = response.into_body().into_reader();
+    let body = get(agent, &request.url)?;
     let gzip = url_names_gzip(&request.url);
-    let mut receipt = install(body, gzip, request)?;
+    let mut receipt = install(body.into_reader(), gzip, request)?;
     receipt.elapsed_ms = started.elapsed().as_millis();
     Ok(receipt)
+}
+
+/// Reads a small object (a pointer or a manifest) into memory, failing with `SizeLimit` as soon
+/// as it is more than `max_bytes` long. Exactly `max_bytes` is accepted.
+pub fn fetch_bytes(agent: &ureq::Agent, url: &str, max_bytes: u64) -> Result<Vec<u8>, FetchError> {
+    let mut bytes = Vec::new();
+    get(agent, url)?
+        .into_reader()
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|error| FetchError::new(FetchErrorCode::Download, format!("{url}: {error}")))?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(FetchError::new(
+            FetchErrorCode::SizeLimit,
+            format!("{url} is more than {max_bytes} bytes"),
+        ));
+    }
+    Ok(bytes)
+}
+
+/// Starts a GET. Only a 2xx answer is a success: with redirects disabled a 3xx comes back as an
+/// ordinary response, and it is refused here like any other status.
+fn get(agent: &ureq::Agent, url: &str) -> Result<ureq::Body, FetchError> {
+    let response = agent.get(url).call().map_err(|error| match error {
+        ureq::Error::StatusCode(status) => FetchError::new(
+            FetchErrorCode::HttpStatus,
+            format!("{url} answered HTTP {status}"),
+        ),
+        other => FetchError::new(FetchErrorCode::Download, format!("{url}: {other}")),
+    })?;
+    if !response.status().is_success() {
+        return Err(FetchError::new(
+            FetchErrorCode::HttpStatus,
+            format!("{url} answered HTTP {}", response.status().as_u16()),
+        ));
+    }
+    Ok(response.into_body())
 }
 
 /// Whether the URL path (ignoring any query or fragment) names a `.gz` object.
@@ -129,20 +179,17 @@ pub fn install(
     gzip: bool,
     request: &FetchRequest,
 ) -> Result<FetchReceipt, FetchError> {
-    let mut wire = Measured::new(wire, request.max_bytes, "download");
+    let mut wire = Measured::new(wire, request.max_wire_bytes, "download");
     let temp = TempFile::create(&request.out)?;
 
     let written = {
-        let mut sink = Measured::new(temp.file(), request.max_bytes, "expanded file");
+        let mut sink = Measured::new(temp.file(), request.max_written_bytes, "expanded file");
         let copied = if gzip {
-            let mut decoder = GzDecoder::new(&mut wire);
-            copy(&mut decoder, &mut sink, true)
+            expand_gzip(&mut wire, &mut sink)
         } else {
-            copy(&mut wire, &mut sink, false)
+            copy(&mut wire, &mut sink).map(drop)
         };
-        copied?;
-        // Drain anything after the gzip member so the wire checksum covers the whole object.
-        io::copy(&mut wire, &mut io::sink()).map_err(|error| read_error(error, false))?;
+        copied.map_err(|failure| failure.into_error(gzip, wire.failed))?;
         sink.finish()
     };
     let wire = wire.finish();
@@ -180,7 +227,45 @@ pub fn install(
     })
 }
 
-fn copy(reader: &mut impl Read, writer: &mut impl Write, gzip: bool) -> Result<u64, FetchError> {
+/// What went wrong while moving bytes from the wire to the file.
+enum Failure {
+    /// Reading failed: the transport, or (when expanding) the gzip stream itself.
+    Read(io::Error),
+    Write(io::Error),
+}
+
+impl Failure {
+    /// `transport_failed`: the wire reader itself returned an error, as opposed to a gzip decoder
+    /// rejecting bytes that arrived fine.
+    fn into_error(self, gzip: bool, transport_failed: bool) -> FetchError {
+        match self {
+            Self::Read(error) if is_size_limit(&error) => {
+                FetchError::new(FetchErrorCode::SizeLimit, error.to_string())
+            }
+            // A corrupt or truncated gzip stream arrives as an error of the decoder, whatever
+            // its kind. A failing network arrives as an error of the wire, which must never be
+            // mistaken for a bad object.
+            Self::Read(error) if gzip && !transport_failed => {
+                FetchError::new(FetchErrorCode::GzipInvalid, error.to_string())
+            }
+            Self::Read(error) => FetchError::new(FetchErrorCode::Download, error.to_string()),
+            Self::Write(error) if is_size_limit(&error) => {
+                FetchError::new(FetchErrorCode::SizeLimit, error.to_string())
+            }
+            Self::Write(error) => FetchError::new(FetchErrorCode::Write, error.to_string()),
+        }
+    }
+}
+
+/// Expands the gzip members of `wire` into `sink`, one after the other. Anything after the last
+/// member that is not itself a member is refused, as the Computer's decompression refuses it, and
+/// a decoder that reads to the end also makes the wire checksum cover the whole object.
+fn expand_gzip(wire: &mut impl Read, sink: &mut impl Write) -> Result<(), Failure> {
+    let mut decoder = MultiGzDecoder::new(BufReader::new(wire));
+    copy(&mut decoder, sink).map(drop)
+}
+
+fn copy(reader: &mut impl Read, writer: &mut impl Write) -> Result<u64, Failure> {
     let mut buffer = vec![0u8; 64 * 1024];
     let mut total = 0u64;
     loop {
@@ -188,33 +273,10 @@ fn copy(reader: &mut impl Read, writer: &mut impl Write, gzip: bool) -> Result<u
             Ok(0) => return Ok(total),
             Ok(read) => read,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(read_error(error, gzip)),
+            Err(error) => return Err(Failure::Read(error)),
         };
-        writer.write_all(&buffer[..read]).map_err(|error| {
-            if is_size_limit(&error) {
-                FetchError::new(FetchErrorCode::SizeLimit, error.to_string())
-            } else {
-                FetchError::new(FetchErrorCode::Write, error.to_string())
-            }
-        })?;
+        writer.write_all(&buffer[..read]).map_err(Failure::Write)?;
         total += read as u64;
-    }
-}
-
-fn read_error(error: io::Error, gzip: bool) -> FetchError {
-    if is_size_limit(&error) {
-        FetchError::new(FetchErrorCode::SizeLimit, error.to_string())
-    } else if gzip
-        && matches!(
-            error.kind(),
-            io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData
-        )
-    {
-        // flate2 reports a corrupt stream as InvalidInput or InvalidData; transport failures
-        // surface with other kinds.
-        FetchError::new(FetchErrorCode::GzipInvalid, error.to_string())
-    } else {
-        FetchError::new(FetchErrorCode::Download, error.to_string())
     }
 }
 
@@ -253,6 +315,8 @@ struct Measured<T> {
     what: &'static str,
     bytes: u64,
     hasher: Sha256,
+    /// A read of `inner` failed (as opposed to the cap being exceeded).
+    failed: bool,
 }
 
 impl<T> Measured<T> {
@@ -263,6 +327,7 @@ impl<T> Measured<T> {
             what,
             bytes: 0,
             hasher: Sha256::new(),
+            failed: false,
         }
     }
 
@@ -285,7 +350,14 @@ impl<T> Measured<T> {
 
 impl<T: Read> Read for Measured<T> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        let read = self.inner.read(buffer)?;
+        let read = match self.inner.read(buffer) {
+            Ok(read) => read,
+            Err(error) => {
+                // An interrupted read is retried by the caller and is not a failure.
+                self.failed |= error.kind() != io::ErrorKind::Interrupted;
+                return Err(error);
+            }
+        };
         self.account(&buffer[..read])?;
         Ok(read)
     }
@@ -301,16 +373,6 @@ impl<T: Write> Write for Measured<T> {
     fn flush(&mut self) -> io::Result<()> {
         self.inner.flush()
     }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(DIGITS[(byte >> 4) as usize] as char);
-        out.push(DIGITS[(byte & 0x0f) as usize] as char);
-    }
-    out
 }
 
 /// A uniquely named file in the destination's directory, removed on drop unless committed.
