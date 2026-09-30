@@ -43,6 +43,12 @@ if (!argv.includes("--no-memory")) {
   console.error("missing --no-memory");
   process.exit(1);
 }
+if (!argv.includes("--trust")) {
+  console.error(
+    "missing --trust (project skills and instructions load only from a trusted folder)",
+  );
+  process.exit(1);
+}
 if (!argv.includes("--rules")) {
   console.error("missing --rules (the standing instructions ride every turn)");
   process.exit(1);

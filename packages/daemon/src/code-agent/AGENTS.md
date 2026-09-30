@@ -119,6 +119,30 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   SSH token-store switch are observed on agy 1.2.12/1.2.13, not documented.
   Re-check them when raising the version gate.
 
+## Grok Build (`grok`)
+
+- One headless process per turn: `grok -p <prompt> --output-format streaming-json`. The prompt rides
+  argv and the standing instructions ride `--rules` on every turn, so a fresh session spawns
+  nothing until real input arrives. The CLI's guide ships with it in `~/.grok/docs/user-guide/`.
+- The session id is ours: a UUID pinned with `--session-id`, which creates a new session and refuses
+  an id that exists. Clear that flag when a turn is spawned with it, never when it exits: grok
+  creates the session before the turn can fail. Every later turn is `--resume`. A session the
+  daemon asks to `create` is pinned; a `resume` grok has no session for is re-run as a fresh session
+  under a new id and reported with `onSessionId(new, replaced)`.
+- Every turn passes `--trust`. Headless startup loads project skills and instructions only from a
+  trusted folder (`22-permissions-and-safety.md`), and assigned skills are installed in
+  `<Agent workspace>/.grok/skills`. It records the Agent workspace in `~/.grok/trusted_folders.toml`
+  and, per `10-hooks.md`, trusts that folder's hooks and MCP and LSP servers with it. Global skills
+  (`$GROK_HOME/skills`) load without it. Folder trust is a security boundary: get Frank's approval
+  before widening it past the Agent workspace or dropping it.
+- Tool events pass grok's `toolName` and `rawInput` through unchanged; canonical names and argument
+  summaries belong to `tool-activity.ts`. The guide shows no shape for a `content` element or a
+  non-string `rawOutput`, so neither is read as output text.
+- The missing-session stderr (`not found locally`, `Failed to restore session`), `--session-id`
+  refusing an existing id, and the session a failed first turn leaves behind are observed on grok
+  1.0.41, not documented. `--always-approve` and `--no-memory` are verified but absent from the
+  guide's flag table. Re-check them when raising the version gate.
+
 ## Pi and built-in CoForge Agent
 
 - Pi's Provider embeds the bundled Pi SDK and keeps the user's Pi models,

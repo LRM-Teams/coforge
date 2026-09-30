@@ -248,10 +248,15 @@ class GrokAgentSession implements AgentSession {
   }
 
   #buildArgv(prompt: string): string[] {
-    // The one-shot headless surface, verified against the 1.0 CLI (1.0.40/1.0.41) and matching the
-    // bundled Raft reference's argv: the prompt rides `-p`, auto-approval and daemon-owned memory
-    // isolation are explicit, and the standing instructions ride `--rules` on every turn of a
-    // fresh session (Grok appends rather than replaces).
+    // The one-shot headless surface (14-headless-mode.md): the prompt rides `-p`, and the process
+    // exits when the turn ends. `--always-approve` and `--no-memory` are explicit: auto-approval, and
+    // daemon-owned memory isolation. Both are verified on the 1.0 CLI (1.0.40/1.0.41), but neither is
+    // in the guide's headless flag table, which lists `--yolo` for auto-approval.
+    // `--trust` grants the Agent workspace folder trust for the turn. Headless startup loads
+    // project skills and instructions only from a trusted folder (22-permissions-and-safety.md), and
+    // the assigned skills are installed in the Agent workspace's `.grok/skills`. The grant is
+    // recorded in `~/.grok/trusted_folders.toml`, and per 10-hooks.md it covers the folder's MCP and
+    // LSP servers and hooks as well.
     const argv = [
       ...this.#command,
       "-p",
@@ -260,6 +265,7 @@ class GrokAgentSession implements AgentSession {
       "streaming-json",
       "--always-approve",
       "--no-memory",
+      "--trust",
     ];
     // `--rules` appends to the system prompt, which is per invocation: the standing instructions
     // ride every turn of this session, fresh or resumed.

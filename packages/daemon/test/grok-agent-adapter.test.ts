@@ -170,6 +170,23 @@ test(
 );
 
 test(
+  "every turn trusts the Agent workspace so its skills and project instructions load",
+  async () => {
+    // 22-permissions-and-safety.md: headless startup loads project skills and instructions only for
+    // a trusted folder, and `--trust` grants it. The assigned skills are installed in the Agent
+    // workspace, so a turn without `--trust` would never see them.
+    await withSession({}, async ({ session, launches }) => {
+      await runTurn(session, "first");
+      await runTurn(session, "second");
+      const turns = await launches();
+      expect(turns).toHaveLength(2);
+      expect(turns.map((turn) => turn.trust)).toEqual([true, true]);
+    });
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
   "a turn runs in the Agent workspace directory",
   async () => {
     await withSession({}, async ({ session, launches, workspace }) => {
