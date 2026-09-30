@@ -11,9 +11,13 @@ import {
   type InternalUserResolver,
   type TokenExchanger,
 } from "./browser-login.server";
+import {
+  atLoginStage,
+  LoginCallbackError,
+  reportLoginCallbackFailure,
+} from "./login-failure.server";
 import { UserIdentityRepository } from "./user-identity.repository.server";
 import { getDatabaseClient } from "#src/server/db/client.server";
-import { toPublicServerError } from "#src/server/errors/public-error.server";
 import { publicOrigin } from "#src/server/http/public-origin.server";
 import { workspaceIdForUser } from "#src/server/workspaces/enrollment.server";
 import { localizedReturnHref } from "#src/features/auth/return-to";
@@ -56,22 +60,22 @@ export async function handleLoginCallback(input: {
       authing: input.authing ?? createAuthingExchanger(input.config),
       resolveUser: input.resolveUser ?? persistedIdentityResolver(),
     });
-    if (input.enrollUser) await input.enrollUser(completed.user.id);
-    else {
+    await atLoginStage("enrollment", async () => {
+      if (input.enrollUser) return input.enrollUser(completed.user.id);
       const db = getDatabaseClient();
-      if (!db) throw new Error("database is required");
+      if (!db) throw new LoginCallbackError("enrollment", { reason: "database is unavailable" });
       await workspaceIdForUser(
         db,
         completed.user,
         input.request.headers.get("accept-language") ?? "",
       );
-    }
+    });
     return redirect(completed.returnTo ? localizedReturnHref(completed.returnTo) : "/", {
       "set-cookie": [completed.sessionCookie, completed.clearStateCookie],
       "cache-control": "no-store",
     });
   } catch (error) {
-    toPublicServerError(error);
+    reportLoginCallbackFailure(error);
     const failed = new URL("/login", origin);
     failed.searchParams.set("error", "login_failed");
     const cookieHeader = input.request.headers.get("cookie") ?? "";
@@ -128,7 +132,7 @@ export function readRequestUser(request: Request, sessionSecret: string): Browse
 
 function persistedIdentityResolver(): InternalUserResolver {
   const db = getDatabaseClient();
-  if (!db) throw new Error("database is required");
+  if (!db) throw new LoginCallbackError("user_resolution", { reason: "database is unavailable" });
   const identities = new UserIdentityRepository(db);
   return (identity) =>
     identities.resolve(identity.provider, identity.subject, {
