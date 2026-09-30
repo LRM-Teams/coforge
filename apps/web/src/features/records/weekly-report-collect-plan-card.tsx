@@ -41,6 +41,17 @@ type SlotRow = Awaited<ReturnType<typeof listWeeklyReportCollectorSlots>>[number
 
 const WINDOW_KINDS: CollectWindowKind[] = ["week", "month", "quarter", "year", "custom"];
 
+function collectPlanErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("COFORGE_APP_ERROR:NOT_FOUND"))
+    return "当前周报不存在或已不是你的成员周报，请从周报页面重新发起采集。";
+  if (message.includes("COFORGE_APP_ERROR:ACCESS_DENIED"))
+    return "当前账号无权采集这份周报或所选 Computer。";
+  if (message.includes("COFORGE_APP_ERROR:INVALID_INPUT"))
+    return "采集 Agent 配置已失效，请重新打开卡片并配置 Collector。";
+  return m.records_collect_plan_submit_failed();
+}
+
 export function WeeklyReportCollectPlanCard(props: {
   reportId: string;
   year: number;
@@ -224,8 +235,8 @@ export function WeeklyReportCollectPlanCard(props: {
         },
       });
       props.onSubmitted?.(result.id);
-    } catch {
-      setError(m.records_collect_plan_submit_failed());
+    } catch (error) {
+      setError(collectPlanErrorMessage(error));
     } finally {
       setBusy(false);
     }
