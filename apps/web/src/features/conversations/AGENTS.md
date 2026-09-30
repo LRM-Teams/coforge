@@ -38,10 +38,12 @@ These rules apply to `src/features/conversations/`.
   and the `#` list) lives in the same cache; the create-channel dialog reads projects on open.
 - Realtime keeps every Chat list live, so the loader (run on each navigation inside Chat) reads
   only a list not cached or marked stale (`loadSidebarLists`); a subscribe that may have missed
-  something re-reads that channel's lists (`listsMissedBySubscribe`). A write that changes a list
-  on this page re-reads it itself. A read moves only the live badge, never a row, so a re-seed
-  takes server counts only from a list read again (`unreadIdsToKeep`). Server and list share one
-  order (`compareChannelNames`).
+  something re-reads that channel's lists (`rereadMissedBySubscribe`). The channel list is read
+  with the signal channels' stream positions, read before it (`chatStreamPositions`), so a first
+  subscribe re-reads it only when the stream has moved past it. A write that changes a list on
+  this page re-reads it itself. A read moves only the live badge, never a row, so a re-seed takes
+  server counts only from a list read again (`unreadIdsToKeep`). Server and list share one order
+  (`compareChannelNames`).
 - A channel created, changed or gone in the Workspace (`channel.created.v1`, `channel.updated.v1`,
   Slack's `channel_created`/`channel_rename`) carries its info or `gone`, which
   `applyChannelSignalToLists` writes into the names and the list without a read; it re-reads only

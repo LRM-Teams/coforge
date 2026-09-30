@@ -34,7 +34,12 @@ import {
   useChannelUnread,
   type SeededList,
 } from "./conversation-unread";
-import { useApplyChannelSignal, useRefreshSidebar, useSidebarLists } from "./sidebar-lists";
+import {
+  useApplyChannelSignal,
+  useListReadPosition,
+  useRefreshSidebar,
+  useSidebarLists,
+} from "./sidebar-lists";
 import { listedDirectIds } from "./sidebar-rows";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
 
@@ -126,6 +131,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     [visibleChannels, directs, agents],
   );
   const refreshSidebar = useRefreshSidebar();
+  const readPosition = useListReadPosition();
   const applyChannelSignal = useApplyChannelSignal();
   const knownAgentIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents]);
   // The Workspace layout's Agent roster only re-reads through the router: one re-read at a time.
@@ -153,6 +159,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     // The viewer joined, left, closed, muted or pinned a chat elsewhere: only the lists named
     // are stale.
     onSidebarListsChanged: (lists) => void refreshSidebar(lists),
+    readPosition,
   });
   // Every server read of the lists carries the persisted counts; local arithmetic restarts from
   // them (sequence boundaries survive, so no event double-counts). Channels and DMs alike are

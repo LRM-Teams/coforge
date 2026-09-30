@@ -18,7 +18,7 @@ import { channelNamesQueryKey } from "#src/features/conversations/conversation-q
  * The Chat sidebar's lists and the changes made from the sidebar, against fake server calls: each
  * change shows at once, is saved, and stays as shown or goes back; failed re-reads keep the rows.
  */
-type Channel = Awaited<ReturnType<SidebarApi["listChannels"]>>[number];
+type Channel = Awaited<ReturnType<SidebarApi["listChannels"]>>["channels"][number];
 const channel = (id: string, fields: Partial<Channel> = {}): Channel => ({
   id,
   name: id,
@@ -60,7 +60,7 @@ async function sidebarWith(overrides: Partial<SidebarApi> = {}, { synced = true 
     listChannels: async () => {
       server.channelReads += 1;
       if (server.failReads) throw new Error("offline");
-      return server.channels;
+      return { streamPositions: {}, channels: server.channels };
     },
     loadDirectPreferences: async () => {
       if (server.failReads) throw new Error("offline");
@@ -476,7 +476,7 @@ describe("loadSidebarLists", () => {
       ...serverlessApi(server),
       listChannels: async () => {
         reads.channels += 1;
-        return server.channels;
+        return { streamPositions: {}, channels: server.channels };
       },
       loadDirectPreferences: async () => {
         reads.directs += 1;
@@ -530,7 +530,7 @@ function serverlessApi(server: {
   preferences: Awaited<ReturnType<SidebarApi["loadDirectPreferences"]>>;
 }): SidebarApi {
   return {
-    listChannels: async () => server.channels,
+    listChannels: async () => ({ streamPositions: {}, channels: server.channels }),
     loadDirectPreferences: async () => server.preferences,
     loadDirectBadges: async () => ({ viewerId: "viewer", unread: {} }),
     pin: async () => {},

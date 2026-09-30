@@ -5,6 +5,7 @@ import {
   encodeDaemonRuntimeUsageScanRequest,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
+import type { StreamPosition } from "#src/features/realtime/subscription-gap";
 import { getUsageCache, type UsageCache } from "./usage-cache.server";
 import { getAgentContextCache, type AgentContextCache } from "./agent-context-cache.server";
 
@@ -15,6 +16,14 @@ export type CentrifugoServerApi = {
    * calls (https://centrifugal.dev/docs/server/server_api#broadcast). A no-op when `channels` is
    * empty. `idempotencyKey` acts per channel, matching `publishJson`'s per-channel semantics. */
   broadcast(channels: string[], data: unknown, idempotencyKey?: string): Promise<void>;
+};
+
+/** Centrifugo's server API for where channel streams stand. */
+export type CentrifugoStreams = {
+  /** Each channel's current stream position, from `history` without a limit, which returns only
+   * that (https://centrifugal.dev/docs/server/server_api#history), in one parallel `batch`. A
+   * channel whose position could not be read (a namespace without history) is left out. */
+  streamPositions(channels: string[]): Promise<Record<string, StreamPosition>>;
 };
 
 /** Centrifugo's server API for the connections themselves, not what is published on them. */
@@ -43,7 +52,7 @@ const CENTRIFUGO_REQUEST_TIMEOUT_MS = 5_000;
 export function createCentrifugoServerApi(
   env = process.env,
   { timeoutMs = CENTRIFUGO_REQUEST_TIMEOUT_MS }: { timeoutMs?: number } = {},
-): CentrifugoServerApi & CentrifugoConnections {
+): CentrifugoServerApi & CentrifugoConnections & CentrifugoStreams {
   const endpoint = env.COFORGE_CENTRIFUGO_API_URL;
   const apiKey = env.COFORGE_CENTRIFUGO_API_KEY;
   if (!endpoint || !apiKey) throw new Error("Centrifugo server API is not configured");
@@ -103,6 +112,31 @@ export function createCentrifugoServerApi(
         data,
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       });
+    },
+    async streamPositions(channels) {
+      if (channels.length === 0) return {};
+      // `batch` exists only as a method in the URL path (`/api/batch`), not in the `{ method,
+      // params }` body `call` sends; it answers `replies` at the top level, one per command.
+      const response = await fetch(`${serverApiUrl}/batch`, {
+        method: "POST",
+        headers: { "x-api-key": serverApiKey, "content-type": "application/json" },
+        body: JSON.stringify({
+          parallel: true,
+          commands: channels.map((channel) => ({ history: { channel } })),
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) throw new Error(`Centrifugo batch failed (${response.status})`);
+      const { replies } = (await response.json()) as {
+        replies?: Array<{ history?: { offset?: unknown; epoch?: unknown } }>;
+      };
+      const positions: Record<string, StreamPosition> = {};
+      channels.forEach((channel, index) => {
+        const { offset = 0, epoch } = replies?.[index]?.history ?? {};
+        if (typeof epoch === "string" && epoch !== "" && typeof offset === "number")
+          positions[channel] = { offset, epoch };
+      });
+      return positions;
     },
     async presence(channel) {
       const clients = Object.values((await call("presence", { channel }))?.presence ?? {});

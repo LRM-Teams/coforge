@@ -290,3 +290,64 @@ test("reads a channel's presence as the clients subscribed to it", async () => {
   });
   expect(await api.presence("daemon:ws-1:computer-2")).toEqual([]);
 });
+
+test("reads several channels' stream positions in one parallel batch of history calls", async () => {
+  let request: Request | undefined;
+  globalThis.fetch = Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      request = new Request(input, init);
+      return Promise.resolve(
+        Response.json({
+          replies: [
+            { history: { publications: [], offset: 12, epoch: "e-workspace" } },
+            // A stream nothing was published on yet may report no offset.
+            { history: { publications: [], epoch: "e-user" } },
+          ],
+        }),
+      );
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+
+  const positions = await createCentrifugoServerApi({
+    COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+    COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+  }).streamPositions(["chat:workspace:w1", "chat:user:u1"]);
+
+  // `history` without a limit returns only the stream position
+  // (https://centrifugal.dev/docs/server/server_api#history).
+  // Centrifugo answers 400 to `batch` in a `{ method, params }` body; the method goes in the path.
+  expect(request?.url).toBe("http://centrifugo.test/api/batch");
+  expect(request?.headers.get("x-api-key")).toBe("test-api-key");
+  expect(await request?.json()).toEqual({
+    parallel: true,
+    commands: [
+      { history: { channel: "chat:workspace:w1" } },
+      { history: { channel: "chat:user:u1" } },
+    ],
+  });
+  expect(positions).toEqual({
+    "chat:workspace:w1": { offset: 12, epoch: "e-workspace" },
+    "chat:user:u1": { offset: 0, epoch: "e-user" },
+  });
+});
+
+test("a channel whose position could not be read is left out", async () => {
+  globalThis.fetch = Object.assign(
+    () =>
+      Promise.resolve(
+        Response.json({
+          // 108: the channel's namespace keeps no history.
+          replies: [{ error: { code: 108, message: "not available" } }, { history: {} }],
+        }),
+      ),
+    { preconnect: originalFetch.preconnect },
+  );
+
+  const positions = await createCentrifugoServerApi({
+    COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+    COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+  }).streamPositions(["chat:workspace:w1", "chat:user:u1"]);
+
+  expect(positions).toEqual({});
+});

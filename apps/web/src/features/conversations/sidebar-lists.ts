@@ -21,6 +21,7 @@ import { directListsOf, type DirectRow } from "./sidebar-rows";
 import { savedMessagesQueryKey } from "./saved-messages-collection";
 import { sidebarRefreshQueue, type ChatList } from "./conversation-unread";
 import { compareChannelNames, type ChannelSignal } from "./channel-signals";
+import type { StreamPosition } from "#src/features/realtime/subscription-gap";
 
 // React access to the Chat sidebar's lists (`sidebar-collections.ts`).
 
@@ -90,6 +91,41 @@ export function useSidebarLists() {
     viewerId: directsCache.viewerId,
     readAt: { channels: channelsCache.fetchedAt, dms: directsCache.fetchedAt },
   };
+}
+
+/** Resolves once no read of `queryKey` is under way. */
+function readSettled(queryClient: QueryClient, queryKey: readonly unknown[]): Promise<void> {
+  const reading = () => queryClient.isFetching({ queryKey }) > 0;
+  if (!reading()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = queryClient.getQueryCache().subscribe(() => {
+      if (reading()) return;
+      unsubscribe();
+      resolve();
+    });
+  });
+}
+
+/**
+ * Where a list's last server read stands in a signal channel's stream (`chatStreamPositions`), for
+ * `rereadMissedBySubscribe`; undefined for a list read without positions (all but the channel
+ * list). A read under way settles first, so a subscribe that lands during the chat loader's read,
+ * or during the refetch of a stored copy, is judged by that read instead of re-reading over it.
+ */
+export function useListReadPosition() {
+  const queryClient = useQueryClient();
+  const workspaceId = useCurrentWorkspaceId() ?? "";
+  return useMemo(
+    () =>
+      (list: ChatList, channel: string): Promise<StreamPosition | undefined> | undefined => {
+        if (list !== "channels") return undefined;
+        const { queryKey } = sidebarChannelsQuery(workspaceId);
+        return readSettled(queryClient, queryKey).then(
+          () => queryClient.getQueryData(queryKey)?.streamPositions?.[channel],
+        );
+      },
+    [queryClient, workspaceId],
+  );
 }
 
 const listQueryKey: Record<ChatList, (workspaceId: string) => readonly unknown[]> = {

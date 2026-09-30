@@ -7,6 +7,7 @@ import {
   sidebarRefreshQueue,
   channelSignalOf,
   listsMissedBySubscribe,
+  rereadMissedBySubscribe,
   clearUnread,
   closedConversationLists,
   seedUnreadCounts,
@@ -572,6 +573,93 @@ describe("listsMissedBySubscribe", () => {
       // The viewer's own channel carries DM messages and their ViewerEvents (channels, DMs, saves).
       expect(listsMissedBySubscribe("user", recovery)).toEqual(["channels", "dms", "saved"]);
     }
+  });
+});
+
+describe("rereadMissedBySubscribe", () => {
+  // A list read at a stream position misses nothing a subscription starting no later delivers
+  // (https://centrifugal.dev/docs/server/history_and_recovery).
+  const firstSubscribe = (position: () => { offset: number; epoch: string } | undefined) => ({
+    wasRecovering: false,
+    recovered: false,
+    position,
+  });
+  async function reread(
+    channel: "workspace" | "user",
+    recovery: Parameters<typeof rereadMissedBySubscribe>[1],
+    readPosition: Parameters<typeof rereadMissedBySubscribe>[2],
+  ) {
+    const batches: (readonly string[])[] = [];
+    await rereadMissedBySubscribe(channel, recovery, readPosition, (lists) => batches.push(lists));
+    return batches;
+  }
+  const channelsAt =
+    (offset: number, epoch = "e1") =>
+    (list: string) =>
+      list === "channels" ? Promise.resolve({ offset, epoch }) : undefined;
+
+  test("a first subscribe keeps a list read where the subscription starts, or later", async () => {
+    const at7 = () => ({ offset: 7, epoch: "e1" });
+    expect(await reread("user", firstSubscribe(at7), channelsAt(7))).toEqual([["dms", "saved"]]);
+    // What was published between the two reaches the subscription itself.
+    expect(await reread("workspace", firstSubscribe(at7), channelsAt(9))).toEqual([
+      ["channelNames"],
+    ]);
+  });
+
+  test("a list read before the stream moved on, or in another epoch, is re-read", async () => {
+    const at7 = () => ({ offset: 7, epoch: "e1" });
+    expect(await reread("workspace", firstSubscribe(at7), channelsAt(6))).toEqual([
+      ["channelNames"],
+      ["channels"],
+    ]);
+    expect(await reread("workspace", firstSubscribe(at7), channelsAt(7, "e0"))).toEqual([
+      ["channelNames"],
+      ["channels"],
+    ]);
+  });
+
+  test("the stream is judged once the read has settled, publications delivered meanwhile included", async () => {
+    let stream = { offset: 7, epoch: "e1" };
+    let settle: (position: { offset: number; epoch: string }) => void = () => {};
+    const read = new Promise<{ offset: number; epoch: string }>((resolve) => (settle = resolve));
+    const done = reread(
+      "workspace",
+      firstSubscribe(() => stream),
+      (list) => (list === "channels" ? read : undefined),
+    );
+    // Delivered while the read was under way; the read, taken earlier, may lack it.
+    stream = { offset: 8, epoch: "e1" };
+    settle({ offset: 7, epoch: "e1" });
+    expect(await done).toEqual([["channelNames"], ["channels"]]);
+  });
+
+  test("a list, or a subscription, without a position is re-read", async () => {
+    expect(
+      await reread(
+        "workspace",
+        firstSubscribe(() => ({ offset: 7, epoch: "e1" })),
+        () => undefined,
+      ),
+    ).toEqual([["channels", "channelNames"]]);
+    expect(
+      await reread("workspace", { wasRecovering: false, recovered: false }, channelsAt(7)),
+    ).toEqual([["channelNames"], ["channels"]]);
+  });
+
+  test("a resubscribe that lost publications re-reads every list whatever its position", async () => {
+    const lost = {
+      wasRecovering: true,
+      recovered: false,
+      position: () => ({ offset: 7, epoch: "e1" }),
+    };
+    expect(await reread("user", lost, channelsAt(7))).toEqual([["channels", "dms", "saved"]]);
+  });
+
+  test("a resubscribe that replayed everything re-reads nothing", async () => {
+    expect(await reread("user", { wasRecovering: true, recovered: true }, channelsAt(1))).toEqual(
+      [],
+    );
   });
 });
 
