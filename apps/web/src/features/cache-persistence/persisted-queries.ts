@@ -66,6 +66,31 @@ function isConversationWindow(data: unknown): data is ConversationWindow {
  * a window that slid up into history) is not a place to open a conversation at.
  */
 export function storedQueryData(queryKey: QueryKey, data: unknown): unknown {
+  const kept = firstPaintOf(queryKey, data);
+  return kept === undefined ? undefined : withoutExpiringUrls(kept);
+}
+
+/**
+ * Keys whose value is a signed URL that expires long before a kept copy does: an attachment's CDN
+ * preview lives 30 minutes (`FILE_DELIVERY_TTL_SECONDS`). Kept, a restore would paint it dead and
+ * the row would stay on its fallback; dropped, the row shows the attachment through the
+ * authenticated route until the read that follows the restore brings a fresh one.
+ */
+const EXPIRING_URL_KEYS = new Set(["previewUrl"]);
+
+function withoutExpiringUrls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutExpiringUrls);
+  if (typeof value !== "object" || value === null) return value;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !EXPIRING_URL_KEYS.has(key))
+      .map(([key, field]) => [key, withoutExpiringUrls(field)]),
+  );
+}
+
+function firstPaintOf(queryKey: QueryKey, data: unknown): unknown {
   switch (storedKindOf(queryKey)) {
     case "conversation-window": {
       if (!isConversationWindow(data)) return undefined;

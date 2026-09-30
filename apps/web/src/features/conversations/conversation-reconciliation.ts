@@ -38,6 +38,17 @@ export function createConversationReconciler<T extends ConversationMessage>(
   };
 
   return {
+    /**
+     * The window read past the cursor by itself (its own refetch), so what it holds is not read
+     * again. It only moves forward: a window that slid back into history does not move it back.
+     * A conversation opened from the browser's stored copy starts the cursor there, and the read
+     * that follows brings the window to the present. The whole cursor is replaced: a newer window
+     * reflects replies at least as far as an older one, so its reply cursor is never behind. Until
+     * that read lands, a realtime signal still reads from the stored copy's cursor.
+     */
+    advance(to: ConversationUpdatesCursor) {
+      if (to.afterSequence > cursor.afterSequence) cursor = to;
+    },
     reconcile() {
       requested = true;
       active ??= drain().finally(() => {

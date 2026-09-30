@@ -24,8 +24,17 @@ because the API is experimental.
   a place nobody meant to open it.
 - Nothing is read or written until the person is known (`viewerId`: the Workspace layout loader's
   `user.id`, read from the router's state in `router.tsx`). Every key starts with that person's id,
-  the first use by a person removes every other person's rows, and a store that fails is a miss,
-  never a failed read.
+  the first use by a person removes every other person's rows and records them as the store's
+  owner, and every read and write checks that record first: a page whose person no longer owns the
+  store (another tab signed out, or in as someone else) seals itself. A store that fails is a
+  miss, never a failed read; a read the store does not answer within 250 ms is a miss, and after
+  two such reads in a row reads stop waiting on it until it answers anything; writes made meanwhile
+  are deferred (newest per query) and written then. A claim records the new owner before it
+  removes other people's rows, and overwrites the owner row, never removes it (the same person's
+  other tab checks it). The check and the write are separate transactions, so a tab switching
+  person in between can still leave one row, removed by the next claim or sign-out.
+- Kept data holds no signed URL that expires before the copy does: `storedQueryData` drops every
+  `previewUrl` (a 30-minute CDN signature). Check a new kind for others.
 - Every way to `/auth/logout` goes through `signOut()` (`features/auth/sign-out.ts`), which removes
   every row and seals the page against writing more before it navigates. Do not link to
   `/auth/logout` directly.

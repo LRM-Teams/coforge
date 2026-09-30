@@ -55,7 +55,8 @@ function memoryStore() {
     get: async (key) => rows.get(key),
     set: async (key, value) => {
       rows.set(key, value);
-      writeCount += 1;
+      // A query's row, not the bookkeeping beside it (who owns the store, when it was swept).
+      if (key.includes("tanstack-query-")) writeCount += 1;
       changed();
     },
     delete: async (key) => {
@@ -72,12 +73,19 @@ function memoryStore() {
   return {
     store,
     rows,
-    /** Resolves once `count` writes in all have landed. */
+    /** Resolves once `count` query rows in all have been written. */
     written: (count: number) => untilRows(() => writeCount >= count),
     /** Resolves once the rows are as `done` says. */
     settled: untilRows,
   };
 }
+
+/** Lets every pending storage step run: the store in memory answers within one task. */
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/** The query rows in storage, without the bookkeeping beside them. */
+const queryRows = (rows: Map<string, unknown>) =>
+  [...rows.keys()].filter((key) => key.includes("tanstack-query-"));
 
 /** A page load: a fresh QueryClient (an empty memory) over the storage that outlives it. */
 function pageLoad(
@@ -240,7 +248,7 @@ describe("a conversation the server says is gone", () => {
     const before = pageLoad(disk.store);
     await before.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => page(["secret"])));
     await disk.written(1);
-    expect(disk.rows.size).toBe(1);
+    expect(queryRows(disk.rows)).toHaveLength(1);
 
     const after = pageLoad(disk.store);
     const query = windowQuery("c1", async () => {
@@ -248,7 +256,7 @@ describe("a conversation the server says is gone", () => {
     });
     await after.queryClient.ensureInfiniteQueryData(query);
     mount(after.queryClient, query);
-    await disk.settled(() => disk.rows.size === 0);
+    await disk.settled(() => queryRows(disk.rows).length === 0);
   });
 
   test("stays when the read failed for any other reason", async () => {
@@ -269,7 +277,7 @@ describe("a conversation the server says is gone", () => {
     await readFailed;
     // The read is over once the query has recorded its error.
     await queryBecomes(after.queryClient, channelKey("c1"), (state) => state.status === "error");
-    expect(disk.rows.size).toBe(1);
+    expect(queryRows(disk.rows)).toHaveLength(1);
   });
 });
 
@@ -353,6 +361,226 @@ describe("a page that has signed out", () => {
   });
 });
 
+describe("a page whose person is no longer the one signed in", () => {
+  test("stores nothing once another person has taken the store, and reads nothing back", async () => {
+    // Tab one was loaded as user one. In tab two the same browser signed in as user two, whose
+    // cookie tab one's reads now carry: what they return is user two's, not user one's.
+    const disk = memoryStore();
+    const tabOne = pageLoad(disk.store, { viewerId: "user-1" });
+    await tabOne.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => page(["one"])));
+    await disk.written(1);
+    const tabTwo = pageLoad(disk.store, { viewerId: "user-2" });
+    await tabTwo.queryClient.fetchInfiniteQuery(windowQuery("c2", async () => page(["two"])));
+    await disk.written(2);
+
+    await tabOne.queryClient.fetchInfiniteQuery(
+      windowQuery("c3", async () => page(["user two's, read by tab one"])),
+    );
+    await tabTwo.queryClient.fetchInfiniteQuery(windowQuery("c4", async () => page(["control"])));
+    await disk.written(3);
+    await settle();
+    expect(queryRows(disk.rows)).toEqual([
+      'user-2/tanstack-query-["conversation","channel","c2"]',
+      'user-2/tanstack-query-["conversation","channel","c4"]',
+    ]);
+
+    // Nor does tab one open anything from the store any more.
+    const network = gatedRead<Page>();
+    network.release(page(["from the network"]));
+    const seen = await tabOne.queryClient.ensureInfiniteQueryData(windowQuery("c2", network.read));
+    expect(seen.pages[0]?.messages.map((m) => m.body)).toEqual(["from the network"]);
+  });
+
+  test("stores nothing once another page of the same browser signed out", async () => {
+    const disk = memoryStore();
+    const tabOne = pageLoad(disk.store);
+    await tabOne.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => page(["one"])));
+    await disk.written(1);
+    const tabTwo = pageLoad(disk.store);
+    await tabTwo.persistence.purge();
+
+    await tabOne.queryClient.fetchInfiniteQuery(windowQuery("c2", async () => page(["late"])));
+    await settle();
+    expect(queryRows(disk.rows)).toEqual([]);
+  });
+
+  test("does not write back a read that was still claiming the store when the page signed out", async () => {
+    const disk = memoryStore();
+    let releaseKeys: () => void = () => {};
+    const keysHeld = new Promise<void>((resolve) => (releaseKeys = resolve));
+    const slow: PersistedQueryStore = {
+      ...disk.store,
+      keys: async () => {
+        await keysHeld;
+        return disk.store.keys();
+      },
+    };
+    const load = pageLoad(slow);
+    const read = load.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => page(["x"])));
+    const purged = load.persistence.purge();
+    releaseKeys();
+    await Promise.all([read, purged]);
+    await settle();
+    expect(queryRows(disk.rows)).toEqual([]);
+  });
+});
+
+describe("another person's claim under way", () => {
+  test("stops the earlier person's tab before it removes their rows, so none is written in between", async () => {
+    const disk = memoryStore();
+    let releaseDeletes: () => void = () => {};
+    const deletesHeld = new Promise<void>((resolve) => (releaseDeletes = resolve));
+    const slowDeletes: PersistedQueryStore = {
+      ...disk.store,
+      delete: async (key) => {
+        await deletesHeld;
+        return disk.store.delete(key);
+      },
+    };
+    const tabOne = pageLoad(disk.store, { viewerId: "user-1" });
+    await tabOne.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => page(["one"])));
+    await disk.written(1);
+    const tabTwo = pageLoad(slowDeletes, { viewerId: "user-2" });
+    const tabTwoRead = tabTwo.queryClient.fetchInfiniteQuery(
+      windowQuery("c2", async () => page(["two"])),
+    );
+    await settle();
+    // User two's claim is removing user one's rows; tab one reads meanwhile, with user two's cookie.
+    await tabOne.queryClient.fetchInfiniteQuery(windowQuery("c3", async () => page(["theirs"])));
+    await settle();
+    releaseDeletes();
+    await tabTwoRead;
+    await disk.written(2);
+    await settle();
+    expect(queryRows(disk.rows)).toEqual(['user-2/tanstack-query-["conversation","channel","c2"]']);
+  });
+});
+
+describe("the same person in two tabs", () => {
+  test("keeps both tabs storing: the second tab's claim never takes the store from the first", async () => {
+    const disk = memoryStore();
+    let releaseOwner: () => void = () => {};
+    const ownerHeld = new Promise<void>((resolve) => (releaseOwner = resolve));
+    let holding = false;
+    const slowOwnerWrite: PersistedQueryStore = {
+      ...disk.store,
+      set: async (key, value) => {
+        if (holding && key === "meta/owner") await ownerHeld;
+        return disk.store.set(key, value);
+      },
+    };
+    const tabOne = pageLoad(disk.store);
+    await tabOne.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => page(["one"])));
+    await disk.written(1);
+    // Tab two's claim is under way: whatever it removes, it has not recorded its owner yet.
+    holding = true;
+    const tabTwo = pageLoad(slowOwnerWrite);
+    const tabTwoRead = tabTwo.queryClient.fetchInfiniteQuery(
+      windowQuery("c2", async () => page(["two"])),
+    );
+    await settle();
+    await tabOne.queryClient.fetchInfiniteQuery(windowQuery("c3", async () => page(["three"])));
+    await disk.written(2);
+    releaseOwner();
+    await tabTwoRead;
+    await tabOne.queryClient.fetchInfiniteQuery(windowQuery("c4", async () => page(["four"])));
+    await disk.written(4);
+    expect(queryRows(disk.rows).sort()).toEqual([
+      'user-1/tanstack-query-["conversation","channel","c1"]',
+      'user-1/tanstack-query-["conversation","channel","c2"]',
+      'user-1/tanstack-query-["conversation","channel","c3"]',
+      'user-1/tanstack-query-["conversation","channel","c4"]',
+    ]);
+  });
+});
+
+describe("a write whose ownership check is still out when the page signs out", () => {
+  test("is not written after the sign-out cleared storage", async () => {
+    const disk = memoryStore();
+    let releaseCheck: () => void = () => {};
+    const checkHeld = new Promise<void>((resolve) => (releaseCheck = resolve));
+    let checked: () => void = () => {};
+    const checkAsked = new Promise<void>((resolve) => (checked = resolve));
+    let ownerReads = 0;
+    const slowCheck: PersistedQueryStore = {
+      ...disk.store,
+      get: async (key) => {
+        const value = await disk.store.get(key);
+        // The second ownership check is the write's (the first is the restore's read).
+        if (key === "meta/owner" && ++ownerReads === 2) {
+          checked();
+          await checkHeld;
+        }
+        return value;
+      },
+    };
+    const load = pageLoad(slowCheck);
+    await load.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => page(["x"])));
+    await checkAsked;
+    await load.persistence.purge();
+    releaseCheck();
+    await settle();
+    expect(queryRows(disk.rows)).toEqual([]);
+  });
+});
+
+describe("storage whose first open is slow once", () => {
+  test("is used again once it answers, though the loader's parallel reads all timed out on it", async () => {
+    const disk = memoryStore();
+    let first = true;
+    const coldOpen: PersistedQueryStore = {
+      ...disk.store,
+      keys: async () => {
+        if (first) {
+          first = false;
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+        return disk.store.keys();
+      },
+    };
+    const load = pageLoad(coldOpen);
+    // The Chat loader's reads start together, and all wait on the one first claim.
+    await Promise.all([
+      load.queryClient.fetchQuery({
+        queryKey: sidebarChannelsQueryKey("w1"),
+        queryFn: async () => ({ fetchedAt: 1, rows: [] }),
+      }),
+      load.queryClient.fetchQuery({
+        queryKey: channelNamesQueryKey("w1"),
+        queryFn: async () => [],
+      }),
+      load.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => page(["one"]))),
+    ]);
+    await disk.written(3);
+    await load.queryClient.fetchInfiniteQuery(windowQuery("c2", async () => page(["two"])));
+    await disk.written(4);
+  });
+});
+
+describe("storage that never answers", () => {
+  test("does not hold a read: the page reads the network after a short wait, and stops asking after two", async () => {
+    const never = new Promise<never>(() => {});
+    const hung: PersistedQueryStore = {
+      get: () => never,
+      set: () => never,
+      delete: () => never,
+      keys: () => never,
+      entries: () => never,
+      clear: () => never,
+    };
+    const load = pageLoad(hung);
+    const first = await load.queryClient.fetchInfiniteQuery(
+      windowQuery("c1", async () => page(["from the network"])),
+    );
+    expect(first.pages[0]?.messages.map((m) => m.body)).toEqual(["from the network"]);
+    // One slow answer may be a cold first open: the next read still asks, and waits as long.
+    await load.queryClient.fetchInfiniteQuery(windowQuery("c2", async () => page(["again"])));
+    const started = performance.now();
+    await load.queryClient.fetchInfiniteQuery(windowQuery("c3", async () => page(["and again"])));
+    expect(performance.now() - started).toBeLessThan(100);
+  });
+});
+
 describe("before the page knows who is signed in", () => {
   test("nothing is read or written, and queries run as they always did", async () => {
     const disk = memoryStore();
@@ -380,7 +608,7 @@ describe("what the browser keeps", () => {
     const asked: string[] = [];
     const watched: PersistedQueryStore = {
       ...disk.store,
-      get: (key) => (asked.push(key), disk.store.get(key)),
+      get: (key) => (key.includes("tanstack-query-") && asked.push(key), disk.store.get(key)),
     };
     const load = pageLoad(watched);
     for (const key of [
@@ -399,7 +627,7 @@ describe("what the browser keeps", () => {
     );
     // The writes go in order: whatever the page decided to keep before the control is stored.
     await disk.written(1);
-    expect([...disk.rows.keys()]).toEqual([
+    expect(queryRows(disk.rows)).toEqual([
       'user-1/tanstack-query-["conversation","channel","control"]',
     ]);
     expect(asked).toEqual(['user-1/tanstack-query-["conversation","channel","control"]']);
@@ -423,8 +651,33 @@ describe("what the browser keeps", () => {
       pages: [older, newest],
     });
     await disk.written(2);
-    const [stored] = [...disk.rows.values()] as Array<{ state: { data: unknown } }>;
+    const [stored] = queryRows(disk.rows).map((key) => disk.rows.get(key)) as Array<{
+      state: { data: unknown };
+    }>;
     expect(stored?.state.data).toEqual({ pages: [newest], pageParams: [undefined] });
+  });
+
+  test("drops an attachment's signed preview URL, which expires long before the copy does", async () => {
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    const attachment = {
+      id: "a1",
+      fileName: "photo.png",
+      previewUrl: "https://cdn.example/a1?sig",
+    };
+    const withAttachment = {
+      ...page(["a photo"]),
+      messages: [{ id: "m0", body: "a photo", attachments: [attachment] }],
+    };
+    await load.queryClient.fetchInfiniteQuery(windowQuery("c1", async () => withAttachment));
+    await load.queryClient.fetchQuery({
+      queryKey: savedMessagesQuery("w1").queryKey,
+      queryFn: async () => [{ message: { id: "m0", attachments: [attachment] } }],
+    });
+    await disk.written(2);
+    const stored = JSON.stringify(queryRows(disk.rows).map((key) => disk.rows.get(key)));
+    expect(stored).not.toContain("previewUrl");
+    expect(stored).toContain("photo.png");
   });
 
   test("does not keep a conversation window that is not its live end", async () => {
@@ -436,7 +689,7 @@ describe("what the browser keeps", () => {
       windowQuery("control", async () => page(["control"])),
     );
     await disk.written(1);
-    expect([...disk.rows.keys()]).toEqual([
+    expect(queryRows(disk.rows)).toEqual([
       'user-1/tanstack-query-["conversation","channel","control"]',
     ]);
   });
@@ -535,7 +788,7 @@ describe("the Chat sidebar", () => {
       queryFn: async () => names,
     });
     await disk.written(1);
-    expect([...disk.rows.keys()]).toEqual([
+    expect(queryRows(disk.rows)).toEqual([
       'user-1/tanstack-query-["conversation","channel-names","w1"]',
     ]);
   });
@@ -618,7 +871,7 @@ describe("a page that already holds kept queries", () => {
     before.queryClient.setQueryData(["agent", "environment", "agent-1"], { API_KEY: "secret" });
     await before.persistence.seed();
     await disk.written(1);
-    expect([...disk.rows.keys()]).toEqual([
+    expect(queryRows(disk.rows)).toEqual([
       'user-1/tanstack-query-["conversation","sidebar","w1","channels"]',
     ]);
 

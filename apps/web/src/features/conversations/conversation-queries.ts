@@ -1,9 +1,10 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   infiniteQueryOptions,
   queryOptions,
   useQueryClient,
   useSuspenseInfiniteQuery,
+  hashKey,
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
@@ -168,6 +169,26 @@ export const publicChannelUpdates = (channelId: string) => (cursor: Conversation
 type Pages<T> = InfiniteData<T, ConversationWindowCursor>;
 
 /**
+ * Calls `listener` with a query's data each time a network read of it succeeds, and not when the
+ * page writes the data itself (`setQueryData` marks those `manual` in TanStack Query) or loads
+ * more pages. Returns the unsubscribe.
+ */
+export function onNetworkRead<D>(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+  listener: (data: D) => void,
+) {
+  const queryHash = hashKey(queryKey);
+  return queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.query.queryHash !== queryHash) return;
+    if (event.action.type !== "success" || event.action.manual) return;
+    // Loading older or newer pages keeps the pages already held as they were: not a read of them.
+    if (event.query.state.fetchMeta?.fetchMore) return;
+    listener(event.action.data as D);
+  });
+}
+
+/**
  * Seed the route's infinite query and, when the URL names a message outside its first page,
  * replace that page with the bounded around-window before the route renders. This keeps a
  * position/thread deep link on the loader path; the browser-only hash fallback remains in
@@ -329,6 +350,25 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
     // A new conversation starts a new reconciler; later pages of the same one keep it.
     [conversationId],
   );
+  // The window's own network read moves the reconciler past what it holds (see `advance`); the
+  // page's own writes to the window (a sent message merged in) do not, since messages from others
+  // that arrived before it may still be unread.
+  // Keyed by the hash: callers build `query` afresh each render, and the key is what matters.
+  const windowKey = query.queryKey;
+  const windowHash = hashKey(windowKey);
+  useEffect(
+    () =>
+      onNetworkRead<Pages<T>>(queryClient, windowKey, (pages) => {
+        const newest = pages.pages.at(-1);
+        if (!newest) return;
+        reconciliation.advance({
+          afterSequence: newest.messages.at(-1)?.sequence ?? 0,
+          afterReplySequence: newestReflectedSequence(newest),
+        });
+      }),
+    // `windowKey` changes only with `windowHash`.
+    [queryClient, windowHash, reconciliation],
+  );
   /** Refreshes just the pending action cards currently shown, in the window and the open threads,
    * without re-fetching the whole page; reads the live message list at call time via the closure
    * captured into `reconcileRef` by `useConversationRealtime`. */
@@ -450,6 +490,11 @@ export function useConversationQuery<M extends PageMessage, T extends Conversati
      * resolves; the pane's pending-latest effect then scrolls to it. */
     showLatest: async () => {
       const newest = await loadInitialPage();
+      // A real read of the newest page: the reconciler need not read what it holds again.
+      reconciliation.advance({
+        afterSequence: newest.messages.at(-1)?.sequence ?? 0,
+        afterReplySequence: newestReflectedSequence(newest),
+      });
       const buffered = pendingUpdatesRef.current;
       pendingUpdatesRef.current = [];
       queryClient.setQueryData<Pages<T>>(query.queryKey, {

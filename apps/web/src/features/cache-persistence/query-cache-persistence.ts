@@ -33,6 +33,16 @@ const WEEK_MS = 7 * DAY_MS;
 /** When a person's rows were last swept, next to them (not a query's key, so the sweep skips it). */
 const COLLECTED_AT_KEY = "meta/collected-at";
 
+/** Whose rows the store holds now. A page loaded as someone else stops using it: another tab signed
+ * out, or in as another person, and this page's reads now carry that session's cookie. */
+const OWNER_KEY = "meta/owner";
+/** How long a read waits for the store before it reads the network instead. */
+const STORE_WAIT_MS = 250;
+/** Reads in a row the store let time out before this page stops asking it (an IndexedDB open that
+ * stalls). One is not enough: a first open on a cold profile, with the one-time claim, can be slow
+ * once and then answer. */
+const UNANSWERED_READS_LIMIT = 2;
+
 /** The start of every key one person owns; an id cannot spell another person's. */
 const namespaceOf = (viewer: string) => `${encodeURIComponent(viewer)}/`;
 
@@ -60,14 +70,20 @@ export function installQueryCachePersistence(
   const claim = (viewer: string) => {
     if (claimed?.viewer === viewer) return claimed.done;
     const namespace = namespaceOf(viewer);
+    // The owner is recorded first, so the earlier person's tabs stop at their next check, before
+    // their rows go. The owner row is overwritten, never removed: the same person's other tab
+    // checks it.
     const done = store
-      .keys()
+      .set(OWNER_KEY, viewer)
+      .then(() => store.keys())
       .then((keys) =>
         Promise.all(
-          keys.filter((key) => !key.startsWith(namespace)).map((key) => store.delete(key)),
+          keys
+            .filter((key) => key !== OWNER_KEY && !key.startsWith(namespace))
+            .map((key) => store.delete(key)),
         ),
       )
-      .then(() => undefined);
+      .then(storeAnswered);
     claimed = { viewer, done };
     // A store that failed the claim is claimed again by the next use.
     done.catch(() => {
@@ -75,14 +91,56 @@ export function installQueryCachePersistence(
     });
     return done;
   };
-  /** Set by `purge`: a read still in flight when someone signs out must not write it back. */
+  /**
+   * Set by `purge`, or when the store has passed to someone else (`OWNER_KEY`): a read still in
+   * flight must not write back, and this page opens nothing more from storage.
+   */
   let sealed = false;
-  /** A key in the signed-in person's own namespace, or `undefined` while nobody is known. */
+  /**
+   * Reads in a row the store did not answer in time, and whether reads have stopped waiting on it.
+   * Only reads stop: a write waits for the store however long it takes. Once the store answers
+   * anything (a first open on a cold profile, slow once), reads wait on it again.
+   */
+  let unansweredReads = 0;
+  let unresponsive = false;
+  /** Writes made while reads do not wait on the store: the newest per query, not each one, so a
+   * store that never answers holds one row's data per kept query rather than every read's. */
+  const deferredWrites = new Map<string, StoredQuery | undefined>();
+  function storeAnswered() {
+    unansweredReads = 0;
+    unresponsive = false;
+    const writes = [...deferredWrites];
+    deferredWrites.clear();
+    for (const [key, value] of writes) void storage.setItem(key, value);
+  }
+  /**
+   * A key in the signed-in person's own namespace, or `undefined` while nobody is known, once the
+   * page is sealed, or when the store now belongs to someone else. Ownership is checked on every
+   * use: a sign-out or another sign-in in another tab happens while this page stays open.
+   */
   const keyOf = async (key: string) => {
     const viewer = viewerId();
     if (!viewer || sealed) return undefined;
     await claim(viewer);
+    const owner = await store.get(OWNER_KEY);
+    // A sign-out may have sealed the page while the owner was being read.
+    if (sealed || owner !== viewer) {
+      sealed = true;
+      return undefined;
+    }
     return `${namespaceOf(viewer)}${key}`;
+  };
+  /** What a read waits for: the store's answer, or a miss once `STORE_WAIT_MS` has passed. */
+  const answered = <T>(work: Promise<T>, miss: T): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<T>((resolve) => {
+      timer = setTimeout(() => {
+        unansweredReads += 1;
+        if (unansweredReads >= UNANSWERED_READS_LIMIT) unresponsive = true;
+        resolve(miss);
+      }, STORE_WAIT_MS);
+    });
+    return Promise.race([work, late]).finally(() => clearTimeout(timer));
   };
   /** Storage is a cache: a store that fails (no IndexedDB in a private window, a full disk) is a
    * miss and a dropped write, never a failed read. TanStack's persister does not catch these. */
@@ -94,13 +152,32 @@ export function installQueryCachePersistence(
     }
   };
   const storage: AsyncStorage<StoredQuery | undefined> = {
+    // The one call a read waits on before it reaches the network, so it waits only so long.
     getItem: (key) =>
-      safely(async () => {
-        const own = await keyOf(key);
-        return own ? ((await store.get(own)) as StoredQuery | undefined) : undefined;
-      }, undefined),
+      safely(
+        async () =>
+          unresponsive
+            ? undefined
+            : answered(
+                (async () => {
+                  const own = await keyOf(key);
+                  if (!own) return undefined;
+                  const stored = (await store.get(own)) as StoredQuery | undefined;
+                  storeAnswered();
+                  return stored;
+                })(),
+                undefined,
+              ),
+        undefined,
+      ),
+    // A write is not time-boxed; while reads do not wait on the store it is deferred, and written
+    // once the store answers anything.
     setItem: (key, value) =>
       safely(async () => {
+        if (unresponsive) {
+          deferredWrites.set(key, value);
+          return;
+        }
         const own = await keyOf(key);
         if (!own) return;
         if (value === undefined) await store.delete(own);
@@ -108,6 +185,10 @@ export function installQueryCachePersistence(
       }, undefined),
     removeItem: (key) =>
       safely(async () => {
+        if (unresponsive) {
+          deferredWrites.set(key, undefined);
+          return;
+        }
         const own = await keyOf(key);
         if (own) await store.delete(own);
       }, undefined),
@@ -115,8 +196,7 @@ export function installQueryCachePersistence(
     entries: () =>
       safely(async () => {
         const viewer = viewerId();
-        if (!viewer || sealed) return [];
-        await claim(viewer);
+        if (!viewer || !(await keyOf(""))) return [];
         const namespace = namespaceOf(viewer);
         return (await store.entries())
           .filter(([key]) => key.startsWith(namespace))
@@ -231,10 +311,8 @@ export function installQueryCachePersistence(
      */
     async collectGarbage() {
       await safely(async () => {
-        const viewer = viewerId();
-        if (!viewer || sealed) return;
-        await claim(viewer);
-        const marker = `${namespaceOf(viewer)}${COLLECTED_AT_KEY}`;
+        const marker = await keyOf(COLLECTED_AT_KEY);
+        if (!marker) return;
         const last = await store.get(marker);
         if (typeof last === "number" && Date.now() - last < DAY_MS) return;
         await persister.persisterGc();
