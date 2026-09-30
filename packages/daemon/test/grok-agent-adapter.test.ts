@@ -609,6 +609,28 @@ test(
 );
 
 test(
+  "input queued behind a lost resume whose replacement cannot be spawned is rejected with that error",
+  async () => {
+    const stale = "0195d5a0-4b2e-7c11-9a53-3f2f6b1d7e15";
+    await withSession(
+      { sessionId: stale, environment: { COFORGE_GROK_REMOVE_WORKSPACE: "1" } },
+      async ({ session, launches }) => {
+        const failed = nthCompleted(session, 1);
+        await session.sendMessage("hi");
+        const queued = session.sendMessage("later").then(
+          () => "delivered",
+          (error: Error) => error.message,
+        );
+        await failed;
+        expect(await queued).toContain("ENOENT");
+        expect(await launches()).toHaveLength(1);
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
   "a resume that fails for any other reason fails the turn instead of restarting the session",
   async () => {
     // grok prints "not found locally" whenever the local copy is missing, before it asks the

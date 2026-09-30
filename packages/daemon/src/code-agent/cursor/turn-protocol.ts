@@ -28,8 +28,10 @@ export function createCursorTurnProtocol(
   return {
     provider: RUNTIME_PROVIDER.CURSOR,
     displayName: "Cursor",
-    identityNoun: "a session identity",
+    instructionsTurn: { identityNoun: "a session identity" },
+    resumedIdentity: "resumable",
     repeatedSessionId: "reaffirm-and-report",
+    identityReports: "every-completion",
     environment: { NO_COLOR: "1" },
     launch: (request) => cursorCommand(options, command, request),
     openTurn: (scope) => new CursorTurnReader(scope),

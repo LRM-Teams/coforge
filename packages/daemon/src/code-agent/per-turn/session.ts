@@ -5,7 +5,7 @@ import { exitFailureMessage } from "#src/code-agent/exit-failure-message";
 import { InterruptTracker } from "#src/code-agent/interrupt-tracker";
 import { errorMessage } from "#src/code-agent/json-record";
 import { TurnProcess, type TurnResult } from "./turn-process";
-import type { TurnProtocol, TurnReader, TurnScope } from "./turn-protocol";
+import type { TurnProtocol, TurnReader, TurnRequest, TurnScope } from "./turn-protocol";
 
 type SessionState = "idle" | "running" | "interrupting" | "disposed";
 type QueuedInput = { text: string; resolve(): void; reject(error: Error): void };
@@ -28,9 +28,9 @@ export async function createPerTurnSession(
   options: AgentSessionOptions,
 ): Promise<AgentSession> {
   const session = new PerTurnAgentSession(protocol, options);
-  if (!options.sessionId) {
+  if (!options.sessionId && protocol.instructionsTurn) {
     try {
-      await session.bootstrap();
+      await session.bootstrap(protocol.instructionsTurn.identityNoun);
     } catch (error) {
       await session.dispose().catch(() => undefined);
       throw error;
@@ -53,28 +53,43 @@ class PerTurnAgentSession implements AgentSession {
   #closed = false;
   #currentTurn: ActiveTurn | undefined;
   #sessionId: string | undefined;
+  /** Whether the next turn creates the session (`TurnRequest.creating`). It is cleared once a turn
+   * has been spawned that way, never at that turn's exit: a CLI creates the session before the
+   * turn can fail, so a failed or interrupted first turn must not be created again. */
+  #creating: boolean;
   #identity: AgentSessionIdentity | undefined;
   /** Whether a turn of this session has completed successfully. */
   #everCompletedTurn: boolean;
+  /** The session a lost resume replaced, reported once with its replacement. */
+  #replacedSessionId: string | undefined;
+  /** The id the daemon was last told about (or is being told about). */
+  #reportedSessionId: string | undefined;
   #sessionReports: Promise<void> = Promise.resolve();
-  #bootstrap: { resolve(): void; reject(error: Error): void } | undefined;
+  #bootstrap: { identityNoun: string; resolve(): void; reject(error: Error): void } | undefined;
   #interrupt = new InterruptTracker();
 
   constructor(protocol: TurnProtocol, options: AgentSessionOptions) {
     this.#protocol = protocol;
     this.#options = options;
-    this.#sessionId = options.sessionId;
-    this.#everCompletedTurn = Boolean(options.sessionId);
-    this.#identity = options.sessionId
-      ? { sessionId: options.sessionId, state: "resumable" }
+    // A provider that chooses its own session ids is told a session is new when the daemon asks to
+    // `create` it, however it got its id (`AgentSessionOptions.sessionMode`); only a `resume`
+    // carries a conversation to continue. Every other provider resumes any id it is given.
+    const resuming =
+      options.sessionId !== undefined &&
+      !(protocol.mintSessionId && options.sessionMode === "create");
+    this.#sessionId = options.sessionId ?? protocol.mintSessionId?.();
+    this.#creating = protocol.mintSessionId !== undefined && !resuming;
+    this.#everCompletedTurn = resuming;
+    this.#identity = this.#sessionId
+      ? { sessionId: this.#sessionId, state: resuming ? protocol.resumedIdentity : "empty" }
       : undefined;
   }
 
   /** Spawns a fresh session's first (instructions-only) turn and resolves once a record names a
    * session id, or rejects if that turn ends (or fails to spawn) before one does. */
-  async bootstrap(): Promise<void> {
+  async bootstrap(identityNoun: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      this.#bootstrap = { resolve, reject };
+      this.#bootstrap = { identityNoun, resolve, reject };
       try {
         this.#spawnTurn(this.#options.instructions);
       } catch (error) {
@@ -162,7 +177,8 @@ class PerTurnAgentSession implements AgentSession {
   }
 
   #spawnTurn(prompt: string): void {
-    const command = this.#protocol.launch({ prompt, sessionId: this.#sessionId });
+    const request: TurnRequest = { prompt, sessionId: this.#sessionId, creating: this.#creating };
+    const command = this.#protocol.launch(request);
     // Constructing the process is the one step that can throw (`Bun.spawn` throws synchronously
     // for a working directory that no longer exists), so the session records the turn as running
     // only once the process exists; a throw leaves it exactly as it was, and the caller reports it.
@@ -174,10 +190,11 @@ class PerTurnAgentSession implements AgentSession {
       environment: this.#environment(),
       input: command.input,
     });
-    const reader = this.#protocol.openTurn(this.#scope);
+    const reader = this.#protocol.openTurn(this.#scope, request);
     const turn: ActiveTurn = { process: turnProcess, prompt, reader };
     this.#currentTurn = turn;
     this.#state = "running";
+    this.#creating = false;
     turnProcess.onRecord((record) => {
       if (this.#state !== "disposed") reader.read(record);
     });
@@ -211,8 +228,14 @@ class PerTurnAgentSession implements AgentSession {
   #onTurnExit(turn: ActiveTurn, result: TurnResult): void {
     if (this.#currentTurn !== turn) return;
     this.#currentTurn = undefined;
+    const interrupted = this.#state === "interrupting";
+    if (turn.reader.lostResume?.({ ...result, interrupted })) {
+      this.#restartFresh(turn.prompt);
+      return;
+    }
     if (this.#bootstrap) {
-      const { displayName, identityNoun } = this.#protocol;
+      const { displayName } = this.#protocol;
+      const { identityNoun } = this.#bootstrap;
       this.#settleBootstrap(
         new Error(
           `${displayName} did not establish ${identityNoun} (${exitFailureMessage(result)})`,
@@ -220,7 +243,7 @@ class PerTurnAgentSession implements AgentSession {
       );
     }
     let status: "completed" | "interrupted" | "failed";
-    if (this.#state === "interrupting") {
+    if (interrupted) {
       status = "interrupted";
     } else if (turn.reader.failed) {
       // The record that failed the turn already emitted the specific error.
@@ -238,6 +261,29 @@ class PerTurnAgentSession implements AgentSession {
     this.#interrupt.settle();
     if (this.#state === "disposed") return;
     this.#drainQueueOrIdle();
+  }
+
+  /** Starts the session over after a resume the provider could not honour, and runs the input the
+   * lost turn carried in the new session. The replacement is reported once, with the id it
+   * replaces, so the daemon invalidates the stale one and tells the person the earlier context was
+   * not restored. */
+  #restartFresh(prompt: string): void {
+    this.#replacedSessionId ??= this.#sessionId;
+    this.#sessionId = this.#protocol.mintSessionId?.();
+    this.#creating = this.#protocol.mintSessionId !== undefined;
+    this.#everCompletedTurn = false;
+    this.#identity = undefined;
+    this.#setIdentity("empty");
+    try {
+      this.#spawnTurn(prompt);
+    } catch (error) {
+      this.#state = "idle";
+      const failure = toError(error);
+      // The discarded input was already accepted, so its turn fails visibly rather than vanishing.
+      this.#emit({ type: "error", message: failure.message });
+      this.#emit({ type: "completed", status: "failed" });
+      this.#rejectQueue(failure);
+    }
   }
 
   #drainQueueOrIdle(): void {
@@ -276,13 +322,25 @@ class PerTurnAgentSession implements AgentSession {
     this.#emit({ type: "session", identity: this.#identity });
   }
 
+  /** Tells the daemon the session's id. The first report after a lost resume also names the
+   * session it replaced. */
   #reportIdentity(): void {
     const sessionId = this.#sessionId;
     const onSessionId = this.#options.onSessionId;
     if (!sessionId || !onSessionId) return;
+    const oncePerId = this.#protocol.identityReports === "once-per-id";
+    if (oncePerId && sessionId === this.#reportedSessionId) return;
+    const replaced = this.#replacedSessionId;
+    this.#replacedSessionId = undefined;
+    if (oncePerId) this.#reportedSessionId = sessionId;
     this.#sessionReports = this.#sessionReports
-      .then(() => onSessionId(sessionId))
+      .then(() => onSessionId(sessionId, replaced))
       .catch((error: unknown) => {
+        if (oncePerId) {
+          // A report that fails is retried by the next completed turn.
+          if (this.#reportedSessionId === sessionId) this.#reportedSessionId = undefined;
+          this.#replacedSessionId ??= replaced;
+        }
         this.#emit({
           type: "error",
           message:
