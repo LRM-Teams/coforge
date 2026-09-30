@@ -19,6 +19,7 @@ import {
   getAgentDir,
   PI_MODEL_REFRESH_TIMEOUT_MS,
   PI_SDK_VERSION,
+  supportedReasoningEfforts,
 } from "@coforge/agent";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "#src/code-agent/pi/metadata";
 import { discoverKiroCatalog } from "#src/code-agent/kiro/catalog";
@@ -917,14 +918,7 @@ function externalRuntimeDisplayName(provider: ExternalCodeAgentProvider): string
 function piModel(value: unknown): CodeAgentModelMetadata | undefined {
   const model = asRecord(value);
   if (typeof model?.id !== "string" || typeof model.provider !== "string") return undefined;
-  const map = asRecord(model.thinkingLevelMap);
-  const reasoningEfforts = map
-    ? Object.entries(map)
-        .filter(([, mapped]) => mapped !== null)
-        .map(([level]) => level)
-    : model.reasoning === true
-      ? ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-      : [];
+  const reasoningEfforts = supportedReasoningEfforts(model);
   return {
     id: model.id,
     displayName: typeof model.name === "string" ? model.name : model.id,

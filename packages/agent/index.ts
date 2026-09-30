@@ -16,6 +16,7 @@ export { classifyPiLaunchFailure, PiLaunchError, piLaunchTrace } from "#src/laun
 export type { PiLaunchCategory, PiLaunchTrace } from "#src/launch-error";
 export { getAgentDir, VERSION as PI_SDK_VERSION } from "@earendil-works/pi-coding-agent";
 export { COFORGE_PROVIDER_MODELS_GENERATED } from "#src/coforge-provider-models.generated";
+export { supportedReasoningEfforts } from "#src/reasoning-levels";
 export { getCoforgeAgentDir, getCoforgeSessionDir, prepareAgentSessionDirectory } from "#src/paths";
 export type {
   AgentActivity,

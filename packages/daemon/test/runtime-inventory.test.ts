@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   discoverCodeAgentInventory,
+  discoverPiCatalog,
   discoverExternalCodeAgents,
   type ExternalCodeAgentProbe,
 } from "#src/code-agent/runtime-inventory";
@@ -533,5 +534,34 @@ describe("external Code Agent inventory", () => {
         ],
       },
     ]);
+  });
+});
+
+test("Pi reasoning levels are the ones the SDK supports for each model", async () => {
+  // Pi's thinkingLevelMap marks an unsupported level `null` and leaves a supported one out;
+  // `xhigh` and `max` exist only when mapped. A model without reasoning offers no levels.
+  const catalog = await discoverPiCatalog(
+    tmpdir(),
+    {},
+    async () =>
+      [
+        { id: "no-off", provider: "openrouter", reasoning: true, thinkingLevelMap: { off: null } },
+        {
+          id: "with-max",
+          provider: "anthropic",
+          reasoning: true,
+          thinkingLevelMap: { max: "max" },
+        },
+        { id: "plain", provider: "openai", reasoning: true },
+        { id: "chat", provider: "openai", reasoning: false },
+      ] as never,
+  );
+  expect(
+    Object.fromEntries((catalog?.models ?? []).map((model) => [model.id, model.reasoningEfforts])),
+  ).toEqual({
+    "no-off": ["minimal", "low", "medium", "high"],
+    "with-max": ["off", "minimal", "low", "medium", "high", "max"],
+    plain: ["off", "minimal", "low", "medium", "high"],
+    chat: [],
   });
 });
