@@ -227,7 +227,7 @@ export function renderInstallerContract(): Map<string, string> {
       }),
     ],
     // Upgrade receipts (upgrade-coordinator.ts, installer-contract.ts). No receipt is ever
-    // "held": it is committed before launches resume.
+    // "held": that is only the installer's process exit status.
     ["receipt.schema.json", jsonSchema(InstallerReceiptSchema)],
     [
       "receipt.succeeded.json",

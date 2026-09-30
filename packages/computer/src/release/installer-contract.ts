@@ -43,15 +43,15 @@ export const InstallerManifestSchema = z
 export const INSTALLER_RECEIPT_PROTOCOL = "coforge-installer/v1";
 
 /**
- * The installer's exit codes. A receipt records the code its committed outcome implies; it is
- * written once, before launches resume, so it never records `HELD` (2): a held run is visible
- * only as that process exit status plus the launch-hold file it leaves behind.
+ * The installer's exit codes. A receipt records the code its committed outcome implies and never
+ * `HELD` (2), which exists only as the installer process's exit status.
  */
 export const INSTALLER_EXIT_CODE = {
   SUCCEEDED: 0,
   /** Failed before any change, or rolled back to the previous version. */
   FAILED: 1,
-  /** A receipt was committed but launches could not be resumed. */
+  /** The outcome is committed in a receipt, but the operation has not settled; `recover`
+   * finishes it. */
   HELD: 2,
   /** Rollback failed, or no previous version existed to roll back to. */
   UNRESOLVED: 3,

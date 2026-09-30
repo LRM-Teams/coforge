@@ -37,8 +37,8 @@ the crate's commands, toolchain, and gotchas.
   after `generate:installer-contract`, this crate's native entries after
   `cargo test`. `contract/.gitattributes` turns off line-ending conversion so
   the files match byte for byte on Windows too.
-- A receipt is written once, before launches resume, so its `exit_code` is
-  0, 1, or 3; exit status 2 (held) exists only as the process's exit status.
+- A receipt is written once and its `exit_code` is 0, 1, or 3; exit status 2
+  (held) exists only as the process's exit status.
 
 The `fetch` subcommand is the download primitive exposed for tests and so the
 release build links the whole HTTPS/TLS/gzip stack. It is not a product command

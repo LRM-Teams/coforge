@@ -129,7 +129,7 @@ export type SupervisorUpgradeIntegrationOptions = {
 const LIFECYCLE_SETTLE = { timeoutMs: 120_000, pollMs: 500 };
 
 /** `<state>/launch-hold`: the owning request ID and a newline. The Coordinator refuses to launch
- * Workspaces while it exists and reads the trimmed ID back; see installer/contract/launch-hold.txt. */
+ * Workspaces while it exists and reads the trimmed ID back. */
 export function launchHoldContents(requestId: string): string {
   return `${requestId}\n`;
 }

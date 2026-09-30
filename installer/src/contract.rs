@@ -32,8 +32,8 @@ pub const LIFECYCLE_PROTOCOL: u32 = 1;
 pub const EXIT_SUCCEEDED: u8 = 0;
 /// Exit status: failed before any change, or rolled back to the previous version.
 pub const EXIT_FAILED: u8 = 1;
-/// Exit status: a receipt was committed but launches could not be resumed. Never in a receipt,
-/// which is written before launches resume.
+/// Exit status: the outcome is committed in a receipt, but the operation has not settled;
+/// `recover` finishes it. Never in a receipt.
 pub const EXIT_HELD: u8 = 2;
 /// Exit status: rollback failed, or no previous version existed to roll back to.
 pub const EXIT_UNRESOLVED: u8 = 3;
