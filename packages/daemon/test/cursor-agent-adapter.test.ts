@@ -589,107 +589,176 @@ test("a real Cursor tool_call stream reports each call once, matched by call_id,
   ]);
 });
 
-test("Cursor tool_call frames out of the ordinary still report one start and one end per call_id", async () => {
+const TOOL_SESSION = "4df1abf1-d91d-4e7b-8613-1f79686c2bb1";
+
+/** One real-shaped `tool_call` frame. A `callId` of `undefined` leaves `call_id` off. */
+function frame(
+  subtype: "started" | "completed",
+  callId: string | undefined,
+  toolCall: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    type: "tool_call",
+    subtype,
+    ...(callId ? { call_id: callId } : {}),
+    tool_call: toolCall,
+    session_id: TOOL_SESSION,
+    timestamp_ms: 1,
+    ...extra,
+  };
+}
+
+function shell(command: string, result?: Record<string, unknown>) {
+  return {
+    shellToolCall: {
+      args: { command, description: "must not travel" },
+      ...(result && { result }),
+    },
+  };
+}
+
+/** Replays `frames` between an `init` and a successful `result` as one turn and returns the tool
+ * events it emitted. */
+async function replayToolFrames(frames: readonly unknown[]): Promise<AgentRuntimeEvent[]> {
   const directory = await mkdtemp(join(tmpdir(), "cursor-tool-frames-"));
   try {
-    const frame = (
-      subtype: "started" | "completed",
-      callId: string | undefined,
-      toolCall: Record<string, unknown>,
-      extra: Record<string, unknown> = {},
-    ) => ({
-      type: "tool_call",
-      subtype,
-      ...(callId ? { call_id: callId } : {}),
-      tool_call: toolCall,
-      session_id: "4df1abf1-d91d-4e7b-8613-1f79686c2bb1",
-      timestamp_ms: 1,
-      ...extra,
-    });
-    const shell = (command: string, result?: Record<string, unknown>) => ({
-      shellToolCall: {
-        args: { command, description: "must not travel" },
-        ...(result && { result }),
-      },
-    });
-    const frames = [
-      // A completion whose start was never seen still opens the call first, from its own kind. A
-      // failed read's completion carries no `args`.
-      frame("completed", "orphan", {
-        readToolCall: { result: { error: { errorMessage: "File not found" } } },
-      }),
-      // Repeats of a start or an end are the same call, not a second one.
-      frame("started", "dup", shell("echo dup")),
-      frame("started", "dup", shell("echo dup")),
-      // A kind this daemon has no mapping for keeps its name, and reports nothing of its result.
-      frame("started", "web", { webSearchToolCall: { args: { searchTerm: "coforge" } } }),
-      frame(
-        "completed",
-        "dup",
-        shell("echo dup", {
-          success: { exitCode: 0, interleavedOutput: "dup\n" },
-          isBackground: false,
-        }),
-      ),
-      frame(
-        "completed",
-        "dup",
-        shell("echo dup", { success: { exitCode: 0, interleavedOutput: "again\n" } }),
-      ),
-      frame("completed", "web", {
-        webSearchToolCall: {
-          args: { searchTerm: "coforge" },
-          result: { success: { references: [{ title: "result-body-canary" }] } },
-        },
-      }),
-      // Beside `failure` and `error`, the other non-`success` arms of a shell, read, edit, grep,
-      // or glob result (`rejected`, `timeout`, `spawnError`, ...) are a call that did not run or
-      // did not finish, and none of them has output text of its own.
-      frame("started", "rejected", shell("rm -rf build")),
-      frame("completed", "rejected", shell("rm -rf build", { rejected: { reason: "blocked" } })),
-      // A completed shell frame can also carry a top-level `env` snapshot in the CLI's source;
-      // nothing outside `tool_call.<kind>ToolCall.{args,result}` is read.
-      frame("started", "envcall", shell("echo ok")),
-      frame(
-        "completed",
-        "envcall",
-        shell("echo ok", { success: { exitCode: 0, interleavedOutput: "ok\n" } }),
-        { env: "SECRET_TOKEN=env-canary" },
-      ),
-      // Frames that cannot be matched to a call are not tool activity.
-      frame("started", undefined, shell("echo nameless")),
-      frame("started", "no-kind", { toolCallId: "no-kind" }),
-    ];
     const replayFile = join(directory, "frames.jsonl");
     await Bun.write(
       replayFile,
       [
-        { type: "system", subtype: "init", session_id: "4df1abf1-d91d-4e7b-8613-1f79686c2bb1" },
+        { type: "system", subtype: "init", session_id: TOOL_SESSION },
         ...frames,
         { type: "result", subtype: "success", is_error: false, result: "done", usage: {} },
       ]
         .map((record) => JSON.stringify(record))
         .join("\n"),
     );
-    const events = await replayTurn(replayFile);
-    expect(events.filter(isToolEvent)).toEqual([
-      { type: "tool-start", id: "orphan", name: "read_file", input: {} },
-      { type: "tool-output", id: "orphan", text: "File not found" },
-      { type: "tool-end", id: "orphan", isError: true },
-      { type: "tool-start", id: "dup", name: "bash", input: { command: "echo dup" } },
-      { type: "tool-start", id: "web", name: "webSearch", input: { searchTerm: "coforge" } },
-      { type: "tool-output", id: "dup", text: "dup\n" },
-      { type: "tool-end", id: "dup", isError: false },
-      { type: "tool-end", id: "web", isError: false },
-      { type: "tool-start", id: "rejected", name: "bash", input: { command: "rm -rf build" } },
-      { type: "tool-end", id: "rejected", isError: true },
-      { type: "tool-start", id: "envcall", name: "bash", input: { command: "echo ok" } },
-      { type: "tool-output", id: "envcall", text: "ok\n" },
-      { type: "tool-end", id: "envcall", isError: false },
-    ]);
+    return (await replayTurn(replayFile)).filter(isToolEvent);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+test("Cursor tool_call frames out of the ordinary still report one start and one end per call_id", async () => {
+  const frames = [
+    // A completion whose start was never seen still opens the call first, from its own kind. A
+    // failed read's completion carries no `args`.
+    frame("completed", "orphan", {
+      readToolCall: { result: { error: { errorMessage: "File not found" } } },
+    }),
+    // Repeats of a start or an end are the same call, not a second one.
+    frame("started", "dup", shell("echo dup")),
+    frame("started", "dup", shell("echo dup")),
+    // A kind this daemon has no mapping for keeps its name, and reports nothing of its result.
+    frame("started", "web", { webSearchToolCall: { args: { searchTerm: "coforge" } } }),
+    frame(
+      "completed",
+      "dup",
+      shell("echo dup", {
+        success: { exitCode: 0, interleavedOutput: "dup\n" },
+        isBackground: false,
+      }),
+    ),
+    frame(
+      "completed",
+      "dup",
+      shell("echo dup", { success: { exitCode: 0, interleavedOutput: "again\n" } }),
+    ),
+    frame("completed", "web", {
+      webSearchToolCall: {
+        args: { searchTerm: "coforge" },
+        result: { success: { references: [{ title: "result-body-canary" }] } },
+      },
+    }),
+    // Beside `failure` and `error`, the other non-`success` arms of a shell, read, edit, grep,
+    // or glob result (`rejected`, `timeout`, `spawnError`, ...) are a call that did not run or
+    // did not finish, and none of them has output text of its own.
+    frame("started", "rejected", shell("rm -rf build")),
+    frame("completed", "rejected", shell("rm -rf build", { rejected: { reason: "blocked" } })),
+    // A completed shell frame can also carry a top-level `env` snapshot in the CLI's source;
+    // nothing outside `tool_call.<kind>ToolCall.{args,result}` is read.
+    frame("started", "envcall", shell("echo ok")),
+    frame(
+      "completed",
+      "envcall",
+      shell("echo ok", { success: { exitCode: 0, interleavedOutput: "ok\n" } }),
+      { env: "SECRET_TOKEN=env-canary" },
+    ),
+    // Frames that cannot be matched to a call are not tool activity.
+    frame("started", undefined, shell("echo nameless")),
+    frame("started", "no-kind", { toolCallId: "no-kind" }),
+  ];
+  expect(await replayToolFrames(frames)).toEqual([
+    { type: "tool-start", id: "orphan", name: "read_file", input: {} },
+    { type: "tool-output", id: "orphan", text: "File not found" },
+    { type: "tool-end", id: "orphan", isError: true },
+    { type: "tool-start", id: "dup", name: "bash", input: { command: "echo dup" } },
+    { type: "tool-start", id: "web", name: "webSearch", input: { searchTerm: "coforge" } },
+    { type: "tool-output", id: "dup", text: "dup\n" },
+    { type: "tool-end", id: "dup", isError: false },
+    { type: "tool-end", id: "web", isError: false },
+    { type: "tool-start", id: "rejected", name: "bash", input: { command: "rm -rf build" } },
+    { type: "tool-end", id: "rejected", isError: true },
+    { type: "tool-start", id: "envcall", name: "bash", input: { command: "echo ok" } },
+    { type: "tool-output", id: "envcall", text: "ok\n" },
+    { type: "tool-end", id: "envcall", isError: false },
+  ]);
+});
+
+test.each(["constructor", "toString", "hasOwnProperty"])(
+  "a Cursor tool kind named %s is reported by its own name, not looked up on Object.prototype",
+  async (kind) => {
+    expect(
+      await replayToolFrames([
+        frame("started", "odd", { [`${kind}ToolCall`]: { args: { note: "kept" } } }),
+        frame("completed", "odd", { [`${kind}ToolCall`]: { result: { success: {} } } }),
+      ]),
+    ).toEqual([
+      { type: "tool-start", id: "odd", name: kind, input: { note: "kept" } },
+      { type: "tool-end", id: "odd", isError: false },
+    ]);
+  },
+);
+
+test("a failed Cursor call's output is the message field its own kind's error carries", async () => {
+  // A read error names its text `errorMessage`; the edit, grep, and glob errors name it `error`.
+  // The edit error's `modelVisibleError` is the model's copy of the message, not Activity.
+  expect(
+    await replayToolFrames([
+      frame("completed", "edit", {
+        editToolCall: {
+          args: { path: "notes.md", streamContent: "gamma" },
+          result: {
+            error: {
+              path: "notes.md",
+              error: "Permission denied",
+              modelVisibleError: "model-visible-canary",
+            },
+          },
+        },
+      }),
+      frame("completed", "grep", {
+        grepToolCall: { args: { pattern: "(" }, result: { error: { error: "invalid regex" } } },
+      }),
+      frame("completed", "glob", {
+        globToolCall: { args: { globPattern: "[" }, result: { error: { error: "bad glob" } } },
+      }),
+      frame("completed", "silent", { editToolCall: { result: { error: { path: "notes.md" } } } }),
+    ]),
+  ).toEqual([
+    { type: "tool-start", id: "edit", name: "edit_file", input: { file_path: "notes.md" } },
+    { type: "tool-output", id: "edit", text: "Permission denied" },
+    { type: "tool-end", id: "edit", isError: true },
+    { type: "tool-start", id: "grep", name: "grep", input: { pattern: "(" } },
+    { type: "tool-output", id: "grep", text: "invalid regex" },
+    { type: "tool-end", id: "grep", isError: true },
+    { type: "tool-start", id: "glob", name: "glob", input: { pattern: "[" } },
+    { type: "tool-output", id: "glob", text: "bad glob" },
+    { type: "tool-end", id: "glob", isError: true },
+    { type: "tool-start", id: "silent", name: "edit_file", input: {} },
+    { type: "tool-end", id: "silent", isError: true },
+  ]);
 });
 
 test("interrupt() ends the running turn as interrupted and leaves the session usable", async () => {

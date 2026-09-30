@@ -48,7 +48,9 @@ const CANONICAL_KINDS: Readonly<Record<string, { name: string; argument: [string
 /** The tool-start name and input for one Cursor tool call. A kind not in the table keeps its own
  * name and arguments, which the daemon core reports by name only. */
 export function cursorToolCall(kind: string, args: unknown): { name: string; input: unknown } {
-  const canonical = CANONICAL_KINDS[kind];
+  // The kind is whatever the CLI names its tool, so it must not resolve on `Object.prototype`
+  // (`constructor`).
+  const canonical = Object.hasOwn(CANONICAL_KINDS, kind) ? CANONICAL_KINDS[kind] : undefined;
   if (!canonical) return { name: kind, input: args };
   const [from, to] = canonical.argument;
   const value = asRecord(args)?.[from];
@@ -56,8 +58,9 @@ export function cursorToolCall(kind: string, args: unknown): { name: string; inp
 }
 
 /** The text of a finished call: a shell call's `interleavedOutput` (stdout and stderr in the order
- * they were written, on both a success and a failure), or the `errorMessage` of an `error` result.
- * Nothing else in a result is output. */
+ * they were written, on both a success and a failure), or the message of an `error` result. A read
+ * error names it `errorMessage`; the edit, grep, and glob errors name it `error` (an edit error's
+ * `modelVisibleError` is the model's copy, not Activity). Nothing else in a result is output. */
 export function cursorToolOutputText(kind: string, result: unknown): string | undefined {
   const outcome = asRecord(result);
   if (kind === "shell") {
@@ -65,7 +68,8 @@ export function cursorToolOutputText(kind: string, result: unknown): string | un
       (asRecord(outcome?.success) ?? asRecord(outcome?.failure))?.interleavedOutput,
     );
   }
-  return nonEmptyString(asRecord(outcome?.error)?.errorMessage);
+  const error = asRecord(outcome?.error);
+  return nonEmptyString(error?.errorMessage) ?? nonEmptyString(error?.error);
 }
 
 /** The failure arms of the CLI's shell, read, edit, grep, and glob results (`ShellResult`,

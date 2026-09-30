@@ -63,7 +63,7 @@ function cursorCommand(
  * `assistant` message content blocks (thinking/text/tool_use), `tool_call` frames (see
  * `cursor/tool-call.ts`), and `result` (turn outcome). `cursor-agent` 2026.08.11 reports every tool
  * as a `tool_call` frame and its `assistant` frames carry text only, so a call is never reported
- * twice; the `tool_use` block mapping serves a stream that puts tools in `assistant` messages.
+ * twice. The `tool_use` block mapping is kept for older CLI streams; 2026.08.11 never emits it.
  * Every other frame type the CLI emits in its stream-json output - measured `thinking:completed`,
  * `connection`, and `retry` frames, and the `user` echo of the prompt - carries no CoForge
  * Activity today.
