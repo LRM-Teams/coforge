@@ -147,7 +147,8 @@ fn parse_fetch(mut parser: lexopt::Parser) -> Result<fetch::FetchRequest, String
         sha256: sha256.ok_or("fetch requires --sha256")?,
         expanded_sha256,
         out: out.ok_or("fetch requires --out")?,
-        max_bytes,
+        max_wire_bytes: max_bytes,
+        max_written_bytes: max_bytes,
     })
 }
 

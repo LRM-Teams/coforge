@@ -12,7 +12,13 @@ the crate's commands, toolchain, and gotchas.
 - `src/lib.rs`: crate root; declares the library modules.
 - `src/fetch.rs`: verified download. One HTTPS object, hashed as it arrives,
   optionally gunzipped under a byte cap, renamed into place only after every
-  check passes. Tests in `src/fetch/tests.rs` (loopback HTTP, no network).
+  check passes; plus the bounded in-memory read of a small metadata object.
+  Follows no redirect. Tests in `src/fetch/tests.rs` (loopback HTTP, no
+  network).
+- `src/idle_timeout.rs`: the ureq transport wrapper that fails a transfer after
+  a silent stretch (ureq has no per-read timeout).
+- `src/digest.rs`: SHA-256 identities (size and lowercase checksum) of bytes and
+  files, and the rule for a valid identity.
 - `src/lock.rs`: the machine mutation lock, an SQLite RESERVED lock on
   `<install root>/machine-mutation-lock.sqlite` (rusqlite, bundled SQLite)
   that excludes the Computer's own `acquireProcessLock`. Tests in
@@ -31,6 +37,8 @@ the crate's commands, toolchain, and gotchas.
   product (manifests, `active.json`, `installation.json`, receipts,
   `__lifecycle` output, lock, service names, paths). Tests in
   `src/contract/tests.rs`.
+- `src/test_support.rs`: test-only helpers shared by the modules' tests: a
+  scratch directory and a loopback HTTP server.
 
 ## Contract with the product
 
@@ -128,6 +136,13 @@ mise exec -- cargo about generate --locked --fail --output-file THIRD_PARTY_NOTI
 
 ## Rules and gotchas
 
+- Transfers behave as `scripts/release/install.sh` does when preparing for the updater: no
+  redirect is followed (any 3xx is an error), the download and the expanded file are capped
+  separately, and a gzip object may hold several members (as Bun's `DecompressionStream`
+  accepts) but nothing else may follow them.
+- A transfer that receives nothing for `fetch::IDLE_TIMEOUT` (60 s) fails; there
+  is deliberately no limit on the whole download, which is legitimate on a slow
+  link.
 - `crates/installer/Cargo.toml` keeps `publish = false` and no `license` field; the repository
   has no license. `deny.toml` and `about.toml` ignore the private crate itself.
 - `junction` (NTFS junctions, Windows only) is pinned `=1.2.0`. Its newer releases want
@@ -140,6 +155,12 @@ mise exec -- cargo about generate --locked --fail --output-file THIRD_PARTY_NOTI
   not print `source_path`: it is an absolute path on the build machine.
 - No new lint, test, or advisory exemptions (`#[allow]`, `deny.toml` `ignore`
   or `skip`, `cargo audit --ignore`) without Frank's prior approval.
+- `src/idle_timeout.rs` is built on ureq's `unversioned` transport API, which has no semver
+  guarantee: any ureq minor release may change it and break that file's compilation. ureq is
+  therefore pinned through `Cargo.lock` (every cargo command uses `--locked`); bump it only on
+  purpose, starting with `idle_timeout.rs`, and expect the stall test in `src/fetch/tests.rs`
+  to catch an update that compiles but stops bounding the wait. ureq itself has no per-read
+  timeout (`timeout_recv_body` is one budget for the whole body), which is why the file exists.
 - `ureq` runs with default features off: its `gzip` feature would decode
   `Content-Encoding` transparently, and the manifest checksum covers the exact
   wire bytes.

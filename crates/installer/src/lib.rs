@@ -7,7 +7,12 @@
 
 pub mod active;
 pub mod contract;
+pub mod digest;
 pub mod fetch;
+mod idle_timeout;
 pub mod lock;
 pub mod paths;
 pub mod version;
+
+#[cfg(test)]
+mod test_support;
