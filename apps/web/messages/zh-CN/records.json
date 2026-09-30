@@ -297,5 +297,6 @@
   "records_key_points_insert": "插入",
   "records_key_points_awaiting_confirm": "草稿已就绪，请在侧栏预览后点击「插入」。",
   "records_key_points_edit_prompt": "编辑提示词",
-  "records_key_points_back_to_report": "返回周报"
+  "records_key_points_back_to_report": "返回周报",
+  "records_weekly_export_html": "导出网页"
 }

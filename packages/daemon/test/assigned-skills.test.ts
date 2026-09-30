@@ -24,7 +24,11 @@ test("assigned skill packs install into provider-native workspace roots", async 
       agentWorkspaceDirectory: root,
       packs: ["weekly-report"],
     });
-    expect(result.written).toEqual(["weekly-report-navigation", "weekly-report-writing"]);
+    expect(result.written).toEqual([
+      "weekly-report-navigation",
+      "weekly-report-web-export",
+      "weekly-report-writing",
+    ]);
     expect(result.skipped).toEqual([]);
     expect(assignedSkillsDirectory("coforge", root)).toBe(join(root, ".pi", "skills"));
 
@@ -34,6 +38,7 @@ test("assigned skill packs install into provider-native workspace roots", async 
     });
     expect(listed.workspace.entries.map((entry) => entry.name).sort()).toEqual([
       "weekly-report-navigation",
+      "weekly-report-web-export",
       "weekly-report-writing",
     ]);
     expect(JSON.stringify(listed)).not.toContain("Progressive loading");

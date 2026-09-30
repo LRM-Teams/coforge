@@ -52,6 +52,7 @@ import {
 } from "#src/features/records/template-outline-sections";
 import { isVisibleTemplateSubmission } from "./template-submission-visibility.server";
 import { canEditWeeklyReportContent } from "./weekly-report-editability.server";
+import { buildWeeklyReportHtml } from "./weekly-report-html.server";
 import { buildWeeklyReportPresentation } from "./weekly-report-presentation.server";
 import {
   isWeeklyScheduleDue,
@@ -2822,8 +2823,7 @@ export class RecordCatalog {
     };
   }
 
-  /** Builds the checked-in Foundation Models weekly PPT for one Leader overview. */
-  async exportWeeklyReportPresentation(input: {
+  private async weeklyReportPresentationInput(input: {
     workspaceId: string;
     userId: string;
     overviewReportId: string;
@@ -2851,24 +2851,47 @@ export class RecordCatalog {
       },
     });
     if (!overview) throw new AppError("NOT_FOUND");
-    const bytes = await buildWeeklyReportPresentation({
+    return {
       title: overview.title,
       period: `${overview.cycle.year} W${overview.cycle.week}`,
       summary: asReportContent(overview.content).keyPointExtraction?.markdown,
       members: overview.submissions.map((submission) => {
         const content = reportContentForRecipient(asReportContent(submission.content));
-        const tabs = content.tabs ?? {};
         return {
           displayName: submission.author.displayName ?? submission.author.username,
           sections: Object.fromEntries(
-            Object.entries(tabs).map(([name, tab]) => [name, tab.markdown]),
+            Object.entries(content.tabs ?? {}).map(([name, tab]) => [name, tab.markdown]),
           ),
         };
       }),
-    });
+    };
+  }
+
+  /** Builds the checked-in Foundation Models weekly PPT for one Leader overview. */
+  async exportWeeklyReportPresentation(input: {
+    workspaceId: string;
+    userId: string;
+    overviewReportId: string;
+  }) {
+    const overview = await this.weeklyReportPresentationInput(input);
+    const bytes = await buildWeeklyReportPresentation(overview);
     return {
       bytes,
-      fileName: `${overview.title.replace(/[\\/:*?"<>|]+/g, "-")}-${overview.cycle.year}-W${overview.cycle.week}.pptx`,
+      fileName: `${overview.title.replace(/[\\/:*?"<>|]+/g, "-")}-${overview.period.replace(" ", "-")}.pptx`,
+    };
+  }
+
+  /** Builds a self-contained HTML version of the same Leader overview. */
+  async exportWeeklyReportHtml(input: {
+    workspaceId: string;
+    userId: string;
+    overviewReportId: string;
+  }) {
+    const overview = await this.weeklyReportPresentationInput(input);
+    const html = buildWeeklyReportHtml(overview);
+    return {
+      bytes: new TextEncoder().encode(html),
+      fileName: `${overview.title.replace(/[\\/:*?"<>|]+/g, "-")}-${overview.period.replace(" ", "-")}.html`,
     };
   }
 

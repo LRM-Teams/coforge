@@ -297,5 +297,6 @@
   "records_key_points_insert": "Insert",
   "records_key_points_awaiting_confirm": "Draft ready — preview it in the side chat and click Insert.",
   "records_key_points_edit_prompt": "Edit prompt",
-  "records_key_points_back_to_report": "Back to report"
+  "records_key_points_back_to_report": "Back to report",
+  "records_weekly_export_html": "Export HTML"
 }
