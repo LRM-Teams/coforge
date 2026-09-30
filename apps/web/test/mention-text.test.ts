@@ -3,6 +3,8 @@ import { expect, test } from "bun:test";
 import {
   filterMentionables,
   makeReferenceBodyFormatter,
+  mentionKey,
+  mentionKeysShowingHandle,
   type Mentionable,
 } from "#src/features/conversations/mention-text";
 
@@ -22,11 +24,44 @@ function agent(handle: string, label: string, description = "", mentionScore = 0
   return { kind: "agent", id: `agent-${handle}`, handle, label, description, mentionScore };
 }
 
-test("an exact handle match outranks a prefix-only match", () => {
-  const exact = person("ada", "Ada Lovelace");
-  const prefixOnly = person("adalene", "Adalene Smith");
+test("an Agent's exact handle outranks a prefix-only handle match", () => {
+  const exact = agent("ada", "Analyst Bot");
+  const prefixOnly = agent("adalene", "Adalene Bot");
   const ranked = filterMentionables([prefixOnly, exact], "ada");
   expect(ranked.map((item) => item.handle)).toEqual(["ada", "adalene"]);
+});
+
+test("a person is found by the label they are shown by, in any script, and never by their handle", () => {
+  const zhang = person("zhangsan", "张三");
+  expect(filterMentionables([zhang], "张").map((item) => item.handle)).toEqual(["zhangsan"]);
+  expect(filterMentionables([zhang], "三").map((item) => item.handle)).toEqual(["zhangsan"]);
+  // The handle is not what the list shows, so typing it must not surface the person.
+  expect(filterMentionables([zhang], "zhang")).toEqual([]);
+  expect(filterMentionables([zhang], "zhangsan")).toEqual([]);
+});
+
+test("a person whose label is their handle is still found by it", () => {
+  expect(filterMentionables([person("ada", "ada")], "ad").map((item) => item.handle)).toEqual([
+    "ada",
+  ]);
+});
+
+test("a person shown by a nickname is also found by their full name", () => {
+  const lin = { ...person("lin", "小林"), fullName: "林晓明" };
+  expect(filterMentionables([lin], "晓明").map((item) => item.handle)).toEqual(["lin"]);
+  expect(filterMentionables([lin], "小林").map((item) => item.handle)).toEqual(["lin"]);
+  expect(filterMentionables([lin], "lin")).toEqual([]);
+});
+
+test("an Agent is found by its display name and by its handle", () => {
+  const reviewer = agent("code-reviewer", "代码评审");
+  expect(filterMentionables([reviewer], "评审").map((item) => item.handle)).toEqual([
+    "code-reviewer",
+  ]);
+  expect(filterMentionables([reviewer], "code-rev").map((item) => item.handle)).toEqual([
+    "code-reviewer",
+  ]);
+  expect(filterMentionables([reviewer], "nobody")).toEqual([]);
 });
 
 test("tier order: exact, then prefix, then a later label word, then any other substring", () => {
@@ -55,12 +90,12 @@ test("a query matching only a later label word (e.g. a surname) ranks above a pl
   expect(ranked.map((item) => item.handle)).toEqual(["gracehopper", "shopper"]);
 });
 
-test("matching is case-insensitive against the handle, the label, and label words", () => {
+test("matching is case-insensitive against the label and its words", () => {
   const ranked = filterMentionables([person("Ada", "Ada Lovelace")], "LOVE");
   expect(ranked.map((item) => item.handle)).toEqual(["Ada"]);
 });
 
-test("a query with no matching handle, label, or label word is excluded", () => {
+test("a query matching no label or label word is excluded", () => {
   const ranked = filterMentionables([person("ada", "Ada Lovelace")], "zzz");
   expect(ranked).toEqual([]);
 });
@@ -191,4 +226,38 @@ test("makeReferenceBodyFormatter reads task and channel tokens back as text even
       new Map([[channelId, "launch"]]),
     )(`in <@channel:${channelId}:product>`),
   ).toBe("in #launch");
+});
+
+test("a row shows an Agent's handle always, and a person's only beside a look-alike", () => {
+  const solo = person("ada", "Ada", "Design");
+  const bot = agent("scout", "Scout");
+  const shown = mentionKeysShowingHandle([solo, bot]);
+  expect(shown.has(mentionKey(bot))).toBe(true);
+  expect(shown.has(mentionKey(solo))).toBe(false);
+});
+
+test("two people with the same label and the same description each show their handle", () => {
+  const first = person("zhangsan", "张三", "Design");
+  const second = person("zhangsan2", "张三", "Design");
+  const other = person("lisi", "李四", "Design");
+  const shown = mentionKeysShowingHandle([first, second, other]);
+  expect(shown.has(mentionKey(first))).toBe(true);
+  expect(shown.has(mentionKey(second))).toBe(true);
+  expect(shown.has(mentionKey(other))).toBe(false);
+});
+
+test("the description tells two people of one label apart, so neither shows a handle", () => {
+  const shown = mentionKeysShowingHandle([
+    person("zhangsan", "张三", "Design"),
+    person("zhangsan2", "张三", "Sales"),
+  ]);
+  expect(shown.size).toBe(0);
+});
+
+test("a person and an Agent that read alike do not make each other ambiguous", () => {
+  const human = person("scout", "Scout", "Helper");
+  const bot = agent("scout-bot", "Scout", "Helper");
+  const shown = mentionKeysShowingHandle([human, bot]);
+  expect(shown.has(mentionKey(human))).toBe(false);
+  expect(shown.has(mentionKey(bot))).toBe(true);
 });

@@ -169,6 +169,7 @@ test.skipIf(!connectionString)(
         archived: false,
         coordinatorAgent: { id: agent.id, name: agent.name, displayName: agent.displayName },
         senderMemberId: ownerRow.id,
+        viewerId: owner!.id,
         viewerHandle: owner!.username,
         muted: false,
         collapseLongMessages: true,
@@ -227,6 +228,7 @@ test.skipIf(!connectionString)(
       const leaverPage = await channels.open(workspace.id, leaver!.id, channel.id);
       expect(leaverPage).toMatchObject({
         senderMemberId: "",
+        viewerId: undefined,
         viewerHandle: undefined,
         pinned: false,
         channelCapabilities: NO_CAPABILITIES,
@@ -347,6 +349,7 @@ test.skipIf(!connectionString)(
         kind: "agent",
         agent: { id: agent.id, name: agent.name, displayName: agent.displayName },
         dmWritable: true,
+        viewerId: viewer.id,
         viewerHandle: viewer.username,
         hasOlder: false,
         hasNewer: false,

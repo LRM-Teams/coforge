@@ -77,7 +77,7 @@ export function OutboxMessageRow({
   grouped,
   composerShown,
   plainMentions,
-  viewerHandle,
+  viewerId,
   onOpenTask,
   onRetry,
   onEdit,
@@ -89,7 +89,7 @@ export function OutboxMessageRow({
   /** Whether the chat shows a composer that "Edit" could put the message back into. */
   composerShown: boolean;
   plainMentions?: Map<string, ChipMention>;
-  viewerHandle?: string;
+  viewerId?: string;
   /** Opens a task reference's detail popup, as on a delivered row (see `MessageBody`). */
   onOpenTask?: (number: number) => void;
   onRetry: () => void;
@@ -129,7 +129,7 @@ export function OutboxMessageRow({
             <MessageBody
               body={entry.body}
               plainMentions={plainMentions}
-              viewerHandle={viewerHandle}
+              viewerId={viewerId}
               onOpenTask={onOpenTask}
             />
           </div>

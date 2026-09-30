@@ -156,6 +156,13 @@ These rules apply to `src/features/conversations/`.
 - `mentionOutsiders` (the channel's people and public Agents outside it) is for
   @-completion only. Never merge it into `mentionables`, which also resolves
   plain `@handle` labels and stored mention tokens.
+- The `@` list shows and searches people by the name they are shown by, never by their handle (an
+  Agent's handle is its public name, so it is shown and searched). Choosing a member writes `@label`
+  and pins them (`mention-pins.ts` owns the mechanism); only `deliver` (`use-message-outbox.ts`)
+  rewrites the name to the handle, so the composer, the unsent row and an edited draft stay readable.
+  A channel send carries the pinned members as `mentions`; a direct conversation gets the rewritten
+  text only. A member's name typed by hand offers `UnpinnedMentionHint`. Whether the viewer is
+  mentioned is decided by `viewerId`; `viewerHandle` only names their own reaction.
 - The live Agent activity strip shows one notable display (working, thinking,
   or error; newest cloud revision). Idle and offline stay in the directory.
 - A channel's members are a page of its settings panel

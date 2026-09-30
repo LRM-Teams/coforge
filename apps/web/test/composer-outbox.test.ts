@@ -43,6 +43,7 @@ function message(overrides: Partial<OutgoingMessage> = {}): OutgoingMessage {
     idempotencyKey: `request-${counter}`,
     asTask: false,
     attachments: [],
+    pins: [],
     ...overrides,
   };
 }
@@ -120,6 +121,48 @@ describe("createComposerOutbox", () => {
     outbox.discard(failing.localId);
     expect(storage.length).toBe(0);
     expect(createComposerOutbox(storage).entries("chat-a")).toEqual([]);
+  });
+
+  test("the mention pins of a message stay with it through failing, a reload, a retry and delivery", async () => {
+    const pins = [{ kind: "user" as const, id: "u-1", handle: "zhangsan", label: "张三" }];
+    const storage = memoryStorage();
+    const before = createComposerOutbox(storage);
+    const pinned = message({ body: "你好 @张三", pins });
+    await before.send(pinned, async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect(before.entries("chat-a")).toEqual([
+      { ...pinned, state: "unsent", reason: "offline", errorId: undefined },
+    ]);
+
+    const after = createComposerOutbox(storage);
+    expect(after.entries("chat-a")[0]).toMatchObject({ body: "你好 @张三", pins });
+    let sent: OutgoingMessage | undefined;
+    await after.retry(pinned.localId, async (retried) => {
+      sent = retried;
+    });
+    expect(sent).toMatchObject({ body: "你好 @张三", pins });
+
+    const pending = message({ pins });
+    void after.send(pending, () => new Promise<never>(() => {}));
+    after.acknowledge(pending.idempotencyKey, "message-9");
+    expect(after.entries("chat-a")).toEqual([
+      { ...pending, state: "delivered", messageId: "message-9" },
+    ]);
+  });
+
+  test("an outbox entry whose pins this page cannot read is removed from the device on load", () => {
+    const storage = memoryStorage();
+    const { pins: _pins, ...withoutPins } = message();
+    storage.setItem(
+      "coforge.composer-outbox:old",
+      JSON.stringify({
+        submittedAt: 1,
+        entry: { ...withoutPins, localId: "old", state: "unsent" },
+      }),
+    );
+    expect(createComposerOutbox(storage).entries("chat-a")).toEqual([]);
+    expect(storage.getItem("coforge.composer-outbox:old")).toBeNull();
   });
 
   test("an outbox entry this page can no longer read is removed from the device on load", () => {

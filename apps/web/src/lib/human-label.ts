@@ -20,6 +20,13 @@ export function humanLabel(names: HumanNames): string {
   return names.displayName?.trim() || names.fullName?.trim() || names.username;
 }
 
+/** The person's full name when a display name is shown in its place, else `undefined`: a search
+ * for people matches it too, so someone known by a nickname is still found by their own name. */
+export function fullNameBehindLabel(names: HumanNames): string | undefined {
+  const fullName = names.fullName?.trim();
+  return fullName && fullName !== humanLabel(names) ? fullName : undefined;
+}
+
 // Base sensitivity: "Alex" and "alex" are one name to a reader, so the username settles the tie.
 const labelCollator = new Intl.Collator(undefined, { sensitivity: "base" });
 

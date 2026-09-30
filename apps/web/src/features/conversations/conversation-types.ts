@@ -4,6 +4,7 @@ import type { TaskView } from "@lrm/coforge-sdk/internal";
 import type { AgentProfileTab } from "#src/features/agents/profile-panel/profile-panel-search";
 import type { OpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import type { ThreadFollow } from "./thread-pane-header";
+import type { SendOptions } from "./composer-outbox";
 import type { Mentionable } from "./mention-text";
 import type { ThreadSummary } from "./thread-summary-model";
 import type { ChipMention } from "./message-markdown";
@@ -36,8 +37,10 @@ export type DirectConversationView = {
    * own creator, so an existing DM held by anyone else reads read-only once it goes private.
    * The server enforces the same rule on send; this only chooses the composer or the notice. */
   dmWritable?: boolean;
-  /** The viewing user's `@handle`; powers the stronger "mentioned me" chip, and lets the composer
-   * drop the viewer from its candidate list. Absent for a non-member. */
+  /** The viewing user's id; powers the stronger "mentioned me" chip, and lets the composer drop
+   * the viewer from its candidate list. Absent for a non-member. */
+  viewerId?: string;
+  /** The viewing user's `@handle`, which names their own reaction among a message's reactors. */
   viewerHandle?: string;
   /** The viewer's own preference: long messages fold behind "Show more". Absent means on. */
   collapseLongMessages?: boolean;
@@ -93,7 +96,7 @@ export type ConversationProps = {
     body: string,
     idempotencyKey: string,
     attachmentIds?: string[],
-    threadRootId?: string,
+    options?: SendOptions,
   ) => Promise<OwnMessageIndexEntry | void>;
   onLoadOlder?: () => Promise<void>;
   /** Fetch the next page towards the live end once the bounded window's oldest page has pushed the

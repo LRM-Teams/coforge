@@ -22,14 +22,14 @@ function chipify(
   children: unknown[],
   options: {
     handles?: Map<string, ChipMention>;
-    viewerHandle?: string;
+    viewerId?: string;
     plain?: Map<string, ChipMention>;
   } = {},
 ) {
   const tree = { type: "root", children } as never;
   rehypeReferenceChips({
     mentions: options.handles ?? new Map(),
-    viewerHandle: options.viewerHandle,
+    viewerId: options.viewerId,
     plainMentions: options.plain,
   })(tree);
   return tree as { children: Array<Record<string, unknown>> };
@@ -112,12 +112,14 @@ test("mention rows are keyed by the token spelling, lower-cased", () => {
     { kind: "user", actorId: OTHER_UUID, handle: "ada", label: "ada" },
   ]);
   expect(handles.get(`agent:${UUID.toLowerCase()}`)).toEqual({
+    actorId: UUID.toUpperCase(),
     handle: "scout",
     label: "scout",
     agentId: UUID.toUpperCase(),
   });
   // A human mention carries no agentId: there is no human profile panel to open.
   expect(handles.get(`user:${OTHER_UUID.toLowerCase()}`)).toEqual({
+    actorId: OTHER_UUID,
     handle: "ada",
     label: "ada",
     agentId: undefined,
@@ -126,7 +128,9 @@ test("mention rows are keyed by the token spelling, lower-cased", () => {
 
 test("a resolved token becomes a chip carrying the handle", () => {
   const tree = chipify([paragraph([text(`hi ${AGENT_TOKEN} there`)])], {
-    handles: new Map([[`agent:${UUID}`, { handle: "scout", label: "scout", agentId: UUID }]]),
+    handles: new Map([
+      [`agent:${UUID}`, { actorId: UUID, handle: "scout", label: "scout", agentId: UUID }],
+    ]),
   });
   const children = tree.children[0]!.children as Array<Record<string, unknown>>;
   expect(children[0]).toEqual(text("hi "));
@@ -136,7 +140,9 @@ test("a resolved token becomes a chip carrying the handle", () => {
 
 test("an Agent chip carries its Agent id and the clickable class", () => {
   const tree = chipify([paragraph([text(AGENT_TOKEN)])], {
-    handles: new Map([[`agent:${UUID}`, { handle: "scout", label: "scout", agentId: UUID }]]),
+    handles: new Map([
+      [`agent:${UUID}`, { actorId: UUID, handle: "scout", label: "scout", agentId: UUID }],
+    ]),
   });
   const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
   const properties = chip.properties as { className: string[]; "data-mention-agent-id"?: string };
@@ -146,7 +152,9 @@ test("an Agent chip carries its Agent id and the clickable class", () => {
 
 test("a chip uses the ordinary brand fill by default", () => {
   const tree = chipify([paragraph([text(AGENT_TOKEN)])], {
-    handles: new Map([[`agent:${UUID}`, { handle: "scout", label: "scout", agentId: UUID }]]),
+    handles: new Map([
+      [`agent:${UUID}`, { actorId: UUID, handle: "scout", label: "scout", agentId: UUID }],
+    ]),
   });
   const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
   const className = (chip.properties as { className: string[] }).className;
@@ -158,8 +166,10 @@ test("a chip uses the ordinary brand fill by default", () => {
 
 test("a mention of the viewing user gets the stronger treatment and stays a plain highlight", () => {
   const tree = chipify([paragraph([text(HUMAN_TOKEN)])], {
-    handles: new Map([[`user:${OTHER_UUID}`, { handle: "ada", label: "ada" }]]),
-    viewerHandle: "ada",
+    handles: new Map([
+      [`user:${OTHER_UUID}`, { actorId: OTHER_UUID, handle: "ada", label: "ada" }],
+    ]),
+    viewerId: OTHER_UUID,
   });
   const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
   const properties = chip.properties as { className: string[]; "data-mention-agent-id"?: string };
@@ -171,12 +181,39 @@ test("a mention of the viewing user gets the stronger treatment and stays a plai
 
 test("a mention of someone else does not get the viewer treatment", () => {
   const tree = chipify([paragraph([text(HUMAN_TOKEN)])], {
-    handles: new Map([[`user:${OTHER_UUID}`, { handle: "ada", label: "ada" }]]),
-    viewerHandle: "grace",
+    handles: new Map([
+      [`user:${OTHER_UUID}`, { actorId: OTHER_UUID, handle: "ada", label: "ada" }],
+    ]),
+    viewerId: UUID,
   });
   const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
   expect((chip.properties as { className: string[] }).className).toEqual(
     MENTION_CHIP_CLASS.split(" "),
+  );
+});
+
+test("the viewer is recognized by their id, so a namesake of their handle is not them", () => {
+  // Someone else who happens to hold the handle the viewer once had, or an Agent named like them.
+  const namesake = chipify([paragraph([text(HUMAN_TOKEN)])], {
+    handles: new Map([
+      [`user:${OTHER_UUID}`, { actorId: OTHER_UUID, handle: "ada", label: "ada" }],
+    ]),
+    viewerId: UUID,
+  });
+  const chip = (namesake.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  expect((chip.properties as { className: string[] }).className).toEqual(
+    MENTION_CHIP_CLASS.split(" "),
+  );
+  // An Agent is never the viewer, even when its id is compared to theirs.
+  const agent = chipify([paragraph([text(AGENT_TOKEN)])], {
+    handles: new Map([
+      [`agent:${UUID}`, { actorId: UUID, handle: "scout", label: "scout", agentId: UUID }],
+    ]),
+    viewerId: UUID,
+  });
+  const agentChip = (agent.children[0]!.children as Array<Record<string, unknown>>)[0]!;
+  expect((agentChip.properties as { className: string[] }).className).not.toContain(
+    MENTION_CHIP_SELF_CLASS,
   );
 });
 
@@ -198,7 +235,11 @@ test("a token inside an inline code element is never chipped", () => {
         },
       ]),
     ],
-    { handles: new Map([[`agent:${UUID}`, { handle: "scout", label: "scout", agentId: UUID }]]) },
+    {
+      handles: new Map([
+        [`agent:${UUID}`, { actorId: UUID, handle: "scout", label: "scout", agentId: UUID }],
+      ]),
+    },
   );
   const code = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
   expect(code.children).toEqual([text(AGENT_TOKEN)]);
@@ -221,7 +262,11 @@ test("a token inside a fenced code block is never chipped", () => {
         ],
       },
     ],
-    { handles: new Map([[`agent:${UUID}`, { handle: "scout", label: "scout", agentId: UUID }]]) },
+    {
+      handles: new Map([
+        [`agent:${UUID}`, { actorId: UUID, handle: "scout", label: "scout", agentId: UUID }],
+      ]),
+    },
   );
   const pre = tree.children[0]!;
   const code = (pre.children as Array<Record<string, unknown>>)[0]!;
@@ -245,7 +290,11 @@ test("chips are found in nested structures such as a list item", () => {
         ],
       },
     ],
-    { handles: new Map([[`agent:${UUID}`, { handle: "scout", label: "scout", agentId: UUID }]]) },
+    {
+      handles: new Map([
+        [`agent:${UUID}`, { actorId: UUID, handle: "scout", label: "scout", agentId: UUID }],
+      ]),
+    },
   );
   const item = (tree.children[0]!.children as Array<Record<string, unknown>>)[0]!;
   const p = (item.children as Array<Record<string, unknown>>)[0]!;
@@ -255,8 +304,8 @@ test("chips are found in nested structures such as a list item", () => {
 test("two tokens in one text node both become chips with their own handles", () => {
   const tree = chipify([paragraph([text(`${AGENT_TOKEN} and ${HUMAN_TOKEN}`)])], {
     handles: new Map([
-      [`agent:${UUID}`, { handle: "scout", label: "scout", agentId: UUID }],
-      [`user:${OTHER_UUID}`, { handle: "ada", label: "ada" }],
+      [`agent:${UUID}`, { actorId: UUID, handle: "scout", label: "scout", agentId: UUID }],
+      [`user:${OTHER_UUID}`, { actorId: OTHER_UUID, handle: "ada", label: "ada" }],
     ]),
   });
   const children = tree.children[0]!.children as Array<Record<string, unknown>>;
@@ -269,7 +318,9 @@ test("two tokens in one text node both become chips with their own handles", () 
 
 test("text without any token is left untouched", () => {
   const tree = chipify([paragraph([text("nothing to see")])], {
-    handles: new Map([[`agent:${UUID}`, { handle: "scout", label: "scout", agentId: UUID }]]),
+    handles: new Map([
+      [`agent:${UUID}`, { actorId: UUID, handle: "scout", label: "scout", agentId: UUID }],
+    ]),
   });
   expect((tree.children[0]!.children as Array<Record<string, unknown>>)[0]).toEqual(
     text("nothing to see"),
@@ -278,7 +329,7 @@ test("text without any token is left untouched", () => {
 
 test("a plain @handle naming a member becomes a chip with the display label", () => {
   const tree = chipify([paragraph([text("ping @andong3 please")])], {
-    plain: new Map([["andong3", { handle: "andong3", label: "andong3" }]]),
+    plain: new Map([["andong3", { actorId: OTHER_UUID, handle: "andong3", label: "andong3" }]]),
   });
   const children = tree.children[0]!.children as Array<Record<string, unknown>>;
   expect(children).toHaveLength(3);
@@ -292,7 +343,7 @@ test("a plain @handle naming a member becomes a chip with the display label", ()
 
 test("a plain @handle renders the member's display label, not the handle", () => {
   const tree = chipify([paragraph([text("ping @ada please")])], {
-    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+    plain: new Map([["ada", { actorId: OTHER_UUID, handle: "ada", label: "Ada Lovelace" }]]),
   });
   const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[1]!;
   expect(chip.children).toEqual([{ type: "text", value: "@Ada Lovelace" }]);
@@ -301,7 +352,7 @@ test("a plain @handle renders the member's display label, not the handle", () =>
 test("a plain @handle for an unknown member stays literal text", () => {
   const source = "ping @stranger please";
   const tree = chipify([paragraph([text(source)])], {
-    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+    plain: new Map([["ada", { actorId: OTHER_UUID, handle: "ada", label: "Ada Lovelace" }]]),
   });
   expect((tree.children[0]!.children as Array<Record<string, unknown>>)[0]!.value).toBe(source);
 });
@@ -309,7 +360,7 @@ test("a plain @handle for an unknown member stays literal text", () => {
 test("an email address is never chipped as a plain mention", () => {
   const source = "mail me at ada@example.com ok";
   const tree = chipify([paragraph([text(source)])], {
-    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+    plain: new Map([["ada", { actorId: OTHER_UUID, handle: "ada", label: "Ada Lovelace" }]]),
   });
   expect((tree.children[0]!.children as Array<Record<string, unknown>>)[0]!.value).toBe(source);
 });
@@ -317,7 +368,7 @@ test("an email address is never chipped as a plain mention", () => {
 test("a plain handle inside an unresolved token is not double-chipped", () => {
   const source = `see <@agent:${UUID}> end`;
   const tree = chipify([paragraph([text(source)])], {
-    plain: new Map([["agent", { handle: "agent", label: "Agent" }]]),
+    plain: new Map([["agent", { actorId: OTHER_UUID, handle: "agent", label: "Agent" }]]),
   });
   // The token has no resolved row, so it stays literal — including its inner `@agent` spelling.
   expect(
@@ -338,7 +389,7 @@ test("a plain handle inside code is left alone", () => {
         children: [{ type: "element", tagName: "code", properties: {}, children: [text(source)] }],
       },
     ],
-    { plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]) },
+    { plain: new Map([["ada", { actorId: OTHER_UUID, handle: "ada", label: "Ada Lovelace" }]]) },
   );
   expect(
     (
@@ -351,8 +402,8 @@ test("a plain handle inside code is left alone", () => {
 
 test("a plain handle of the viewer renders with the self chip class", () => {
   const tree = chipify([paragraph([text("thanks @ada!")])], {
-    viewerHandle: "ada",
-    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+    viewerId: OTHER_UUID,
+    plain: new Map([["ada", { actorId: OTHER_UUID, handle: "ada", label: "Ada Lovelace" }]]),
   });
   const chip = (tree.children[0]!.children as Array<Record<string, unknown>>)[1]!;
   expect(
@@ -395,7 +446,7 @@ test("a task token or a plain @handle inside a link is text, never a control ins
     text("task #68"),
   ]);
   const plain = chipify([link("ask @ada")], {
-    plain: new Map([["ada", { handle: "ada", label: "Ada Lovelace" }]]),
+    plain: new Map([["ada", { actorId: OTHER_UUID, handle: "ada", label: "Ada Lovelace" }]]),
   });
   expect((plain.children[0]!.children as Array<Record<string, unknown>>)[0]!.children).toEqual([
     text("ask @ada"),

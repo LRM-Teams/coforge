@@ -204,7 +204,7 @@ export function ChannelSettingsPanel({
                     <ChannelMembersPage
                       channelId={channelId}
                       channelName={conversation.name}
-                      viewerHandle={conversation.viewerHandle}
+                      viewerId={conversation.viewerId}
                       canCreateAgents={conversation.canCreateAgents}
                       view={membersView}
                       onViewChange={changeMembersView}

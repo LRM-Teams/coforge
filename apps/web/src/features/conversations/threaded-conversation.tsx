@@ -117,8 +117,12 @@ function ThreadedConversationContent(props: ThreadedConversationProps) {
     root,
     conversation: { ...conversation, readThroughSequence: threadCursor(root.id) },
     onSend: (
-      ...[body, idempotencyKey, attachmentIds]: Parameters<typeof conversationProps.onSend>
-    ) => conversationProps.onSend(body, idempotencyKey, attachmentIds, root.id),
+      ...[body, idempotencyKey, attachmentIds, options]: Parameters<typeof conversationProps.onSend>
+    ) =>
+      conversationProps.onSend(body, idempotencyKey, attachmentIds, {
+        ...options,
+        threadRootId: root.id,
+      }),
   });
   const dialog = openTask ? (
     <TaskDetailDialog

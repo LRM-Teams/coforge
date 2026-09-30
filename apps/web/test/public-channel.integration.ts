@@ -1196,6 +1196,93 @@ test("a channel send reports the @handles that name nobody the sender can see, a
   }
 });
 
+test("a channel send names a member by id beside the @handles in its body, and a binding that names no member of the channel names no one", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `ua${suffix}` } });
+  const bob = await db.user.create({ data: { username: `ub${suffix}` } });
+  const carol = await db.user.create({ data: { username: `uc${suffix}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: crypto.randomUUID(),
+      name: "Mention bindings",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }, { userId: carol.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: alice.id, machineId: crypto.randomUUID() },
+    });
+    // An Agent that holds the handle of a person: the text alone can only name the Agent. Created
+    // straight in the database, since Agent creation now refuses the name; this is about how a send
+    // resolves such a pair, which older Agents and members who joined later can still make.
+    const namesake = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: bob.username,
+        displayName: "Namesake",
+        runtimeConfig: {},
+      },
+    });
+    await enrollGeneral(db, workspace.id);
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async () => {},
+      publishJson: async () => {},
+      broadcast: async () => {},
+    });
+    const general = (await channels.list(workspace.id, alice.id))[0]!;
+    const send = (
+      channelId: string,
+      body: string,
+      mentions?: { type: "user" | "agent"; id: string; name: string }[],
+    ) =>
+      channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId,
+        idempotencyKey: crypto.randomUUID(),
+        body,
+        mentions,
+      });
+    const mentioned = async (messageId: string) =>
+      (await db.messageMention.findMany({ where: { messageId } }))
+        .map((row) => `${row.kind}:${row.actorId}`)
+        .sort();
+
+    // The handle in the text is the Agent's; the person the sender picked is mentioned as well.
+    expect(await mentioned((await send(general.id, `@${bob.username} look`)).id)).toEqual([
+      `agent:${namesake.id}`,
+    ]);
+    const bound = await send(general.id, `@${bob.username} look`, [
+      { type: "user", id: bob.id, name: bob.username },
+    ]);
+    expect(await mentioned(bound.id)).toEqual([`agent:${namesake.id}`, `user:${bob.id}`].sort());
+
+    // A binding is a claim: bob's id under carol's handle, or a person who is no member of this
+    // channel, names no one.
+    const forged = await send(general.id, "hello", [
+      { type: "user", id: bob.id, name: carol.username },
+    ]);
+    expect(await mentioned(forged.id)).toEqual([]);
+    const solo = await channels.create(workspace.id, alice.id, `solo-${suffix}`);
+    const outside = await send(solo.id, "hello", [
+      { type: "user", id: bob.id, name: bob.username },
+    ]);
+    expect(await mentioned(outside.id)).toEqual([]);
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: alice.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id, carol.id] } } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
 test("a channel @mention of someone outside the channel becomes the sender's pending mention action for 7 days, and a replay returns the same one", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");

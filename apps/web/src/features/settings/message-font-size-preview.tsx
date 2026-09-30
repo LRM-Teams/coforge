@@ -10,7 +10,9 @@ const SAMPLE_CHANNEL_ID = "00000000-0000-4000-8000-000000000001";
 const SAMPLE_CHANNEL_NAMES: ReadonlyMap<string, string> = new Map([
   [SAMPLE_CHANNEL_ID, "proj-uiux"],
 ]);
-const SAMPLE_MENTIONS = new Map<string, ChipMention>([["joy", { handle: "joy", label: "Joy" }]]);
+const SAMPLE_MENTIONS = new Map<string, ChipMention>([
+  ["joy", { actorId: "sample-joy", handle: "joy", label: "Joy" }],
+]);
 const noop = () => {};
 
 /**

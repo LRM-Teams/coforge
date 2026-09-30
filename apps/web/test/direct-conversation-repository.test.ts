@@ -350,6 +350,7 @@ describe("PrismaDirectConversationRepository", () => {
         id: "user-1",
         handle: "alice",
         label: "Alice",
+        fullName: undefined,
         description: "",
         avatarUrl: null,
         mentionScore: 0,

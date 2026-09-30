@@ -10,7 +10,9 @@
  * reloading the page loses a message. A retry reuses the idempotency key, which the server treats as
  * the same send, so a message the server did accept is never posted twice.
  */
+import type { MentionSelectorInput } from "@lrm/coforge-sdk/internal";
 import { isAppError } from "#src/lib/app-error";
+import { isMentionPin, type MentionPin } from "./mention-pins";
 
 /** An attachment already uploaded for the message; its id is all a send needs. */
 export type OutgoingAttachment = { id: string; fileName: string };
@@ -19,10 +21,21 @@ export type OutgoingMessage = {
   localId: string;
   /** The chat (and thread) it was sent from; see `composerDraftKey`. */
   draftKey: string;
+  /** The text as the sender wrote it (`@张三`); it is what the conversation shows while unsent. */
   body: string;
+  /** Who the `@name`s in `body` were picked to mean (see `mention-pins.ts`). Sending rewrites the
+   * names still in the text to handles; the body here stays readable. */
+  pins: readonly MentionPin[];
   idempotencyKey: string;
   asTask: boolean;
   attachments: OutgoingAttachment[];
+};
+
+/** What a send carries besides its text and attachments: the thread it replies in, and the members
+ * its body names by id (only a channel resolves them; a direct conversation keeps `@handle` text). */
+export type SendOptions = {
+  threadRootId?: string;
+  mentions?: MentionSelectorInput[];
 };
 
 /**
@@ -154,7 +167,9 @@ function parseStored(raw: string | null): StoredEntry | undefined {
       typeof entry.draftKey !== "string" ||
       typeof entry.body !== "string" ||
       typeof entry.idempotencyKey !== "string" ||
-      !Array.isArray(entry.attachments)
+      !Array.isArray(entry.attachments) ||
+      !Array.isArray(entry.pins) ||
+      !entry.pins.every(isMentionPin)
     )
       return undefined;
     return stored;
@@ -240,6 +255,7 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
       localId: entry.localId,
       draftKey: entry.draftKey,
       body: entry.body,
+      pins: entry.pins,
       idempotencyKey: entry.idempotencyKey,
       asTask: entry.asTask,
       attachments: entry.attachments,
@@ -305,13 +321,14 @@ export function createComposerOutbox(storage: OutboxStorage | null): ComposerOut
       for (const value of stored.values()) {
         if (value.entry.idempotencyKey !== idempotencyKey || value.entry.state === "delivered")
           continue;
-        const { localId, draftKey, body, asTask, attachments } = value.entry;
+        const { localId, draftKey, body, pins, asTask, attachments } = value.entry;
         save({
           ...value,
           entry: {
             localId,
             draftKey,
             body,
+            pins,
             idempotencyKey,
             asTask,
             attachments,

@@ -3,8 +3,8 @@ import { lockConversation } from "./conversation-lock.server";
 import { lockMemberPins, setConversationPin } from "./conversation-pins.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
-import { compareHumanLabels, humanLabel } from "#src/lib/human-label";
-import { CHANNEL_NAME_PATTERN } from "@lrm/coforge-sdk/internal";
+import { compareHumanLabels, fullNameBehindLabel, humanLabel } from "#src/lib/human-label";
+import { CHANNEL_NAME_PATTERN, type MentionSelectorInput } from "@lrm/coforge-sdk/internal";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import {
@@ -1876,6 +1876,7 @@ export class PublicChannels {
       project: channel.project ?? undefined,
       coordinatorAgent: activeCoordinator,
       senderMemberId: member?.id ?? "",
+      viewerId: member ? userId : undefined,
       viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,
       collapseLongMessages: member?.collapseLongMessages ?? true,
@@ -1907,6 +1908,7 @@ export class PublicChannels {
                 id: row.user.id,
                 handle: row.user.username,
                 label: humanLabel(row.user),
+                fullName: fullNameBehindLabel(row.user),
                 description: row.user.description.trim(),
                 avatarUrl: workspaceUserAvatarUrl(
                   workspaceId,
@@ -1983,6 +1985,7 @@ export class PublicChannels {
               id: row.user.id,
               handle: row.user.username,
               label: humanLabel(row.user),
+              fullName: fullNameBehindLabel(row.user),
               description: row.user.description.trim(),
               avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user.id, row.user.avatarObjectKey),
               mentionScore: mentionScores.get(`user:${row.user.id}`) ?? 0,
@@ -2056,6 +2059,7 @@ export class PublicChannels {
           id: user.id,
           handle: user.username,
           label: humanLabel(user),
+          fullName: fullNameBehindLabel(user),
           description: user.description.trim(),
           avatarUrl: workspaceUserAvatarUrl(workspaceId, user.id, user.avatarObjectKey),
           mentionScore: 0,
@@ -2099,6 +2103,8 @@ export class PublicChannels {
     body: string;
     attachmentIds?: string[];
     threadRootId?: string;
+    /** Members the sender named by id (the composer's picks), beside the `@handle`s in `body`. */
+    mentions?: readonly MentionSelectorInput[];
   }) {
     const { workspaceId, userId, channelId, idempotencyKey, attachmentIds, threadRootId } = input;
     const channel = await this.channel(workspaceId, userId, channelId);
@@ -2165,6 +2171,7 @@ export class PublicChannels {
             {
               targets: (handles) =>
                 channelMentionTargets(tx, { workspaceId, conversationId: channelId }, handles),
+              bindings: input.mentions,
             },
           );
           if (root)
