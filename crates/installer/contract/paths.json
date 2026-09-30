@@ -54,6 +54,210 @@
       "install_root": "C:\\Users\\example\\.coforge\\computer\\install",
       "state_directory": "C:\\Users\\example\\.coforge\\daemon",
       "binary_directory": "C:\\Users\\example\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "linux",
+      "home": "/",
+      "environment": {},
+      "install_root": "/.coforge/computer/install",
+      "state_directory": "/.coforge/daemon",
+      "binary_directory": "/.local/bin"
+    },
+    {
+      "platform": "linux",
+      "home": "/home//example/",
+      "environment": {},
+      "install_root": "/home/example/.coforge/computer/install",
+      "state_directory": "/home/example/.coforge/daemon",
+      "binary_directory": "/home/example/.local/bin"
+    },
+    {
+      "platform": "linux",
+      "home": "/home/./example",
+      "environment": {},
+      "install_root": "/home/example/.coforge/computer/install",
+      "state_directory": "/home/example/.coforge/daemon",
+      "binary_directory": "/home/example/.local/bin"
+    },
+    {
+      "platform": "linux",
+      "home": "/home/example/../example",
+      "environment": {},
+      "install_root": "/home/example/.coforge/computer/install",
+      "state_directory": "/home/example/.coforge/daemon",
+      "binary_directory": "/home/example/.local/bin"
+    },
+    {
+      "platform": "linux",
+      "home": "/home/../../example",
+      "environment": {},
+      "install_root": "/example/.coforge/computer/install",
+      "state_directory": "/example/.coforge/daemon",
+      "binary_directory": "/example/.local/bin"
+    },
+    {
+      "platform": "linux",
+      "home": "../example",
+      "environment": {},
+      "install_root": "../example/.coforge/computer/install",
+      "state_directory": "../example/.coforge/daemon",
+      "binary_directory": "../example/.local/bin"
+    },
+    {
+      "platform": "linux",
+      "home": "",
+      "environment": {},
+      "install_root": ".coforge/computer/install",
+      "state_directory": ".coforge/daemon",
+      "binary_directory": ".local/bin"
+    },
+    {
+      "platform": "darwin",
+      "home": "/Users/example/",
+      "environment": {},
+      "install_root": "/Users/example/.coforge/computer/install",
+      "state_directory": "/Users/example/.coforge/daemon",
+      "binary_directory": "/Users/example/.local/bin"
+    },
+    {
+      "platform": "darwin",
+      "home": "/Users/example",
+      "environment": {
+        "XDG_BIN_HOME": "/Users//example/./bin/"
+      },
+      "install_root": "/Users/example/.coforge/computer/install",
+      "state_directory": "/Users/example/.coforge/daemon",
+      "binary_directory": "/Users//example/./bin/"
+    },
+    {
+      "platform": "linux",
+      "home": "/home/example",
+      "environment": {
+        "XDG_BIN_HOME": ""
+      },
+      "install_root": "/home/example/.coforge/computer/install",
+      "state_directory": "/home/example/.coforge/daemon",
+      "binary_directory": "/home/example/.local/bin"
+    },
+    {
+      "platform": "win32",
+      "home": "C:/Users/example",
+      "environment": {},
+      "install_root": "C:\\Users\\example\\.coforge\\computer\\install",
+      "state_directory": "C:\\Users\\example\\.coforge\\daemon",
+      "binary_directory": "C:\\Users\\example\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "C:\\Users\\example\\",
+      "environment": {},
+      "install_root": "C:\\Users\\example\\.coforge\\computer\\install",
+      "state_directory": "C:\\Users\\example\\.coforge\\daemon",
+      "binary_directory": "C:\\Users\\example\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "C:\\Users\\\\example",
+      "environment": {},
+      "install_root": "C:\\Users\\example\\.coforge\\computer\\install",
+      "state_directory": "C:\\Users\\example\\.coforge\\daemon",
+      "binary_directory": "C:\\Users\\example\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "\\\\server\\share\\example",
+      "environment": {},
+      "install_root": "\\\\server\\share\\example\\.coforge\\computer\\install",
+      "state_directory": "\\\\server\\share\\example\\.coforge\\daemon",
+      "binary_directory": "\\\\server\\share\\example\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "//server/share/example",
+      "environment": {},
+      "install_root": "\\\\server\\share\\example\\.coforge\\computer\\install",
+      "state_directory": "\\\\server\\share\\example\\.coforge\\daemon",
+      "binary_directory": "\\\\server\\share\\example\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "C:\\",
+      "environment": {},
+      "install_root": "C:\\.coforge\\computer\\install",
+      "state_directory": "C:\\.coforge\\daemon",
+      "binary_directory": "C:\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "C:\\Users\\..\\..\\example",
+      "environment": {},
+      "install_root": "C:\\example\\.coforge\\computer\\install",
+      "state_directory": "C:\\example\\.coforge\\daemon",
+      "binary_directory": "C:\\example\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "\\home\\example",
+      "environment": {},
+      "install_root": "\\home\\example\\.coforge\\computer\\install",
+      "state_directory": "\\home\\example\\.coforge\\daemon",
+      "binary_directory": "\\home\\example\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "..\\example",
+      "environment": {},
+      "install_root": "..\\example\\.coforge\\computer\\install",
+      "state_directory": "..\\example\\.coforge\\daemon",
+      "binary_directory": "..\\example\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "",
+      "environment": {},
+      "install_root": ".coforge\\computer\\install",
+      "state_directory": ".coforge\\daemon",
+      "binary_directory": ".coforge\\computer\\bin"
+    },
+    {
+      "platform": "linux",
+      "home": "/ab/../x",
+      "environment": {},
+      "install_root": "/x/.coforge/computer/install",
+      "state_directory": "/x/.coforge/daemon",
+      "binary_directory": "/x/.local/bin"
+    },
+    {
+      "platform": "win32",
+      "home": "/",
+      "environment": {},
+      "install_root": "\\.coforge\\computer\\install",
+      "state_directory": "\\.coforge\\daemon",
+      "binary_directory": "\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "\\",
+      "environment": {},
+      "install_root": "\\.coforge\\computer\\install",
+      "state_directory": "\\.coforge\\daemon",
+      "binary_directory": "\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "///x",
+      "environment": {},
+      "install_root": "\\x\\.coforge\\computer\\install",
+      "state_directory": "\\x\\.coforge\\daemon",
+      "binary_directory": "\\x\\.coforge\\computer\\bin"
+    },
+    {
+      "platform": "win32",
+      "home": "a:b",
+      "environment": {},
+      "install_root": "a:b\\.coforge\\computer\\install",
+      "state_directory": "a:b\\.coforge\\daemon",
+      "binary_directory": "a:b\\.coforge\\computer\\bin"
     }
   ]
 }

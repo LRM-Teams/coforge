@@ -1,0 +1,92 @@
+{
+  "cases": [
+    {
+      "value": "0.1.0",
+      "valid": true
+    },
+    {
+      "value": "0.1.1-dev.42",
+      "valid": true
+    },
+    {
+      "value": "1.2.3+build.5",
+      "valid": true
+    },
+    {
+      "value": "latest",
+      "valid": true
+    },
+    {
+      "value": "A-Z_z",
+      "valid": false
+    },
+    {
+      "value": "",
+      "valid": false
+    },
+    {
+      "value": ".",
+      "valid": false
+    },
+    {
+      "value": "..",
+      "valid": false
+    },
+    {
+      "value": "1..2",
+      "valid": false
+    },
+    {
+      "value": "1.2.",
+      "valid": true
+    },
+    {
+      "value": ".1",
+      "valid": true
+    },
+    {
+      "value": "-rc",
+      "valid": false
+    },
+    {
+      "value": "rc-",
+      "valid": true
+    },
+    {
+      "value": "1/2",
+      "valid": false
+    },
+    {
+      "value": "1\\2",
+      "valid": false
+    },
+    {
+      "value": "1 2",
+      "valid": false
+    },
+    {
+      "value": " 1.0.0",
+      "valid": false
+    },
+    {
+      "value": "1.0.0\n",
+      "valid": false
+    },
+    {
+      "value": "v1.0.0",
+      "valid": true
+    },
+    {
+      "value": "版本",
+      "valid": false
+    },
+    {
+      "value": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+      "valid": true
+    },
+    {
+      "value": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+      "valid": false
+    }
+  ]
+}

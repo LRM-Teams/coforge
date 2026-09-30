@@ -451,7 +451,7 @@ jobs:
             rust_target: aarch64-apple-darwin
             runner: macos-latest
             native: true
-            tools: rust
+            tools: rust bun
           # Cross-compiled on the arm64 runner. The linker leaves x86_64 output unsigned, so the
           # job ad-hoc signs it the way Bun signs its darwin-x64 executables.
           - release_target: darwin-x64
@@ -465,24 +465,24 @@ jobs:
             rust_target: x86_64-unknown-linux-musl
             runner: ubuntu-24.04
             native: true
-            tools: rust cargo-deny github:rustsec/rustsec github:EmbarkStudios/cargo-about
+            tools: rust bun cargo-deny github:rustsec/rustsec github:EmbarkStudios/cargo-about
           - release_target: linux-arm64
             rust_target: aarch64-unknown-linux-musl
             runner: ubuntu-24.04-arm
             native: true
-            tools: rust
+            tools: rust bun
           - release_target: windows-x64
             rust_target: x86_64-pc-windows-msvc
             runner: windows-latest
             native: true
-            tools: rust
+            tools: rust bun
           # ring needs clang for this target; ring's own CI builds it on windows-11-arm with the
           # runner image's Visual Studio toolchain and no extra install step.
           - release_target: windows-arm64
             rust_target: aarch64-pc-windows-msvc
             runner: windows-11-arm
             native: true
-            tools: rust
+            tools: rust bun
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     defaults:
@@ -531,9 +531,11 @@ jobs:
       - name: Lint
         run: mise exec rust -- cargo clippy --locked --all-targets --target "${{ matrix.rust_target }}" -- -D warnings
 
+      # Bun runs the Computer's own machine mutation lock (packages/daemon) against the
+      # installer's in src/lock/tests.rs, so the two are proven to exclude each other.
       - name: Test
         if: matrix.native
-        run: mise exec rust -- cargo test --locked --target "${{ matrix.rust_target }}"
+        run: mise exec rust bun -- cargo test --locked --target "${{ matrix.rust_target }}"
 
       # The tests write what the installer produces into contract/rust/, which the Computer
       # package's tests read back; the committed copy must match on every native target.
