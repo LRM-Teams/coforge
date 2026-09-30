@@ -8,6 +8,17 @@ import { listAgentSkills, scanAgentSkillScopes } from "#src/code-agent/agent-ski
 // macOS tmpdir lives under /var, a symlink; listAgentSkills rejects linked roots.
 const tempRoot = realpathSync(tmpdir());
 
+/** The skill-root variables a host may export (GitHub's Linux runners set `XDG_CONFIG_HOME`),
+ * cleared so each call scans only the roots its test sets. */
+const NO_HOST_ROOTS = {
+  CLAUDE_CONFIG_DIR: "",
+  CODEX_HOME: "",
+  KIRO_HOME: "",
+  XDG_CONFIG_HOME: "",
+  GROK_HOME: "",
+  PI_CODING_AGENT_DIR: "",
+};
+
 test("scans global and workspace skill scopes concurrently while preserving scope results", async () => {
   const globalRoots = [{ path: "/global", label: "global" }];
   const workspaceRoots = [{ path: "/workspace", label: "workspace" }];
@@ -72,6 +83,8 @@ test("Skills metadata distinguishes native global and workspace roots and reread
       "codex",
       "kiro",
       "cursor",
+      "opencode",
+      "grok",
       "antigravity",
       "pi",
       "coforge",
@@ -79,7 +92,7 @@ test("Skills metadata distinguishes native global and workspace roots and reread
       const result = await listAgentSkills({
         provider,
         agentWorkspaceDirectory: cwd,
-        environment: { HOME: home },
+        environment: { ...NO_HOST_ROOTS, HOME: home },
       });
       expect(
         result.workspace.entries.some(
@@ -89,11 +102,9 @@ test("Skills metadata distinguishes native global and workspace roots and reread
             entry.description === "Workspace review",
         ),
       ).toBe(true);
-      if (provider === "coforge") expect(result.global.status).toBe("unsupported");
-      else
-        expect(result.global.entries.some((entry) => entry.description === "Global: review")).toBe(
-          true,
-        );
+      expect(result.global.entries.some((entry) => entry.description === "Global: review")).toBe(
+        true,
+      );
       expect(JSON.stringify(result)).not.toContain(root);
       expect(JSON.stringify(result)).not.toContain("BODY");
     }
@@ -103,7 +114,7 @@ test("Skills metadata distinguishes native global and workspace roots and reread
     const updated = await listAgentSkills({
       provider: "claude-code",
       agentWorkspaceDirectory: cwd,
-      environment: { HOME: home },
+      environment: { ...NO_HOST_ROOTS, HOME: home },
     });
     expect(updated.global.entries[0]?.description).toBe("Updated");
     // `name` is the directory name, never the frontmatter `name`; `displayName` follows the
@@ -130,7 +141,7 @@ test("Kiro Skills use KIRO_HOME without scanning the fallback home root", async 
     const result = await listAgentSkills({
       provider: "kiro",
       agentWorkspaceDirectory: cwd,
-      environment: { HOME: home, KIRO_HOME: kiroHome },
+      environment: { ...NO_HOST_ROOTS, HOME: home, KIRO_HOME: kiroHome },
     });
 
     // `name` is the containing directory, `sourcePath` is the scanned root (not the file);
@@ -174,7 +185,7 @@ test("Antigravity Skills scan the workspace .agents root and only its own global
     const result = await listAgentSkills({
       provider: "antigravity",
       agentWorkspaceDirectory: cwd,
-      environment: { HOME: home },
+      environment: { ...NO_HOST_ROOTS, HOME: home },
     });
 
     expect(result.workspace.entries).toEqual([
@@ -200,6 +211,245 @@ test("Antigravity Skills scan the workspace .agents root and only its own global
   }
 });
 
+const rootSkill = (name: string) => `---\nname: ${name}\ndescription: ${name} skill\n---\nprivate`;
+/** `[name, sourcePath]` pairs, so an assertion names every root a skill was found in. */
+const found = (scope: { entries: readonly { name: string; sourcePath: string }[] }) =>
+  scope.entries.map((entry) => [entry.name, entry.sourcePath]);
+
+test("OpenCode Skills scan its own, the Claude-compatible and the agent-compatible roots", async () => {
+  const root = await mkdtemp(join(tempRoot, "opencode-skills-"));
+  const cwd = join(root, "agent"),
+    home = join(root, "home");
+  try {
+    for (const [dir, name] of [
+      [".opencode/skills", "local-opencode"],
+      [".opencode/skill", "local-opencode-legacy"],
+      [".claude/skills", "local-claude"],
+      [".agents/skills", "local-agents"],
+      // Roots of other CLIs, which OpenCode does not read.
+      [".cursor/skills", "must-not-scan"],
+      [".grok/skills", "must-not-scan"],
+    ] as const)
+      await Bun.write(join(cwd, dir, name, "SKILL.md"), rootSkill(name));
+    for (const [dir, name] of [
+      [".config/opencode/skills", "global-opencode"],
+      [".config/opencode/skill", "global-opencode-legacy"],
+      [".claude/skills", "global-claude"],
+      [".agents/skills", "global-agents"],
+      [".opencode/skills", "must-not-scan"],
+      [".cursor/skills", "must-not-scan"],
+    ] as const)
+      await Bun.write(join(home, dir, name, "SKILL.md"), rootSkill(name));
+
+    const result = await listAgentSkills({
+      provider: "opencode",
+      agentWorkspaceDirectory: cwd,
+      environment: { ...NO_HOST_ROOTS, HOME: home },
+    });
+
+    expect(found(result.workspace)).toEqual([
+      ["local-agents", ".agents/skills"],
+      ["local-claude", ".claude/skills"],
+      ["local-opencode", ".opencode/skills"],
+      ["local-opencode-legacy", ".opencode/skill"],
+    ]);
+    expect(found(result.global)).toEqual([
+      ["global-agents", "~/.agents/skills"],
+      ["global-claude", "~/.claude/skills"],
+      ["global-opencode", "~/.config/opencode/skills"],
+      ["global-opencode-legacy", "~/.config/opencode/skill"],
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenCode Skills follow XDG_CONFIG_HOME without scanning the fallback config root", async () => {
+  const root = await mkdtemp(join(tempRoot, "opencode-xdg-skills-"));
+  const cwd = join(root, "agent"),
+    home = join(root, "home"),
+    xdg = join(root, "xdg-config");
+  try {
+    await Bun.write(join(xdg, "opencode/skills/xdg-skill/SKILL.md"), rootSkill("xdg-skill"));
+    await Bun.write(join(xdg, "opencode/skill/xdg-legacy/SKILL.md"), rootSkill("xdg-legacy"));
+    await Bun.write(join(home, ".config/opencode/skills/must-not-scan/SKILL.md"), rootSkill("x"));
+    // The compatibility roots stay under HOME.
+    await Bun.write(join(home, ".claude/skills/home-claude/SKILL.md"), rootSkill("home-claude"));
+
+    const result = await listAgentSkills({
+      provider: "opencode",
+      agentWorkspaceDirectory: cwd,
+      environment: { ...NO_HOST_ROOTS, HOME: home, XDG_CONFIG_HOME: xdg },
+    });
+
+    expect(found(result.global)).toEqual([
+      ["home-claude", "~/.claude/skills"],
+      ["xdg-legacy", "$XDG_CONFIG_HOME/opencode/skill"],
+      ["xdg-skill", "$XDG_CONFIG_HOME/opencode/skills"],
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Skills list a shared root once per scope when the workspace is the home directory", async () => {
+  const root = await mkdtemp(join(tempRoot, "shared-root-skills-"));
+  try {
+    await Bun.write(join(root, ".agents/skills/shared/SKILL.md"), rootSkill("shared"));
+    await Bun.write(join(root, ".claude/skills/claude-only/SKILL.md"), rootSkill("claude-only"));
+    for (const provider of ["opencode", "grok"] as const) {
+      const result = await listAgentSkills({
+        provider,
+        agentWorkspaceDirectory: root,
+        environment: { ...NO_HOST_ROOTS, HOME: root },
+      });
+      const expected: [string, string][] = [
+        ["claude-only", ".claude/skills"],
+        ["shared", ".agents/skills"],
+      ];
+      expect(found(result.workspace)).toEqual(expected);
+      expect(found(result.global)).toEqual(expected.map(([name, path]) => [name, `~/${path}`]));
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Cursor Skills scan its own, the agent-compatible and the Claude and Codex roots in both scopes", async () => {
+  const root = await mkdtemp(join(tempRoot, "cursor-skills-"));
+  const cwd = join(root, "agent"),
+    home = join(root, "home");
+  try {
+    for (const [dir, name] of [
+      [".cursor/skills", "local-cursor"],
+      [".agents/skills", "local-agents"],
+      [".claude/skills", "local-claude"],
+      [".codex/skills", "local-codex"],
+      [".opencode/skills", "must-not-scan"],
+    ] as const)
+      await Bun.write(join(cwd, dir, name, "SKILL.md"), rootSkill(name));
+    for (const [dir, name] of [
+      [".cursor/skills", "global-cursor"],
+      [".agents/skills", "global-agents"],
+      [".claude/skills", "global-claude"],
+      [".codex/skills", "global-codex"],
+      [".config/opencode/skills", "must-not-scan"],
+    ] as const)
+      await Bun.write(join(home, dir, name, "SKILL.md"), rootSkill(name));
+
+    const result = await listAgentSkills({
+      provider: "cursor",
+      agentWorkspaceDirectory: cwd,
+      environment: { ...NO_HOST_ROOTS, HOME: home },
+    });
+
+    expect(found(result.workspace)).toEqual([
+      ["local-agents", ".agents/skills"],
+      ["local-claude", ".claude/skills"],
+      ["local-codex", ".codex/skills"],
+      ["local-cursor", ".cursor/skills"],
+    ]);
+    expect(found(result.global)).toEqual([
+      ["global-agents", "~/.agents/skills"],
+      ["global-claude", "~/.claude/skills"],
+      ["global-codex", "~/.codex/skills"],
+      ["global-cursor", "~/.cursor/skills"],
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Grok Skills scan its own, the agent-compatible and the Claude-compatible roots", async () => {
+  const root = await mkdtemp(join(tempRoot, "grok-skills-"));
+  const cwd = join(root, "agent"),
+    home = join(root, "home"),
+    grokHome = join(root, "configured-grok");
+  try {
+    for (const [dir, name] of [
+      [".grok/skills", "local-grok"],
+      [".agents/skills", "local-agents"],
+      [".claude/skills", "local-claude"],
+      [".cursor/skills", "must-not-scan"],
+    ] as const)
+      await Bun.write(join(cwd, dir, name, "SKILL.md"), rootSkill(name));
+    for (const [dir, name] of [
+      [".grok/skills", "global-grok"],
+      [".agents/skills", "global-agents"],
+      [".claude/skills", "global-claude"],
+      [".cursor/skills", "must-not-scan"],
+    ] as const)
+      await Bun.write(join(home, dir, name, "SKILL.md"), rootSkill(name));
+    await Bun.write(join(grokHome, "skills/configured-grok/SKILL.md"), rootSkill("configured"));
+
+    const plain = await listAgentSkills({
+      provider: "grok",
+      agentWorkspaceDirectory: cwd,
+      environment: { ...NO_HOST_ROOTS, HOME: home },
+    });
+    expect(found(plain.workspace)).toEqual([
+      ["local-agents", ".agents/skills"],
+      ["local-claude", ".claude/skills"],
+      ["local-grok", ".grok/skills"],
+    ]);
+    expect(found(plain.global)).toEqual([
+      ["global-agents", "~/.agents/skills"],
+      ["global-claude", "~/.claude/skills"],
+      ["global-grok", "~/.grok/skills"],
+    ]);
+
+    // GROK_HOME replaces only the `.grok` root; the shared roots stay under HOME.
+    const configured = await listAgentSkills({
+      provider: "grok",
+      agentWorkspaceDirectory: cwd,
+      environment: { ...NO_HOST_ROOTS, HOME: home, GROK_HOME: grokHome },
+    });
+    expect(found(configured.global)).toEqual([
+      ["configured-grok", "$GROK_HOME/skills"],
+      ["global-agents", "~/.agents/skills"],
+      ["global-claude", "~/.claude/skills"],
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the built-in CoForge Agent lists the ~/.agents/skills root the Pi SDK loads", async () => {
+  const root = await mkdtemp(join(tempRoot, "builtin-skills-"));
+  const cwd = join(root, "agent"),
+    home = join(root, "home");
+  try {
+    await Bun.write(
+      join(home, ".agents/skills/global-agents/SKILL.md"),
+      rootSkill("global-agents"),
+    );
+    // Pi's own roots, which the built-in Agent's `.builtin-runtime` directory replaces.
+    await Bun.write(join(home, ".pi/agent/skills/must-not-scan/SKILL.md"), rootSkill("x"));
+    await Bun.write(join(cwd, ".agents/skills/local-agents/SKILL.md"), rootSkill("local-agents"));
+
+    const result = await listAgentSkills({
+      provider: "coforge",
+      agentWorkspaceDirectory: cwd,
+      environment: { ...NO_HOST_ROOTS, HOME: home },
+    });
+
+    expect(result.global.status).toBe("ok");
+    expect(found(result.global)).toEqual([["global-agents", "~/.agents/skills"]]);
+    expect(found(result.workspace)).toEqual([["local-agents", ".agents/skills"]]);
+
+    // Without a home there is no global root to observe.
+    const homeless = await listAgentSkills({
+      provider: "coforge",
+      agentWorkspaceDirectory: cwd,
+      environment: { ...NO_HOST_ROOTS, HOME: "" },
+    });
+    expect(homeless.global).toEqual({ status: "unsupported", entries: [], directories: [] });
+    expect(found(homeless.workspace)).toEqual([["local-agents", ".agents/skills"]]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("native command conventions differ from Pi markdown skills", async () => {
   const root = await mkdtemp(join(tempRoot, "skills-conventions-"));
   try {
@@ -208,7 +458,7 @@ test("native command conventions differ from Pi markdown skills", async () => {
     const claude = await listAgentSkills({
       provider: "claude-code",
       agentWorkspaceDirectory: root,
-      environment: { HOME: root },
+      environment: { ...NO_HOST_ROOTS, HOME: root },
     });
     expect(claude.workspace.entries).toEqual([
       {
@@ -219,7 +469,11 @@ test("native command conventions differ from Pi markdown skills", async () => {
         sourcePath: ".claude/commands",
       },
     ]);
-    const pi = await listAgentSkills({ provider: "coforge", agentWorkspaceDirectory: root });
+    const pi = await listAgentSkills({
+      provider: "coforge",
+      agentWorkspaceDirectory: root,
+      environment: { ...NO_HOST_ROOTS, HOME: root },
+    });
     expect(pi.workspace.entries).toEqual([]);
     expect(pi.workspace.status).toBe("partial");
   } finally {
@@ -240,7 +494,11 @@ test("metadata queries bound malformed files, preserve duplicate sources and rej
     await Bun.write(join(home, "outside/SKILL.md"), content);
     await symlink(join(home, "outside"), join(cwd, ".agents/skills/escape"));
     await symlink(join(home, "outside"), join(cwd, ".pi"));
-    const result = await listAgentSkills({ provider: "coforge", agentWorkspaceDirectory: cwd });
+    const result = await listAgentSkills({
+      provider: "coforge",
+      agentWorkspaceDirectory: cwd,
+      environment: { ...NO_HOST_ROOTS, HOME: home },
+    });
     expect(result.workspace.status).toBe("partial");
     // `name` comes from each skill's own directory ("one"/"two"), so both survive the
     // dedup-by-name pass even though they share one scanned root.
@@ -255,7 +513,7 @@ test("metadata queries bound malformed files, preserve duplicate sources and rej
     const native = await listAgentSkills({
       provider: "claude-code",
       agentWorkspaceDirectory: cwd,
-      environment: { HOME: home, CLAUDE_CONFIG_DIR: join(root, "native") },
+      environment: { ...NO_HOST_ROOTS, HOME: home, CLAUDE_CONFIG_DIR: join(root, "native") },
     });
     expect(native.global.entries[0]).toMatchObject({
       name: "custom",
