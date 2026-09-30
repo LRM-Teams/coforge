@@ -4,6 +4,10 @@ dist/
 .data/
 .vscode/
 apps/web/src/paraglide/
+# The inlang SDK writes its cache and lix state beside the two tracked project files.
+apps/web/project.inlang/*
+!apps/web/project.inlang/settings.json
+!apps/web/project.inlang/project_id
 apps/web/src/generated/
 # Prisma's output path outside src/, which should not exist: it is not tracked, but a
 # blanket `git add -A` swept it into a commit once (#790 review). Ignore it either way.
