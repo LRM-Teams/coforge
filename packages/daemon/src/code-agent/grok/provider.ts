@@ -97,12 +97,13 @@ function toError(error: unknown): Error {
  * A `--resume` of an id grok has no session for fails with two stderr lines and no stdout frames:
  * `Session "<id>" not found locally, restoring conversation from remote...` and then
  * `Error: Failed to restore session from remote: ... 404 Not Found` (observed on 1.0.41;
- * 14-headless-mode.md says only that `--resume` "errors if the session does not exist"). Both
- * phrases are required, so a restore that fails for another reason - the remote being down, say -
- * fails the turn rather than discarding a session that may still exist.
+ * 14-headless-mode.md says only that `--resume` "errors if the session does not exist"). grok
+ * prints the first line whenever its local copy is missing, before it asks the remote, so only the
+ * remote's 404 means the session is gone. A restore that fails for another reason - the remote
+ * being down, say - fails the turn rather than discarding a session that may still exist.
  */
 function isMissingSession(stderr: string): boolean {
-  return stderr.includes("not found locally") && stderr.includes("Failed to restore session");
+  return /Failed to restore session from remote:.*\b404 Not Found\b/u.test(stderr);
 }
 
 class GrokAgentSession implements AgentSession {

@@ -99,6 +99,8 @@ async function withSession(
     sessionMode?: AgentSessionOptions["sessionMode"];
     existingSessions?: readonly string[];
     runtime?: AgentSessionOptions["runtime"];
+    /** How many identity reports reject before one is accepted. */
+    rejectedReports?: number;
   },
   body: (harness: Harness) => Promise<void>,
 ): Promise<void> {
@@ -107,6 +109,7 @@ async function withSession(
   const sessions = join(root, "sessions");
   const log = join(root, "launches.jsonl");
   const reports: SessionReport[] = [];
+  let rejectedReports = options.rejectedReports ?? 0;
   try {
     await mkdir(workspace);
     for (const id of options.existingSessions ?? [])
@@ -121,6 +124,10 @@ async function withSession(
       sessionMode: options.sessionMode,
       runtime: options.runtime,
       onSessionId: async (sessionId, replacedSessionId) => {
+        if (rejectedReports > 0) {
+          rejectedReports -= 1;
+          throw new Error("identity report rejected");
+        }
         reports.push(replacedSessionId ? { sessionId, replacedSessionId } : { sessionId });
       },
       environment: {
@@ -602,15 +609,19 @@ test(
 test(
   "a resume that fails for any other reason fails the turn instead of restarting the session",
   async () => {
-    // Both phrases of grok's missing-session message are required; a stderr that names only one
-    // is some other restore failure, and starting a new session over it would lose a live one.
+    // grok prints "not found locally" whenever the local copy is missing, before it asks the
+    // remote; only a 404 from the remote means the session is gone. A remote that is down must
+    // not cost the Agent a session that still exists.
     await withSession(
       {
         sessionId: EXISTING,
         existingSessions: [EXISTING],
         environment: {
           COFORGE_GROK_MODE: "crash",
-          COFORGE_GROK_CRASH_STDERR: "Error: Failed to restore session from remote: 503",
+          COFORGE_GROK_CRASH_STDERR: [
+            `Session "${EXISTING}" not found locally, restoring conversation from remote...`,
+            "Error: Failed to restore session from remote: fetching session record: session get failed: 503 Service Unavailable",
+          ].join("\n"),
         },
       },
       async ({ session, launches, reports }) => {
@@ -622,6 +633,28 @@ test(
         expect(reports).toEqual([]);
       },
     );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a rejected identity report is retried on the next completed turn",
+  async () => {
+    await withSession({ rejectedReports: 1 }, async ({ session, reports }) => {
+      // The report settles after the turn's `completed`, so its error is collected session-wide.
+      const errors: string[] = [];
+      session.subscribe((event) => {
+        if (event.type === "error") errors.push(event.message);
+      });
+      await runTurn(session, "one");
+      expect(reports).toEqual([]);
+      await runTurn(session, "two");
+      expect(errors).toEqual(["identity report rejected"]);
+      const identity = await session.readSessionIdentity!();
+      expect(reports).toEqual([{ sessionId: identity!.sessionId }]);
+      await runTurn(session, "three");
+      expect(reports).toHaveLength(1);
+    });
   },
   SESSION_BUDGET_MS,
 );
