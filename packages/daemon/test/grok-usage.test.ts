@@ -45,6 +45,25 @@ test("a bare number is not a reading: only the `{ val }` wrapper Grok sends is a
   expect(snapshot?.secondary).toBeUndefined();
 });
 
+test.each([
+  ["a weekly period", "USAGE_PERIOD_TYPE_WEEKLY", 10_080],
+  ["a monthly period", "USAGE_PERIOD_TYPE_MONTHLY", 43_200],
+  ["a period type it does not know", "USAGE_PERIOD_TYPE_UNSPECIFIED", 43_200],
+  ["no period type", undefined, 43_200],
+] as const)("the usage windows last as long as %s", async (_period, type, minutes) => {
+  const snapshot = await read(
+    billing({
+      creditUsagePercent: 10,
+      currentPeriod: { type, end: "2026-10-04T14:19:56.652919+00:00" },
+      onDemandCap: { val: 10 },
+      onDemandUsed: { val: 1 },
+    }),
+  );
+  // The pay-as-you-go window resets with the credit window, so both span the same period.
+  expect(snapshot?.primary?.windowDurationMinutes).toBe(minutes);
+  expect(snapshot?.secondary?.windowDurationMinutes).toBe(minutes);
+});
+
 test("an account with no metered usage is unsupported, not a failed scan", async () => {
   // The billing response Grok 1.0.41 actually sends for a unified-billing account: no
   // `creditUsagePercent`, no `used`/`monthlyLimit`, a weekly period, and every number wrapped.

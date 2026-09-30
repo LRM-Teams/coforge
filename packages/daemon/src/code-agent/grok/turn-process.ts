@@ -1,4 +1,5 @@
 import { getLogger } from "@logtape/logtape";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import {
   ProcessTreeOwner,
   type OwnedChildProcess,
@@ -8,7 +9,7 @@ import {
 import { cleanupOwnedTree } from "#src/code-agent/process-tree-cleanup";
 import { readStderrTail } from "#src/code-agent/stderr-tail";
 
-const logger = getLogger(["coforge", "daemon", "code-agent", "grok"]);
+const logger = getLogger(["coforge", "daemon", "code-agent", RUNTIME_PROVIDER.GROK]);
 
 export type GrokTurnRecord = Readonly<Record<string, unknown>>;
 
@@ -23,7 +24,7 @@ export type GrokTurnResult = Readonly<{
 /**
  * One `grok -p <prompt> --output-format streaming-json` turn: a single child process with the
  * prompt as an argv item, run to completion and disposed. The exit is the end of the turn — the
- * same per-turn shape as OpenCode's (ADR 0058) and Cursor's wrappers, and unlike `JsonlProcess`,
+ * same per-turn shape as OpenCode's and Cursor's wrappers, and unlike `JsonlProcess`,
  * whose persistent-CLI contract treats every exit as an unexpected failure. Reuses the same
  * process-tree ownership and `AgentProcessCleanupError` ladder as every other code-agent process.
  */

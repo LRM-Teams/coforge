@@ -119,6 +119,36 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   SSH token-store switch are observed on agy 1.2.12/1.2.13, not documented.
   Re-check them when raising the version gate.
 
+## Grok Build (`grok`)
+
+- One headless process per turn: `grok -p <prompt> --output-format streaming-json`. The prompt rides
+  argv and the standing instructions ride `--rules` on every turn, so a fresh session spawns
+  nothing until real input arrives. The CLI's guide ships with it in `~/.grok/docs/user-guide/`.
+- The session id is ours: a UUID pinned with `--session-id`, which creates a new session and refuses
+  an id that exists. Clear that flag when a turn is spawned with it, never when it exits: grok
+  creates the session before the turn can fail. Every later turn is `--resume`. A session the
+  daemon asks to `create` is pinned; a `resume` grok has no session for is re-run as a fresh session
+  under a new id and reported with `onSessionId(new, replaced)`.
+- Every turn passes `--trust`. Headless startup loads project skills and instructions only from a
+  trusted folder (`22-permissions-and-safety.md`), and assigned skills are installed in
+  `<Agent workspace>/.grok/skills`. It records the Agent workspace in `~/.grok/trusted_folders.toml`
+  and, per `10-hooks.md`, trusts that folder's hooks and MCP and LSP servers with it. Global skills
+  (`$GROK_HOME/skills`) load without it. Folder trust is a security boundary: get Frank's approval
+  before widening it past the Agent workspace or dropping it.
+- Tool events pass grok's `toolName` and `rawInput` through, except that `read_file`'s `target_file`
+  is carried as the `file_path` the daemon core reads (`grok/tool-call.ts`); canonical names and
+  argument summaries belong to `tool-activity.ts`. The output text is the terminal update's `content`
+  text entries (`rawOutput` is an object, never text). A shell command that exits non-zero or times
+  out still ends `completed`, so the error comes from `rawOutput.exit_code` and `timed_out`; a call
+  grok could not run ends `failed`.
+- Observed on grok 1.0.41, not documented: the tool frame shapes above, `--session-id` refusing an
+  existing id, the session a failed first turn leaves behind, the missing-session stderr
+  (`not found locally`, `Failed to restore session`), and SIGINT, which kills grok at once by the
+  signal with no `error` or `end` frame (so `interrupt()` is reported by the exit, never by a frame).
+  `--trust` and `--no-memory` are hidden flags: absent from `grok --help`, accepted; the guide's
+  headless flag table also omits `--always-approve` (it lists `--yolo`). Re-check all of these when
+  raising the version gate.
+
 ## Pi and built-in CoForge Agent
 
 - Pi's Provider embeds the bundled Pi SDK and keeps the user's Pi models,
