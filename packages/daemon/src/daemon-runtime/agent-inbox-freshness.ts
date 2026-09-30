@@ -21,7 +21,8 @@ import type { AgentMessageTransportResponse } from "#src/connection/agent-http-c
  * returns no `syncing_hold`: pretending to know would hold sends the server would forward.
  */
 
-/** The four side-effect decisions. The daemon plans the first, second and fourth. */
+/** The four side-effect decisions. The daemon plans the first three; `syncing_hold` is the
+ * server's alone (see above). */
 export type AgentInboxFreshnessDecision = "forward" | "bypass" | "local_hold" | "syncing_hold";
 
 /** What the daemon knows about one Agent's inbox state for the exact target being sent to. */
