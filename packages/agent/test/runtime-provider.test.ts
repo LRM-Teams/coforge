@@ -9,9 +9,7 @@ test("session fetch uses proxy precedence and honors exact host, wildcard, and p
   // environment that names loopback in `NO_PROXY` (agent sandboxes do) skips the proxy this fixture
   // stands up, so no case expecting a proxied answer can be reached. Clear the process's bypass for
   // the test and put it back; `runtimeFetch` reads only the map it is handed.
-  const hostNoProxy = { upper: process.env.NO_PROXY, lower: process.env.no_proxy };
-  process.env.NO_PROXY = "";
-  process.env.no_proxy = "";
+  const hostEnv = clearHostEnv(["NO_PROXY", "no_proxy"]);
   const target = Bun.serve({ port: 0, fetch: () => new Response("direct") });
   const upper = Bun.serve({ port: 0, fetch: () => new Response("upper") });
   const lower = Bun.serve({ port: 0, fetch: () => new Response("lower") });
@@ -40,17 +38,24 @@ test("session fetch uses proxy precedence and honors exact host, wildcard, and p
     target.stop(true);
     upper.stop(true);
     lower.stop(true);
-    restoreHostEnv("NO_PROXY", hostNoProxy.upper);
-    restoreHostEnv("no_proxy", hostNoProxy.lower);
+    restoreHostEnv(hostEnv);
   }
 });
 
 test("session fetch trusts the Agent's NODE_EXTRA_CA_CERTS for a server that omits its intermediate", async () => {
   // An internal model endpoint signed by a private CA presents only its leaf, so the file must
-  // carry the root and the intermediate.
+  // carry the root and the intermediate. Bun applies the process's proxy and CA settings beside
+  // the per-request ones, so the host's values are cleared here and put back afterwards.
+  const hostEnv = clearHostEnv([
+    "HTTPS_PROXY",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "NODE_EXTRA_CA_CERTS",
+  ]);
   const directory = await mkdtemp(join(tmpdir(), "coforge-extra-ca-"));
   try {
-    const pki = await writeCertificates(directory);
+    const caBundle = await writeCertificates(directory);
     const serve = (name: string) =>
       Bun.serve({
         port: 0,
@@ -68,7 +73,7 @@ test("session fetch trusts the Agent's NODE_EXTRA_CA_CERTS for a server that omi
       await expect(runtimeFetch({ NO_PROXY: "*" })(url)).rejects.toMatchObject({
         code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
       });
-      const trusted = runtimeFetch({ NO_PROXY: "*", NODE_EXTRA_CA_CERTS: pki.caBundle });
+      const trusted = runtimeFetch({ NO_PROXY: "*", NODE_EXTRA_CA_CERTS: caBundle });
       expect(await (await trusted(url)).text()).toBe("private");
       // The file adds trust for its own CA only; it does not turn verification off.
       await expect(trusted(`https://localhost:${other.port}/probe`)).rejects.toMatchObject({
@@ -80,6 +85,7 @@ test("session fetch trusts the Agent's NODE_EXTRA_CA_CERTS for a server that omi
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
+    restoreHostEnv(hostEnv);
   }
 });
 
@@ -88,6 +94,19 @@ test("an unreadable NODE_EXTRA_CA_CERTS names the variable and the path instead 
   expect(() => runtimeFetch({ NODE_EXTRA_CA_CERTS: path })).toThrow(
     `NODE_EXTRA_CA_CERTS names ${path}, which could not be read`,
   );
+});
+
+test("a NODE_EXTRA_CA_CERTS the daemon process already has is left to Bun, which applied it at startup", () => {
+  // An Agent inherits the daemon's environment, so an unchanged value is not the Agent's own and
+  // must not fail every launch where Bun only warned.
+  const path = join(tmpdir(), `coforge-missing-ca-${crypto.randomUUID()}.pem`);
+  const hostEnv = clearHostEnv(["NODE_EXTRA_CA_CERTS"]);
+  process.env.NODE_EXTRA_CA_CERTS = path;
+  try {
+    expect(() => runtimeFetch({ NODE_EXTRA_CA_CERTS: path })).not.toThrow();
+  } finally {
+    restoreHostEnv(hostEnv);
+  }
 });
 
 /**
@@ -133,11 +152,20 @@ async function writeCertificates(directory: string) {
   const caBundle = join(directory, "ca-bundle.pem");
   const pem = (name: string) => Bun.file(join(directory, `${name}.pem`)).text();
   await Bun.write(caBundle, (await pem("root")) + (await pem("intermediate")));
-  return { caBundle };
+  return caBundle;
 }
 
-/** Put a process environment variable back the way the host had it, absence included. */
-function restoreHostEnv(name: "NO_PROXY" | "no_proxy", value: string | undefined) {
-  if (value === undefined) delete process.env[name];
-  else process.env[name] = value;
+/** Clears these process environment variables and returns the host's values for `restoreHostEnv`. */
+function clearHostEnv(names: string[]): Record<string, string | undefined> {
+  const host = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  for (const name of names) delete process.env[name];
+  return host;
+}
+
+/** Puts process environment variables back the way the host had them, absence included. */
+function restoreHostEnv(host: Record<string, string | undefined>) {
+  for (const [name, value] of Object.entries(host)) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
 }

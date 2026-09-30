@@ -58,17 +58,31 @@ export function runtimeFetch(environment: Readonly<Record<string, string>>): typ
   return Object.assign(request, { preconnect: () => {} });
 }
 
+/** A session environment variable that names something the session cannot use. */
+export class SessionEnvironmentError extends Error {
+  constructor(
+    readonly variable: string,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "SessionEnvironmentError";
+  }
+}
+
 /**
- * A request's `ca` replaces the trust store, so Bun's bundled roots stay alongside the file. Read
- * at session launch so a bad path fails by name, not later as the SDK's bare "Connection error.".
+ * A request's `ca` replaces the trust store, so Bun's bundled roots stay alongside the file. The
+ * daemon's own value was applied by Bun at startup, so only a session's different value is read,
+ * at launch, so a bad path fails by name rather than as the SDK's bare "Connection error.".
  */
 function extraCertificateAuthorities(path: string | undefined): string[] | undefined {
-  if (!path) return undefined;
+  if (!path || path === Bun.env.NODE_EXTRA_CA_CERTS) return undefined;
   try {
     return [...rootCertificates, readFileSync(path, "utf8")];
   } catch (error) {
-    throw new Error(
-      `NODE_EXTRA_CA_CERTS names ${path}, which could not be read: ${(error as Error).message}`,
+    throw new SessionEnvironmentError(
+      "NODE_EXTRA_CA_CERTS",
+      `NODE_EXTRA_CA_CERTS names ${path}, which could not be read: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
   }
