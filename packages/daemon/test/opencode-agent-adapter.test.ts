@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -380,6 +380,7 @@ async function withSession(
     session: AgentSession;
     launches: () => Promise<Awaited<ReturnType<typeof readLaunches>>>;
     reports: SessionReport[];
+    directory: string;
   }) => Promise<void>,
 ): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), "opencode-session-"));
@@ -400,7 +401,7 @@ async function withSession(
       },
     });
     try {
-      await body({ session, launches: () => readLaunches(log), reports });
+      await body({ session, launches: () => readLaunches(log), reports, directory });
     } finally {
       await session.dispose();
     }
@@ -489,6 +490,21 @@ test("dispose kills a running turn and rejects queued input", async () => {
     },
   );
 }, 20_000);
+
+test("a turn that cannot be spawned rejects the input and leaves the session idle", async () => {
+  await withSession({ sessionId: "session-existing" }, async ({ session, launches, directory }) => {
+    // Bun.spawn throws synchronously for a working directory that does not exist.
+    await rm(directory, { recursive: true });
+    await expect(session.sendMessage("first")).rejects.toThrow("ENOENT");
+
+    // The failed spawn did not leave the session "running": the next input starts a turn.
+    await mkdir(directory);
+    await nthTurn(session, "second");
+    expect(await launches()).toEqual([
+      expect.objectContaining({ prompt: "second", resumeId: "session-existing" }),
+    ]);
+  });
+}, 5_000);
 
 test("a resumed session reports its id when each turn completes, and only then", async () => {
   await withSession({ sessionId: "session-existing" }, async ({ session, reports }) => {
