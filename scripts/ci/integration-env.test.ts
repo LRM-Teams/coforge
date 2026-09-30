@@ -4,8 +4,8 @@ import { join } from "node:path";
 
 /**
  * The Web integration suites only run when someone points a scratch database at them, and each one
- * checks its own `<AREA>_TEST_DATABASE_URL` (plus a redis one for two of them) - fifteen names whose
- * only teacher is a failure at run time. `scripts/test/run-web-integration.sh` sets them all from a
+ * checks its own `<AREA>_TEST_DATABASE_URL` (plus a redis one for two of them) - a set whose
+ * only teacher is a failure at run time, and whose size is not worth restating here because it grows. `scripts/test/run-web-integration.sh` sets them all from a
  * single variable, and this checks its list still covers every name the suites actually read, so a
  * new suite area fails here, at review, instead of in a run that nobody performs (CI has no
  * PostgreSQL, so these suites never run there).
