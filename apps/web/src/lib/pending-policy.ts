@@ -8,8 +8,10 @@
  * skeleton is up long enough to read.
  *
  * These values are the router's defaults (`getRouter`), so no route restates them. A route that
- * genuinely needs a different pending behaviour states it, and `pending-policy.test.ts` fails if a
- * route quietly re-introduces the delay or the minimum.
+ * genuinely needs a different pending behaviour states it with its reason, and
+ * `pending-policy.test.ts` pins that exception: Chat's layout (`_chat.tsx`), whose server-sent
+ * loading screen the router would otherwise hold after hydration even when its data is ready; the
+ * cost is a brief skeleton when entering Chat from another section just crosses the delay.
  */
 export const PENDING_DELAY_MS = 300;
 export const PENDING_MIN_MS = PENDING_DELAY_MS;
