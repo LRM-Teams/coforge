@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -69,6 +69,7 @@ async function withSession(
     session: AgentSession,
     launches: () => Promise<Launch[]>,
     reports: SessionReport[],
+    directory: string,
   ) => Promise<void>,
 ): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), "antigravity-"));
@@ -92,7 +93,7 @@ async function withSession(
       },
     });
     try {
-      await body(session, () => readLaunches(log), reports);
+      await body(session, () => readLaunches(log), reports, directory);
     } finally {
       await session.dispose();
     }
@@ -443,6 +444,24 @@ test(
         expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
       },
     );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a turn that cannot be spawned rejects the input and leaves the session idle",
+  async () => {
+    await withSession({ sessionId: "existing" }, async (session, launches, _reports, directory) => {
+      // Bun.spawn throws synchronously for a working directory that does not exist.
+      await rm(directory, { recursive: true });
+      await expect(session.sendMessage("first")).rejects.toThrow("ENOENT");
+
+      // The failed spawn did not leave the session "running": the next input starts a turn.
+      await mkdir(directory);
+      const events = await runTurn(session, "second");
+      expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
+      expect(await launches()).toEqual([{ prompt: "second", conversation: "existing" }]);
+    });
   },
   SESSION_BUDGET_MS,
 );

@@ -10,7 +10,13 @@ import type { TurnProtocol, TurnReader, TurnRequest, TurnScope } from "./turn-pr
 type SessionState = "idle" | "running" | "interrupting" | "disposed";
 type QueuedInput = { text: string; resolve(): void; reject(error: Error): void };
 /** The turn in flight: its process, the input it carries, and the reader of its records. */
-type ActiveTurn = { process: TurnProcess; prompt: string; reader: TurnReader };
+type ActiveTurn = {
+  process: TurnProcess;
+  prompt: string;
+  reader: TurnReader;
+  /** Its reader stopped it: the rest of its records are dropped. */
+  abandoned: boolean;
+};
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -45,6 +51,9 @@ class PerTurnAgentSession implements AgentSession {
   readonly #scope: TurnScope = {
     emit: (event) => this.#emit(event),
     observeSessionId: (sessionId) => this.#observeSessionId(sessionId),
+    sessionId: () => this.#sessionId,
+    interrupting: () => this.#state === "interrupting",
+    abandon: () => this.#abandonTurn(),
   };
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   readonly #exitListeners = new Set<() => void>();
@@ -191,34 +200,49 @@ class PerTurnAgentSession implements AgentSession {
       input: command.input,
     });
     const reader = this.#protocol.openTurn(this.#scope, request);
-    const turn: ActiveTurn = { process: turnProcess, prompt, reader };
+    const turn: ActiveTurn = { process: turnProcess, prompt, reader, abandoned: false };
     this.#currentTurn = turn;
     this.#state = "running";
     this.#creating = false;
     turnProcess.onRecord((record) => {
-      if (this.#state !== "disposed") reader.read(record);
+      if (this.#state !== "disposed" && !turn.abandoned) reader.read(record);
     });
     void turnProcess.exited.then((result) => this.#onTurnExit(turn, result));
     if (this.#sessionId) this.#setIdentity("unknown");
   }
 
   #environment(): Record<string, string> {
+    const sanitize = this.#protocol.sanitizeEnvironment;
+    const declared = this.#options.environment;
     return {
-      ...agentEnvironment(this.#options.environment, Bun.env, undefined, {
-        envVars: this.#options.runtime?.envVars,
-        gitHooks: this.#options.gitHooks,
-      }),
+      ...agentEnvironment(
+        sanitize && declared ? sanitize(declared) : declared,
+        sanitize ? sanitize(Bun.env) : Bun.env,
+        undefined,
+        { envVars: this.#options.runtime?.envVars, gitHooks: this.#options.gitHooks },
+      ),
       ...this.#protocol.environment,
     };
+  }
+
+  /** Stops reading the current turn's records and kills its process. */
+  #abandonTurn(): void {
+    const turn = this.#currentTurn;
+    if (!turn) return;
+    turn.abandoned = true;
+    void turn.process.dispose();
   }
 
   /** Adopts the session id a record names. A record that repeats the id the session already has
    * counts only when the provider says so (`repeatedSessionId`). */
   #observeSessionId(sessionId: string): void {
-    if (sessionId === this.#sessionId && this.#protocol.repeatedSessionId === "ignore") return;
+    const repeated = sessionId === this.#sessionId;
+    if (repeated && this.#protocol.repeatedSessionId === "ignore") return;
     this.#sessionId = sessionId;
     this.#setIdentity(this.#everCompletedTurn ? "unknown" : "empty");
-    this.#reportIdentity();
+    if (!repeated || this.#protocol.repeatedSessionId === "reaffirm-and-report") {
+      this.#reportIdentity();
+    }
     this.#settleBootstrap();
   }
 
@@ -230,7 +254,7 @@ class PerTurnAgentSession implements AgentSession {
     this.#currentTurn = undefined;
     const interrupted = this.#state === "interrupting";
     if (turn.reader.lostResume?.({ ...result, interrupted })) {
-      this.#restartFresh(turn.prompt);
+      this.#restartFresh(turn.prompt, interrupted);
       return;
     }
     if (this.#bootstrap) {
@@ -263,19 +287,30 @@ class PerTurnAgentSession implements AgentSession {
     this.#drainQueueOrIdle();
   }
 
-  /** Starts the session over after a resume the provider could not honour, and runs the input the
-   * lost turn carried in the new session. The replacement is reported once, with the id it
-   * replaces, so the daemon invalidates the stale one and tells the person the earlier context was
-   * not restored. */
-  #restartFresh(prompt: string): void {
+  /** Starts the session over after a resume the provider could not honour. With an instructions
+   * turn, that turn establishes the new session first and the lost turn's input follows it -
+   * unless the lost turn was being interrupted, when the input is dropped as the interrupt asked.
+   * Without one, the input runs in the new session at once. The replacement is reported once,
+   * with the id it replaces, so the daemon invalidates the stale one and tells the person the
+   * earlier context was not restored. */
+  #restartFresh(prompt: string, interrupted: boolean): void {
     this.#replacedSessionId ??= this.#sessionId;
     this.#sessionId = this.#protocol.mintSessionId?.();
     this.#creating = this.#protocol.mintSessionId !== undefined;
     this.#everCompletedTurn = false;
     this.#identity = undefined;
     this.#setIdentity("empty");
+    const instructionsTurn = this.#protocol.instructionsTurn !== undefined;
+    if (instructionsTurn) {
+      if (interrupted) {
+        this.#emit({ type: "completed", status: "interrupted" });
+        this.#interrupt.settle();
+      } else {
+        this.#queue.unshift({ text: prompt, resolve: () => undefined, reject: () => undefined });
+      }
+    }
     try {
-      this.#spawnTurn(prompt);
+      this.#spawnTurn(instructionsTurn ? this.#options.instructions : prompt);
     } catch (error) {
       this.#state = "idle";
       const failure = toError(error);

@@ -29,6 +29,12 @@ export interface TurnScope {
   emit(event: AgentRuntimeEvent): void;
   /** The provider's own record named the session; the session adopts and reports it. */
   observeSessionId(sessionId: string): void;
+  /** The session id as of now: what this turn resumed, or the one it has since been told. */
+  sessionId(): string | undefined;
+  /** Whether the turn is being interrupted, so its process is expected to end. */
+  interrupting(): boolean;
+  /** Stops reading this turn's records and kills its process. The turn still ends at its exit. */
+  abandon(): void;
 }
 
 /** Reads one turn's records. Its state (tool calls in flight, whether a result frame reported an
@@ -39,7 +45,9 @@ export interface TurnReader {
   readonly failed: boolean;
   /** Asked once the process has exited: whether this turn resumed a session the provider no longer
    * has. The session then starts over under a new id and runs the turn's input there; the
-   * discarded turn is not reported as a turn of its own. */
+   * discarded turn is not reported as a turn of its own. `exit.interrupted` lets a reader decline a
+   * turn the person stopped: a provider with an instructions turn is restarted even then (its
+   * input is dropped and its instructions are sent), one without must decline. */
   lostResume?(exit: TurnExit): boolean;
 }
 
@@ -63,13 +71,19 @@ export interface TurnProtocol {
    * can find the session gone. */
   readonly resumedIdentity: "resumable" | "unknown";
   /** What a record that repeats the session id the session already has means. `ignore`: nothing.
-   * `reaffirm-and-report`: the identity state is derived again, as if the id were new, and the id
-   * is reported again. A record that names a different id is always adopted and reported. */
-  readonly repeatedSessionId: "ignore" | "reaffirm-and-report";
+   * `reaffirm`: the identity state is derived again, as if the id were new. `reaffirm-and-report`:
+   * as `reaffirm`, and the id is reported again. A record that names a different id is always
+   * adopted and reported. */
+  readonly repeatedSessionId: "ignore" | "reaffirm" | "reaffirm-and-report";
   /** When the session tells the daemon its id (`onSessionId`). `every-completion`: when a record
    * names it and every time a turn completes. `once-per-id`: once per id, and again after a report
    * the daemon rejected. */
   readonly identityReports: "every-completion" | "once-per-id";
+  /** Removes what the provider must never see from the Agent's declared environment and from the
+   * inherited one alike, before the Agent's own overrides apply. */
+  readonly sanitizeEnvironment?: <T extends string | undefined>(
+    environment: Readonly<Record<string, T>>,
+  ) => Record<string, T>;
   /** Variables added on top of the Agent's environment for every turn. */
   readonly environment: Readonly<Record<string, string>>;
   /** Set for a provider whose session ids are chosen here rather than reported by the CLI: the
