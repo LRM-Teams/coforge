@@ -101,6 +101,12 @@ Use workflow operations for explicit user writes in both chat surfaces. If the U
 only asks for a preview, provide a draft without writing. Platform extraction and
 Collect handoffs use the separate weekly-report-writing skill.
 
+When the User asks to整理、汇总或生成当前周报内容, treat the response as a
+draft for that report even when the request arrives in the User–Agent DM. After
+the draft, always append a body-edit suggestion envelope so DM and Records
+expose the same Insert action. Use the current reportId from context and preserve
+every template tab; do not require the User to repeat “preview”.
+
 ## Collect work from Computers
 
 Requests such as “看看143、144服务器我做了什么”, “找采集agent”, or “创建采集Agent”
