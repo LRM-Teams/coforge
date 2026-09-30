@@ -10,6 +10,7 @@ import { TabbedHeader } from "#src/components/layout/tabbed-header";
 import { ConversationListButton } from "./conversation-list-button";
 import { ThreadFollowingAgents } from "./thread-following-agents";
 import { conversationHeaderTabs, type HeaderTabs } from "./conversation-header-tabs";
+import type { SendOptions } from "./composer-outbox";
 import type { Mentionable } from "./mention-text";
 import { plainMentionsByHandle } from "./message-markdown";
 import {
@@ -162,7 +163,7 @@ export function ChannelConversation({
     body: string,
     idempotencyKey: string,
     attachmentIds?: string[],
-    threadRootId?: string,
+    options?: SendOptions,
   ) => Promise<OwnMessageIndexEntry | void>;
   onJoin: () => Promise<void>;
   /** Refreshes the page and the sidebar after the settings panel changed the channel. */

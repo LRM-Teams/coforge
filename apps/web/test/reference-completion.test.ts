@@ -54,6 +54,41 @@ test("the query ends at the caret, not at the end of the text", () => {
   expect(activeReferenceQuery("hi @alice more", 5)).toEqual({ trigger: "@", start: 3, query: "a" });
 });
 
+test("an @query takes any run of non-space characters, so a CJK or capitalized name opens the list", () => {
+  expect(activeReferenceQuery("@张", 2)).toEqual({ trigger: "@", start: 0, query: "张" });
+  expect(activeReferenceQuery("@张三", end("@张三"))).toEqual({
+    trigger: "@",
+    start: 0,
+    query: "张三",
+  });
+  expect(activeReferenceQuery("写点东西 @张三", end("写点东西 @张三"))).toEqual({
+    trigger: "@",
+    start: 5,
+    query: "张三",
+  });
+  expect(activeReferenceQuery("hi @Zhang", end("hi @Zhang"))).toEqual({
+    trigger: "@",
+    start: 3,
+    query: "Zhang",
+  });
+  expect(activeReferenceQuery("hi @josé", end("hi @josé"))).toEqual({
+    trigger: "@",
+    start: 3,
+    query: "josé",
+  });
+});
+
+test("an @ straight after CJK text still opens nothing: the word-start boundary is kept", () => {
+  expect(activeReferenceQuery("写点东西@张三", end("写点东西@张三"))).toBeUndefined();
+});
+
+test("a space, another @ or a # ends an @query, and a finished name followed by a space opens nothing", () => {
+  expect(activeReferenceQuery("@张三 ", end("@张三 "))).toBeUndefined();
+  expect(activeReferenceQuery("@张三@李四", end("@张三@李四"))).toBeUndefined();
+  expect(activeReferenceQuery("@张三#random", end("@张三#random"))).toBeUndefined();
+  expect(activeReferenceQuery("@张三 你好", end("@张三 你好"))).toBeUndefined();
+});
+
 test("a caret before any @ finds nothing", () => {
   expect(activeReferenceQuery("@alice", 0)).toBeUndefined();
 });

@@ -18,6 +18,7 @@ import {
   attachmentIdsSchema,
   conversationPageInputSchema,
   conversationUpdatesCursorSchema,
+  mentionSelectorsSchema,
 } from "./conversation.schemas";
 import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { readAfterStreamPositions } from "#src/server/conversations/chat-stream-positions.server";
@@ -451,6 +452,7 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       body: z.string().trim().min(1).max(8_000),
       attachmentIds: attachmentIdsSchema,
       threadRootId: z.uuid().optional(),
+      mentions: mentionSelectorsSchema,
     }),
   )
   .handler(async ({ data, context }) => {

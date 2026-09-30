@@ -8,7 +8,7 @@ import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
 import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
-import type { Mentionable } from "./mention-text";
+import { mentionKey, mentionKeysShowingHandle, type Mentionable } from "./mention-text";
 import type { ChannelSuggestion, ReferenceTrigger } from "./reference-completion";
 import type { ReferenceSuggestion } from "./use-reference-completion";
 
@@ -16,10 +16,12 @@ import type { ReferenceSuggestion } from "./use-reference-completion";
  * The reference-completion popup above the composer textarea: a listbox of the conversation's
  * mentionable members (`@`) or the Workspace's channels (`#`), filtered to the in-progress query.
  * Every row is one line so more candidates fit above the composer. A member row reads avatar,
- * display name, a Human/Agent badge and the profile description, with the `@handle` pinned to the
- * right edge. In a channel the `@` list has two groups, the members and then the Workspace's people
- * and public Agents outside the channel, titled only when both are shown; an outsider's name reads
- * dimmed, since mentioning them notifies no one by itself. A channel row reads a `#` icon, the
+ * display name, a Human/Agent badge and the profile description. An Agent's `@handle`, its public
+ * name, is pinned to the right edge; a person's is not shown (choosing them writes their name),
+ * except where two people in the list read identically (`mentionKeysShowingHandle`). In a channel
+ * the `@` list has two groups, the members and then the Workspace's people and public Agents
+ * outside the channel, titled only when both are shown; an outsider's name reads dimmed, since
+ * mentioning them notifies no one by itself. A channel row reads a `#` icon, the
  * name and the description, with an "Archived" badge on the right; an archived channel's row is
  * dimmed.
  * An Agent's avatar carries the same online/working/thinking/error/offline dot the sidebar and
@@ -71,15 +73,14 @@ export function ReferenceSuggestionList({
     option?.scrollIntoView({ block: "nearest" });
   }, [activeIndex]);
 
+  const handleShown = mentionKeysShowingHandle(
+    items.flatMap((item) => (item.kind === "mention" ? [item.mention] : [])),
+  );
   const renderOption = ({ item, index }: { item: ReferenceSuggestion; index: number }) => {
     const active = index === activeIndex;
     return (
       <li
-        key={
-          item.kind === "mention"
-            ? `${item.mention.kind}:${item.mention.id}`
-            : `channel:${item.channel.id}`
-        }
+        key={item.kind === "mention" ? mentionKey(item.mention) : `channel:${item.channel.id}`}
         ref={active ? activeOptionRef : undefined}
         id={optionId(index)}
         role="option"
@@ -108,7 +109,11 @@ export function ReferenceSuggestionList({
         )}
       >
         {item.kind === "mention" ? (
-          <MentionRow mention={item.mention} display={displayByAgentId.get(item.mention.id)} />
+          <MentionRow
+            mention={item.mention}
+            display={displayByAgentId.get(item.mention.id)}
+            showHandle={handleShown.has(mentionKey(item.mention))}
+          />
         ) : (
           <ChannelRow channel={item.channel} />
         )}
@@ -168,14 +173,17 @@ export function ReferenceSuggestionList({
   );
 }
 
-/** A member row: avatar (an Agent's with its live status dot), name, kind, description, handle.
- * Someone outside the channel reads with a dimmed name, the way an archived channel does. */
+/** A member row: avatar (an Agent's with its live status dot), name, kind, description, and the
+ * handle where `showHandle` says so. Someone outside the channel reads with a dimmed name, the way
+ * an archived channel does. */
 function MentionRow({
   mention,
   display,
+  showHandle,
 }: {
   mention: Mentionable;
   display: AgentDisplaySnapshot | undefined;
+  showHandle: boolean;
 }) {
   return (
     <>
@@ -211,9 +219,11 @@ function MentionRow({
           <span className="truncate text-xs text-tertiary">{mention.description}</span>
         )}
       </span>
-      <span className="ml-auto max-w-[40%] min-w-0 truncate text-xs text-quaternary">
-        @{mention.handle}
-      </span>
+      {showHandle && (
+        <span className="ml-auto max-w-[40%] min-w-0 truncate text-xs text-quaternary">
+          @{mention.handle}
+        </span>
+      )}
     </>
   );
 }

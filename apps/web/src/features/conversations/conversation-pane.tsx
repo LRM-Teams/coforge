@@ -137,10 +137,10 @@ export function ConversationPane({
     () =>
       mentionCompletion
         ? conversation.mentionables?.filter(
-            (mention) => mention.handle !== conversation.viewerHandle,
+            (mention) => !(mention.kind === "user" && mention.id === conversation.viewerId),
           )
         : undefined,
-    [mentionCompletion, conversation.mentionables, conversation.viewerHandle],
+    [mentionCompletion, conversation.mentionables, conversation.viewerId],
   );
   // Days and times follow the viewer's locale and time zone (their saved one, else the browser's).
   // The pane is only ever rendered in the browser, so the locale is known at once.
@@ -888,6 +888,7 @@ export function ConversationPane({
                     onToggleReaction={toggleReaction}
                     onToggleSave={onToggleSave}
                     onOpenAgentProfile={openAgentProfile}
+                    viewerId={conversation.viewerId}
                     viewerHandle={conversation.viewerHandle}
                     plainMentions={plainMentions}
                     onOpenTask={openTaskReference}
@@ -1043,6 +1044,7 @@ export function ConversationPane({
                       onToggleReaction={toggleReaction}
                       onToggleSave={onToggleSave}
                       onOpenAgentProfile={openAgentProfile}
+                      viewerId={conversation.viewerId}
                       viewerHandle={conversation.viewerHandle}
                       plainMentions={plainMentions}
                       onOpenTask={openTaskReference}
@@ -1058,7 +1060,7 @@ export function ConversationPane({
                     grouped={index > 0 || outboxContinuesRun}
                     composerShown={canCompose}
                     plainMentions={plainMentions}
-                    viewerHandle={conversation.viewerHandle}
+                    viewerId={conversation.viewerId}
                     onOpenTask={openTaskReference}
                     onRetry={() => outbox.retry(entry)}
                     onEdit={() => outbox.edit(entry)}

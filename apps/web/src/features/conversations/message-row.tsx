@@ -564,6 +564,7 @@ export const MessageRow = memo(function MessageRow({
   onToggleReaction,
   onToggleSave,
   onOpenAgentProfile,
+  viewerId,
   viewerHandle,
   plainMentions,
   onOpenTask,
@@ -604,7 +605,9 @@ export const MessageRow = memo(function MessageRow({
    * conversation owns that slot (`features/agents/profile-panel/`'s `openAgentProfile`). Absent, the
    * avatar/name render inert and the avatar has no hover card. */
   onOpenAgentProfile?: OpenAgentProfile;
-  /** The viewing user's handle; a mention of it renders with the stronger "me" chip. */
+  /** The viewing user's id; a mention of them renders with the stronger "me" chip. */
+  viewerId?: string;
+  /** The viewing user's handle, which names their own reaction among a message's reactors. */
   viewerHandle?: string;
   /** The conversation's member directory as handle → chip, so a plain `@handle` in the body
    * (DM text, or a channel body written without the completion) still renders the member's
@@ -942,7 +945,7 @@ export const MessageRow = memo(function MessageRow({
                 body={message.weeklyReportDisplayBody ?? message.body}
                 mentions={message.mentions}
                 plainMentions={plainMentions}
-                viewerHandle={viewerHandle}
+                viewerId={viewerId}
                 onOpenTask={onOpenTask}
                 channelNames={channelNames}
                 onOpenAgentProfile={onOpenAgentProfile}

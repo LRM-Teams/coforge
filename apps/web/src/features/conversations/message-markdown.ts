@@ -62,14 +62,15 @@ export const THREAD_CHIP_CLASS =
   "message-markdown-thread-reference rounded-sm px-0.5 font-medium bg-brand-primary text-brand-secondary";
 const THREAD_CHIP_CLASSES = THREAD_CHIP_CLASS.split(" ");
 
-/** A resolved mention as a chip needs both its stable handle (identity/self matching) and its
- * display label, plus the Agent id to open its profile panel when applicable. */
-export type ChipMention = { handle: string; label: string; agentId?: string };
+/** A resolved mention as a chip needs the mentioned actor's id (who the viewer is compared with,
+ * a handle being a name that may change hands), its handle and current display label, plus the
+ * Agent id to open its profile panel when applicable. */
+export type ChipMention = { actorId: string; handle: string; label: string; agentId?: string };
 
 /**
  * The resolved mention for every token in a body, keyed the way `MENTION_TOKEN_PATTERN`
- * spells the token (`user:<uuid>` / `agent:<uuid>`, lower-cased). Stable handles continue to
- * identify the viewer while current profile labels are rendered. A token with no row here
+ * spells the token (`user:<uuid>` / `agent:<uuid>`, lower-cased). The actor id identifies the
+ * viewer while current profile labels are rendered. A token with no row here
  * degrades to its raw text rather than a phantom chip. An `agent` mention carries its
  * `actorId` as `agentId` so the chip can open that Agent's profile panel.
  */
@@ -78,6 +79,7 @@ export function mentionHandlesByToken(mentions: readonly MentionRef[]): Map<stri
     mentions.map((mention) => [
       `${mention.kind}:${mention.actorId.toLowerCase()}`,
       {
+        actorId: mention.actorId,
         handle: mention.handle,
         label: mention.label,
         agentId: mention.kind === "agent" ? mention.actorId : undefined,
@@ -99,6 +101,7 @@ export function plainMentionsByHandle(
     members.map((member) => [
       member.handle,
       {
+        actorId: member.id,
         handle: member.handle,
         label: member.label,
         agentId: member.kind === "agent" ? member.id : undefined,
@@ -116,7 +119,8 @@ type Place = "prose" | "link";
 type ReferenceChipOptions = {
   /** The message's mention rows, keyed the way `mentionHandlesByToken` keys them. */
   mentions: Map<string, ChipMention>;
-  viewerHandle?: string;
+  /** The viewer's user id: a chip for that person gets the self treatment. */
+  viewerId?: string;
   /** Plain-`@handle` display resolution: every conversation member's handle → chip. */
   plainMentions?: Map<string, ChipMention>;
   /** Every channel of the Workspace, id → current name, for a view that can navigate: the authority
@@ -253,7 +257,7 @@ export function patternAlternation(patterns: readonly RegExp[]): {
 
 /** The kinds a pass matches, each with its chip builder, the plain `@handle` only when asked for. */
 function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
-  const { mentions, viewerHandle, plainMentions, channelNames } = options;
+  const { mentions, viewerId, plainMentions, channelNames } = options;
   const kinds: ReferenceKind[] = [
     {
       pattern: MENTION_TOKEN_PATTERN,
@@ -266,7 +270,7 @@ function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
         // Inside a link every kind reads as its text (see `Place`), a mention included.
         return place === "link"
           ? { type: "text", value: `@${mention.label}` }
-          : mentionChip(mention, viewerHandle);
+          : mentionChip(mention, viewerId);
       },
     },
     {
@@ -314,15 +318,16 @@ function referenceKinds(options: ReferenceChipOptions): ReferenceKind[] {
       // its own lower-case rule.
       build: ([handle], place) => {
         const mention = plainMentions.get(handle!);
-        return mention && place === "prose" ? mentionChip(mention, viewerHandle) : undefined;
+        return mention && place === "prose" ? mentionChip(mention, viewerId) : undefined;
       },
     });
   return kinds;
 }
 
 /** A mention chip: the self treatment for the viewer, and an Agent chip the renderer can open. */
-function mentionChip(mention: ChipMention, viewerHandle: string | undefined): Element {
-  const self = Boolean(viewerHandle) && mention.handle === viewerHandle;
+function mentionChip(mention: ChipMention, viewerId: string | undefined): Element {
+  // An Agent is never the viewer, whatever ids are compared.
+  const self = Boolean(viewerId) && !mention.agentId && mention.actorId === viewerId;
   const className = (self ? MENTION_CHIP_SELF_CLASS : MENTION_CHIP_CLASS).split(" ");
   // A human chip stays a plain reference: there is no human profile panel to open.
   if (mention.agentId) className.push(MENTION_CHIP_AGENT_CLASS);

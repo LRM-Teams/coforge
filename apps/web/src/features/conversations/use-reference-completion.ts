@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import { filterMentionables, type Mentionable } from "./mention-text";
+import { filterMentionables, mentionKey, type Mentionable } from "./mention-text";
+import { mentionInsertText } from "./mention-pins";
 import {
   activeReferenceQuery,
   filterChannelSuggestions,
@@ -25,28 +26,31 @@ function mentionCandidates(
   recentHandles: readonly string[] | undefined,
 ): Mentionable[] {
   const members = filterMentionables(mentionables ?? [], query, { recentHandles });
-  const memberKeys = new Set((mentionables ?? []).map((item) => `${item.kind}:${item.id}`));
+  const memberKeys = new Set((mentionables ?? []).map(mentionKey));
   return [
     ...members,
     ...filterMentionables(
-      (outsiders ?? []).filter((item) => !memberKeys.has(`${item.kind}:${item.id}`)),
+      (outsiders ?? []).filter((item) => !memberKeys.has(mentionKey(item))),
       query,
       { recentHandles },
     ),
   ];
 }
 
-/** The text a chosen suggestion puts in the draft (before its trailing space). */
+/** The text a chosen suggestion puts in the draft (before its trailing space): a member by the name
+ * they are shown by, which sending turns back into their handle (`mention-pins.ts`); a channel by
+ * its name. */
 function referenceText(item: ReferenceSuggestion): string {
-  return item.kind === "mention" ? `@${item.mention.handle}` : `#${item.channel.name}`;
+  return item.kind === "mention" ? mentionInsertText(item.mention) : `#${item.channel.name}`;
 }
 
 /**
  * The composer's reference completion, self-contained: tracks the in-progress `@query` or
  * `#query` token at the caret, owns the popup's open/highlight state and its keyboard
  * interaction (ArrowUp/Down cycle, Enter/Tab choose, Escape dismiss), and applies a chosen
- * member or channel by splicing `@handle ` or `#name ` into the text through the caller's
- * `onChange`. IME compositions are left untouched. `textareaRef` must be attached to the
+ * member or channel by splicing `@name ` or `#name ` into the text through the caller's
+ * `onChange`, telling the caller which member was picked (`onPickMention`) so it can pin who the
+ * name means. IME compositions are left untouched. `textareaRef` must be attached to the
  * composer textarea; the hook restores the caret after an insertion.
  */
 export function useReferenceCompletion({
@@ -57,6 +61,7 @@ export function useReferenceCompletion({
   currentChannelId,
   value,
   onChange,
+  onPickMention,
 }: {
   /** The conversation's @-completion candidates; empty/undefined keeps the `@` popup closed. */
   mentionables: readonly Mentionable[] | undefined;
@@ -73,6 +78,8 @@ export function useReferenceCompletion({
   value: string;
   /** Replaces the composer text after a candidate insertion. */
   onChange: (value: string) => void;
+  /** A member was chosen from the `@` list: the composer pins them to the name just written. */
+  onPickMention?: (mention: Mentionable) => void;
 }): {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   open: boolean;
@@ -133,6 +140,7 @@ export function useReferenceCompletion({
     const caret = textarea.selectionStart ?? query.start + query.query.length + 1;
     const next = insertReference(value, query.start, caret, referenceText(item));
     pendingCaretRef.current = next.caret;
+    if (item.kind === "mention") onPickMention?.(item.mention);
     onChange(next.value);
     setQuery(undefined);
   }

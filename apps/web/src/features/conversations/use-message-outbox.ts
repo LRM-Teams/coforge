@@ -6,7 +6,9 @@ import {
   type ComposerOutbox,
   type OutboxEntry,
   type OutgoingMessage,
+  type SendOptions,
 } from "./composer-outbox";
+import { rewriteMentionPins } from "./mention-pins";
 import type { PendingAttachment, SentMessage } from "./message-composer";
 
 let deviceOutbox: ComposerOutbox | undefined;
@@ -79,6 +81,7 @@ export type ComposerRequest =
       body: string;
       idempotencyKey: string;
       asTask: boolean;
+      pins: OutgoingMessage["pins"];
       chips: PendingAttachment[];
     }
   | { kind: "focus" };
@@ -126,17 +129,20 @@ export function useMessageOutbox({
     body: string,
     idempotencyKey: string,
     attachmentIds?: string[],
+    options?: SendOptions,
   ) => Promise<SentMessage | void>;
   onCreateTask?: (title: string, idempotencyKey: string, attachmentId?: string) => Promise<void>;
   onSent?: (message: SentMessage) => void;
 }) {
-  /** Posts one outbox message through this chat's send (or task) operation. */
+  /** Posts one outbox message through this chat's send (or task) operation. The message keeps the
+   * names as the sender wrote them; the request carries the handles they were picked to mean. */
   function deliver(message: OutgoingMessage) {
     const attachmentIds = message.attachments.map((attachment) => attachment.id);
+    const { body, mentions } = rewriteMentionPins(message.body, message.pins);
     return message.asTask && onCreateTask
       ? // Task creation stays single-attachment; the first upload (send order) is used.
-        onCreateTask(message.body, message.idempotencyKey, attachmentIds[0]).then(() => undefined)
-      : onSend(message.body, message.idempotencyKey, attachmentIds);
+        onCreateTask(body, message.idempotencyKey, attachmentIds[0]).then(() => undefined)
+      : onSend(body, message.idempotencyKey, attachmentIds, { mentions });
   }
 
   async function settle(localId: string, sending: Promise<SentMessage | void | undefined>) {
@@ -189,6 +195,7 @@ export function useMessageOutbox({
       const taken = askComposer(draftKey, {
         kind: "edit",
         body: entry.body,
+        pins: entry.pins,
         idempotencyKey: entry.idempotencyKey,
         asTask: entry.asTask,
         chips: sentChips.get(entry.localId) ?? [],

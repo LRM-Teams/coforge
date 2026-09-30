@@ -17,7 +17,7 @@ import type { AgentTargetFreshness } from "#src/server/agents/agent-messages.ser
 import { agentHistoryModelSeenBoundary } from "#src/server/agents/agent-history-boundary.server";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
-import { humanLabel, type HumanNames } from "#src/lib/human-label";
+import { fullNameBehindLabel, humanLabel, type HumanNames } from "#src/lib/human-label";
 import { STORED_USERNAME_SOURCE } from "#src/lib/username-grammar";
 import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
 import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
@@ -1187,6 +1187,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
               },
             }
           : unauthorizedScope()),
+      viewerId: sender.user ? userId : undefined,
       viewerHandle: sender.user?.username,
       // Who a mention here can be resolved to. A direct conversation has no candidate affinity to
       // rank (see `mentionAffinityScores`), so every member scores 0 and handle order is the whole
@@ -1200,6 +1201,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 id: member.user.id,
                 handle: member.user.username,
                 label: humanLabel(member.user),
+                fullName: fullNameBehindLabel(member.user),
                 description: member.user.description?.trim() ?? "",
                 avatarUrl: workspaceUserAvatarUrl(
                   workspaceId,

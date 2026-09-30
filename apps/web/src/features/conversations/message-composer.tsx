@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
@@ -34,19 +35,30 @@ import {
   filesFromPaste,
   shouldSendOnEnter,
 } from "./composer-behavior";
-import { draftWithUnsentMessage, type OutgoingMessage } from "./composer-outbox";
+import { draftWithUnsentMessage, type OutgoingMessage, type SendOptions } from "./composer-outbox";
 import { useComposerRequests, useMessageOutbox } from "./use-message-outbox";
 import {
   clearComposerDraft,
   composerDraftKey,
   readComposerDraft,
+  readComposerDraftPins,
   writeComposerDraft,
+  writeComposerDraftPins,
 } from "./composer-draft";
 import type { Mentionable } from "./mention-text";
+import {
+  addMentionPin,
+  mentionPinFor,
+  mentionsByLabel,
+  NO_PINS,
+  pinsInText,
+  unpinnedLabelMentions,
+} from "./mention-pins";
 import type { ChannelSuggestion } from "./reference-completion";
 import { useReferenceCompletion } from "./use-reference-completion";
 import { ReferenceSuggestionList } from "./reference-suggestions";
 import { PendingMentionStrip, type PendingMention } from "./pending-mention-strip";
+import { UnpinnedMentionHint } from "./unpinned-mention-hint";
 import { fileIconType } from "./message-row";
 import { cx } from "#src/utils/cx";
 import { m } from "#src/paraglide/messages";
@@ -63,6 +75,9 @@ export type SentMessage = {
   /** Mentions of people outside the channel this send did not notify, for the sender to act on. */
   pendingMentionActions?: readonly PendingMention[];
 };
+
+/** No name kept as text: one set every reset returns, so a state already holding it does not change. */
+const NO_NAMES: ReadonlySet<string> = new Set();
 
 /** At most 10 attachments per send, mirroring the server-side `attachmentIds` bound
  * (`conversation.schemas.ts`'s `attachmentIdsSchema`, the Agent API's `AgentMessagesSendRequest`). */
@@ -267,6 +282,7 @@ export function MessageComposer({
     body: string,
     idempotencyKey: string,
     attachmentIds?: string[],
+    options?: SendOptions,
   ) => Promise<SentMessage | void>;
   onCreateTask?: (title: string, idempotencyKey: string, attachmentId?: string) => Promise<void>;
   /** A message of the current user's was accepted by the server. */
@@ -282,13 +298,24 @@ export function MessageComposer({
     undefined,
   );
   const [body, setBody] = useState(() => readComposerDraft(draftKey));
+  // Who each `@name` in the draft was picked to mean; sending turns those names into handles. Kept
+  // with the draft and in step with its text: a name edited away takes its pin with it.
+  const [pins, setPins] = useState(() => readComposerDraftPins(draftKey));
+  // Names the sender chose to leave as text when asked who they meant.
+  const [keptAsText, setKeptAsText] = useState(NO_NAMES);
   useEffect(() => {
     setBody(readComposerDraft(draftKey));
+    setPins(readComposerDraftPins(draftKey));
+    setKeptAsText(NO_NAMES);
     retryRef.current = undefined;
   }, [draftKey]);
   useEffect(() => {
     writeComposerDraft(draftKey, body);
+    setPins((current) => pinsInText(body, current));
   }, [draftKey, body]);
+  useEffect(() => {
+    writeComposerDraftPins(draftKey, pins);
+  }, [draftKey, pins]);
   // @-member and #-channel completion: query tracking, popup state, and keyboard interaction.
   const completion = useReferenceCompletion({
     mentionables,
@@ -301,7 +328,23 @@ export function MessageComposer({
       setBody(next);
       if (retryRef.current && next.trim() !== retryRef.current.body) retryRef.current = undefined;
     },
+    onPickMention: pinMention,
   });
+  // A name typed by hand that matches a member, never picked: sending it notifies no one, so the
+  // composer offers who was meant. Not while the `@` list is open, which is already asking.
+  const namedCandidates = useMemo(
+    () => mentionsByLabel([...(mentionables ?? []), ...(mentionOutsiders ?? [])]),
+    [mentionables, mentionOutsiders],
+  );
+  const unpinned = useMemo(
+    () =>
+      completion.open
+        ? undefined
+        : unpinnedLabelMentions(body, pins, namedCandidates).find(
+            (mention) => !keptAsText.has(mention.label),
+          ),
+    [completion.open, body, pins, namedCandidates, keptAsText],
+  );
   // What this chat's newest accepted send did not reach: `@handle`s that name nobody, and mentions
   // of people outside the channel. Kept with the chat and the message's position: a reply that
   // lands after the reader moved to another chat, or after a newer send's reply, never replaces it.
@@ -418,6 +461,14 @@ export function MessageComposer({
     }
   }
 
+  function pinMention(mention: Mentionable) {
+    setPins((current) => addMentionPin(current, mentionPinFor(mention)));
+  }
+
+  function returnFocusToComposer() {
+    completion.textareaRef.current?.focus({ preventScroll: true });
+  }
+
   function focusComposer() {
     const textarea = completion.textareaRef.current;
     if (!textarea) return;
@@ -446,6 +497,7 @@ export function MessageComposer({
       localId: crypto.randomUUID(),
       draftKey,
       body: text,
+      pins: pinsInText(text, pins),
       idempotencyKey,
       asTask: asTask && !inThread && Boolean(onCreateTask),
       attachments: uploaded.flatMap((item) =>
@@ -454,6 +506,8 @@ export function MessageComposer({
     };
     retryRef.current = undefined;
     setBody("");
+    setPins(NO_PINS);
+    setKeptAsText(NO_NAMES);
     clearComposerDraft(draftKey);
     completion.close();
     setAttachments([]);
@@ -472,6 +526,7 @@ export function MessageComposer({
       return;
     }
     setBody((current) => draftWithUnsentMessage(current, request.body));
+    setPins((current) => request.pins.reduce(addMentionPin, current));
     setAttachments((current) => [...request.chips, ...current]);
     if (request.asTask) setAsTask(true);
     retryRef.current = {
@@ -628,6 +683,20 @@ export function MessageComposer({
             onClick={() => setUnresolved((report) => report && { ...report, handles: [] })}
           />
         </div>
+      )}
+      {unpinned && (
+        <UnpinnedMentionHint
+          label={unpinned.label}
+          candidates={unpinned.candidates}
+          onPick={(mention) => {
+            pinMention(mention);
+            returnFocusToComposer();
+          }}
+          onDismiss={() => {
+            setKeptAsText((current) => new Set(current).add(unpinned.label));
+            returnFocusToComposer();
+          }}
+        />
       )}
       <label htmlFor={composerId} className="sr-only">
         {m.conversation_message_label()}

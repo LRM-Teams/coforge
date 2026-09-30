@@ -24,7 +24,10 @@ const rendered = (body: string) =>
       .use(rehypeSanitize)
       .use(rehypeReferenceChips, {
         mentions: new Map([
-          [`agent:${SCOUT}`, { handle: "scout", label: "Scout #7", agentId: SCOUT }],
+          [
+            `agent:${SCOUT}`,
+            { actorId: SCOUT, handle: "scout", label: "Scout #7", agentId: SCOUT },
+          ],
         ]),
         channelNames: new Map([[PRODUCT, "launch"]]),
       })

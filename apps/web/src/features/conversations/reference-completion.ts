@@ -1,6 +1,6 @@
 /**
  * Pure text logic for the composer's reference completion, free of React and DOM types: which
- * in-progress `@handle` or `#channel` token sits at the caret, which channels a `#query` offers,
+ * in-progress `@name` or `#channel` token sits at the caret, which channels a `#query` offers,
  * and how a chosen reference is spliced into the draft. Mention ranking lives next to the
  * mention grammar in `mention-text.ts`; the send-time recognizer (`lib/message-references.ts`)
  * turns the inserted plain text into structured tokens, so completion only ever writes text.
@@ -33,9 +33,16 @@ function caretInCode(beforeCaret: string): boolean {
   return line.split("`").length % 2 === 0;
 }
 
+/** An `@query` (any run without whitespace, `@` or `#`) or a `#query` (channel-name characters),
+ * at the text start or after whitespace, running to the caret. */
+const REFERENCE_QUERY = /(?:^|\s)(?:@([^\s@#]*)|#([a-z0-9_-]*))$/;
+
 /**
  * The completion query at the caret: the in-progress token starts at `@` or `#` (at the text
- * start or after whitespace) and runs to the caret using handle/channel-name characters only.
+ * start or after whitespace) and runs to the caret. A `#query` uses channel-name characters only;
+ * an `@query` is a person's or Agent's name as it reads, so any run of characters that are not
+ * whitespace, `@` or `#` — a CJK or capitalized name opens the list too, while a space still ends
+ * it (a name is picked from the list, not typed out with its spaces).
  * Returns the trigger, the token's start offset (the trigger itself) and the typed query without
  * it. `undefined` when the caret is not inside such a token — e.g. after another word, inside an
  * email address, past a completed reference followed by more name characters, or in code.
@@ -51,11 +58,10 @@ export function activeReferenceQuery(
   caret: number,
 ): { trigger: ReferenceTrigger; start: number; query: string } | undefined {
   const beforeCaret = value.slice(0, caret);
-  const match = /(?:^|\s)([@#])([a-z0-9_-]*)$/.exec(beforeCaret);
-  if (!match || caretInCode(beforeCaret)) return undefined;
-  const trigger: ReferenceTrigger = match[1] === "#" ? "#" : "@";
-  const query = match[2];
-  return { trigger, start: caret - query.length - 1, query };
+  const match = REFERENCE_QUERY.exec(beforeCaret);
+  const query = match?.[1] ?? match?.[2];
+  if (query === undefined || caretInCode(beforeCaret)) return undefined;
+  return { trigger: match?.[1] !== undefined ? "@" : "#", start: caret - query.length - 1, query };
 }
 
 /**

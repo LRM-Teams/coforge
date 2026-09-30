@@ -1,6 +1,26 @@
+import {
+  MENTION_HANDLE_MAX_LENGTH,
+  MENTION_HANDLE_PATTERN,
+  MENTION_SELECTORS_MAX_LENGTH,
+} from "@lrm/coforge-sdk/internal";
 import { z } from "zod";
 
 const uuid = z.uuid();
+
+/** The members a browser send names by id, beside the `@handle`s in its body: the shape and bounds
+ * of the Agent API's `mentions` (`MentionSelectorInput`, `isValidMentionSelectorArray`), built from
+ * the same constants so the handle grammar has one owner. Whether each names a member of the
+ * channel is the send's to decide; a binding that names no member is ignored. */
+export const mentionSelectorsSchema = z
+  .array(
+    z.object({
+      type: z.enum(["user", "agent"]),
+      id: uuid,
+      name: z.string().max(MENTION_HANDLE_MAX_LENGTH).regex(MENTION_HANDLE_PATTERN),
+    }),
+  )
+  .max(MENTION_SELECTORS_MAX_LENGTH)
+  .optional();
 
 /** Attachments already uploaded to this conversation, unlinked to any message, in send order.
  * Bounded and unique, mirroring `isValidMentionSelectorArray`'s shape (array, max length,

@@ -51,10 +51,15 @@ export function makeReferenceBodyFormatter(
 export type Mentionable = {
   kind: "user" | "agent";
   id: string;
-  /** The handle inserted into the text and matched by `MENTION_PATTERN`. */
+  /** What the server resolves the mention by (matched by `MENTION_PATTERN`): sending writes it into
+   * the text, and an Agent's row shows it. A person's is not shown or searched. */
   handle: string;
-  /** Human-facing label shown next to the handle in the completion list. */
+  /** The name the completion list shows, the composer writes after the `@`, and the list is
+   * searched by. */
   label: string;
+  /** A person's full name, when it is not already their label (they have a nickname): the list
+   * finds them by it too, as a directory search finds anyone by either name. */
+  fullName?: string;
   /** A short profile description shown after the name on the completion row, trimmed. Empty
    * when the profile has none; the row then shows no description. */
   description: string;
@@ -70,13 +75,55 @@ export type Mentionable = {
   outsider?: true;
 };
 
+/** One candidate's identity across the person and Agent lists: ids are unique per table, not across
+ * people and Agents, so the kind is part of the key. */
+export function mentionKey(mention: Pick<Mentionable, "kind" | "id">): string {
+  return `${mention.kind}:${mention.id}`;
+}
+
+/**
+ * Which rows of the `@` list show their `@handle`. An Agent's handle is its public name, so its
+ * row always does. A person's handle stays hidden (the list shows who they are, not an identifier)
+ * except where the list holds two people whose label and description are both identical: nothing
+ * else on their rows tells them apart, so their handles do. Only people are compared with people.
+ */
+export function mentionKeysShowingHandle(items: readonly Mentionable[]): Set<string> {
+  const shown = new Set<string>();
+  const firstOfLook = new Map<string, Mentionable>();
+  for (const item of items) {
+    if (item.kind === "agent") {
+      shown.add(mentionKey(item));
+      continue;
+    }
+    const look = `${item.label}\u0000${item.description}`;
+    const first = firstOfLook.get(look);
+    if (!first) firstOfLook.set(look, item);
+    else {
+      shown.add(mentionKey(first));
+      shown.add(mentionKey(item));
+    }
+  }
+  return shown;
+}
+
+/**
+ * The names the `@` list finds a candidate by besides its label. A person's handle is not shown, so
+ * a match on it would be a hit the reader cannot explain; their full name is who they are, so it
+ * matches under a nickname. An Agent's handle is its public name, so it matches.
+ */
+function mentionSearchNames(mention: Pick<Mentionable, "kind" | "handle" | "fullName">): string[] {
+  if (mention.kind === "agent") return [mention.handle];
+  return mention.fullName ? [mention.fullName] : [];
+}
+
 /**
  * Completion candidates for a query, ranked the way a fast channel-mention popup should read:
- * closer text matches first (see `nameMatchTier`), then within a tier whoever the viewer has
- * mentioned most (`item.mentionScore`, higher first), then whoever spoke most recently in this
- * conversation (`recentHandles`, most-recent first), then alphabetically by label and by
- * handle. The empty query matches everyone at the same tier, so score, recency, and alphabetical
- * order alone decide the list. Capped by `limit`.
+ * closer text matches first (see `nameMatchTier`, on the label and `mentionSearchNames`), then
+ * within a tier whoever the viewer has mentioned most (`item.mentionScore`, higher first), then
+ * whoever spoke most recently in this conversation (`recentHandles`, most-recent first, by handle:
+ * an internal key, never shown), then alphabetically by label and by handle. The empty query
+ * matches everyone at the same tier, so score, recency, and alphabetical order alone decide the
+ * list. Capped by `limit`.
  */
 export function filterMentionables(
   mentionables: readonly Mentionable[],
@@ -93,7 +140,7 @@ export function filterMentionables(
 
   const ranked = mentionables
     .map((item) => {
-      const tier = nameMatchTier(item.label, [item.handle], lowerQuery);
+      const tier = nameMatchTier(item.label, mentionSearchNames(item), lowerQuery);
       if (tier === undefined) return undefined;
       return { item, tier, recency: recencyByHandle.get(item.handle.toLowerCase()) };
     })

@@ -36,7 +36,7 @@ export function MessageBody({
   body,
   mentions = [],
   plainMentions,
-  viewerHandle,
+  viewerId,
   onOpenAgentProfile,
   onOpenTask,
   channelNames,
@@ -46,7 +46,8 @@ export function MessageBody({
   /** Plain-`@handle` display resolution: every conversation member's handle → chip. Absent,
    * plain handles render as literal text (the stored body is never rewritten either way). */
   plainMentions?: Map<string, ChipMention>;
-  viewerHandle?: string;
+  /** The viewing user's id; a mention of them renders with the stronger "me" chip. */
+  viewerId?: string;
   /** Opens the Agent profile panel when an Agent mention chip is activated. Present only where
    * the conversation owns that slot; absent, Agent chips render as inert highlights (the
    * previous behavior), never dead controls. */
@@ -75,14 +76,14 @@ export function MessageBody({
               rehypeReferenceChips,
               {
                 mentions: handles,
-                viewerHandle,
+                viewerId,
                 plainMentions,
                 channelNames,
               },
             ],
           ]
         : [rehypeSanitize],
-    [hasReference, handles, viewerHandle, plainMentions, channelNames],
+    [hasReference, handles, viewerId, plainMentions, channelNames],
   );
   // The `span` override recognises the chips `rehypeReferenceChips` injects: an Agent mention chip
   // (`data-mention-agent-id`) becomes an accessible button, a task reference

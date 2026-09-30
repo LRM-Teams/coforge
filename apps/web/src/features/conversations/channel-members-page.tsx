@@ -39,6 +39,7 @@ import {
   setPublicChannelMemberRole,
 } from "./channels.functions";
 import { channelMembersQueryKey } from "./conversation-query-keys";
+import { mentionKey } from "./mention-text";
 
 type ChannelMembers = Awaited<ReturnType<typeof loadPublicChannelMembers>>;
 type Member = { kind: "user" | "agent" } & (
@@ -85,7 +86,7 @@ function roleLabel(member: { serverRole?: string | null; channelRole: string }) 
 export function ChannelMembersPage({
   channelId,
   channelName,
-  viewerHandle,
+  viewerId,
   canCreateAgents,
   view,
   onViewChange,
@@ -93,8 +94,8 @@ export function ChannelMembersPage({
 }: {
   channelId: string;
   channelName: string;
-  /** The viewer's own username: their row offers no role change. */
-  viewerHandle?: string;
+  /** The viewer's own user id: their row offers no role change. */
+  viewerId?: string;
   /** Whether the add view may create an Agent (a Workspace owner or admin). */
   canCreateAgents: boolean;
   view: ChannelMembersView;
@@ -124,7 +125,7 @@ export function ChannelMembersPage({
     <MembersRoster
       channelId={channelId}
       channelName={channelName}
-      viewerHandle={viewerHandle}
+      viewerId={viewerId}
       data={members.data}
       onAdd={() => onViewChange("add")}
       roster={roster}
@@ -145,14 +146,14 @@ export type RosterState = {
 function MembersRoster({
   channelId,
   channelName,
-  viewerHandle,
+  viewerId,
   data,
   onAdd,
   roster: { search, onSearchChange, onOpenAgentProfile, returnFocusAgentId },
 }: {
   channelId: string;
   channelName: string;
-  viewerHandle?: string;
+  viewerId?: string;
   data: ChannelMembers;
   onAdd: () => void;
   roster: RosterState;
@@ -210,10 +211,10 @@ function MembersRoster({
     [channelId, queryClient, setRole],
   );
   function rowFor(member: Member) {
-    const self = "username" in member && member.username === viewerHandle;
+    const self = member.kind === "user" && member.id === viewerId;
     return (
       <MemberRow
-        key={`${member.kind}:${member.id}`}
+        key={mentionKey(member)}
         member={member}
         display={member.kind === "agent" ? displays.get(member.id) : undefined}
         canChangeRole={canManageRoles && !self}

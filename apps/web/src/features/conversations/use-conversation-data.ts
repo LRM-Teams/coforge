@@ -18,6 +18,7 @@ import {
   useConversationQuery,
 } from "./conversation-queries";
 import { threadFollowingAgentsQueryPrefix } from "./conversation-query-keys";
+import type { SendOptions } from "./composer-outbox";
 import { useRefreshSidebarChannels } from "./sidebar-lists";
 import {
   loadOwnConversationMessages,
@@ -75,10 +76,10 @@ export function useChannelConversation(channelId: string) {
         body: string,
         idempotencyKey: string,
         attachmentIds?: string[],
-        threadRootId?: string,
+        { threadRootId, mentions }: SendOptions = {},
       ) => {
         const message = await send({
-          data: { channelId, idempotencyKey, body, attachmentIds, threadRootId },
+          data: { channelId, idempotencyKey, body, attachmentIds, threadRootId, mentions },
         });
         page.mergeUpdates([message]);
         if (threadRootId) page.setThreadFollowed(threadRootId, true);
@@ -154,7 +155,9 @@ export function useDirectConversation(conversationId: string) {
         body: string,
         idempotencyKey: string,
         attachmentIds?: string[],
-        threadRootId?: string,
+        // A direct conversation keeps `@handle` text as written, so the bindings of a send have
+        // nothing to resolve there: only its thread reaches the server.
+        { threadRootId }: SendOptions = {},
       ) => {
         const message = await send({
           data: { conversationId, idempotencyKey, body, attachmentIds, threadRootId },

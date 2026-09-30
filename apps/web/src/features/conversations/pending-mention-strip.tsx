@@ -130,7 +130,8 @@ export function PendingMentionStrip({
           const canNotify = mention.availableActions.includes("notify") && !mention.outcome;
           const canAdd = mention.availableActions.includes("add") && !mention.outcome;
           const busy = adding.has(mention.resolutionId);
-          const target = `@${mention.targetHandle}`;
+          // A person reads by their name, as the sender picked them; an Agent by its handle.
+          const target = `@${mention.targetType === "user" ? mention.targetLabel : mention.targetHandle}`;
           const channel = `#${mention.channelName}`;
           return (
             <li
