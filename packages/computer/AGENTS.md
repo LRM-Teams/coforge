@@ -66,6 +66,8 @@ product's own upgrade and `__lifecycle status` share `release/supervisor-status.
 JSON Schema via `z.toJSONSchema()` plus golden files. This package is its source
 of truth; each shape's zod schema lives in the module that owns the concept
 (`updater.ts`, `release/upgrade-coordinator.ts`, `release/installer-contract.ts`).
+`scripts/installer-receipt-cases.ts` holds, as literals, the receipts that schema accepts
+and refuses; the Rust crate builds and checks every row.
 After changing a contract shape or a value it exports (paths, service names,
 launchers, lock, feed environments), run `bun run generate:installer-contract`
 and commit the result; `test/installer-contract.test.ts` and CI fail otherwise.

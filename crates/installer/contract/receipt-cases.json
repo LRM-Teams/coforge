@@ -1,0 +1,694 @@
+{
+  "allowed": [
+    {
+      "slug": "succeeded",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "status": "succeeded",
+        "version": "0.2.0",
+        "supervisorRunning": true,
+        "runtimes": [
+          {
+            "bindingId": "ws_example",
+            "running": true
+          }
+        ],
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "deadProcessIdentities": [
+          {
+            "pid": 4242,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          },
+          {
+            "pid": 4243,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213351",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          }
+        ],
+        "exit_code": 0
+      }
+    },
+    {
+      "slug": "succeeded-uppercase-request-id",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0F8B6D5E-2A41-4C3B-BE7D-1A2B3C4D5E6F",
+        "operation": "upgrade",
+        "status": "succeeded",
+        "version": "0.2.0",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "exit_code": 0
+      }
+    },
+    {
+      "slug": "failed-installer-unavailable",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "status": "failed",
+        "error": "The release feed did not answer",
+        "errorCode": "UPGRADE_INSTALLER_UNAVAILABLE",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "exit_code": 1
+      }
+    },
+    {
+      "slug": "failed-installer-incompatible",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "status": "failed",
+        "error": "This version needs a newer installer",
+        "errorCode": "UPGRADE_INSTALLER_INCOMPATIBLE",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "exit_code": 1
+      }
+    },
+    {
+      "slug": "failed",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "status": "failed",
+        "error": "Could not create the staging directory",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "exit_code": 1
+      }
+    },
+    {
+      "slug": "rolled-back",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "status": "failed",
+        "restoredVersion": "0.1.0",
+        "error": "Computer supervisor did not report 0.2.0",
+        "errorCode": "UPGRADE_ROLLED_BACK",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "deadProcessIdentities": [
+          {
+            "pid": 4242,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          },
+          {
+            "pid": 4243,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213351",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          }
+        ],
+        "exit_code": 1
+      }
+    },
+    {
+      "slug": "held",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "status": "held",
+        "error": "Version 0.1.0 is older than the installed 0.2.0, so the installer held the upgrade before changing anything",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "exit_code": 2
+      }
+    },
+    {
+      "slug": "unresolved",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "status": "failed",
+        "error": "Computer supervisor did not report 0.2.0; rollback failed: Computer supervisor did not report 0.1.0",
+        "errorCode": "UPGRADE_ROLLBACK_FAILED",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "deadProcessIdentities": [
+          {
+            "pid": 4242,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          },
+          {
+            "pid": 4243,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213351",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          }
+        ],
+        "exit_code": 3
+      }
+    },
+    {
+      "slug": "unresolved-no-previous-version",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "status": "failed",
+        "error": "Computer supervisor did not report 0.1.0 and no previous version existed",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "deadProcessIdentities": [
+          {
+            "pid": 4242,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          },
+          {
+            "pid": 4243,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213351",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          }
+        ],
+        "exit_code": 3
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "name": "succeeded with exit 1",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 1
+      }
+    },
+    {
+      "name": "succeeded with exit 2",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 2
+      }
+    },
+    {
+      "name": "succeeded with exit 3",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 3
+      }
+    },
+    {
+      "name": "succeeded naming an error code",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "errorCode": "UPDATE_FEED_INVALID",
+        "exit_code": 0
+      }
+    },
+    {
+      "name": "failed with exit 0",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "failed",
+        "error": "x",
+        "exit_code": 0
+      }
+    },
+    {
+      "name": "failed with exit 2",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "failed",
+        "error": "x",
+        "exit_code": 2
+      }
+    },
+    {
+      "name": "failed with an unknown exit",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "failed",
+        "error": "x",
+        "exit_code": 4
+      }
+    },
+    {
+      "name": "failed with no reason",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "failed",
+        "exit_code": 1
+      }
+    },
+    {
+      "name": "held with exit 0",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "held",
+        "error": "x",
+        "exit_code": 0
+      }
+    },
+    {
+      "name": "held with exit 1",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "held",
+        "error": "x",
+        "exit_code": 1
+      }
+    },
+    {
+      "name": "held with exit 3",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "held",
+        "error": "x",
+        "exit_code": 3
+      }
+    },
+    {
+      "name": "held with no reason",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "held",
+        "exit_code": 2
+      }
+    },
+    {
+      "name": "held naming a rollback code",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "held",
+        "error": "x",
+        "errorCode": "UPGRADE_ROLLBACK_FAILED",
+        "exit_code": 2
+      }
+    },
+    {
+      "name": "rolled back with exit 3",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "failed",
+        "error": "x",
+        "errorCode": "UPGRADE_ROLLED_BACK",
+        "restoredVersion": "0.1.0",
+        "exit_code": 3
+      }
+    },
+    {
+      "name": "rolled back without the restored version",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "failed",
+        "error": "x",
+        "errorCode": "UPGRADE_ROLLED_BACK",
+        "exit_code": 1
+      }
+    },
+    {
+      "name": "a restored version without the rolled-back code",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "failed",
+        "error": "x",
+        "restoredVersion": "0.1.0",
+        "exit_code": 1
+      }
+    },
+    {
+      "name": "rollback failed with exit 1",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "failed",
+        "error": "x",
+        "errorCode": "UPGRADE_ROLLBACK_FAILED",
+        "exit_code": 1
+      }
+    },
+    {
+      "name": "exit 3 with a code other than rollback failed",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "failed",
+        "error": "x",
+        "errorCode": "UPDATE_FEED_INVALID",
+        "exit_code": 3
+      }
+    },
+    {
+      "name": "an error code in the wrong format",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "failed",
+        "error": "x",
+        "errorCode": "not-a-code",
+        "exit_code": 1
+      }
+    },
+    {
+      "name": "an unknown status",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "running",
+        "error": "x",
+        "exit_code": 1
+      }
+    },
+    {
+      "name": "a receipt of another protocol",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v2",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0
+      }
+    },
+    {
+      "name": "a receipt of another schema version",
+      "receipt": {
+        "schema_version": 2,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0
+      }
+    },
+    {
+      "name": "a receipt for another operation",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "rollback",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0
+      }
+    },
+    {
+      "name": "a request id with a version digit outside 1-8",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-9c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0
+      }
+    },
+    {
+      "name": "a request id with a variant digit outside 8-b",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0F8B6D5E-2A41-4C3B-CE7D-1A2B3C4D5E6F",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0
+      }
+    },
+    {
+      "name": "a request id that is not a UUID",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "request-a",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0
+      }
+    },
+    {
+      "name": "dead-process evidence as a JSON string holding an array",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0,
+        "deadProcessIdentities": "[{\"pid\":4242,\"startedAt\":\"0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337\",\"executable\":\"/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer\"}]"
+      }
+    },
+    {
+      "name": "dead-process evidence as an empty array",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0,
+        "deadProcessIdentities": []
+      }
+    },
+    {
+      "name": "a dead process with a string pid",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0,
+        "deadProcessIdentities": [
+          {
+            "pid": "4242",
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a dead process with pid 0",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0,
+        "deadProcessIdentities": [
+          {
+            "pid": 0,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a dead process with a fractional pid",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0,
+        "deadProcessIdentities": [
+          {
+            "pid": 1.5,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a dead process with no start time",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0,
+        "deadProcessIdentities": [
+          {
+            "pid": 4242,
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a dead process with a numeric start time",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0,
+        "deadProcessIdentities": [
+          {
+            "pid": 4242,
+            "startedAt": 48213337,
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a dead process with an empty start time",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0,
+        "deadProcessIdentities": [
+          {
+            "pid": 4242,
+            "startedAt": "",
+            "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a dead process with no executable",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0,
+        "deadProcessIdentities": [
+          {
+            "pid": 4242,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a dead process with an empty executable",
+      "receipt": {
+        "schema_version": 1,
+        "request_id": "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+        "operation": "upgrade",
+        "protocol": "coforge-installer/v1",
+        "installer_version": "0.1.0",
+        "status": "succeeded",
+        "exit_code": 0,
+        "deadProcessIdentities": [
+          {
+            "pid": 4242,
+            "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337",
+            "executable": ""
+          }
+        ]
+      }
+    }
+  ]
+}

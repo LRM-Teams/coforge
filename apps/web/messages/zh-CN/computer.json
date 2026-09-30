@@ -143,6 +143,8 @@
   "computer_upgrade_code_rolled_back": "升级失败，已恢复到之前的版本",
   "computer_upgrade_code_rollback_failed": "这台电脑上新旧版本均未确认为健康状态",
   "computer_upgrade_code_expired_without_receipt": "这台电脑在放弃等待前，升级任务一直没有回报结果",
+  "computer_upgrade_code_installer_unavailable": "无法在这台电脑上下载本次升级所需的安装程序",
+  "computer_upgrade_code_installer_incompatible": "这台电脑下载的安装程序与这个版本不兼容",
   "computer_upgrade_step_check_status": "查看电脑状态",
   "computer_upgrade_step_check_logs": "查看电脑日志",
   "computer_upgrade_step_retry_upgrade": "重试升级",

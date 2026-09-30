@@ -17,6 +17,7 @@ import {
   COORDINATOR_SERVICE,
   PROCESS_LOCK_CONTENTION_CODES,
   PROCESS_LOCK_STATEMENTS,
+  UPGRADE_RECEIPT_MAX_BYTES,
 } from "@lrm/coforge-daemon";
 import {
   isValidReleaseVersion,
@@ -54,6 +55,12 @@ import {
   ReleaseManifestSchema,
   windowsComputerLauncher,
 } from "#src/updater";
+import {
+  ALLOWED_RECEIPTS,
+  EXAMPLE_REQUEST_ID,
+  receiptOf,
+  REJECTED_RECEIPTS,
+} from "./installer-receipt-cases";
 
 export const CONTRACT_DIRECTORY = join(
   import.meta.dir,
@@ -90,9 +97,6 @@ const RELEASE_VERSION_SAMPLES = [
   "1".repeat(100),
   "1".repeat(101),
 ];
-
-/** The request every example names; the Rust tests use the same one. */
-export const EXAMPLE_REQUEST_ID = "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f";
 
 const COMMIT = "0123456789abcdef0123456789abcdef01234567";
 const BUILD_DATE = "2026-09-29T00:00:00.000Z";
@@ -186,15 +190,10 @@ const ADVERSARIAL_PATH_CASES = [
   pathCase("win32", "a:b", {}),
 ];
 
-function receipt(fields: Record<string, unknown>) {
-  return {
-    schema_version: 1,
-    request_id: EXAMPLE_REQUEST_ID,
-    operation: "upgrade",
-    ...fields,
-    protocol: INSTALLER_RECEIPT_PROTOCOL,
-    installer_version: "0.1.0",
-  };
+function allowedReceipt(slug: string) {
+  const row = ALLOWED_RECEIPTS.find((candidate) => candidate.slug === slug);
+  if (!row) throw new Error(`no allowed receipt named ${slug}`);
+  return row;
 }
 
 /** Every contract file, by name under crates/installer/contract/. */
@@ -299,47 +298,35 @@ export function renderInstallerContract(): Map<string, string> {
         },
       }),
     ],
-    // Upgrade receipts (upgrade-coordinator.ts, installer-contract.ts). No receipt is ever
-    // "held": that is only the installer's process exit status.
+    // Upgrade receipts (upgrade-coordinator.ts, installer-contract.ts). Every allowed row of the
+    // status/exit-code table `InstallerReceiptSchema` documents is in `receipt-cases.json`, with the
+    // combinations it refuses; four rows are also written out as goldens. `installer-codes.json`
+    // holds what the receipts and exit statuses share.
     ["receipt.schema.json", jsonSchema(InstallerReceiptSchema)],
+    ...["succeeded", "rolled-back", "held", "unresolved"].map((slug): [string, string] => [
+      `receipt.${slug}.json`,
+      instance(InstallerReceiptSchema, receiptOf(allowedReceipt(slug).fields)),
+    ]),
     [
-      "receipt.succeeded.json",
-      instance(
-        InstallerReceiptSchema,
-        receipt({
-          status: "succeeded",
-          version: "0.2.0",
-          supervisorRunning: true,
-          runtimes: [{ bindingId: "ws_example", running: true }],
-          exit_code: INSTALLER_EXIT_CODE.SUCCEEDED,
+      "receipt-cases.json",
+      json({
+        allowed: ALLOWED_RECEIPTS.map(({ slug, fields }) => ({
+          slug,
+          receipt: InstallerReceiptSchema.parse(receiptOf(fields)),
+        })),
+        rejected: REJECTED_RECEIPTS.map(({ name, fields }) => {
+          const receipt = receiptOf(fields);
+          if (InstallerReceiptSchema.safeParse(receipt).success)
+            throw new Error(`the receipt schema accepts "${name}"`);
+          return { name, receipt };
         }),
-      ),
+      }),
     ],
+    // Exit statuses and the receipt size a reader accepts (installer-contract.ts, the Daemon's
+    // computer-upgrade-receipts.ts).
     [
-      "receipt.rolled-back.json",
-      instance(
-        InstallerReceiptSchema,
-        receipt({
-          status: "failed",
-          restoredVersion: "0.1.0",
-          error: "Computer supervisor did not report 0.2.0",
-          errorCode: UPGRADE_ERROR_CODE.ROLLED_BACK,
-          exit_code: INSTALLER_EXIT_CODE.FAILED,
-        }),
-      ),
-    ],
-    [
-      "receipt.unresolved.json",
-      instance(
-        InstallerReceiptSchema,
-        receipt({
-          status: "failed",
-          error:
-            "Computer supervisor did not report 0.2.0; rollback failed: Computer supervisor did not report 0.1.0",
-          errorCode: UPGRADE_ERROR_CODE.ROLLBACK_FAILED,
-          exit_code: INSTALLER_EXIT_CODE.UNRESOLVED,
-        }),
-      ),
+      "installer-codes.json",
+      json({ exit_codes: INSTALLER_EXIT_CODE, max_receipt_bytes: UPGRADE_RECEIPT_MAX_BYTES }),
     ],
     // The Coordinator writes supervisor.lock/owner as its bare process ID.
     ["supervisor-lock-owner.txt", "4242"],

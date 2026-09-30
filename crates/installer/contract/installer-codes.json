@@ -1,0 +1,9 @@
+{
+  "exit_codes": {
+    "SUCCEEDED": 0,
+    "FAILED": 1,
+    "HELD": 2,
+    "UNRESOLVED": 3
+  },
+  "max_receipt_bytes": 65536
+}

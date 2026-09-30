@@ -1,0 +1,1 @@
+{"schema_version":1,"request_id":"0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f","operation":"upgrade","status":"failed","error":"The release feed did not answer","errorCode":"UPGRADE_INSTALLER_UNAVAILABLE","protocol":"coforge-installer/v1","exit_code":1,"installer_version":"0.1.0"}

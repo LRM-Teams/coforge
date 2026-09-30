@@ -9,6 +9,7 @@ import {
   sweepComputerUpgradeReceipts,
   watchComputerUpgradeReceipt,
   UPGRADE_EXPIRED_WITHOUT_RECEIPT,
+  UPGRADE_RECEIPT_MAX_BYTES,
 } from "#src/platform/computer-upgrade-receipts";
 import {
   MachineSupervisor,
@@ -58,6 +59,96 @@ test("a receipt that names another operation, or no known status, is not evidenc
     expect(await readComputerUpgradeReceipt("request-b", { homeDirectory })).toBeUndefined();
     await Bun.write(computerUpgradeResultPath("request-c", homeDirectory), "{ not json");
     expect(await readComputerUpgradeReceipt("request-c", { homeDirectory })).toBeUndefined();
+  } finally {
+    await rm(homeDirectory, { recursive: true, force: true });
+  }
+});
+
+const HELD_REASON = "Version 0.1.0 is older than the installed 0.2.0";
+
+function heldReceipt(requestId: string, fields: Record<string, unknown> = {}) {
+  return {
+    schema_version: 1,
+    request_id: requestId,
+    operation: "upgrade",
+    status: "held",
+    error: HELD_REASON,
+    exit_code: 2,
+    ...fields,
+  };
+}
+
+test("a held receipt settles the operation as failed, with the installer's reason", async () => {
+  const homeDirectory = await home();
+  try {
+    await writeReceipt(homeDirectory, "request-a", heldReceipt("request-a"));
+    const receipt = await readComputerUpgradeReceipt("request-a", { homeDirectory });
+    expect(receipt).toMatchObject({ requestId: "request-a", status: "failed", error: HELD_REASON });
+    expect(receipt).not.toHaveProperty("errorCode");
+
+    await writeReceipt(
+      homeDirectory,
+      "request-b",
+      heldReceipt("request-b", { errorCode: "UPGRADE_INSTALLER_INCOMPATIBLE" }),
+    );
+    expect(await readComputerUpgradeReceipt("request-b", { homeDirectory })).toMatchObject({
+      requestId: "request-b",
+      status: "failed",
+      error: HELD_REASON,
+      errorCode: "UPGRADE_INSTALLER_INCOMPATIBLE",
+    });
+  } finally {
+    await rm(homeDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a pending operation whose receipt is held is settled at once, not left to expire", async () => {
+  const homeDirectory = await home();
+  try {
+    await writeReceipt(homeDirectory, "request-a", heldReceipt("request-a"));
+    const settled: { requestId: string; status: string; error?: string }[] = [];
+    const resolved = await sweepComputerUpgradeReceipts(
+      [{ workspaceId: "a", requestId: "request-a", requestedAt: 0 }],
+      async (_workspaceId, requestId, receipt) => {
+        settled.push({ requestId, status: receipt.status, error: receipt.error });
+      },
+      { homeDirectory, now: () => 1, pendingTtlMs: 30 * 60_000 },
+    );
+
+    expect(resolved).toBe(1);
+    expect(settled).toEqual([{ requestId: "request-a", status: "failed", error: HELD_REASON }]);
+  } finally {
+    await rm(homeDirectory, { recursive: true, force: true });
+  }
+});
+
+/** A valid receipt of exactly `bytes` bytes, newline-terminated like the installer writes it
+ * (ASCII, so characters are bytes). The newline matters: a reader that stops one byte early would
+ * still see complete JSON, so an off-by-one in the cap must fail here. */
+function receiptOfSize(bytes: number): string {
+  const receipt = {
+    schema_version: 1,
+    request_id: "request-a",
+    operation: "upgrade",
+    status: "failed",
+    error: "",
+  };
+  const padding = bytes - JSON.stringify(receipt).length - 1;
+  return `${JSON.stringify({ ...receipt, error: "x".repeat(padding) })}\n`;
+}
+
+test("a receipt is read up to 64 KiB and ignored beyond it", async () => {
+  expect(UPGRADE_RECEIPT_MAX_BYTES).toBe(65_536);
+  const homeDirectory = await home();
+  try {
+    const path = computerUpgradeResultPath("request-a", homeDirectory);
+    await Bun.write(path, receiptOfSize(UPGRADE_RECEIPT_MAX_BYTES));
+    expect(await readComputerUpgradeReceipt("request-a", { homeDirectory })).toMatchObject({
+      requestId: "request-a",
+      status: "failed",
+    });
+    await Bun.write(path, receiptOfSize(UPGRADE_RECEIPT_MAX_BYTES + 1));
+    expect(await readComputerUpgradeReceipt("request-a", { homeDirectory })).toBeUndefined();
   } finally {
     await rm(homeDirectory, { recursive: true, force: true });
   }

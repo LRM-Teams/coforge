@@ -85,11 +85,11 @@ the crate's commands, toolchain, and gotchas.
   after `generate:installer-contract`, this crate's native entries after
   `cargo test`. `contract/.gitattributes` turns off line-ending conversion so
   the files match byte for byte on Windows too.
-- A receipt is written once and its `exit_code` is 0, 1, or 3; exit status 2
-  (held) exists only as the process's exit status.
-- A receipt's `errorCode` is one of the SDK's (`contract/upgrade-error-codes.json`).
-  A failure none of them describes carries no code; never add an
-  installer-only code.
+- Receipts: `InstallerReceiptSchema` and `INSTALLER_EXIT_CODE` state the rules (exit codes, also
+  without a receipt; replay; 64 KiB); `contract/receipt-cases.json` lists what it accepts and
+  refuses, and `cargo test` writes each allowed row to `contract/rust/`.
+- A receipt's `errorCode` is one of the SDK's (`contract/upgrade-error-codes.json`), or none;
+  never add an installer-only code.
 - `paths.rs` must equal Bun's `node:path` byte for byte; tests compare `to_str()`,
   never `PathBuf`, which equates by component.
 

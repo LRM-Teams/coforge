@@ -177,6 +177,20 @@ const CODE_COPY: Record<UpgradeErrorCode, () => UpgradeFailureView> = {
       { text: m.computer_upgrade_step_retry_upgrade(), command: COMMAND.upgrade },
     ],
   }),
+  [UPGRADE_ERROR_CODE.INSTALLER_UNAVAILABLE]: () => ({
+    headline: m.computer_upgrade_code_installer_unavailable(),
+    steps: [
+      { text: m.computer_upgrade_step_check_logs(), command: COMMAND.logs },
+      { text: m.computer_upgrade_step_retry_upgrade(), command: COMMAND.upgrade },
+    ],
+  }),
+  [UPGRADE_ERROR_CODE.INSTALLER_INCOMPATIBLE]: () => ({
+    headline: m.computer_upgrade_code_installer_incompatible(),
+    steps: [
+      { text: m.computer_upgrade_step_check_logs(), command: COMMAND.logs },
+      { text: m.computer_upgrade_step_retry_upgrade(), command: COMMAND.upgrade },
+    ],
+  }),
 };
 
 /**
