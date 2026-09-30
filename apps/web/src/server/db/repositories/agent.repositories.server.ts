@@ -170,6 +170,15 @@ export class PrismaAgentRepository implements AgentRepository {
 
   async create(input: Omit<AgentRecord, "id" | "createdAt"> & { id?: string }) {
     return this.db.$transaction(async (tx) => {
+      // A username is global and an Agent name is per Workspace, so no constraint keeps them
+      // apart: refuse a name a current member of this Workspace already has, or `@name` would
+      // name a person and an Agent at once. Checked before anything is written. A person who
+      // left has no membership row, so their username is free here again.
+      const member = await tx.workspaceMembership.findFirst({
+        where: { workspaceId: input.workspaceId, user: { username: input.name } },
+        select: { userId: true },
+      });
+      if (member) throw new AppError("CONFLICT", { errorId: "agent-name-taken" });
       // Free the name slot first if a soft-deleted Agent holds it: `@@unique([workspaceId, name])`
       // also spans deleted rows, so a new Agent with a deleted one's name could never be created.
       // The rename is checked before the create (a failed statement would poison this

@@ -124,9 +124,10 @@ export type ResolvedWorkspaceUser =
       ownerId: string;
     };
 
-/** Finds a human or Agent by Username in one Workspace. Agent names and human usernames are
- * disjoint identifier spaces, so an Agent match always wins first with no
- * ambiguity in practice. Shared by `user info` and `profile show`.
+/** Finds a human or Agent by Username in one Workspace. A new Agent cannot take a current
+ * member's username (`PrismaAgentRepository.create`), so the two rarely share one; a member who
+ * joins after such an Agent exists still can, and the Agent match wins first. Shared by
+ * `user info` and `profile show`.
  *
  * A private Agent `viewer` cannot see answers the distinct `AGENT_NOT_VISIBLE`
  * sentinel, never conflated with `undefined` (a name that matches nothing at all) — the Web
