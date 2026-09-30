@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
+import { humanLabel } from "#src/lib/human-label";
+import { workspaceMemberDirectory } from "#src/server/workspaces/member-directory-store.server";
 import { WorkspaceMembers } from "#src/server/workspaces/members.server";
 
 test("lists only the requested Workspace directory and denies outsiders", async () => {
@@ -200,6 +202,54 @@ test("the directory lists people in the order of the names they are shown by", a
     expect(directory.people.map((person) => person.name)).toEqual(["Alice", usernames[1], "Zoe"]);
   } finally {
     await db.workspace.deleteMany({ where: { slug: `label-${suffix}` } });
+    await db.user.deleteMany({ where: { username: { in: usernames } } });
+    await db.$disconnect();
+  }
+});
+
+test("a person with a full name and no display name is listed by the full name", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString)
+    throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
+
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID();
+  // The usernames sort amy < mia < zed; the names they are shown by sort Alice < mia < Zoe:
+  // amy has only a full name, zed a nickname that wins over his full name, mia neither.
+  const usernames = ["amy", "mia", "zed"].map((name) => `full-${name}-${suffix}`);
+  try {
+    const [amy, mia, zed] = await Promise.all([
+      db.user.create({ data: { username: usernames[0]!, fullName: "Zoe" } }),
+      db.user.create({ data: { username: usernames[1]! } }),
+      db.user.create({
+        data: { username: usernames[2]!, displayName: "Alice", fullName: "Zed Person" },
+      }),
+    ]);
+    const workspace = await db.workspace.create({
+      data: {
+        slug: `full-${suffix}`,
+        name: "Full names",
+        members: { create: [{ userId: amy!.id }, { userId: mia!.id }, { userId: zed!.id }] },
+      },
+    });
+
+    const directory = await new WorkspaceMembers(db).directory(workspace.id, amy!.id);
+    expect(directory.people.map((person) => person.name)).toEqual(["Alice", usernames[1], "Zoe"]);
+
+    const listed = await workspaceMemberDirectory(db).listMembers({
+      workspaceId: workspace.id,
+      actorUserId: amy!.id,
+    });
+    expect(listed.map(humanLabel)).toEqual(["Alice", usernames[1]!, "Zoe"]);
+
+    // The page shows the same label and finds a person by it.
+    const page = await new WorkspaceMembers(db).peoplePage(workspace.id, amy!.id, {
+      query: "Zoe",
+      limit: 10,
+    });
+    expect(page.items.map((person) => person.displayName)).toEqual(["Zoe"]);
+  } finally {
+    await db.workspace.deleteMany({ where: { slug: `full-${suffix}` } });
     await db.user.deleteMany({ where: { username: { in: usernames } } });
     await db.$disconnect();
   }

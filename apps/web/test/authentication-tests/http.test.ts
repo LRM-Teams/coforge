@@ -152,7 +152,10 @@ test("login callback signs in an Authing account that has no email, and /api/me 
   expect(failures).toEqual([]);
   expect(response.status).toBe(302);
   expect(response.headers.get("location")).toBe("/");
-  expect(resolved).toEqual([{ provider: "authing", subject: "authing-phone-user", email: null }]);
+  // The profile's name goes to user resolution too: it can name the account when nothing else does.
+  expect(resolved).toEqual([
+    { provider: "authing", subject: "authing-phone-user", email: null, name: "Ada" },
+  ]);
   const sessionCookie = response.headers
     .getSetCookie()
     .find((cookie) => cookie.startsWith("coforge_session="));

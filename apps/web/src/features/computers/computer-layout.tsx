@@ -35,7 +35,12 @@ export type ComputerListItem = ComputerIdentity &
     online: boolean;
     computerVersion?: string | null;
     ownedByCurrentUser: boolean;
-    creator?: { username: string; displayName: string | null; avatarUrl: string | null } | null;
+    creator?: {
+      username: string;
+      displayName: string | null;
+      fullName: string | null;
+      avatarUrl: string | null;
+    } | null;
   };
 
 /**

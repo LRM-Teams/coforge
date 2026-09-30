@@ -93,6 +93,9 @@ model User {
   username                    String                          @unique
   /// The latest email the identity provider reported at login. Not unique and never an identity key.
   email                       String?
+  /// The name teammates see. Nullable: an account created before it has none until it is asked.
+  fullName                    String?
+  /// An optional nickname that replaces `fullName` in labels when set.
   displayName                 String?
   description                 String                          @default("")
   avatarObjectKey             String?

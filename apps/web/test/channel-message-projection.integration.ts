@@ -19,6 +19,7 @@ test("a channel message reaches the browser in one shape from open, updates and 
     data: {
       username: `pa${suffix}`,
       displayName: "Alice Liddell",
+      fullName: null,
       avatarObjectKey: `avatars/alice/v7/avatar.png`,
     },
   });
@@ -247,6 +248,7 @@ test("a channel message reaches the browser in one shape from open, updates and 
           id: alice.id,
           username: alice.username,
           displayName: "Alice Liddell",
+          fullName: null,
           avatarObjectKey: `avatars/alice/v7/avatar.png`,
           description: "",
         },
@@ -257,7 +259,7 @@ test("a channel message reaches the browser in one shape from open, updates and 
           kind: "user",
           actorId: bob.id,
           handle: bob.username,
-          member: { user: { displayName: null }, agent: null },
+          member: { user: { displayName: null, fullName: null }, agent: null },
         },
       ],
       reactions: [],

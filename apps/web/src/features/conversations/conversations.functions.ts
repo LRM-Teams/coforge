@@ -222,7 +222,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           ),
           db.user.findUnique({
             where: { id: user.id },
-            select: { displayName: true, avatarObjectKey: true },
+            select: { displayName: true, fullName: true, avatarObjectKey: true },
           }),
         ]);
         return {
@@ -232,7 +232,11 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           senderKind: "user" as const,
           senderMemberId: message.senderMemberId,
           // Reads exactly like the same message after a reload: display name, handle separately.
-          senderName: humanLabel({ displayName: profile?.displayName, username: user.username }),
+          senderName: humanLabel({
+            displayName: profile?.displayName,
+            fullName: profile?.fullName ?? null,
+            username: user.username,
+          }),
           senderHandle: user.username,
           // A human-sent echo never carries an Agent id, and a human sender is never deleted.
           senderAgentId: undefined,

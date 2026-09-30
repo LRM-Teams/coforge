@@ -162,6 +162,7 @@ const PENDING_MENTION_ACTION_SELECT = {
   targetUser: {
     select: {
       displayName: true,
+      fullName: true,
       avatarObjectKey: true,
       memberships: { select: { workspaceId: true } },
     },
@@ -213,7 +214,11 @@ function pendingMentionActionView(
     targetHandle: row.targetHandle,
     targetLabel: agent
       ? agent.displayName?.trim() || row.targetHandle
-      : humanLabel({ displayName: row.targetUser?.displayName, username: row.targetHandle }),
+      : humanLabel({
+          displayName: row.targetUser?.displayName,
+          fullName: row.targetUser?.fullName ?? null,
+          username: row.targetHandle,
+        }),
     targetAvatarUrl: agent
       ? agentAvatarUrl(workspaceId, targetId, agent.avatarObjectKey)
       : workspaceUserAvatarUrl(workspaceId, targetId, row.targetUser?.avatarObjectKey ?? null),

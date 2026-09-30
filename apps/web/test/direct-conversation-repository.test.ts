@@ -614,6 +614,61 @@ describe("PrismaDirectConversationRepository", () => {
     ).toBe(undefined);
   });
 
+  test("a Task's person owner is named by the label teammates see: display name, full name, then username", async () => {
+    const owners = [
+      { username: "ada", displayName: "Countess", fullName: "Ada Lovelace" },
+      { username: "grace", displayName: null, fullName: "Grace Hopper" },
+      { username: "alan", displayName: null, fullName: null },
+    ];
+    let read = 0;
+    const db = {
+      $executeRaw: async () => 1,
+      conversationMember: {
+        findUnique: async () => ({ id: "agent-member", agentReadThroughSequence: 0 }),
+        updateMany: async () => ({ count: 1 }),
+      },
+      threadRead: { findUnique: async () => null },
+      message: {
+        findMany: async () => [
+          {
+            id: "root-1",
+            sequence: 1,
+            body: "Ship the release",
+            createdAt: new Date(0),
+            sender: { agentId: null, agent: null, user: { username: "frank", description: "" } },
+            attachments: [],
+            task: {
+              number: 31,
+              status: "todo",
+              owner: { user: owners[read++], agent: null },
+            },
+          },
+        ],
+      },
+    } as unknown as PrismaClient;
+    class TestConversationRepository extends PrismaDirectConversationRepository {
+      override async userIdForUsername() {
+        return "user-1";
+      }
+      override async findUserAgentConversation() {
+        return { id: "conversation-1" };
+      }
+    }
+    const repository = new TestConversationRepository(db);
+
+    const ownerLabels = [];
+    for (const _ of owners) {
+      const [message] = await repository.readMessages("workspace-1", "agent-1", "@frank");
+      ownerLabels.push(message?.task?.owner);
+    }
+
+    expect(ownerLabels).toEqual([
+      { displayName: "Countess", handle: "ada" },
+      { displayName: "Grace Hopper", handle: "grace" },
+      { displayName: "alan", handle: "alan" },
+    ]);
+  });
+
   test("an unanchored canonical read advances across a missing sequence", async () => {
     const updates: object[] = [];
     const db = {

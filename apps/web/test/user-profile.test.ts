@@ -79,6 +79,32 @@ test("saving the label a person already shows does not turn their username into 
   expect(named.updates).toEqual([{ displayName: "Ada Lovelace", description: "New" }]);
 });
 
+test("a person with a full name and no display name is named by the full name", async () => {
+  const named = profileRepository({ username: "ada", displayName: null, fullName: "Ada Lovelace" });
+  expect((await named.repository.get("user-1")).name).toBe("Ada Lovelace");
+
+  const nicknamed = profileRepository({
+    username: "ada",
+    displayName: "Countess",
+    fullName: "Ada Lovelace",
+  });
+  expect((await nicknamed.repository.get("user-1")).name).toBe("Countess");
+});
+
+test("saving only the description does not freeze the full name into the display name", async () => {
+  const named = profileRepository({ username: "ada", displayName: null, fullName: "Ada Lovelace" });
+  await named.repository.set("user-1", { name: "Ada Lovelace", description: "Building CoForge." });
+  expect(named.updates).toEqual([{ description: "Building CoForge." }]);
+
+  const nicknamed = profileRepository({
+    username: "ada",
+    displayName: null,
+    fullName: "Ada Lovelace",
+  });
+  await nicknamed.repository.set("user-1", { name: "Countess", description: "" });
+  expect(nicknamed.updates).toEqual([{ displayName: "Countess", description: "" }]);
+});
+
 test("profile image upload rejects unsupported and oversized files before persistence", async () => {
   const db = persistenceMustNotBeTouched();
 
@@ -170,11 +196,20 @@ test("profile image HTTP boundary rejects unauthenticated requests", async () =>
   expect(response.headers.get("cache-control")).toBe("no-store");
 });
 
-function profileRepository(row: { username: string; displayName: string | null }) {
+function profileRepository(row: {
+  username: string;
+  displayName: string | null;
+  fullName?: string | null;
+}) {
   const updates: unknown[] = [];
+  const stored = { ...row, fullName: row.fullName ?? null, description: "", avatarObjectKey: null };
   const db = {
     user: {
-      findUnique: async () => ({ ...row, description: "", avatarObjectKey: null }),
+      // Like the database, answer with only the columns the query selects.
+      findUnique: async ({ select }: { select: Record<string, true> }) =>
+        Object.fromEntries(
+          Object.keys(select).map((key) => [key, stored[key as keyof typeof stored]]),
+        ),
       update: async ({ data }: { data: { description: string } }) => {
         updates.push(data);
         return { description: data.description };

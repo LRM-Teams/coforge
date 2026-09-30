@@ -17,7 +17,8 @@ import type { AgentTargetFreshness } from "#src/server/agents/agent-messages.ser
 import { agentHistoryModelSeenBoundary } from "#src/server/agents/agent-history-boundary.server";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
-import { humanLabel } from "#src/lib/human-label";
+import { humanLabel, type HumanNames } from "#src/lib/human-label";
+import { STORED_USERNAME_SOURCE } from "#src/lib/username-grammar";
 import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
 import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 import { messageAnchorWhere, messageIdMatchesAnchor } from "#src/server/db/message-anchor.server";
@@ -167,7 +168,7 @@ export type PendingAgentDelivery = AgentRecoveryContext["resumeMessages"][number
 type AgentFacing<T extends { body: string }> = Omit<T, "body"> & { body: AgentReadableBody };
 
 const AGENT_RECOVERY_MESSAGE_LIMIT = 100;
-const PUBLIC_USERNAME_TARGET = /^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
+const PUBLIC_USERNAME_TARGET = new RegExp(`^@${STORED_USERNAME_SOURCE}$`);
 /** Eight-hex-character prefix or a full UUID; both address a Message. */
 const MESSAGE_ANCHOR = new RegExp(`^(?:[0-9a-f]{8}|${UUID_LIKE_SOURCE})$`);
 
@@ -177,7 +178,7 @@ const TASK_METADATA_SELECT = {
     status: true,
     owner: {
       select: {
-        user: { select: { username: true, displayName: true } },
+        user: { select: { username: true, displayName: true, fullName: true } },
         agent: { select: { name: true, displayName: true, deletedAt: true } },
       },
     },
@@ -334,22 +335,23 @@ function messageTask(
     number: number;
     status: string;
     owner: {
-      user: { username: string; displayName: string | null } | null;
+      user: HumanNames | null;
       agent: { name: string; displayName: string; deletedAt: Date | null } | null;
     } | null;
   } | null,
 ): MessageTaskMetadata | undefined {
   if (!task) return undefined;
   const agent = task.owner?.agent;
-  const identity = agent ?? task.owner?.user;
-  const handle = agent ? agent.name : task.owner?.user?.username;
+  const user = task.owner?.user;
+  const handle = agent ? agent.name : user?.username;
+  const displayName = agent ? agent.displayName || handle : user && humanLabel(user);
   return {
     number: task.number,
     status: taskStatus(task.status),
-    ...(identity && handle
+    ...(displayName && handle
       ? {
           owner: {
-            displayName: identity.displayName || handle,
+            displayName,
             handle,
             // A deleted Agent keeps the Task; the reading Agent must not take it for a live owner.
             ...(agent?.deletedAt ? { deleted: true } : {}),
@@ -544,6 +546,7 @@ const PEER_PROFILE_SELECT = {
   id: true,
   username: true,
   displayName: true,
+  fullName: true,
   avatarObjectKey: true,
 } satisfies Prisma.UserSelect;
 type PeerProfile = Prisma.UserGetPayload<{ select: typeof PEER_PROFILE_SELECT }>;
@@ -1058,6 +1061,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 id: true,
                 username: true,
                 displayName: true,
+                fullName: true,
                 description: true,
                 avatarObjectKey: true,
               },

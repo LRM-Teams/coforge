@@ -31,7 +31,7 @@ function row(overrides: {
       sender: {
         userId: "55555555-5555-4555-8555-555555555555",
         agentId: null,
-        user: { username: "frank", displayName: "Frank", avatarObjectKey: null },
+        user: { username: "frank", displayName: "Frank", fullName: null, avatarObjectKey: null },
         agent: null,
       },
       mentions: [],
@@ -68,6 +68,7 @@ describe("savedMessageView", () => {
             user: {
               username: "frank",
               displayName: "Frank",
+              fullName: null,
               avatarObjectKey: "users/55555555/a.png",
             },
             agent: null,

@@ -70,7 +70,9 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
         workspaceId: true,
         userId: true,
         role: true,
-        user: { select: { username: true, displayName: true, avatarObjectKey: true } },
+        user: {
+          select: { username: true, displayName: true, fullName: true, avatarObjectKey: true },
+        },
       },
     });
     return rows.map((row) => ({
@@ -79,6 +81,7 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
       role: asRole(row.role),
       username: row.user.username,
       displayName: row.user.displayName,
+      fullName: row.user.fullName,
       avatarUrl: workspaceUserAvatarUrl(workspaceId, row.userId, row.user.avatarObjectKey),
     }));
   }
@@ -148,7 +151,9 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
       const invitation = await tx.workspaceInvitation.findUnique({
         where: { id: input.invitationId },
         include: {
-          invitee: { select: { username: true, displayName: true, avatarObjectKey: true } },
+          invitee: {
+            select: { username: true, displayName: true, fullName: true, avatarObjectKey: true },
+          },
         },
       });
       if (!invitation) throw new AppError("NOT_FOUND");
@@ -169,6 +174,7 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
         role,
         username: invitation.invitee.username,
         displayName: invitation.invitee.displayName,
+        fullName: invitation.invitee.fullName,
         avatarUrl: workspaceUserAvatarUrl(
           invitation.workspaceId,
           input.userId,
@@ -205,7 +211,9 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
         workspaceId: true,
         userId: true,
         role: true,
-        user: { select: { username: true, displayName: true, avatarObjectKey: true } },
+        user: {
+          select: { username: true, displayName: true, fullName: true, avatarObjectKey: true },
+        },
       },
     });
     return {
@@ -214,6 +222,7 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
       role: asRole(row.role),
       username: row.user.username,
       displayName: row.user.displayName,
+      fullName: row.user.fullName,
       avatarUrl: workspaceUserAvatarUrl(workspaceId, row.userId, row.user.avatarObjectKey),
     };
   }

@@ -76,6 +76,32 @@ test("a taken username slug still creates a Workspace for that User", async () =
   });
 });
 
+test("a username that is a reserved Workspace slug does not become the slug", async () => {
+  const store = memoryStore();
+  const admin = { id: ada.id, username: "admin", displayName: "Admin" };
+
+  const result = await new WorkspaceEnrollment(store).ensureForUser(admin, "en");
+
+  expect(result.workspaceId).toBe("workspace-admin-11111111");
+  expect(store.created).toEqual([{ slug: "admin-11111111", name: "Admin's Workspace" }]);
+});
+
+test("a reserved username is checked as its slug, not as typed", async () => {
+  for (const username of ["settings", "workspaces", "login", "api"]) {
+    const store = memoryStore();
+    await new WorkspaceEnrollment(store).ensureForUser({ ...ada, username }, "en");
+    expect(store.created[0]?.slug).toBe(`${username}-11111111`);
+  }
+});
+
+test("the slug is derived from the username, so an underscore becomes a hyphen", async () => {
+  const store = memoryStore();
+
+  await new WorkspaceEnrollment(store).ensureForUser({ ...ada, username: "ada_lovelace" }, "en");
+
+  expect(store.created).toEqual([{ slug: "ada-lovelace", name: "Ada's Workspace" }]);
+});
+
 test("a membership failure does not leave a Workspace", async () => {
   const store = memoryStore();
   store.createForUser = async () => {

@@ -1440,7 +1440,13 @@ export class PublicChannels {
         select: {
           channelRole: true,
           user: {
-            select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              fullName: true,
+              avatarObjectKey: true,
+            },
           },
           agent: {
             select: {
@@ -1457,7 +1463,13 @@ export class PublicChannels {
       }),
       this.db.user.findMany({
         where: { memberships: { some: { workspaceId } } },
-        select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+        select: {
+          id: true,
+          username: true,
+          displayName: true,
+          fullName: true,
+          avatarObjectKey: true,
+        },
       }),
       // A private Agent can never join a channel, so it is never an add-candidate
       // either — unconditionally, the same "channels never contain a private Agent" invariant
@@ -1809,6 +1821,7 @@ export class PublicChannels {
               id: true,
               username: true,
               displayName: true,
+              fullName: true,
               description: true,
               avatarObjectKey: true,
             },
@@ -1943,6 +1956,7 @@ export class PublicChannels {
               id: true,
               username: true,
               displayName: true,
+              fullName: true,
               description: true,
               avatarObjectKey: true,
             },
@@ -2009,6 +2023,7 @@ export class PublicChannels {
               id: true,
               username: true,
               displayName: true,
+              fullName: true,
               description: true,
               avatarObjectKey: true,
             },
@@ -2249,6 +2264,7 @@ export class PublicChannels {
                 id: true,
                 username: true,
                 displayName: true,
+                fullName: true,
                 avatarObjectKey: true,
                 description: true,
               },

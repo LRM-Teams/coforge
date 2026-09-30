@@ -19,6 +19,7 @@ export const peoplePeerUserFields = {
   id: true,
   username: true,
   displayName: true,
+  fullName: true,
   avatarObjectKey: true,
 } as const;
 
@@ -29,6 +30,7 @@ export function peoplePeer(
     id: string;
     username: string;
     displayName: string | null;
+    fullName: string | null;
     avatarObjectKey: string | null;
   },
 ): Extract<DirectConversationPeer, { kind: "people" }> {

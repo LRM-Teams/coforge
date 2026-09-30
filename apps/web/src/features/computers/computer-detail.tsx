@@ -58,7 +58,12 @@ export type ComputerDetailView = ComputerIdentity & {
   computerVersion?: string | null;
   platform?: string | null;
   osVersion?: string | null;
-  creator?: { displayName: string | null; username: string; avatarUrl: string | null };
+  creator?: {
+    displayName: string | null;
+    fullName: string | null;
+    username: string;
+    avatarUrl: string | null;
+  };
   runtimes: {
     id: string;
     provider: RuntimeProvider;

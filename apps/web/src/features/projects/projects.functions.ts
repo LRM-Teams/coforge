@@ -152,6 +152,7 @@ export const getProject = createServerFn({ method: "GET" })
                       select: {
                         id: true,
                         displayName: true,
+                        fullName: true,
                         username: true,
                         avatarObjectKey: true,
                       },

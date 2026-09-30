@@ -138,7 +138,14 @@ export const listComputers = createServerFn({ method: "GET" })
               computerVersion: true,
               platform: true,
               osVersion: true,
-              owner: { select: { username: true, displayName: true, avatarObjectKey: true } },
+              owner: {
+                select: {
+                  username: true,
+                  displayName: true,
+                  fullName: true,
+                  avatarObjectKey: true,
+                },
+              },
             },
           },
         },
@@ -164,6 +171,7 @@ export const listComputers = createServerFn({ method: "GET" })
           creator: {
             username: computer.owner.username,
             displayName: computer.owner.displayName,
+            fullName: computer.owner.fullName,
             avatarUrl: computerCreatorAvatarUrl(
               computer.id,
               workspaceId,

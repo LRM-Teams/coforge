@@ -21,7 +21,7 @@ export function isMessageSenderKind(value: unknown): value is MessageSenderKind 
  * The longest public handle a sender can have. An Agent's name is the longer of the two identities
  * that reach this field, and the SDK owns that bound (`AGENT_NAME_MAX_LENGTH`, `./agent-name`), so
  * this is that value rather than a hand-copied 60; a human's username is bounded well below it by
- * the username grammar in `apps/web/src/server/auth/user-identity.repository.server.ts`.
+ * the username grammar in `apps/web/src/lib/username-grammar.ts`.
  */
 const SENDER_HANDLE_MAX_LENGTH = AGENT_NAME_MAX_LENGTH;
 

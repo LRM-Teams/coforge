@@ -555,7 +555,7 @@ describe("Agent detail", () => {
           role: "member",
           createdAt: new Date("2026-08-29T00:00:00Z"),
           computerId: "computer-1",
-          owner: { id: "owner-1", username: "alice" },
+          owner: { id: "owner-1", username: "alice", fullName: null },
           runtimeConfig: {},
         }),
       },
@@ -588,7 +588,7 @@ describe("Agent detail", () => {
           role: "member",
           createdAt: new Date("2026-08-29T00:00:00Z"),
           computerId: "computer-1",
-          owner: { id: "owner-1", username: "alice" },
+          owner: { id: "owner-1", username: "alice", fullName: null },
           runtimeConfig: {},
         }),
       },
@@ -637,7 +637,7 @@ describe("Agent detail", () => {
       role: "member",
       createdAt: new Date("2026-08-29T00:00:00Z"),
       computerId: "computer-1",
-      owner: { id: "owner-1", username: "alice" },
+      owner: { id: "owner-1", username: "alice", fullName: null },
       runtimeConfig: {},
     };
     const stoppedQuery = new AgentDetailQuery({
@@ -660,7 +660,7 @@ describe("Agent detail", () => {
         displayName: "Builder",
         role: "member",
         createdAt: new Date("2026-08-29T00:00:00Z"),
-        owner: { id: "owner-1", username: "alice" },
+        owner: { id: "owner-1", username: "alice", fullName: null },
         runtimeConfig: {
           runtime: "codex",
           provider: { kind: "default" },
@@ -697,7 +697,7 @@ describe("Agent detail", () => {
           displayName: "Frank’s Mac",
           kind: "local",
         },
-        owner: { id: "owner-1", username: "alice" },
+        owner: { id: "owner-1", username: "alice", fullName: null },
         runtimeConfig: {},
       }),
     });
@@ -727,7 +727,7 @@ describe("Agent detail", () => {
           displayName: "  ",
           kind: "cloud",
         },
-        owner: { id: "owner-1", username: "alice" },
+        owner: { id: "owner-1", username: "alice", fullName: null },
         runtimeConfig: {},
       }),
     });

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { AppError } from "#src/lib/app-error";
+import { humanLabel } from "#src/lib/human-label";
 import {
   WorkspaceMemberDirectory,
   type WorkspaceMemberDirectoryStore,
@@ -212,6 +213,30 @@ test("members are listed in the order of the names they are shown by, not of the
   expect(listed.map((row) => row.username)).toEqual(["zed", "mia", "ada"]);
 });
 
+test("a member with only a full name is listed by it, between a nickname and a bare username", async () => {
+  const store = memoryStore();
+  store.seedMember({
+    workspaceId,
+    userId: ownerId,
+    role: "owner",
+    username: "ada",
+    fullName: "Zoe Zed",
+  });
+  store.seedMember({
+    workspaceId,
+    userId: adminId,
+    role: "admin",
+    username: "zed",
+    displayName: "Alice",
+    fullName: "Zed Person",
+  });
+  store.seedMember({ workspaceId, userId: memberId, role: "member", username: "mia" });
+  const directory = new WorkspaceMemberDirectory(store);
+
+  const listed = await directory.listMembers({ workspaceId, actorUserId: ownerId });
+  expect(listed.map(humanLabel)).toEqual(["Alice", "mia", "Zoe Zed"]);
+});
+
 function memoryStore(): WorkspaceMemberDirectoryStore & {
   members: Map<string, WorkspaceMemberRecord>;
   /** The channels each `${workspaceId}:${userId}` member is active in. */
@@ -224,6 +249,7 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
     role: WorkspaceMemberRole;
     username: string;
     displayName?: string;
+    fullName?: string;
     channelIds?: string[];
   }): void;
   seedUser(userId: string, username: string): void;
@@ -248,6 +274,7 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
         role: input.role,
         username: input.username,
         displayName: input.displayName ?? null,
+        fullName: input.fullName ?? null,
         avatarUrl: null,
       });
     },
@@ -303,6 +330,7 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
         role: invitation.role,
         username: invitation.inviteeUsername,
         displayName: null,
+        fullName: null,
         avatarUrl: null,
       };
       members.set(`${member.workspaceId}:${member.userId}`, member);

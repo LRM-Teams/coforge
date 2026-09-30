@@ -527,7 +527,13 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
             stoppedAt: true,
             weeklyReportAssistant: { select: { id: true } },
             owner: {
-              select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                fullName: true,
+                avatarObjectKey: true,
+              },
             },
             avatarObjectKey: true,
           },

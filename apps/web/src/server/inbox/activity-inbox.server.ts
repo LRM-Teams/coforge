@@ -444,7 +444,7 @@ export class ActivityInbox {
           status: true,
           owner: {
             select: {
-              user: { select: { username: true, displayName: true } },
+              user: { select: { username: true, displayName: true, fullName: true } },
               agent: { select: { name: true, displayName: true, deletedAt: true } },
             },
           },

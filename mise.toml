@@ -70,7 +70,7 @@ run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:
 
 [tasks."test:channel"]
 description = "Run public channels, Workspace members and deletion, and daemon credential revocations against local PostgreSQL and Redis (CHANNEL_TEST_DATABASE_URL and CHANNEL_TEST_REDIS_URL required)"
-run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && bun test {{vars.thread_integration_files}} ./apps/web/test/daemon-credential-revocations.integration.test.ts ./apps/web/test/workspace-catalog.integration.ts ./apps/web/test/conversation-threads.integration.test.ts ./apps/web/test/workspace-join-links.integration.test.ts ./apps/web/test/workspace-delete.integration.test.ts ./apps/web/test/channel-delete.integration.test.ts ./apps/web/test/user-identity.integration.test.ts"
+run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && bun test {{vars.thread_integration_files}} ./apps/web/test/daemon-credential-revocations.integration.test.ts ./apps/web/test/workspace-catalog.integration.ts ./apps/web/test/conversation-threads.integration.test.ts ./apps/web/test/workspace-join-links.integration.test.ts ./apps/web/test/workspace-delete.integration.test.ts ./apps/web/test/channel-delete.integration.test.ts ./apps/web/test/user-identity.integration.test.ts ./apps/web/prisma/user-full-name-migration.integration.test.ts"
 
 [tasks."test:integration:web"]
 description = "Run the Web integration suites CI cannot, against a scratch PostgreSQL/Redis (INTEGRATION_DATABASE_URL and INTEGRATION_REDIS_URL override the defaults)"

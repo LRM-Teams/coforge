@@ -107,7 +107,15 @@ export class WorkspaceMembers {
         description: true,
         avatarObjectKey: true,
         createdAt: true,
-        owner: { select: { id: true, username: true, displayName: true, avatarObjectKey: true } },
+        owner: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            fullName: true,
+            avatarObjectKey: true,
+          },
+        },
         weeklyReportAssistant: { select: { id: true } },
         computer: {
           select: {
@@ -161,7 +169,13 @@ export class WorkspaceMembers {
     const [people, agents, directs] = await Promise.all([
       this.db.user.findMany({
         where: { memberships: { some: { workspaceId } } },
-        select: { id: true, username: true, displayName: true, avatarObjectKey: true },
+        select: {
+          id: true,
+          username: true,
+          displayName: true,
+          fullName: true,
+          avatarObjectKey: true,
+        },
       }),
       this.db.agent.findMany({
         where: visibleAgents,
@@ -226,12 +240,21 @@ export class WorkspaceMembers {
     const people = await this.db.user.findMany({
       where: {
         memberships: { some: { workspaceId } },
-        ...(query ? { OR: [{ username: contains(query) }, { displayName: contains(query) }] } : {}),
+        ...(query
+          ? {
+              OR: [
+                { username: contains(query) },
+                { displayName: contains(query) },
+                { fullName: contains(query) },
+              ],
+            }
+          : {}),
       },
       select: {
         id: true,
         username: true,
         displayName: true,
+        fullName: true,
         description: true,
         avatarObjectKey: true,
         // Visible Agents this person created. One list feeds the count and the faces: Prisma

@@ -3,6 +3,11 @@ import { AppError } from "#src/lib/app-error";
 import { generalChannelForCreator } from "#src/server/conversations/public-channels.server";
 import { WorkspaceCatalog, PrismaWorkspaceCatalogStore } from "./catalog.server";
 import { isUniqueViolation } from "#src/server/db/unique-violation.server";
+import {
+  isReservedWorkspaceSlug,
+  isValidWorkspaceSlug,
+  nameToWorkspaceSlug,
+} from "#src/features/workspaces/workspace-slug";
 
 export type EnrollmentUser = {
   id: string;
@@ -35,19 +40,27 @@ export class WorkspaceEnrollment {
     return this.store.findMembership(userId);
   }
 
+  /**
+   * The personal Workspace's slug is derived from the username, like any Workspace slug, and is
+   * never a reserved one: a readable username such as `admin` must not take a route's place. A
+   * reserved or already taken slug gets the user's id as a suffix instead.
+   */
   private async createOwnedWorkspace(
     username: string,
     userId: string,
     name: string,
   ): Promise<string> {
-    try {
-      return await this.store.createForUser({ slug: username, name, userId });
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
+    const slug = nameToWorkspaceSlug(username);
+    if (isValidWorkspaceSlug(slug) && !isReservedWorkspaceSlug(slug)) {
+      try {
+        return await this.store.createForUser({ slug, name, userId });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+      }
     }
     const suffix = userId.replaceAll("-", "").slice(0, 8);
     return this.store.createForUser({
-      slug: `${username}-${suffix}`,
+      slug: `${slug}-${suffix}`,
       name,
       userId,
     });
