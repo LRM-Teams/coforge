@@ -19,6 +19,7 @@ import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
   AgentSessionRecoveryError,
+  AgentEnvironmentError,
   ModelProviderSettingError,
   RuntimeModelNotFoundError,
   RuntimeVersionUnsupportedError,
@@ -10447,6 +10448,16 @@ describe("a launch that cannot start says why", () => {
         "Pi cannot use the Agent's model provider setting. Configure the model provider in the " +
         "Agent's settings, then start it again.",
       runtimeError: { errorClass: "LauncherError", errorReason: "model_provider_not_configured" },
+    });
+  });
+
+  test("an Agent environment variable the runtime cannot use is agent_environment_invalid, naming it", async () => {
+    const cause = "NODE_EXTRA_CA_CERTS names /missing/ca.pem, which could not be read: ENOENT";
+    const activity = await failedLaunch({ session: () => new AgentEnvironmentError(cause) });
+    expect(activity).toMatchObject({
+      detailKind: "runtime_error",
+      detail: `${cause}. Correct it in the Agent's environment variables, then start the Agent again.`,
+      runtimeError: { errorClass: "LauncherError", errorReason: "agent_environment_invalid" },
     });
   });
 

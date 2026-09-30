@@ -64,6 +64,8 @@ export const LAUNCH_FAILURE_REASON = {
   MODEL_NOT_FOUND: "model_not_found",
   /** The runtime cannot use the Agent's model provider setting. */
   MODEL_PROVIDER_NOT_CONFIGURED: "model_provider_not_configured",
+  /** An Agent environment variable names something the runtime cannot use. */
+  AGENT_ENVIRONMENT_INVALID: "agent_environment_invalid",
   /** No typed error said why. */
   RUNTIME_SPAWN_FAILED: "runtime_spawn_failed",
 } as const;
@@ -76,6 +78,7 @@ const TYPED_REASONS: readonly LaunchFailureReason[] = [
   LAUNCH_FAILURE_REASON.RUNTIME_VERSION_TOO_OLD,
   LAUNCH_FAILURE_REASON.MODEL_NOT_FOUND,
   LAUNCH_FAILURE_REASON.MODEL_PROVIDER_NOT_CONFIGURED,
+  LAUNCH_FAILURE_REASON.AGENT_ENVIRONMENT_INVALID,
 ];
 
 /** The server did not hand this launch its configuration and Agent API key. */
@@ -137,6 +140,12 @@ function launchFailureDetail(
       return (
         `${runtimeName} cannot use the Agent's model provider setting. Configure the model ` +
         "provider in the Agent's settings, then start it again."
+      );
+    case LAUNCH_FAILURE_REASON.AGENT_ENVIRONMENT_INVALID:
+      // The error's own sentence names the variable and what is wrong with its value.
+      return (
+        `${error instanceof Error ? error.message : "An Agent environment variable is invalid"}. ` +
+        "Correct it in the Agent's environment variables, then start the Agent again."
       );
     case LAUNCH_FAILURE_REASON.RUNTIME_SPAWN_FAILED:
       return (

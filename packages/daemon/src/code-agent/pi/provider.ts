@@ -5,6 +5,7 @@ import type {
   AgentSessionOptions,
 } from "@coforge/agent";
 import {
+  AgentEnvironmentError,
   AgentSessionRecoveryError,
   ModelProviderSettingError,
   RuntimeModelNotFoundError,
@@ -16,6 +17,7 @@ import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import {
   createSession,
   getAgentDir,
+  SessionEnvironmentError,
   getCoforgeAgentDir,
   getCoforgeSessionDir,
   PI_SDK_VERSION,
@@ -154,6 +156,8 @@ const PROVIDER_SETTING_POLICY_CODES: ReadonlySet<string> = new Set([
  * is returned unchanged.
  */
 function typedLaunchError(error: unknown, configuredModel: string | undefined): unknown {
+  if (error instanceof SessionEnvironmentError)
+    return new AgentEnvironmentError(error.message, { cause: error });
   const policyCode =
     error && typeof error === "object" ? Reflect.get(error, "policyCode") : undefined;
   if (policyCode === "PI_LAUNCH_MODEL_MISSING") {

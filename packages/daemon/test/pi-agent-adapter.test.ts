@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverPiModels } from "@coforge/agent";
 import {
+  AgentEnvironmentError,
   ModelProviderSettingError,
   RuntimeModelNotFoundError,
   type AgentRuntimeEvent,
@@ -966,6 +967,7 @@ describe("a Pi launch its model settings cannot satisfy fails with a typed error
     modelProvider?: string;
     model: string;
     providerConfig?: { kind: "coforge"; providerId: string; apiKey?: string };
+    envVars?: Record<string, string>;
   }) {
     const root = await mkdtemp(join(tmpdir(), "coforge-pi-typed-"));
     const agentDir = join(root, "host-pi-agent");
@@ -1006,6 +1008,20 @@ describe("a Pi launch its model settings cannot satisfy fails with a typed error
     const error = await launchPi({ modelProvider: "no-such-provider", model: "any" });
     expect(error).toBeInstanceOf(ModelProviderSettingError);
     expect(error).toMatchObject({ code: "model_provider_not_configured" });
+  });
+
+  test("an Agent's NODE_EXTRA_CA_CERTS that cannot be read is AgentEnvironmentError naming it", async () => {
+    const path = join(tmpdir(), `coforge-missing-ca-${crypto.randomUUID()}.pem`);
+    const error = await launchPi({
+      modelProvider: "openai",
+      model: "host-custom",
+      envVars: { NODE_EXTRA_CA_CERTS: path },
+    });
+    expect(error).toBeInstanceOf(AgentEnvironmentError);
+    expect(error).toMatchObject({ code: "agent_environment_invalid" });
+    expect((error as Error).message).toStartWith(
+      `NODE_EXTRA_CA_CERTS names ${path}, which could not be read`,
+    );
   });
 
   test("an Agent key for another provider than the selected model's is ModelProviderSettingError", async () => {

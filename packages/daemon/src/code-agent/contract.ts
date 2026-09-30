@@ -132,6 +132,15 @@ export class ModelProviderSettingError extends Error {
   }
 }
 
+/** An Agent environment variable names something the runtime cannot use; its message says what. */
+export class AgentEnvironmentError extends Error {
+  readonly code = "agent_environment_invalid";
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "AgentEnvironmentError";
+  }
+}
+
 export class AgentProcessCleanupError extends Error {
   constructor() {
     super("code agent process tree did not exit");
