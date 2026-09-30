@@ -19,6 +19,14 @@ the crate's commands, toolchain, and gotchas.
   a silent stretch (ureq has no per-read timeout).
 - `src/digest.rs`: SHA-256 identities (size and lowercase checksum) of bytes and
   files, and the rule for a valid identity.
+- `src/update_error.rs`: the failures of preparing a version, carrying the
+  product's `UPDATE_FEED_INVALID`, `UPDATE_INTEGRITY_FAILED`, and
+  `UPDATE_UNSUPPORTED_TARGET` codes (`upgrade-error-codes.json`).
+- `src/manifest.rs`: what a valid release manifest is. Pure validation of
+  `<version>/manifest.json` and the choice of one target's artifact; no I/O.
+- `src/feed.rs`: the release feed client. Resolves `latest`, fetches and
+  validates a manifest, downloads one version's binary and Pi image library
+  into a directory through `fetch`, checked against the manifest.
 - `src/lock.rs`: the machine mutation lock, an SQLite RESERVED lock on
   `<install root>/machine-mutation-lock.sqlite` (rusqlite, bundled SQLite)
   that excludes the Computer's own `acquireProcessLock`. Tests in
@@ -38,7 +46,7 @@ the crate's commands, toolchain, and gotchas.
   `__lifecycle` output, lock, service names, paths). Tests in
   `src/contract/tests.rs`.
 - `src/test_support.rs`: test-only helpers shared by the modules' tests: a
-  scratch directory and a loopback HTTP server.
+  scratch directory, a loopback HTTP server, and a tiny release tree.
 
 ## Contract with the product
 
@@ -136,10 +144,13 @@ mise exec -- cargo about generate --locked --fail --output-file THIRD_PARTY_NOTI
 
 ## Rules and gotchas
 
-- Transfers behave as `scripts/release/install.sh` does when preparing for the updater: no
-  redirect is followed (any 3xx is an error), the download and the expanded file are capped
-  separately, and a gzip object may hold several members (as Bun's `DecompressionStream`
-  accepts) but nothing else may follow them.
+- The feed is read as `scripts/release/install.sh` does when preparing for the
+  updater: no redirect is followed (any 3xx is an error), `latest` is at most
+  4096 bytes and a manifest at most 1 MiB, and every object a manifest names
+  must match its recorded size and checksum. The download and the expanded
+  executable are each capped at their recorded size (and both at 512 MiB), and a
+  gzip object may hold several members (as Bun's `DecompressionStream` accepts)
+  but nothing else may follow them.
 - A transfer that receives nothing for `fetch::IDLE_TIMEOUT` (60 s) fails; there
   is deliberately no limit on the whole download, which is legitimate on a slow
   link.

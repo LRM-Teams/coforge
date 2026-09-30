@@ -8,10 +8,13 @@
 pub mod active;
 pub mod contract;
 pub mod digest;
+pub mod feed;
 pub mod fetch;
 mod idle_timeout;
 pub mod lock;
+pub mod manifest;
 pub mod paths;
+pub mod update_error;
 pub mod version;
 
 #[cfg(test)]
