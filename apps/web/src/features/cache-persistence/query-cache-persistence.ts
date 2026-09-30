@@ -4,10 +4,16 @@ import {
   type AsyncStorage,
   type PersistedQuery,
 } from "@tanstack/query-persist-client-core";
-import { notifyManager, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import {
+  hashKey,
+  notifyManager,
+  type Query,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query";
 
 import { isAppError } from "#src/lib/app-error";
-import { persistsQuery, storedQueryData } from "./persisted-queries";
+import { persistsQuery, storedQueryData, withReadThrough } from "./persisted-queries";
 
 /** Where kept queries go: a key-value store that outlives the page (IndexedDB in the browser). */
 export type PersistedQueryStore = {
@@ -210,10 +216,15 @@ export function installQueryCachePersistence(
           ]);
       }, []),
   };
-  /** What goes to storage for a query: only what a restore needs, cut to its first paint. */
+  /** Read cursors the server moved past what the page's windows hold, by query (`noteReadThrough`). */
+  const readThrough = new Map<string, number>();
+  /** What goes to storage for a query: only what a restore needs, cut to its first paint, with the
+   * read cursor the server moved to. */
   const toStored = (persisted: Omit<PersistedQuery, "state"> & { state: Query["state"] }) => {
-    const data = storedQueryData(persisted.queryKey, persisted.state.data);
-    if (data === undefined) return undefined;
+    const kept = storedQueryData(persisted.queryKey, persisted.state.data);
+    if (kept === undefined) return undefined;
+    const cursor = readThrough.get(persisted.queryHash);
+    const data = cursor === undefined ? kept : withReadThrough(persisted.queryKey, kept, cursor);
     return {
       buster: persisted.buster,
       queryHash: persisted.queryHash,
@@ -335,14 +346,16 @@ export function installQueryCachePersistence(
     if (!stored) return;
     return storage.setItem(`${PERSISTER_KEY_PREFIX}-${queryHash}`, stored);
   };
-  queryClient.getQueryCache().subscribe((event) => {
-    if (event.type !== "updated" || event.action.type !== "success" || !event.action.manual) return;
-    if (!persistsQuery(event.query.queryKey) || pageWrites.has(event.query.queryHash)) return;
-    const { queryHash } = event.query;
+  const schedulePageWrite = (queryHash: string) => {
+    if (pageWrites.has(queryHash)) return;
     pageWrites.set(
       queryHash,
       setTimeout(() => void storePageWrite(queryHash), PAGE_WRITE_DELAY_MS),
     );
+  };
+  queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.action.type !== "success" || !event.action.manual) return;
+    if (persistsQuery(event.query.queryKey)) schedulePageWrite(event.query.queryHash);
   });
   const defaults = queryClient.getDefaultOptions();
   queryClient.setDefaultOptions({
@@ -382,6 +395,32 @@ export function installQueryCachePersistence(
         await persister.persisterGc();
         await store.set(marker, Date.now());
       }, undefined);
+    },
+    /**
+     * The person read the conversation `queryKey` through `throughSequence` and the server's cursor
+     * moved there. The page's window keeps the cursor it opened with (its divider stays for the
+     * visit); what is stored carries the new one from now on, so the next page load draws no
+     * divider over messages already read.
+     */
+    noteReadThrough(queryKey: QueryKey, throughSequence: number) {
+      if (!persistsQuery(queryKey)) return;
+      const queryHash = hashKey(queryKey);
+      if ((readThrough.get(queryHash) ?? -1) >= throughSequence) return;
+      readThrough.set(queryHash, throughSequence);
+      schedulePageWrite(queryHash);
+    },
+    /**
+     * Takes the cursor noted for `queryKey` into the page's own window: the person is leaving the
+     * conversation, so its divider is no longer on screen, and coming back in this page load opens
+     * the window from memory.
+     */
+    adoptReadThrough(queryKey: QueryKey) {
+      const cursor = readThrough.get(hashKey(queryKey));
+      if (cursor === undefined) return;
+      const current = queryClient.getQueryData(queryKey);
+      if (current === undefined) return;
+      const moved = withReadThrough(queryKey, current, cursor);
+      if (moved !== current) queryClient.setQueryData(queryKey, moved);
     },
     /** Stores the page's own writes still waiting for their burst to end: the page is going away. */
     async flush() {

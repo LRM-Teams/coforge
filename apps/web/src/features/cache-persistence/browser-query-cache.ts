@@ -44,6 +44,22 @@ export function installBrowserQueryCachePersistence(
   });
 }
 
+/** The server's read cursor of the conversation `queryKey` moved to `throughSequence`: what is
+ * stored for it carries the new cursor (`noteReadThrough`). A no-op where nothing is kept. */
+export function noteReadThrough(
+  queryClient: QueryClient,
+  queryKey: readonly unknown[],
+  throughSequence: number,
+) {
+  installed.get(queryClient)?.noteReadThrough(queryKey, throughSequence);
+}
+
+/** The person is leaving the conversation `queryKey`: its window takes the cursor noted for it
+ * (`adoptReadThrough`). A no-op where nothing is kept. */
+export function adoptReadThrough(queryClient: QueryClient, queryKey: readonly unknown[]) {
+  installed.get(queryClient)?.adoptReadThrough(queryKey);
+}
+
 /** The page is up: stores the kept queries it already holds, and sweeps what has aged out. */
 export async function rememberQueryCache(queryClient: QueryClient) {
   const persistence = installed.get(queryClient);
