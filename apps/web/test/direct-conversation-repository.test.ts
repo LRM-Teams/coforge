@@ -343,7 +343,7 @@ describe("PrismaDirectConversationRepository", () => {
     expect(midWindow.messages.map(({ id, sequence }) => [id, sequence])).toEqual([["root-5", 5]]);
     // The viewer's own row is in the list — that is what makes a mention *of the viewer*
     // resolvable, and what the pane's formatter and the composer both read.
-    expect(midWindow.viewerHandle).toBe("alice");
+    expect(midWindow.viewerId).toBe("user-1");
     expect(midWindow.mentionables).toEqual([
       {
         kind: "user",

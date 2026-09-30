@@ -31,6 +31,8 @@ describe("WorkspaceMembers", () => {
           return { userId: "viewer", role: "admin" };
         },
       },
+      // The order of the page, which the database settles: the ids in the order to show.
+      $queryRaw: async () => [{ id: "other-user" }],
       user: {
         findMany: async (query: object) => {
           queries.people = query;
@@ -39,6 +41,7 @@ describe("WorkspaceMembers", () => {
               id: "other-user",
               username: "grace",
               displayName: null,
+              fullName: "Grace Hopper",
               description: "Compiler pioneer",
               email: "private@example.test",
               avatarObjectKey: "avatars/other-user/7f3a/avatar",
@@ -106,7 +109,7 @@ describe("WorkspaceMembers", () => {
       select: { userId: true, role: true },
     });
     expect(queries.people).toMatchObject({
-      where: { memberships: { some: { workspaceId: "workspace-1" } } },
+      where: { id: { in: ["other-user"] } },
       select: {
         id: true,
         username: true,
@@ -114,8 +117,6 @@ describe("WorkspaceMembers", () => {
         description: true,
         avatarObjectKey: true,
       },
-      orderBy: [{ username: "asc" }, { id: "asc" }],
-      take: 25,
     });
     expect(queries.agents).toMatchObject({
       where: { AND: [{ workspaceId: "workspace-1", deletedAt: null }, {}, {}] },
@@ -147,8 +148,7 @@ describe("WorkspaceMembers", () => {
       people: [
         {
           id: "other-user",
-          name: "grace",
-          displayName: "grace",
+          displayName: "Grace Hopper",
           description: "Compiler pioneer",
           avatarUrl: "/api/workspaces/workspace-1/users/other-user/avatar?v=7f3a",
           createdAgents: { total: 0, items: [] },
@@ -242,5 +242,60 @@ describe("WorkspaceMembers", () => {
 
     const [visible] = (agentQuery as { where: { AND: object[] } }).where.AND;
     expect(visible).toEqual({ workspaceId: "workspace-1", deletedAt: null });
+  });
+  describe("directory", () => {
+    const directoryOf = (people: object[]) =>
+      new WorkspaceMembers({
+        workspaceMembership: { findUnique: async () => ({ userId: "viewer", role: "member" }) },
+        user: { findMany: async () => people },
+        agent: {
+          findMany: async () => [
+            {
+              id: "agent-1",
+              name: "atlas",
+              displayName: "Atlas Bot",
+              avatarObjectKey: null,
+              ownerId: "viewer",
+            },
+          ],
+        },
+        conversationMember: { findMany: async () => [] },
+      } as unknown as PrismaClient).directory("workspace-1", "viewer");
+
+    test("a person carries the names they are shown by and no username", async () => {
+      const { people } = await directoryOf([
+        {
+          id: "user-1",
+          username: "grace-hopper-4k2",
+          displayName: "Amazing Grace",
+          fullName: "Grace Hopper",
+          avatarObjectKey: null,
+        },
+        {
+          id: "user-2",
+          username: "ada-9d3",
+          displayName: null,
+          fullName: null,
+          avatarObjectKey: null,
+        },
+      ]);
+      // Listed by the name shown, so the person with no names sorts by their username label.
+      expect(people).toEqual([
+        { id: "user-2", name: "ada-9d3", fullName: null, avatarUrl: null, dmId: null },
+        {
+          id: "user-1",
+          name: "Amazing Grace",
+          fullName: "Grace Hopper",
+          avatarUrl: null,
+          dmId: null,
+        },
+      ]);
+      expect(JSON.stringify(people)).not.toContain("grace-hopper-4k2");
+    });
+
+    test("an Agent keeps its @handle", async () => {
+      const { agents } = await directoryOf([]);
+      expect(agents).toMatchObject([{ id: "agent-1", handle: "atlas", name: "Atlas Bot" }]);
+    });
   });
 });

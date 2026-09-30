@@ -85,7 +85,6 @@ export const loadConversationAround = createServerFn({ method: "GET" })
     );
     return {
       viewerId: user.id,
-      viewerHandle: user.username,
       ...page,
       messages: await attachActionCardViews(db, workspaceId, user.id, page.messages),
     };

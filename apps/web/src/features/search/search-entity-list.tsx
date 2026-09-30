@@ -107,6 +107,7 @@ function EntityContent({
   entity: SearchEntity;
   display: AgentDisplaySnapshot | undefined;
 }) {
+  const subtitle = entitySubtitle(entity);
   return (
     <>
       <EntityMark entity={entity} display={display} />
@@ -121,7 +122,7 @@ function EntityContent({
           {m.search_archived()}
         </Badge>
       )}
-      <span className="min-w-0 truncate text-xs text-tertiary">{entitySubtitle(entity)}</span>
+      {subtitle && <span className="min-w-0 truncate text-xs text-tertiary">{subtitle}</span>}
     </>
   );
 }
@@ -166,15 +167,18 @@ export function SearchEntityList({
   );
 }
 
-function entitySubtitle(entity: SearchEntity): string {
+/** The line after the name: what a channel is for, where a Computer runs, an Agent's `@handle`.
+ * A member has none: their username is not shown. */
+function entitySubtitle(entity: SearchEntity): string | undefined {
   switch (entity.kind) {
     case "channel":
       return entity.description;
     case "computer":
       return entity.hostname;
     case "agent":
-    case "dm":
       return `@${entity.handle}`;
+    case "dm":
+      return undefined;
   }
 }
 

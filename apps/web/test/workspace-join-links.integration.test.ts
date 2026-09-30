@@ -9,8 +9,6 @@ import type { MessageRequestIdempotency } from "#src/server/conversations/messag
 import type { ConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { WorkspaceJoinLinks } from "#src/server/workspaces/join-links.server";
 import { PrismaWorkspaceJoinLinkStore } from "#src/server/workspaces/join-links-store.server";
-import { PrismaWorkspaceMemberDirectoryStore } from "#src/server/workspaces/member-directory-store.server";
-import { WorkspaceMemberDirectory } from "#src/server/workspaces/member-directory.server";
 
 /**
  * Joining a Workspace by a link, against local PostgreSQL: the visitor becomes an ordinary
@@ -274,39 +272,6 @@ test.skipIf(!connectionString)(
       await expect(links.inspect({ token: replacement.token })).rejects.toMatchObject({
         code: "NOT_FOUND",
       });
-    } finally {
-      await teardown();
-    }
-  },
-);
-
-test.skipIf(!connectionString)(
-  "accepting an invitation admits through the same step and tells #general",
-  async () => {
-    const { db, realtime, announced, generalHumans, teardown, workspace, general, owner, bob } =
-      await setup();
-    try {
-      const directory = new WorkspaceMemberDirectory(
-        new PrismaWorkspaceMemberDirectoryStore(db),
-        undefined,
-        realtime,
-      );
-      const invitation = await directory.invite({
-        workspaceId: workspace.id,
-        actorUserId: owner.id,
-        inviteeUsername: bob.username,
-        role: "admin",
-      });
-
-      const accepted = await directory.acceptInvitation({
-        invitationId: invitation.id,
-        userId: bob.id,
-      });
-
-      expect(accepted).toMatchObject({ workspaceId: workspace.id, userId: bob.id, role: "admin" });
-      expect(await roleOf(db, workspace.id, bob.id)).toBe("admin");
-      expect(await generalHumans()).toEqual([owner.id, bob.id].sort());
-      expect(announced).toEqual([{ workspaceId: workspace.id, conversationIds: [general.id] }]);
     } finally {
       await teardown();
     }

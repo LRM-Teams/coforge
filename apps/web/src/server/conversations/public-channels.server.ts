@@ -1535,8 +1535,11 @@ export class PublicChannels {
           const serverRole = roleByUserId.get(row.user!.id) ?? "member";
           return {
             id: row.user!.id,
+            // The browser lists a person by `displayName`; the handle is for the Agent-facing
+            // roster (`agent-channel-management.server.ts`), which names people by it.
             username: row.user!.username,
             displayName: humanLabel(row.user!),
+            fullName: row.user!.fullName,
             avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user!.id, row.user!.avatarObjectKey),
             serverRole,
             channelRole: row.channelRole,
@@ -1562,8 +1565,8 @@ export class PublicChannels {
           .sort(compareHumanLabels)
           .map((user) => ({
             id: user.id,
-            username: user.username,
             displayName: humanLabel(user),
+            fullName: user.fullName,
             avatarUrl: workspaceUserAvatarUrl(workspaceId, user.id, user.avatarObjectKey),
           })),
         agents: workspaceAgents
@@ -1877,7 +1880,6 @@ export class PublicChannels {
       coordinatorAgent: activeCoordinator,
       senderMemberId: member?.id ?? "",
       viewerId: member ? userId : undefined,
-      viewerHandle: member?.user?.username,
       muted: member?.channelMuted ?? false,
       collapseLongMessages: member?.collapseLongMessages ?? true,
       pinned: Boolean(member?.pins.length),

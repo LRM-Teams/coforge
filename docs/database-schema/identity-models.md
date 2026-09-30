@@ -51,7 +51,17 @@ cleared, which labels the same. A person with neither is named by
 their username, without an `@`, until asked. The provider's name is not stored
 and never labels a person.
 `humanLabel` in `apps/web/src/lib/human-label.ts` is the one rule for that label,
-in messages, member lists, mentions, and the signed-in user's own shell.
+in messages, member lists, mentions, reactions, notifications, and the
+signed-in user's own shell. No screen shows a person's username, except the
+`@` list beside two people whose label and description are identical, where
+nothing else tells them apart. It is the handle Agents use in `@mentions` and the label of last resort, and a search
+finds a person by it only when it is their label. The Workspace directory that
+the Search page and the pickers load carries a person's label and full name,
+never the username, and the Members directory lists people by label. An Agent's
+`@handle` stays visible. Settings → Account edits `fullName` (required) and
+`displayName` (optional, and blank means none), both by that one rule; a name it
+refuses is worded inline where it is typed. A `displayName` equal to the
+`fullName` is stored as none.
 
 `User.description` stores the editable profile description. The optional
 `avatarObjectKey` and `avatarContentType` identify the user's current private
@@ -61,10 +71,9 @@ the row points to it, then removes the previous object. `Agent` uses the same
 two columns for its own picture, in the same image store.
 
 Setup persistence consists of `User`, `UserIdentity`, `Workspace`,
-`WorkspaceMembership`, `WorkspaceInvitation`, `Computer`, and `WorkspaceComputer`.
+`WorkspaceMembership`, `Computer`, and `WorkspaceComputer`.
 `WorkspaceMembership.role` is `owner`, `admin`, or `member`. The Workspace creator
-is the immutable owner. `WorkspaceInvitation` stores pending invites by existing
-User id for `admin` or `member` only. `WorkspaceComputer`
+is the immutable owner. `WorkspaceComputer`
 is the durable binding and contains the workspace/computer foreign keys. Its
 database `id` is an internal storage primary key; the business identity is the
 composite `(workspaceId, computerId)` key. That unique constraint makes

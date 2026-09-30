@@ -11,8 +11,8 @@ import {
 
 export { WORKSPACE_MEMBER_ROLES, type WorkspaceMemberRole };
 
-export const INVITABLE_WORKSPACE_ROLES = ["admin", "member"] as const;
-export type InvitableWorkspaceRole = (typeof INVITABLE_WORKSPACE_ROLES)[number];
+export const ASSIGNABLE_WORKSPACE_ROLES = ["admin", "member"] as const;
+export type AssignableWorkspaceRole = (typeof ASSIGNABLE_WORKSPACE_ROLES)[number];
 
 export function isWorkspaceMemberRole(value: string): value is WorkspaceMemberRole {
   return (WORKSPACE_MEMBER_ROLES as readonly string[]).includes(value);
@@ -77,17 +77,18 @@ export function assertHasAgentControlCapability(
   if (!hasAgentControlCapability(actorRole, capability)) throw new AppError("ACCESS_DENIED");
 }
 
-export function normalizeInvitableRole(role: string): InvitableWorkspaceRole {
+export function normalizeAssignableRole(role: string): AssignableWorkspaceRole {
   if (role === "admin" || role === "member") return role;
   throw new AppError("INVALID_INPUT");
 }
 
-export function assertCanInvite(
+/** Whether `actorRole` may give someone `role`: only owners and admins do, and never `owner`. */
+export function assertCanAssignRole(
   actorRole: WorkspaceMemberRole,
-  inviteRole: string,
-): InvitableWorkspaceRole {
+  role: string,
+): AssignableWorkspaceRole {
   assertCanManageMembers(actorRole);
-  return normalizeInvitableRole(inviteRole);
+  return normalizeAssignableRole(role);
 }
 
 export function assertCanChangeMemberRole(

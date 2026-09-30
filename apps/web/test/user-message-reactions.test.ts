@@ -12,8 +12,25 @@ const input = {
   active: true,
 };
 
-function reactionRow(emoji: string, username: string) {
-  return { emoji, member: { agentId: null, agent: null, user: { username } } };
+/** A reaction by a person: `userId` is who they are, `names` their profile. */
+function reactionRow(
+  emoji: string,
+  userId: string,
+  names: { username: string; displayName?: string; fullName?: string },
+) {
+  return {
+    emoji,
+    member: {
+      userId,
+      agentId: null,
+      agent: null,
+      user: { displayName: null, fullName: null, ...names },
+    },
+  };
+}
+
+function agentReactionRow(emoji: string, name: string) {
+  return { emoji, member: { userId: null, agentId: `agent-${name}`, agent: { name }, user: null } };
 }
 
 function fakeDb(
@@ -89,14 +106,47 @@ describe("toggleUserMessageReaction", () => {
 
   test("upserts on active and returns the fresh summaries in first-reaction order", async () => {
     const { db, calls } = fakeDb({
-      remaining: [reactionRow("🎉", "alice"), reactionRow("👍", "bob"), reactionRow("👍", "carol")],
+      remaining: [
+        reactionRow("🎉", "user-alice", { username: "alice-3f9", fullName: "Alice Chen" }),
+        reactionRow("👍", "user-bob", { username: "bob-7q1", fullName: "Bob Okafor" }),
+        reactionRow("👍", "user-carol", { username: "carol-2xa", fullName: "Carol Diaz" }),
+      ],
     });
     const summaries = await toggleUserMessageReaction(db, input);
     expect(calls).toEqual(["message", "member", "upsert", "summaries"]);
     expect(summaries).toEqual([
-      { emoji: "🎉", count: 1, reactors: ["@alice"] },
-      { emoji: "👍", count: 2, reactors: ["@bob", "@carol"] },
+      { emoji: "🎉", count: 1, reactors: [{ id: "user-alice", label: "Alice Chen" }] },
+      {
+        emoji: "👍",
+        count: 2,
+        reactors: [
+          { id: "user-bob", label: "Bob Okafor" },
+          { id: "user-carol", label: "Carol Diaz" },
+        ],
+      },
     ]);
+  });
+
+  test("names a person by their label, never their username, and an Agent by its @handle", async () => {
+    const { db } = fakeDb({
+      remaining: [
+        reactionRow("👍", "user-1", {
+          username: "frank-an-4k2",
+          displayName: "Frankie",
+          fullName: "Frank An",
+        }),
+        reactionRow("👍", "user-2", { username: "ada-9d3", fullName: "Ada Lovelace" }),
+        agentReactionRow("👍", "atlas"),
+      ],
+    });
+    const summaries = await toggleUserMessageReaction(db, input);
+    expect(summaries?.[0]?.reactors).toEqual([
+      { id: "user-1", label: "Frankie" },
+      { id: "user-2", label: "Ada Lovelace" },
+      { id: "agent-atlas", label: "@atlas" },
+    ]);
+    expect(JSON.stringify(summaries)).not.toContain("frank-an-4k2");
+    expect(JSON.stringify(summaries)).not.toContain("ada-9d3");
   });
 
   test("deletes on inactive and reports no summaries once the last one is gone", async () => {

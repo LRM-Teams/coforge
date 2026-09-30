@@ -84,26 +84,20 @@ const workspace = await db.workspace.findUniqueOrThrow({ where: { id: workspaceI
 console.log(`Workspace: ${workspace.slug} (${workspaceId})`);
 
 // ---------------------------------------------------------------------------
-// Extra humans: two more workspace members, one pending invitee.
+// Extra humans: two more workspace members.
 // ---------------------------------------------------------------------------
 const jordanId = stableId("user:jordan-lee");
 const caseyId = stableId("user:casey-morgan");
-const rileyId = stableId("user:riley-chen"); // not a member — invitee only
 
 await db.user.upsert({
   where: { id: jordanId },
   create: { id: jordanId, username: "jordan-lee", fullName: "Jordan Lee" },
-  update: { fullName: "Jordan Lee" },
+  update: { fullName: "Jordan Lee", displayName: null },
 });
 await db.user.upsert({
   where: { id: caseyId },
   create: { id: caseyId, username: "casey-morgan", fullName: "Casey Morgan" },
-  update: { fullName: "Casey Morgan" },
-});
-await db.user.upsert({
-  where: { id: rileyId },
-  create: { id: rileyId, username: "riley-chen", fullName: "Riley Chen" },
-  update: { fullName: "Riley Chen" },
+  update: { fullName: "Casey Morgan", displayName: null },
 });
 
 await db.workspaceMembership.upsert({
@@ -117,23 +111,7 @@ await db.workspaceMembership.upsert({
   update: { role: "member" },
 });
 
-const invitationId = stableId("invitation:riley-chen");
-await db.workspaceInvitation.upsert({
-  where: { id: invitationId },
-  create: {
-    id: invitationId,
-    workspaceId,
-    inviterUserId: DEV_BROWSER_USER.id,
-    inviteeUserId: rileyId,
-    role: "member",
-    status: "pending",
-    expiresAt: hoursFromNow(24 * 7),
-  },
-  update: { status: "pending", expiresAt: hoursFromNow(24 * 7) },
-});
-
 console.log("Members: dev-user (owner), jordan-lee (admin), casey-morgan (member)");
-console.log("Pending invitation: riley-chen (member)");
 
 // ---------------------------------------------------------------------------
 // Computers: one online with three detected runtimes + usage, one offline.

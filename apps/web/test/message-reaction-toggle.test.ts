@@ -4,39 +4,51 @@ import {
   createReactionToggler,
 } from "#src/features/conversations/message-reactions";
 
-const thumbs = { emoji: "👍", count: 2, reactors: ["@jordan", "@atlas"] };
-const party = { emoji: "🎉", count: 1, reactors: ["@casey"] };
+const jordan = { id: "user-jordan", label: "Jordan Lee" };
+const atlas = { id: "agent-atlas", label: "@atlas" };
+const casey = { id: "user-casey", label: "Casey Morgan" };
+const dev = { id: "user-dev", label: "Dev User" };
+const thumbs = { emoji: "👍", count: 2, reactors: [jordan, atlas] };
+const party = { emoji: "🎉", count: 1, reactors: [casey] };
 
 describe("applyReactionToggle", () => {
   test("adds the viewer to an existing emoji without reordering the chips", () => {
-    expect(applyReactionToggle([thumbs, party], "👍", "@dev", true)).toEqual([
-      { emoji: "👍", count: 3, reactors: ["@jordan", "@atlas", "@dev"] },
+    expect(applyReactionToggle([thumbs, party], "👍", dev, true)).toEqual([
+      { emoji: "👍", count: 3, reactors: [jordan, atlas, dev] },
       party,
     ]);
   });
 
   test("appends a new emoji after the existing ones (first-reaction order)", () => {
-    expect(applyReactionToggle([thumbs], "🚀", "@dev", true)).toEqual([
+    expect(applyReactionToggle([thumbs], "🚀", dev, true)).toEqual([
       thumbs,
-      { emoji: "🚀", count: 1, reactors: ["@dev"] },
+      { emoji: "🚀", count: 1, reactors: [dev] },
     ]);
-    expect(applyReactionToggle(undefined, "🚀", "@dev", true)).toEqual([
-      { emoji: "🚀", count: 1, reactors: ["@dev"] },
+    expect(applyReactionToggle(undefined, "🚀", dev, true)).toEqual([
+      { emoji: "🚀", count: 1, reactors: [dev] },
     ]);
   });
 
   test("removes the viewer, dropping a chip nobody else holds", () => {
-    const mine = { emoji: "👍", count: 3, reactors: ["@jordan", "@dev", "@atlas"] };
-    expect(applyReactionToggle([mine, party], "👍", "@dev", false)).toEqual([thumbs, party]);
+    const mine = { emoji: "👍", count: 3, reactors: [jordan, dev, atlas] };
+    expect(applyReactionToggle([mine, party], "👍", dev, false)).toEqual([thumbs, party]);
     expect(
-      applyReactionToggle([{ emoji: "🚀", count: 1, reactors: ["@dev"] }], "🚀", "@dev", false),
+      applyReactionToggle([{ emoji: "🚀", count: 1, reactors: [dev] }], "🚀", dev, false),
     ).toBeUndefined();
   });
 
+  test("finds the viewer by id, so a name that changed since the row loaded still matches", () => {
+    const renamed = { emoji: "👍", count: 2, reactors: [jordan, { ...dev, label: "D. User" }] };
+    expect(applyReactionToggle([renamed], "👍", dev, false)).toEqual([
+      { emoji: "👍", count: 1, reactors: [jordan] },
+    ]);
+    expect(applyReactionToggle([renamed], "👍", dev, true)).toEqual([renamed]);
+  });
+
   test("is idempotent: re-adding or re-removing leaves the summaries as they are", () => {
-    const mine = { emoji: "👍", count: 3, reactors: ["@jordan", "@atlas", "@dev"] };
-    expect(applyReactionToggle([mine], "👍", "@dev", true)).toEqual([mine]);
-    expect(applyReactionToggle([thumbs], "👍", "@dev", false)).toEqual([thumbs]);
+    const mine = { emoji: "👍", count: 3, reactors: [jordan, atlas, dev] };
+    expect(applyReactionToggle([mine], "👍", dev, true)).toEqual([mine]);
+    expect(applyReactionToggle([thumbs], "👍", dev, false)).toEqual([thumbs]);
   });
 });
 
@@ -70,15 +82,10 @@ describe("createReactionToggler", () => {
   test("shows the change before the server answers, then settles on the server's summary", async () => {
     const h = harness([thumbs]);
     const server = h.gate<Message["reactions"]>();
-    const done = h.toggle("m1", "👍", "@dev", true, () => server.promise);
-    expect(h.current()).toEqual([
-      { emoji: "👍", count: 3, reactors: ["@jordan", "@atlas", "@dev"] },
-    ]);
+    const done = h.toggle("m1", "👍", dev, true, () => server.promise);
+    expect(h.current()).toEqual([{ emoji: "👍", count: 3, reactors: [jordan, atlas, dev] }]);
     // The server also saw a concurrent 🎉 from someone else: its answer wins.
-    const authoritative = [
-      { emoji: "👍", count: 3, reactors: ["@jordan", "@atlas", "@dev"] },
-      party,
-    ];
+    const authoritative = [{ emoji: "👍", count: 3, reactors: [jordan, atlas, dev] }, party];
     server.release(authoritative);
     await done;
     expect(h.current()).toEqual(authoritative);
@@ -89,11 +96,11 @@ describe("createReactionToggler", () => {
     const h = harness([thumbs]);
     const add = h.gate<Message["reactions"]>();
     const remove = h.gate<Message["reactions"]>();
-    const first = h.toggle("m1", "👍", "@dev", true, () => add.promise);
-    const second = h.toggle("m1", "👍", "@dev", false, () => remove.promise);
+    const first = h.toggle("m1", "👍", dev, true, () => add.promise);
+    const second = h.toggle("m1", "👍", dev, false, () => remove.promise);
     remove.release([thumbs]);
     await second;
-    add.release([{ emoji: "👍", count: 3, reactors: ["@jordan", "@atlas", "@dev"] }]);
+    add.release([{ emoji: "👍", count: 3, reactors: [jordan, atlas, dev] }]);
     await first;
     expect(h.current()).toEqual([thumbs]);
   });
@@ -101,7 +108,7 @@ describe("createReactionToggler", () => {
   test("a failed toggle re-reads the conversation and still reports the error", async () => {
     const h = harness([thumbs]);
     const server = h.gate<Message["reactions"]>();
-    const done = h.toggle("m1", "👍", "@dev", true, () => server.promise);
+    const done = h.toggle("m1", "👍", dev, true, () => server.promise);
     server.fail(new Error("offline"));
     await expect(done).rejects.toThrow("offline");
     expect(h.resyncs()).toBe(1);

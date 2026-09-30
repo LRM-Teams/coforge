@@ -12,8 +12,24 @@ import type {
   WebPushSubscriptionStore,
 } from "./web-push-notifications.server";
 import { workspacePath } from "#src/features/workspaces/workspace-url";
+import { humanLabel } from "#src/lib/human-label";
+import { SYSTEM_SENDER_LABEL } from "#src/features/profiles/person-name";
 
 const MESSAGE_PREVIEW_LENGTH = 180;
+
+/** Who a notification says the message is from: a person by the name teammates know them by, an
+ * Agent by its `@handle` (the handle is how it is mentioned). */
+function senderLabel(
+  sender: {
+    agent: { name: string } | null;
+    user: { username: string; displayName: string | null; fullName: string | null } | null;
+  } | null,
+) {
+  if (!sender) return SYSTEM_SENDER_LABEL;
+  if (sender.agent) return `@${sender.agent.name}`;
+  if (sender.user) return humanLabel(sender.user);
+  return "@unknown";
+}
 
 type MessageContext = {
   message: {
@@ -49,7 +65,10 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
       where: { id: messageId },
       include: {
         sender: {
-          select: { agent: { select: { name: true } }, user: { select: { username: true } } },
+          select: {
+            agent: { select: { name: true } },
+            user: { select: { username: true, displayName: true, fullName: true } },
+          },
         },
         mentions: MESSAGE_MENTIONS_SELECT,
         conversation: {
@@ -68,9 +87,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
           .filter((mention) => mention.kind === "user")
           .map((mention) => mention.actorId)
       : [];
-    const sender = message.sender
-      ? `@${message.sender.agent?.name ?? message.sender.user?.username ?? "unknown"}`
-      : "System";
+    const sender = senderLabel(message.sender);
     const preview =
       readableBody.length > MESSAGE_PREVIEW_LENGTH
         ? `${readableBody.slice(0, MESSAGE_PREVIEW_LENGTH - 1)}…`

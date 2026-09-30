@@ -7,6 +7,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import type { Prisma } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import { humanLabel } from "#src/lib/human-label";
 import {
   MESSAGE_MENTIONS_SELECT,
   agentReadableBody,
@@ -23,7 +24,7 @@ export const TASK_MEMBER_SELECT = {
   userId: true,
   agentId: true,
   leftAt: true,
-  user: { select: { username: true, displayName: true, avatarObjectKey: true } },
+  user: { select: { username: true, displayName: true, fullName: true, avatarObjectKey: true } },
   agent: { select: { name: true, displayName: true, deletedAt: true } },
 } satisfies Prisma.ConversationMemberSelect;
 
@@ -116,7 +117,7 @@ export function taskMember(
     memberId: member.id,
     kind: "user",
     id: member.userId!,
-    name: user.displayName || `@${user.username}`,
+    name: humanLabel(user),
     handle: user.username,
     ...(member.leftAt !== null && { left: true }),
     avatarUrl: workspaceUserAvatarUrl(workspaceId, member.userId!, user.avatarObjectKey),

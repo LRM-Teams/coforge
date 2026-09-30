@@ -15,7 +15,6 @@ model Workspace {
   iconObjectKey          String?
   iconContentType        String?
   members                WorkspaceMembership[]
-  invitations            WorkspaceInvitation[]
   joinLinks              WorkspaceJoinLink[]
   computers              WorkspaceComputer[]
   computerRuntimes       ComputerRuntime[]
@@ -108,8 +107,6 @@ model User {
   gitHubUserInstallations     GitHubUserInstallation[]
   memberships                 WorkspaceMembership[]
   pendingMentionActions       PendingMentionAction[]
-  sentInvitations             WorkspaceInvitation[]           @relation("WorkspaceInvitationInviter")
-  receivedInvitations         WorkspaceInvitation[]           @relation("WorkspaceInvitationInvitee")
   createdJoinLinks            WorkspaceJoinLink[]
   agents                      Agent[]
   weeklyReportAssistants        WeeklyReportAssistant[]
@@ -603,28 +600,6 @@ model WorkspaceMemberPreference {
 
   @@id([workspaceId, userId])
   @@map("workspace_member_preferences")
-}
-
-/// Pending human invites into a Workspace. Role is admin | member only; owner cannot be invited.
-model WorkspaceInvitation {
-  id            String    @id @default(uuid()) @db.Uuid
-  workspaceId   String    @db.Uuid
-  inviterUserId String    @db.Uuid
-  inviteeUserId String    @db.Uuid
-  role          String
-  status        String    @default("pending")
-  expiresAt     DateTime
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  inviter       User      @relation("WorkspaceInvitationInviter", fields: [inviterUserId], references: [id], onDelete: Cascade)
-  invitee       User      @relation("WorkspaceInvitationInvitee", fields: [inviteeUserId], references: [id], onDelete: Cascade)
-
-  @@index([workspaceId, status])
-  @@index([inviteeUserId, status])
-  /// Only one live pending invitation per invitee inside a Workspace.
-  @@unique([workspaceId, inviteeUserId], where: { status: "pending" }, map: "workspace_invitations_pending_workspace_invitee_key")
-  @@map("workspace_invitations")
 }
 
 /// A reusable link anyone signed in can open to join the Workspace as an ordinary member (no role).

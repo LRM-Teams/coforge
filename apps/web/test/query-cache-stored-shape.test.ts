@@ -65,7 +65,7 @@ const message = {
   attachments: [
     { id: "a1", fileName: "notes.png", contentType: "image/png", sizeBytes: 12, previewUrl: "u" },
   ],
-  reactions: [{ emoji: "👍", count: 1, reactors: ["@ada"] }],
+  reactions: [{ emoji: "👍", count: 1, reactors: [{ id: "user-1", label: "Ada" }] }],
   actionCard: undefined,
 };
 // A direct conversation's stream does not send `senderMemberId`.
@@ -94,7 +94,6 @@ const windowFields = {
   },
   threadReadThrough: { m1: 2 },
   viewerId: "user-1",
-  viewerHandle: "ada",
   mentionables: [
     {
       kind: "user" as const,
@@ -273,6 +272,17 @@ const PINNED_SHAPES: Record<number, Record<string, string>> = {
     "sidebar directs": "d5303ed35079d99a",
     "channel names": "331d221481674004",
     "saved messages": "da415c7e82ad6579",
+  },
+  // A reaction's reactors are `{ id, label }`, not the `@handle` strings they were, and a window
+  // no longer carries the viewer's handle.
+  2: {
+    "channel window": "44676fdb14e4f430",
+    "direct window with an Agent": "97ae348e063eecb4",
+    "direct window with a person": "0d0d6367b901566a",
+    "sidebar channels": "0b5b17a03f4362f8",
+    "sidebar directs": "d5303ed35079d99a",
+    "channel names": "331d221481674004",
+    "saved messages": "af3437c73adfddaa",
   },
 };
 

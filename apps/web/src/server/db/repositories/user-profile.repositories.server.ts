@@ -1,3 +1,4 @@
+import { hasErrorCode } from "@lrm/coforge-sdk/internal";
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import { humanLabel } from "#src/lib/human-label";
@@ -27,8 +28,11 @@ export class PrismaUserProfileRepository {
     return {
       /** The name teammates see for this person (`humanLabel`); never the sign-in provider's. */
       name: humanLabel(profile),
+      /** Only for a caller that needs the handle itself (Records names its viewer by it); no page
+       * shows it. */
       username: profile.username,
-      displayName: profile.displayName,
+      fullName: profile.fullName,
+      displayName: nickname(profile.fullName, profile.displayName),
       /** False until the person has been asked for their full name (first sign-in). */
       named: profile.fullName !== null,
       description: profile.description,
@@ -36,27 +40,35 @@ export class PrismaUserProfileRepository {
     };
   }
 
-  async set(userId: string, input: { name: string; description: string }) {
-    const current = await this.db.user.findUnique({
-      where: { id: userId },
-      select: { username: true, displayName: true, fullName: true },
-    });
-    if (!current) throw new AppError("NOT_FOUND");
-    // The editor is seeded with the label shown today, so saving only the description sends that
-    // label back. When the person never set a display name it is a fallback (their full name or
-    // their username), not a nickname they chose, and storing it would freeze the fallback as
-    // their display name.
-    const nameUnchanged = !current.displayName?.trim() && input.name === humanLabel(current);
-    const profile = await this.db.user.update({
-      where: { id: userId },
-      data: {
-        ...(nameUnchanged ? {} : { displayName: input.name }),
-        description: input.description,
-      },
-      select: { description: true },
-    });
-    return { name: input.name, description: profile.description };
+  async set(
+    userId: string,
+    input: { fullName: string; displayName: string | null; description: string },
+  ) {
+    const displayName = nickname(input.fullName, input.displayName);
+    const profile = await this.db.user
+      .update({
+        where: { id: userId },
+        data: { fullName: input.fullName, displayName, description: input.description },
+        select: { description: true },
+      })
+      .catch((error: unknown) => {
+        // The signed-in person's row is gone (P2025): the same answer `get` gives.
+        throw hasErrorCode(error, "P2025") ? new AppError("NOT_FOUND") : error;
+      });
+    return {
+      name: displayName ?? input.fullName,
+      fullName: input.fullName,
+      displayName,
+      description: profile.description,
+    };
   }
+}
+
+/** The nickname a person chose: none when they left it empty or wrote their full name again,
+ * since the full name is what shows in both cases. */
+function nickname(fullName: string | null, displayName: string | null) {
+  const chosen = displayName?.trim();
+  return chosen && chosen !== fullName?.trim() ? chosen : null;
 }
 
 /**

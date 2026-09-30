@@ -21,7 +21,16 @@ const rootMessage = {
   body: "A very long status report that fills the thread pane. ".repeat(3),
   createdAt: "2026-09-21T07:00:00.000Z",
   attachments: [],
-  reactions: [{ emoji: "👍", count: 2, reactors: ["@casey-morgan", "@dev-user"] }],
+  reactions: [
+    {
+      emoji: "👍",
+      count: 2,
+      reactors: [
+        { id: "user-casey", label: "Casey Morgan" },
+        { id: "user-dev", label: "Dev User" },
+      ],
+    },
+  ],
 };
 
 const replyMessage = {
@@ -44,7 +53,7 @@ function renderThreadPane() {
         conversationId: "conv-1",
         senderMemberId: "member-user-1",
         readThroughSequence: 11,
-        viewerHandle: "dev-user",
+        viewerId: "user-dev",
         messages: [replyMessage],
       }}
       root={rootMessage}

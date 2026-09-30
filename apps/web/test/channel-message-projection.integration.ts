@@ -169,7 +169,7 @@ test("a channel message reaches the browser in one shape from open, updates and 
         createdAt: agentMessage.createdAt.toISOString(),
         mentions: [],
         attachments: [],
-        reactions: [{ emoji: "👍", count: 1, reactors: [`@${bob.username}`] }],
+        reactions: [{ emoji: "👍", count: 1, reactors: [{ id: bob.id, label: bob.username }] }],
         actionCard: undefined,
       },
       {

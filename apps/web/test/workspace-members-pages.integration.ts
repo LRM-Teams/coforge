@@ -123,13 +123,13 @@ test("pages the Workspace directory with owner and search filters", async () => 
     expect(names(await page({ query: "nobody" }))).toEqual([]);
 
     const people = await members.peoplePage(workspace.id, viewer!.id, { query: "", limit: 1 });
-    expect(people.items.map((person) => person.name)).toEqual([usernames[1]]);
+    expect(people.items.map((person) => person.displayName)).toEqual(["Owner"]);
     const morePeople = await members.peoplePage(workspace.id, viewer!.id, {
       query: "",
       limit: 1,
       cursor: people.nextCursor!,
     });
-    expect(morePeople.items.map((person) => person.name)).toEqual([usernames[0]]);
+    expect(morePeople.items.map((person) => person.displayName)).toEqual(["Viewer"]);
     expect(morePeople.nextCursor).toBeNull();
     expect(
       (await members.peoplePage(workspace.id, viewer!.id, { query: "VIEW", limit: 24 })).items,
@@ -210,7 +210,8 @@ test("each person carries the Agents they created that the viewer can see", asyn
       query: "",
       limit: 24,
     });
-    const byName = new Map(people.items.map((person) => [person.name, person]));
+    // These people have no names of their own, so each is shown by its username.
+    const byName = new Map(people.items.map((person) => [person.displayName, person]));
     const created = byName.get(usernames[1]!)!.createdAgents;
     expect(created.total).toBe(6);
     // The card shows a few faces and a "+N" for the rest, in the directory's name order.
@@ -223,6 +224,124 @@ test("each person carries the Agents they created that the viewer can see", asyn
     expect(byName.get(usernames[0]!)!.createdAgents).toEqual({ total: 0, items: [] });
   } finally {
     await db.workspace.deleteMany({ where: { slug: { in: slugs } } });
+    await db.user.deleteMany({ where: { username: { in: usernames } } });
+    await db.$disconnect();
+  }
+});
+
+test("people search reads the name a person is shown by, never a username they did not choose", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString)
+    throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
+
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const uid = crypto.randomUUID().slice(0, 8);
+  const usernames = [`ada-${uid}`, `grace-${uid}`, `legacy-${uid}`];
+  try {
+    const [ada, grace, legacy] = await Promise.all([
+      db.user.create({
+        data: { username: usernames[0]!, displayName: "Countess", fullName: "Ada Lovelace" },
+      }),
+      db.user.create({ data: { username: usernames[1]!, fullName: "Grace Hopper" } }),
+      // Never asked for a name: their username is the label everyone sees.
+      db.user.create({ data: { username: usernames[2]! } }),
+    ]);
+    const workspace = await db.workspace.create({
+      data: {
+        slug: `search-${uid}`,
+        name: "People search",
+        members: { create: [ada!, grace!, legacy!].map((user) => ({ userId: user.id })) },
+      },
+    });
+    const search = async (query: string) =>
+      (
+        await new WorkspaceMembers(db).peoplePage(workspace.id, ada!.id, { query, limit: 24 })
+      ).items.map((person) => person.displayName);
+
+    expect(await search("countess")).toEqual(["Countess"]);
+    // The nickname replaced the full name on screen, and the full name still finds them.
+    expect(await search("ada lovelace")).toEqual(["Countess"]);
+    expect(await search("HOPPER")).toEqual(["Grace Hopper"]);
+    // A person with no name is shown by, and found by, their username.
+    expect(await search(`legacy-${uid}`)).toEqual([`legacy-${uid}`]);
+    // A username nobody sees does not find a person who has a name.
+    expect(await search(`ada-${uid}`)).toEqual([]);
+    expect(await search(`grace-${uid}`)).toEqual([]);
+  } finally {
+    await db.workspace.deleteMany({ where: { slug: `search-${uid}` } });
+    await db.user.deleteMany({ where: { username: { in: usernames } } });
+    await db.$disconnect();
+  }
+});
+
+test("people are paged in the order of the names they are shown by, not of their usernames", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString)
+    throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
+
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const uid = crypto.randomUUID().slice(0, 8);
+  // Their usernames sort z, a, m, b, c, t2, t1; the names shown sort differently.
+  const specs = [
+    { username: `pg-z-${uid}`, fullName: "Ada Lovelace" },
+    { username: `pg-a-${uid}`, displayName: "bea", fullName: "Zed Zimmer" },
+    { username: `pg-m-${uid}`, fullName: "Cyd Charisse" },
+    // A blank display name is no name: the full name is shown.
+    { username: `pg-b-${uid}`, displayName: "  ", fullName: "Bob Barker" },
+    // No names at all: the username is the label.
+    { username: `pg-c-${uid}` },
+    // Two people shown alike are told apart by username.
+    { username: `pg-t2-${uid}`, fullName: "Sam Same" },
+    { username: `pg-t1-${uid}`, fullName: "Sam Same" },
+  ];
+  const usernames = specs.map((spec) => spec.username);
+  try {
+    const users = await Promise.all(specs.map((data) => db.user.create({ data })));
+    const workspace = await db.workspace.create({
+      data: {
+        slug: `people-order-${uid}`,
+        name: "People order",
+        members: { create: users.map((user) => ({ userId: user.id })) },
+      },
+    });
+    const members = new WorkspaceMembers(db);
+    const viewerId = users[0]!.id;
+    /** Every page of a search, walked by cursor, as the names shown. */
+    const walk = async (query: string, limit: number) => {
+      const shown: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await members.peoplePage(workspace.id, viewerId, { query, limit, cursor });
+        shown.push(...page.items.map((person) => person.displayName));
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+      return shown;
+    };
+
+    const inOrder = [
+      "Ada Lovelace",
+      "bea",
+      "Bob Barker",
+      "Cyd Charisse",
+      `pg-c-${uid}`,
+      "Sam Same",
+      "Sam Same",
+    ];
+    expect(await walk("", 24)).toEqual(inOrder);
+    // The same order whatever the page size, so a cursor resumes exactly where it stopped, even
+    // between two people shown alike.
+    expect(await walk("", 1)).toEqual(inOrder);
+    expect(await walk("", 3)).toEqual(inOrder);
+    const sams = await members.peoplePage(workspace.id, viewerId, { query: "sam", limit: 1 });
+    const secondSam = await members.peoplePage(workspace.id, viewerId, {
+      query: "sam",
+      limit: 1,
+      cursor: sams.nextCursor!,
+    });
+    expect([sams.items[0]!.id, secondSam.items[0]!.id]).toEqual([users[6]!.id, users[5]!.id]);
+    expect(secondSam.nextCursor).toBeNull();
+  } finally {
+    await db.workspace.deleteMany({ where: { slug: `people-order-${uid}` } });
     await db.user.deleteMany({ where: { username: { in: usernames } } });
     await db.$disconnect();
   }

@@ -5,7 +5,6 @@ import { humanLabel } from "#src/lib/human-label";
 import {
   WorkspaceMemberDirectory,
   type WorkspaceMemberDirectoryStore,
-  type WorkspaceInvitationRecord,
   type WorkspaceMemberRecord,
 } from "#src/server/workspaces/member-directory.server";
 import type { WorkspaceMemberRole } from "#src/server/workspaces/member-role.server";
@@ -14,59 +13,6 @@ const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ownerId = "11111111-1111-4111-8111-111111111111";
 const adminId = "22222222-2222-4222-8222-222222222222";
 const memberId = "33333333-3333-4333-8333-333333333333";
-const outsiderId = "44444444-4444-4444-8444-444444444444";
-const GENERAL_CHANNEL_ID = "general-channel";
-
-test("owner invites by username and invitee accepts into membership", async () => {
-  const store = memoryStore();
-  store.seedMember({ workspaceId, userId: ownerId, role: "owner", username: "ada" });
-  store.seedUser(outsiderId, "grace");
-  const directory = new WorkspaceMemberDirectory(store, undefined, {
-    memberChanged: async () => {},
-  });
-
-  const invitation = await directory.invite({
-    workspaceId,
-    actorUserId: ownerId,
-    inviteeUsername: "grace",
-    role: "member",
-  });
-  expect(invitation.role).toBe("member");
-  expect(invitation.status).toBe("pending");
-  expect(invitation.inviteeUserId).toBe(outsiderId);
-
-  const accepted = await directory.acceptInvitation({
-    invitationId: invitation.id,
-    userId: outsiderId,
-  });
-  expect(accepted.role).toBe("member");
-  expect(store.members.get(`${workspaceId}:${outsiderId}`)?.role).toBe("member");
-});
-
-test("cannot invite as owner or invite an existing member", async () => {
-  const store = memoryStore();
-  store.seedMember({ workspaceId, userId: ownerId, role: "owner", username: "ada" });
-  store.seedMember({ workspaceId, userId: memberId, role: "member", username: "bob" });
-  const directory = new WorkspaceMemberDirectory(store);
-
-  await expect(
-    directory.invite({
-      workspaceId,
-      actorUserId: ownerId,
-      inviteeUsername: "bob",
-      role: "member",
-    }),
-  ).rejects.toBeInstanceOf(AppError);
-
-  await expect(
-    directory.invite({
-      workspaceId,
-      actorUserId: ownerId,
-      inviteeUsername: "bob",
-      role: "owner",
-    }),
-  ).rejects.toBeInstanceOf(AppError);
-});
 
 test("admin can change member roles but not ownership", async () => {
   const store = memoryStore();
@@ -130,7 +76,7 @@ test("leaving or being removed tells each of the person's channels that its memb
     channelIds: ["channel-1", "channel-2"],
   });
   const announced: Array<{ workspaceId: string; conversationIds: readonly string[] }> = [];
-  const directory = new WorkspaceMemberDirectory(store, undefined, {
+  const directory = new WorkspaceMemberDirectory(store, {
     memberChanged: async (input) => {
       announced.push(input);
     },
@@ -145,33 +91,7 @@ test("leaving or being removed tells each of the person's channels that its memb
   ]);
 });
 
-test("accepting an invitation tells #general that its member list changed", async () => {
-  const store = memoryStore();
-  store.seedMember({ workspaceId, userId: ownerId, role: "owner", username: "ada" });
-  store.seedUser(outsiderId, "grace");
-  const announced: Array<{ workspaceId: string; conversationIds: readonly string[] }> = [];
-  const directory = new WorkspaceMemberDirectory(store, undefined, {
-    memberChanged: async (input) => {
-      announced.push(input);
-    },
-  });
-  const invitation = await directory.invite({
-    workspaceId,
-    actorUserId: ownerId,
-    inviteeUsername: "grace",
-    role: "admin",
-  });
-
-  const accepted = await directory.acceptInvitation({
-    invitationId: invitation.id,
-    userId: outsiderId,
-  });
-
-  expect(accepted).toMatchObject({ workspaceId, userId: outsiderId, role: "admin" });
-  expect(announced).toEqual([{ workspaceId, conversationIds: [GENERAL_CHANNEL_ID] }]);
-});
-
-test("ordinary members can list peers but cannot invite", async () => {
+test("ordinary members can list peers", async () => {
   const store = memoryStore();
   store.seedMember({ workspaceId, userId: ownerId, role: "owner", username: "ada" });
   store.seedMember({ workspaceId, userId: memberId, role: "member", username: "bob" });
@@ -179,15 +99,6 @@ test("ordinary members can list peers but cannot invite", async () => {
 
   const listed = await directory.listMembers({ workspaceId, actorUserId: memberId });
   expect(listed.map((row) => row.username).sort()).toEqual(["ada", "bob"]);
-
-  await expect(
-    directory.invite({
-      workspaceId,
-      actorUserId: memberId,
-      inviteeUsername: "grace",
-      role: "member",
-    }),
-  ).rejects.toBeInstanceOf(AppError);
 });
 
 test("members are listed in the order of the names they are shown by, not of their usernames", async () => {
@@ -241,8 +152,6 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
   members: Map<string, WorkspaceMemberRecord>;
   /** The channels each `${workspaceId}:${userId}` member is active in. */
   channels: Map<string, string[]>;
-  invitations: Map<string, WorkspaceInvitationRecord>;
-  users: Map<string, { id: string; username: string }>;
   seedMember(input: {
     workspaceId: string;
     userId: string;
@@ -252,21 +161,14 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
     fullName?: string;
     channelIds?: string[];
   }): void;
-  seedUser(userId: string, username: string): void;
 } {
   const members = new Map<string, WorkspaceMemberRecord>();
   const channels = new Map<string, string[]>();
-  const invitations = new Map<string, WorkspaceInvitationRecord>();
-  const users = new Map<string, { id: string; username: string }>();
-  let invitationSeq = 0;
 
   return {
     members,
     channels,
-    invitations,
-    users,
     seedMember(input) {
-      users.set(input.userId, { id: input.userId, username: input.username });
       channels.set(`${input.workspaceId}:${input.userId}`, input.channelIds ?? []);
       members.set(`${input.workspaceId}:${input.userId}`, {
         workspaceId: input.workspaceId,
@@ -278,9 +180,6 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
         avatarUrl: null,
       });
     },
-    seedUser(userId, username) {
-      users.set(userId, { id: userId, username });
-    },
     async findMembership(workspaceId, userId) {
       return members.get(`${workspaceId}:${userId}`) ?? null;
     },
@@ -288,64 +187,6 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
       return [...members.values()]
         .filter((row) => row.workspaceId === workspaceId)
         .sort((a, b) => a.username.localeCompare(b.username));
-    },
-    async findUserByUsername(username) {
-      return [...users.values()].find((user) => user.username === username) ?? null;
-    },
-    async findPendingInvitation(workspaceId, inviteeUserId) {
-      return (
-        [...invitations.values()].find(
-          (row) =>
-            row.workspaceId === workspaceId &&
-            row.inviteeUserId === inviteeUserId &&
-            row.status === "pending",
-        ) ?? null
-      );
-    },
-    async createInvitation(input) {
-      const id = `invitation-${++invitationSeq}`;
-      const row: WorkspaceInvitationRecord = {
-        id,
-        workspaceId: input.workspaceId,
-        inviterUserId: input.inviterUserId,
-        inviteeUserId: input.inviteeUserId,
-        inviteeUsername: input.inviteeUsername,
-        role: input.role,
-        status: "pending",
-        expiresAt: input.expiresAt,
-      };
-      invitations.set(id, row);
-      return row;
-    },
-    async getInvitation(invitationId) {
-      return invitations.get(invitationId) ?? null;
-    },
-    async acceptInvitation(input) {
-      const invitation = invitations.get(input.invitationId);
-      if (!invitation) throw new AppError("NOT_FOUND");
-      invitation.status = "accepted";
-      const member: WorkspaceMemberRecord = {
-        workspaceId: invitation.workspaceId,
-        userId: input.userId,
-        role: invitation.role,
-        username: invitation.inviteeUsername,
-        displayName: null,
-        fullName: null,
-        avatarUrl: null,
-      };
-      members.set(`${member.workspaceId}:${member.userId}`, member);
-      return { member, joinedChannelIds: [GENERAL_CHANNEL_ID] };
-    },
-    async revokeInvitation(invitationId) {
-      const invitation = invitations.get(invitationId);
-      if (!invitation) throw new AppError("NOT_FOUND");
-      invitation.status = "revoked";
-      return invitation;
-    },
-    async listPendingInvitations(workspaceId) {
-      return [...invitations.values()].filter(
-        (row) => row.workspaceId === workspaceId && row.status === "pending",
-      );
     },
     async updateRole(workspaceId, userId, role: WorkspaceMemberRole) {
       const key = `${workspaceId}:${userId}`;

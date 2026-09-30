@@ -1188,7 +1188,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             }
           : unauthorizedScope()),
       viewerId: sender.user ? userId : undefined,
-      viewerHandle: sender.user?.username,
       // Who a mention here can be resolved to. A direct conversation has no candidate affinity to
       // rank (see `mentionAffinityScores`), so every member scores 0 and handle order is the whole
       // ordering; the viewer's own row is included because this list is also what *resolves* a

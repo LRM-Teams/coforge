@@ -889,7 +889,6 @@ export function ConversationPane({
                     onToggleSave={onToggleSave}
                     onOpenAgentProfile={openAgentProfile}
                     viewerId={conversation.viewerId}
-                    viewerHandle={conversation.viewerHandle}
                     plainMentions={plainMentions}
                     onOpenTask={openTaskReference}
                     channelNames={channelNames}
@@ -1045,7 +1044,6 @@ export function ConversationPane({
                       onToggleSave={onToggleSave}
                       onOpenAgentProfile={openAgentProfile}
                       viewerId={conversation.viewerId}
-                      viewerHandle={conversation.viewerHandle}
                       plainMentions={plainMentions}
                       onOpenTask={openTaskReference}
                       channelNames={channelNames}

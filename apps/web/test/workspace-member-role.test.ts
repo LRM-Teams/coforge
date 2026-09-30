@@ -4,12 +4,12 @@ import { AppError } from "#src/lib/app-error";
 import {
   assertCanCreateAgents,
   assertCanChangeMemberRole,
-  assertCanInvite,
+  assertCanAssignRole,
   assertCanLeaveWorkspace,
   assertCanManageMembers,
   assertCanRemoveMember,
   isAdminLike,
-  normalizeInvitableRole,
+  normalizeAssignableRole,
   type WorkspaceMemberRole,
 } from "#src/server/workspaces/member-role.server";
 
@@ -25,18 +25,18 @@ test("only owner and admin may manage members", () => {
   expect(() => assertCanManageMembers("member")).toThrow(AppError);
 });
 
-test("invitations may only target admin or member", () => {
-  expect(normalizeInvitableRole("admin")).toBe("admin");
-  expect(normalizeInvitableRole("member")).toBe("member");
-  expect(() => normalizeInvitableRole("owner")).toThrow(AppError);
-  expect(() => normalizeInvitableRole("guest")).toThrow(AppError);
+test("an assigned role may only be admin or member", () => {
+  expect(normalizeAssignableRole("admin")).toBe("admin");
+  expect(normalizeAssignableRole("member")).toBe("member");
+  expect(() => normalizeAssignableRole("owner")).toThrow(AppError);
+  expect(() => normalizeAssignableRole("guest")).toThrow(AppError);
 });
 
-test("owner and admin may invite as admin or member", () => {
-  expect(() => assertCanInvite("owner", "admin")).not.toThrow();
-  expect(() => assertCanInvite("admin", "member")).not.toThrow();
-  expect(() => assertCanInvite("member", "member")).toThrow(AppError);
-  expect(() => assertCanInvite("owner", "owner")).toThrow(AppError);
+test("owner and admin may assign admin or member", () => {
+  expect(() => assertCanAssignRole("owner", "admin")).not.toThrow();
+  expect(() => assertCanAssignRole("admin", "member")).not.toThrow();
+  expect(() => assertCanAssignRole("member", "member")).toThrow(AppError);
+  expect(() => assertCanAssignRole("owner", "owner")).toThrow(AppError);
 });
 
 test("workspace ownership cannot be changed", () => {

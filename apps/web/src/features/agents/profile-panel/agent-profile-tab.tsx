@@ -217,10 +217,6 @@ export function AgentProfileTab({
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [avatarError, setAvatarError] = useState("");
   const [avatarBusy, setAvatarBusy] = useState(false);
-  // Same rule as the Workspace members panel: the display name leads, the handle follows only
-  // when it says something the display name does not.
-  const creatorHandle = profile.owner.username;
-  const creatorShowsHandle = creatorName !== creatorHandle;
   const ComputerIcon = profile.computer
     ? computerIcon({
         kind: profile.computer.kind,
@@ -374,9 +370,6 @@ export function AgentProfileTab({
                 contentClassName={avatarToneClassName(creatorName)}
               />
               <span className="truncate">{creatorName}</span>
-              {creatorShowsHandle && (
-                <span className="truncate text-sm font-normal text-tertiary">@{creatorHandle}</span>
-              )}
             </p>
           </div>
         </div>

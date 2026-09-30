@@ -1,7 +1,7 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import {
-  assertCanInvite,
+  assertCanAssignRole,
   type WorkspaceMemberRole,
 } from "#src/server/workspaces/member-role.server";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
@@ -11,14 +11,14 @@ export type SetAgentRoleInput = {
   /** The human performing the change; must be an admin-like Workspace member. */
   actorUserId: string;
   agentId: string;
-  /** Never `"owner"`: `assertCanInvite` rejects it, mirroring invitation role assignment. */
+  /** Never `"owner"`: `assertCanAssignRole` rejects it, as it does for a member. */
   role: string;
 };
 
 /**
  * Changes an Agent's own server role (`Agent.role`), one of the two bases
  * `channel-authority.server.ts#resolveChannelAuthority` derives channel-admin authority from.
- * Gated the same way inviting a Workspace member at a role is: the
+ * Gated the way giving a Workspace member a role is (`assertCanAssignRole`): the
  * actor must be `owner`/`admin`, and the assigned role itself can only be `admin` or `member`.
  */
 export async function setAgentRole(
@@ -30,7 +30,7 @@ export async function setAgentRole(
     select: { role: true },
   });
   if (!membership) throw new AppError("ACCESS_DENIED");
-  const role = assertCanInvite(membership.role as WorkspaceMemberRole, input.role);
+  const role = assertCanAssignRole(membership.role as WorkspaceMemberRole, input.role);
   const agent = await db.agent.findFirst({
     where: { id: input.agentId, workspaceId: input.workspaceId, ...ACTIVE_AGENT_WHERE },
     select: { id: true },

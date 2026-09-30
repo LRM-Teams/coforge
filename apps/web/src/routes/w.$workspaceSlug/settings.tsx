@@ -25,10 +25,7 @@ import {
   saveConversationOpenMode,
   saveDateTimePreferences,
 } from "#src/features/settings/settings.functions";
-import {
-  loadMyWorkspaceInvitations,
-  loadWorkspaceMembers,
-} from "#src/features/workspaces/members.functions";
+import { loadWorkspaceMembers } from "#src/features/workspaces/members.functions";
 import { getLocale, setLocale } from "#src/paraglide/runtime";
 import { readRailLabels, writeRailLabels } from "#src/features/settings/rail-labels";
 import {
@@ -84,14 +81,12 @@ export const Route = createFileRoute("/w/$workspaceSlug/settings")({
     github: z.enum(["connected", "error", "wrong_account"]).optional().catch(undefined),
   }),
   loader: async () => {
-    const [preferences, members, incomingInvitations, generalChannel, archivedChannels] =
-      await Promise.all([
-        getUserPreferences(),
-        loadWorkspaceMembers(),
-        loadMyWorkspaceInvitations(),
-        loadGeneralChannelHidden(),
-        loadArchivedChannels(),
-      ]);
+    const [preferences, members, generalChannel, archivedChannels] = await Promise.all([
+      getUserPreferences(),
+      loadWorkspaceMembers(),
+      loadGeneralChannelHidden(),
+      loadArchivedChannels(),
+    ]);
     return {
       ...preferences,
       generalChannelHidden: generalChannel?.hidden ?? null,
@@ -100,12 +95,6 @@ export const Route = createFileRoute("/w/$workspaceSlug/settings")({
         actorUserId: members.actorUserId,
         actorRole: members.actorRole,
         members: members.members,
-        pendingInvitations: members.pendingInvitations.map((row) => ({
-          id: row.id,
-          role: row.role,
-          inviteeUsername: row.inviteeUsername,
-        })),
-        incomingInvitations,
       },
     };
   },
@@ -309,7 +298,11 @@ function SettingsPage() {
     }
   }
 
-  async function changeProfile(input: { name: string; description: string }) {
+  async function changeProfile(input: {
+    fullName: string;
+    displayName: string;
+    description: string;
+  }) {
     await saveProfile({ data: input });
     await router.invalidate({ sync: true });
   }

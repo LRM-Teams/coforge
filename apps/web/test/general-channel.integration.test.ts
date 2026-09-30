@@ -5,7 +5,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, type Prisma } from "#src/generated/prisma/client";
 import { PrismaWorkspaceCatalogStore } from "#src/server/workspaces/catalog.server";
 import { PrismaWorkspaceEnrollmentStore } from "#src/server/workspaces/enrollment.server";
-import { PrismaWorkspaceMemberDirectoryStore } from "#src/server/workspaces/member-directory-store.server";
+import { admitWorkspaceMember } from "#src/server/workspaces/member-admission.server";
 import { PrismaAgentRepository } from "#src/server/db/repositories/agent.repositories.server";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
 import { PrismaChangeAgentVisibilityStore } from "#src/server/db/repositories/agent-visibility-change.repositories.server";
@@ -97,19 +97,19 @@ test.skipIf(!connectionString)(
 );
 
 test.skipIf(!connectionString)(
-  "an accepted invitation and a new public Agent join #general, the Agent muted; a private Agent does not until it becomes public",
+  "an admitted member and a new public Agent join #general, the Agent muted; a private Agent does not until it becomes public",
   async () => {
     const db = connect();
     const suffix = crypto.randomUUID().slice(0, 8);
     const owner = await db.user.create({ data: { username: `gen-owner-${suffix}` } });
-    const invitee = await db.user.create({ data: { username: `gen-invitee-${suffix}` } });
+    const returning = await db.user.create({ data: { username: `gen-returning-${suffix}` } });
     const workspace = await new PrismaWorkspaceCatalogStore(db).createForUser({
       slug: `gen-c-${suffix}`,
       name: "General C",
       userId: owner.id,
     });
     try {
-      // The invitee was in #general once before (their row is soft-left) and it has history.
+      // The returning member was in #general once before (their row is soft-left) and it has history.
       const general = await db.conversation.findUniqueOrThrow({
         where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
       });
@@ -122,30 +122,24 @@ test.skipIf(!connectionString)(
           conversationId: general.id,
           senderMemberId: ownerRow.id,
           sequence: 7,
-          body: "Before the invitee came back",
+          body: "Before the returning member came back",
         },
       });
       await db.conversationMember.create({
         data: {
           workspaceId: workspace.id,
           conversationId: general.id,
-          userId: invitee.id,
+          userId: returning.id,
           leftAt: new Date(),
         },
       });
-      const invitation = await db.workspaceInvitation.create({
-        data: {
+      await db.$transaction((tx) =>
+        admitWorkspaceMember(tx, {
           workspaceId: workspace.id,
-          inviteeUserId: invitee.id,
-          inviterUserId: owner.id,
+          userId: returning.id,
           role: "member",
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-      });
-      await new PrismaWorkspaceMemberDirectoryStore(db).acceptInvitation({
-        invitationId: invitation.id,
-        userId: invitee.id,
-      });
+        }),
+      );
 
       const agents = new PrismaAgentRepository(db);
       const helper = await agents.create({
@@ -167,7 +161,7 @@ test.skipIf(!connectionString)(
 
       const enrolled = await generalMembers(db, workspace.id);
       expect(enrolled?.members).toEqual(
-        [`user:${owner.id}`, `user:${invitee.id}`, `agent:${helper.id}`].sort(),
+        [`user:${owner.id}`, `user:${returning.id}`, `agent:${helper.id}`].sort(),
       );
       expect(enrolled?.members).not.toContain(`agent:${secret.id}`);
       // An Agent joins #general muted, so ordinary chatter there does not wake every Agent in the
@@ -198,14 +192,14 @@ test.skipIf(!connectionString)(
         visibility: "public",
       });
       expect((await generalMembers(db, workspace.id))?.muted).toEqual([`agent:${helper.id}`]);
-      // The returning invitee starts read through the history, like anyone joining.
-      const inviteeRow = await db.conversationMember.findUniqueOrThrow({
-        where: { conversationId_userId: { conversationId: general.id, userId: invitee.id } },
+      // The returning member starts read through the history, like anyone joining.
+      const returningRow = await db.conversationMember.findUniqueOrThrow({
+        where: { conversationId_userId: { conversationId: general.id, userId: returning.id } },
       });
-      expect(inviteeRow.readThroughSequence).toBe(7);
+      expect(returningRow.readThroughSequence).toBe(7);
     } finally {
       await db.workspace.delete({ where: { id: workspace.id } }).catch(() => {});
-      await db.user.deleteMany({ where: { id: { in: [owner.id, invitee.id] } } });
+      await db.user.deleteMany({ where: { id: { in: [owner.id, returning.id] } } });
       await db.$disconnect();
     }
   },

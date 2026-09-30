@@ -280,7 +280,7 @@ test("a DM names the member on the other side after they left the Workspace", as
   await db.workspaceMembership.create({ data: { workspaceId, userId: lin.id } });
   const { conversationId } = await conversations.open(workspaceId, ada.id, { userId: lin.id });
   // Leaving the Workspace ends their side of it; the conversation stays Ada's to read.
-  await new WorkspaceMemberDirectory(new PrismaWorkspaceMemberDirectoryStore(db), undefined, {
+  await new WorkspaceMemberDirectory(new PrismaWorkspaceMemberDirectoryStore(db), {
     async memberChanged() {},
   }).leave({ workspaceId, userId: lin.id });
   expect(await conversations.page(workspaceId, ada.id, conversationId)).toMatchObject({

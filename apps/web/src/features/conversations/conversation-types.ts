@@ -37,11 +37,9 @@ export type DirectConversationView = {
    * own creator, so an existing DM held by anyone else reads read-only once it goes private.
    * The server enforces the same rule on send; this only chooses the composer or the notice. */
   dmWritable?: boolean;
-  /** The viewing user's id; powers the stronger "mentioned me" chip, and lets the composer drop
-   * the viewer from its candidate list. Absent for a non-member. */
+  /** The viewing user's id; powers the stronger "mentioned me" chip, marks their own reaction, and
+   * lets the composer drop the viewer from its candidate list. Absent for a non-member. */
   viewerId?: string;
-  /** The viewing user's `@handle`, which names their own reaction among a message's reactors. */
-  viewerHandle?: string;
   /** The viewer's own preference: long messages fold behind "Show more". Absent means on. */
   collapseLongMessages?: boolean;
   /** The composer's @-completion source *and* the resolver for a body's `<@kind:uuid>` tokens:

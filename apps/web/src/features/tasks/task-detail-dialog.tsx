@@ -269,8 +269,13 @@ function TaskSection({
   ];
   const unknown = m.tasks_history_unknown_member();
   const names: TimelineNames = {
-    actor: (handle) =>
-      (handle && people.find((person) => person.handle === handle)?.name) ?? handle ?? unknown,
+    actor: (type, handle) => {
+      const known = people.find((person) => person.kind === type && person.handle === handle);
+      if (known) return known.name;
+      // A person who has left the conversation is no longer listed, and their username is not a
+      // name to read; an Agent's handle is its name.
+      return type === "user" ? unknown : (handle ?? unknown);
+    },
     assignee: (kind, id) =>
       people.find((person) => person.kind === kind && person.id === id)?.name ?? unknown,
   };
@@ -484,10 +489,13 @@ function AssigneeMenu({
               <Dropdown.Item
                 key={memberKey(member)}
                 id={memberKey(member)}
-                textValue={`${member.label} ${member.handle}`}
+                textValue={
+                  member.kind === "agent" ? `${member.label} ${member.handle}` : member.label
+                }
                 label={member.label}
                 avatarUrl={member.avatarUrl ?? undefined}
-                addon={`@${member.handle}`}
+                // An Agent is told from a person by its `@handle`; a person is only their name.
+                addon={member.kind === "agent" ? `@${member.handle}` : undefined}
               />
             ))}
           </Dropdown.Menu>
@@ -498,7 +506,7 @@ function AssigneeMenu({
 }
 
 type TimelineNames = {
-  actor: (handle: string | null) => string;
+  actor: (type: TaskHistoryEvent["actorType"], handle: string | null) => string;
   assignee: (kind: "user" | "agent", id: string) => string;
 };
 
@@ -556,7 +564,7 @@ function TaskTimeline({
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <div className="text-sm font-semibold text-primary">{eventTitle(event)}</div>
             <div className="text-xs text-tertiary">
-              {names.actor(event.actorName)} ·{" "}
+              {names.actor(event.actorType, event.actorName)} ·{" "}
               {formatDateForDisplay(event.createdAt, timeZone, locale, timeFormat)}
             </div>
             <EventDetail event={event} names={names} />

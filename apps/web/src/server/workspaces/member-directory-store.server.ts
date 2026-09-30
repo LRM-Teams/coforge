@@ -2,53 +2,19 @@ import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
 import {
   WorkspaceMemberDirectory,
-  type WorkspaceInvitationRecord,
   type WorkspaceMemberDirectoryStore,
   type WorkspaceMemberRecord,
 } from "./member-directory.server";
-import { admitWorkspaceMember } from "./member-admission.server";
-import {
-  isWorkspaceMemberRole,
-  type InvitableWorkspaceRole,
-  type WorkspaceMemberRole,
-} from "./member-role.server";
+import { isWorkspaceMemberRole, type WorkspaceMemberRole } from "./member-role.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import {
   ACTIVE_CHANNEL_MEMBER_WHERE,
   ACTIVE_MEMBER_WHERE,
 } from "#src/server/conversations/active-member.server";
-import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 
 function asRole(value: string): WorkspaceMemberRole {
   if (!isWorkspaceMemberRole(value)) throw new AppError("INTERNAL_ERROR");
   return value;
-}
-
-function asInvitableRole(value: string): InvitableWorkspaceRole {
-  if (value === "admin" || value === "member") return value;
-  throw new AppError("INTERNAL_ERROR");
-}
-
-function mapInvitation(row: {
-  id: string;
-  workspaceId: string;
-  inviterUserId: string;
-  inviteeUserId: string;
-  role: string;
-  status: string;
-  expiresAt: Date;
-  invitee: { username: string };
-}): WorkspaceInvitationRecord {
-  return {
-    id: row.id,
-    workspaceId: row.workspaceId,
-    inviterUserId: row.inviterUserId,
-    inviteeUserId: row.inviteeUserId,
-    inviteeUsername: row.invitee.username,
-    role: asInvitableRole(row.role),
-    status: row.status as WorkspaceInvitationRecord["status"],
-    expiresAt: row.expiresAt,
-  };
 }
 
 export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirectoryStore {
@@ -84,123 +50,6 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
       fullName: row.user.fullName,
       avatarUrl: workspaceUserAvatarUrl(workspaceId, row.userId, row.user.avatarObjectKey),
     }));
-  }
-
-  async findUserByUsername(username: string) {
-    return this.db.user.findUnique({
-      where: { username },
-      select: { id: true, username: true },
-    });
-  }
-
-  async findPendingInvitation(workspaceId: string, inviteeUserId: string) {
-    const row = await this.db.workspaceInvitation.findFirst({
-      where: { workspaceId, inviteeUserId, status: "pending" },
-      include: { invitee: { select: { username: true } } },
-    });
-    return row ? mapInvitation(row) : null;
-  }
-
-  async createInvitation(input: {
-    workspaceId: string;
-    inviterUserId: string;
-    inviteeUserId: string;
-    inviteeUsername: string;
-    role: InvitableWorkspaceRole;
-    expiresAt: Date;
-  }) {
-    // Drop expired pending rows so the partial unique index cannot block a retry.
-    await this.db.workspaceInvitation.updateMany({
-      where: {
-        workspaceId: input.workspaceId,
-        inviteeUserId: input.inviteeUserId,
-        status: "pending",
-        expiresAt: { lte: new Date() },
-      },
-      data: { status: "expired" },
-    });
-    try {
-      const row = await this.db.workspaceInvitation.create({
-        data: {
-          workspaceId: input.workspaceId,
-          inviterUserId: input.inviterUserId,
-          inviteeUserId: input.inviteeUserId,
-          role: input.role,
-          status: "pending",
-          expiresAt: input.expiresAt,
-        },
-        include: { invitee: { select: { username: true } } },
-      });
-      return mapInvitation(row);
-    } catch (error) {
-      if (isUniqueViolation(error)) throw new AppError("CONFLICT");
-      throw error;
-    }
-  }
-
-  async getInvitation(invitationId: string) {
-    const row = await this.db.workspaceInvitation.findUnique({
-      where: { id: invitationId },
-      include: { invitee: { select: { username: true } } },
-    });
-    return row ? mapInvitation(row) : null;
-  }
-
-  async acceptInvitation(input: { invitationId: string; userId: string }) {
-    return this.db.$transaction(async (tx) => {
-      const invitation = await tx.workspaceInvitation.findUnique({
-        where: { id: input.invitationId },
-        include: {
-          invitee: {
-            select: { username: true, displayName: true, fullName: true, avatarObjectKey: true },
-          },
-        },
-      });
-      if (!invitation) throw new AppError("NOT_FOUND");
-      const updated = await tx.workspaceInvitation.updateMany({
-        where: { id: input.invitationId, status: "pending" },
-        data: { status: "accepted" },
-      });
-      if (updated.count !== 1) throw new AppError("CONFLICT");
-      const role = asInvitableRole(invitation.role);
-      const { joinedChannelIds } = await admitWorkspaceMember(tx, {
-        workspaceId: invitation.workspaceId,
-        userId: input.userId,
-        role,
-      });
-      const member: WorkspaceMemberRecord = {
-        workspaceId: invitation.workspaceId,
-        userId: input.userId,
-        role,
-        username: invitation.invitee.username,
-        displayName: invitation.invitee.displayName,
-        fullName: invitation.invitee.fullName,
-        avatarUrl: workspaceUserAvatarUrl(
-          invitation.workspaceId,
-          input.userId,
-          invitation.invitee.avatarObjectKey,
-        ),
-      };
-      return { member, joinedChannelIds };
-    });
-  }
-
-  async revokeInvitation(invitationId: string) {
-    const row = await this.db.workspaceInvitation.update({
-      where: { id: invitationId },
-      data: { status: "revoked" },
-      include: { invitee: { select: { username: true } } },
-    });
-    return mapInvitation(row);
-  }
-
-  async listPendingInvitations(workspaceId: string) {
-    const rows = await this.db.workspaceInvitation.findMany({
-      where: { workspaceId, status: "pending", expiresAt: { gt: new Date() } },
-      include: { invitee: { select: { username: true } } },
-      orderBy: { createdAt: "desc" },
-    });
-    return rows.map(mapInvitation);
   }
 
   async updateRole(workspaceId: string, userId: string, role: WorkspaceMemberRole) {
