@@ -9,8 +9,8 @@ const STDERR_TAIL_BYTES = 4_096;
  * character split across two chunks still decodes as one; only the last `STDERR_TAIL_BYTES`
  * characters are kept.
  *
- * The three per-turn processes (Cursor, Grok, OpenCode) each read their stderr this way, and each
- * carried its own copy of the loop.
+ * The per-turn processes (Cursor, Grok, OpenCode, Antigravity) read their stderr this way; the
+ * first three each carried their own copy of the loop.
  */
 export async function readStderrTail(stderr: AsyncIterable<Uint8Array>): Promise<string> {
   const decoder = new TextDecoder();

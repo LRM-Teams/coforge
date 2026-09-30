@@ -36,7 +36,9 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   Pi's in-process SDK call gets the network refresh cap plus one wait
   (`PI_CATALOG_DISCOVERY_TIMEOUT_MS`, derived from `PI_MODEL_REFRESH_TIMEOUT_MS`
   in `@coforge/agent`) because that refresh is capped separately and the
-  resource loader runs after it. A discovery that fails or times out leaves its
+  resource loader runs after it. A CLI that fetches its list over the network
+  has its own deadline next to its catalog reader (`opencode models --verbose`,
+  `agy models`). A discovery that fails or times out leaves its
   provider out of that pass, is logged as `code_agent_catalog:discovery_failed`,
   and is never cached.
 - Report the maintained Claude Code model catalog when Claude Code is
@@ -94,6 +96,21 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   notifications stay internal diagnostics. Numbered stderr reconnect lines
   become informational `runtime_reconnecting` Activity, matching Raft Computer
   1.0.32's `isCodexProviderReconnectLog`.
+
+## Antigravity (`agy`)
+
+- One headless process per turn. The prompt is one stdin line under
+  `--input-format stream-json`, never argv. agy has no system-prompt channel,
+  so a fresh conversation's first turn is the standing instructions alone.
+- An unknown `--conversation` id is not an error in agy: it starts a new
+  conversation. Compare the `init` frame's id with the requested one and
+  re-bootstrap on a mismatch, or the Agent runs without its instructions.
+- Never pass `SSH_CLIENT`, `SSH_CONNECTION`, or `SSH_TTY` to an agy turn or to
+  `agy models`; agy switches to a file-based token store when it sees them. An
+  explicit Agent override still applies.
+- The unknown-`--conversation` fallback, the `agy models` line format, and the
+  SSH token-store switch are observed on agy 1.2.12/1.2.13, not documented.
+  Re-check them when raising the version gate.
 
 ## Pi and built-in CoForge Agent
 
