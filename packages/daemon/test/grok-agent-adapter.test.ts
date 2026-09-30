@@ -187,6 +187,20 @@ test(
 );
 
 test(
+  "a turn never waits on stdin: the fake grok that reads it to EOF still finishes",
+  async () => {
+    await withSession(
+      { environment: { COFORGE_GROK_REQUIRE_STDIN_EOF: "1" } },
+      async ({ session }) => {
+        const events = await runTurn(session, "go");
+        expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
   "a turn runs in the Agent workspace directory",
   async () => {
     await withSession({}, async ({ session, launches, workspace }) => {
