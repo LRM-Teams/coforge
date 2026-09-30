@@ -313,6 +313,7 @@ export const RUNTIME_PROVIDER = {
   CURSOR: "cursor",
   OPENCODE: "opencode",
   GROK: "grok",
+  ANTIGRAVITY: "antigravity",
 } as const;
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER)[keyof typeof RUNTIME_PROVIDER];
 /** Every RuntimeProvider value, for a zod `z.enum` or other exhaustive-tuple consumer. */
@@ -357,6 +358,7 @@ export const RUNTIME_PROVIDER_USES_EXTERNAL_CLI: Record<RuntimeProvider, boolean
   [RUNTIME_PROVIDER.CURSOR]: true,
   [RUNTIME_PROVIDER.OPENCODE]: true,
   [RUNTIME_PROVIDER.GROK]: true,
+  [RUNTIME_PROVIDER.ANTIGRAVITY]: true,
 };
 export type AgentRuntimeProviderConfig =
   | { kind: "default" }
