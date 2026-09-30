@@ -195,9 +195,10 @@ class PerTurnAgentSession implements AgentSession {
     };
   }
 
-  /** Adopts the session id a record names when it is not the one the session already has. */
+  /** Adopts the session id a record names. A record that repeats the id the session already has
+   * counts only when the provider says so (`repeatedSessionId`). */
   #observeSessionId(sessionId: string): void {
-    if (sessionId === this.#sessionId) return;
+    if (sessionId === this.#sessionId && this.#protocol.repeatedSessionId === "ignore") return;
     this.#sessionId = sessionId;
     this.#setIdentity(this.#everCompletedTurn ? "unknown" : "empty");
     this.#reportIdentity();

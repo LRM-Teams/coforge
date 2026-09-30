@@ -46,6 +46,10 @@ export interface TurnProtocol {
   /** What a fresh session's first turn must establish, for the failure message when it does not
    * ("Cursor did not establish a session identity"). */
   readonly identityNoun: string;
+  /** What a record that repeats the session id the session already has means. `ignore`: nothing.
+   * `reaffirm-and-report`: the identity state is derived again, as if the id were new, and the id
+   * is reported again. A record that names a different id is always adopted and reported. */
+  readonly repeatedSessionId: "ignore" | "reaffirm-and-report";
   /** Variables added on top of the Agent's environment for every turn. */
   readonly environment: Readonly<Record<string, string>>;
   launch(request: TurnRequest): TurnCommand;

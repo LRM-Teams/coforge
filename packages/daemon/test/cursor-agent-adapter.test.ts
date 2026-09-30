@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -530,7 +530,11 @@ type SessionReport = { sessionId: string; replacedSessionId?: string };
  * collected. */
 async function withReportedSession(
   options: { sessionId?: string; environment?: Record<string, string> },
-  body: (harness: { session: AgentSession; reports: SessionReport[] }) => Promise<void>,
+  body: (harness: {
+    session: AgentSession;
+    reports: SessionReport[];
+    directory: string;
+  }) => Promise<void>,
 ): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), "cursor-reports-"));
   const reports: SessionReport[] = [];
@@ -545,7 +549,7 @@ async function withReportedSession(
       environment: { COFORGE_CURSOR_MODE: "text", ...options.environment },
     });
     try {
-      await body({ session, reports });
+      await body({ session, reports, directory });
     } finally {
       await session.dispose();
     }
@@ -560,6 +564,18 @@ async function completedTurn(session: AgentSession, text: string): Promise<void>
   await session.sendMessage(text);
   await completed;
 }
+
+test("a turn that cannot be spawned rejects the input and leaves the session idle", async () => {
+  await withReportedSession({ sessionId: "existing-session" }, async ({ session, directory }) => {
+    // Bun.spawn throws synchronously for a working directory that does not exist.
+    await rm(directory, { recursive: true });
+    await expect(session.sendMessage("first")).rejects.toThrow("ENOENT");
+
+    // The failed spawn did not leave the session "running": the next input starts a turn.
+    await mkdir(directory);
+    await completedTurn(session, "second");
+  });
+}, 5_000);
 
 test("a resumed session reports its id when each turn names it and again when it completes", async () => {
   await withReportedSession({ sessionId: "existing-session" }, async ({ session, reports }) => {

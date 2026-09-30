@@ -27,6 +27,7 @@ export function createOpenCodeTurnProtocol(
     provider: RUNTIME_PROVIDER.OPENCODE,
     displayName: "OpenCode",
     identityNoun: "a session identity",
+    repeatedSessionId: "ignore",
     environment: {
       // OpenCode resolves its discovery root (AGENTS.md walk-up, `.opencode/skills/`) from the
       // process working directory / `PWD`; v2 has no `--dir` flag, so the turn pins both (cwd is
