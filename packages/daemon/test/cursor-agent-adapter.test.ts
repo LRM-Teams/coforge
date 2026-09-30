@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { AgentSession } from "@coforge/agent";
 import { CursorProvider } from "#src/code-agent/cursor/provider";
 import type { AgentRuntimeEvent } from "#src/code-agent/contract";
 
@@ -521,4 +522,134 @@ test("dispose kills a running turn and rejects queued input", async () => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+type SessionReport = { sessionId: string; replacedSessionId?: string };
+
+/** Runs `body` against a session in a fresh temporary workspace whose identity reports are
+ * collected. */
+async function withReportedSession(
+  options: { sessionId?: string; environment?: Record<string, string> },
+  body: (harness: {
+    session: AgentSession;
+    reports: SessionReport[];
+    directory: string;
+  }) => Promise<void>,
+): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), "cursor-reports-"));
+  const reports: SessionReport[] = [];
+  try {
+    const session = await provider().createAgentSession({
+      agentWorkspaceDirectory: directory,
+      instructions: INSTRUCTIONS,
+      sessionId: options.sessionId,
+      onSessionId: async (sessionId, replacedSessionId) => {
+        reports.push(replacedSessionId ? { sessionId, replacedSessionId } : { sessionId });
+      },
+      environment: { COFORGE_CURSOR_MODE: "text", ...options.environment },
+    });
+    try {
+      await body({ session, reports, directory });
+    } finally {
+      await session.dispose();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+/** Sends `text` and resolves once the turn it starts (or joins) has completed. */
+async function completedTurn(session: AgentSession, text: string): Promise<void> {
+  const completed = nthCompleted(session, 1);
+  await session.sendMessage(text);
+  await completed;
+}
+
+test("a turn that cannot be spawned rejects the input and leaves the session idle", async () => {
+  await withReportedSession({ sessionId: "existing-session" }, async ({ session, directory }) => {
+    // Bun.spawn throws synchronously for a working directory that does not exist.
+    await rm(directory, { recursive: true });
+    await expect(session.sendMessage("first")).rejects.toThrow("ENOENT");
+
+    // The failed spawn did not leave the session "running": the next input starts a turn.
+    await mkdir(directory);
+    await completedTurn(session, "second");
+  });
+}, 5_000);
+
+test("a resumed session reports its id when each turn names it and again when it completes", async () => {
+  await withReportedSession({ sessionId: "existing-session" }, async ({ session, reports }) => {
+    await completedTurn(session, "one");
+    expect(reports).toHaveLength(2);
+    await completedTurn(session, "two");
+    expect(reports).toEqual(Array(4).fill({ sessionId: "existing-session" }));
+    expect(await session.readSessionIdentity!()).toEqual({
+      sessionId: "existing-session",
+      state: "resumable",
+    });
+  });
+});
+
+test("a fresh session reports the id its init frame named, then again as each turn completes", async () => {
+  await withReportedSession(
+    { environment: { COFORGE_CURSOR_SESSION_ID: "fresh-session" } },
+    async ({ session, reports }) => {
+      await nthCompleted(session, 1);
+      expect(reports).toEqual(Array(2).fill({ sessionId: "fresh-session" }));
+      await completedTurn(session, "next");
+      expect(reports).toEqual(Array(4).fill({ sessionId: "fresh-session" }));
+    },
+  );
+});
+
+test("a session whose first turn failed after naming it is re-derived as empty when its id repeats", async () => {
+  await withReportedSession(
+    {
+      environment: {
+        COFORGE_CURSOR_MODE: "crash-no-result",
+        COFORGE_CURSOR_SESSION_ID: "half-session",
+      },
+    },
+    async ({ session, reports }) => {
+      await nthCompleted(session, 1);
+      expect(await session.readSessionIdentity!()).toEqual({
+        sessionId: "half-session",
+        state: "empty",
+      });
+      expect(reports).toEqual([{ sessionId: "half-session" }]);
+      // The next turn names the same id again: Cursor re-derives the state (the session never
+      // completed a turn, so "empty") and reports the id once more.
+      await completedTurn(session, "again");
+      expect(await session.readSessionIdentity!()).toEqual({
+        sessionId: "half-session",
+        state: "empty",
+      });
+      expect(reports).toEqual(Array(2).fill({ sessionId: "half-session" }));
+    },
+  );
+});
+
+test("a resume Cursor answers under a different id adopts that id and reports it", async () => {
+  // Cursor never fails a `--resume` of an unknown id: it starts a fresh chat under its own id.
+  const adopted = "00000000-0000-0000-0000-000000000000";
+  await withReportedSession(
+    {
+      sessionId: "unknown-id-requested",
+      environment: {
+        COFORGE_CURSOR_MODE: "replay",
+        COFORGE_CURSOR_REPLAY_FILE: new URL(
+          "./fixtures/cursor-turn-resume-unknown.jsonl",
+          import.meta.url,
+        ).pathname,
+      },
+    },
+    async ({ session, reports }) => {
+      await completedTurn(session, "go");
+      expect(await session.readSessionIdentity!()).toEqual({
+        sessionId: adopted,
+        state: "resumable",
+      });
+      expect(reports).toEqual(Array(2).fill({ sessionId: adopted }));
+    },
+  );
 });

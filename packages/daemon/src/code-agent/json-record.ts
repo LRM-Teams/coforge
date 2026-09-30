@@ -25,3 +25,8 @@ export function eventTime(record: Readonly<Record<string, unknown>>): string {
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "";
 }
+
+/** `value` when it is a non-empty string, otherwise `undefined`. */
+export function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
