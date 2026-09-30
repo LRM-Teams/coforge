@@ -48,6 +48,8 @@ export type ProviderDiscoveryOptions = Readonly<{
   platform?: NodeJS.Platform;
   command?: readonly string[];
   probe?: CodeAgentProbe;
+  /** What `discoverRuntime` just reported, for a catalog that depends on the installed version. */
+  runtime?: RuntimeMetadata;
 }>;
 export interface CodeAgentProbe {
   which(name: string, searchPath?: string): string | undefined;
