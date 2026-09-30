@@ -81,7 +81,7 @@ test("search filters narrow results, survive a reload, and clear together", asyn
   const option = (text: string) =>
     find(
       '[role="menuitemradio"], [role="menuitemcheckbox"], [role="menuitem"]',
-      // A person's row also shows an avatar initial before the name and `@username` after it.
+      // A person's row also shows an avatar initial before the name.
       `element.textContent.includes(${JSON.stringify(text)})`,
     );
   async function pick(chipPrefix: string, optionText: string) {

@@ -99,7 +99,6 @@ export function AgentsContent({
   agentTab,
   onCreate,
   onLoadRuntimeCatalog,
-  onInviteMember,
   onDeleteAgent,
   defaultCreateDialogOpen = false,
 }: {
@@ -113,7 +112,6 @@ export function AgentsContent({
   agentTab?: AgentProfileTab;
   onCreate: (input: CreateAgentInput) => Promise<{ startPublished: boolean }>;
   onLoadRuntimeCatalog: (computerId: string) => Promise<RuntimeCatalog[]>;
-  onInviteMember: (input: { username: string; role: "admin" | "member" }) => Promise<void>;
   onDeleteAgent: (agentId: string, confirmation: string) => Promise<void>;
   defaultCreateDialogOpen?: boolean;
 }) {
@@ -435,14 +433,7 @@ export function AgentsContent({
         directoryPane
       )}
 
-      <InviteMemberDialog
-        open={inviteOpen}
-        onOpenChange={setInviteOpen}
-        actorRole={summary.actorRole}
-        onInvite={async (input) => {
-          await onInviteMember(input);
-        }}
-      />
+      <InviteMemberDialog open={inviteOpen} onOpenChange={setInviteOpen} />
 
       <AgentCreateDialog
         open={open}
@@ -509,7 +500,6 @@ function PersonCard({ person }: { person: DirectoryPerson }) {
             <span className="sr-only">, {online ? m.member_online() : m.member_offline()}</span>
           )}
         </h2>
-        <p className="truncate text-sm text-tertiary">@{person.name}</p>
       </div>
       {/* Fixed two-line slot, as on Agent cards, so a row's footers line up. */}
       <p className="line-clamp-2 min-h-10 text-sm leading-5 break-words text-secondary">

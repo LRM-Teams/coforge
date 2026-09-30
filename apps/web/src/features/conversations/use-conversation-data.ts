@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
+import { getRouteApi, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
 import { useConversationTasks } from "#src/features/tasks/use-conversation-tasks";
@@ -19,6 +19,7 @@ import {
 } from "./conversation-queries";
 import { threadFollowingAgentsQueryPrefix } from "./conversation-query-keys";
 import type { SendOptions } from "./composer-outbox";
+import type { Reactor } from "./message-reactions";
 import { useRefreshSidebarChannels } from "./sidebar-lists";
 import {
   loadOwnConversationMessages,
@@ -26,6 +27,15 @@ import {
   sendDirectConversationMessage,
   toggleDirectMessageReaction,
 } from "./conversations.functions";
+
+const appRoute = getRouteApi("/w/$workspaceSlug");
+
+/** The viewer as a reaction lists them: who they are and the name teammates see. `undefined` for a
+ * non-member, whose chip waits for the server's summary. */
+function useViewerReactor(viewerId: string | undefined): Reactor | undefined {
+  const label = appRoute.useLoaderData({ select: ({ user }) => user.name });
+  return viewerId ? { id: viewerId, label } : undefined;
+}
 
 /**
  * A channel as its page and the Tasks page's popup both show it: the loaded messages (kept live
@@ -53,6 +63,7 @@ export function useChannelConversation(channelId: string) {
       }),
   });
   const { conversation } = page;
+  const viewerReactor = useViewerReactor(conversation.viewerId);
   const taskView = useConversationTasks(conversation.conversationId);
 
   // The settings panel writes the channel (name, description, archive), the viewer's own
@@ -87,12 +98,8 @@ export function useChannelConversation(channelId: string) {
         return message;
       },
       onToggleReaction: (messageId: string, emoji: string, active: boolean) =>
-        page.toggleReaction(
-          messageId,
-          emoji,
-          conversation.viewerHandle ? `@${conversation.viewerHandle}` : undefined,
-          active,
-          () => toggleReaction({ data: { channelId, messageId, emoji, active } }),
+        page.toggleReaction(messageId, emoji, viewerReactor, active, () =>
+          toggleReaction({ data: { channelId, messageId, emoji, active } }),
         ),
       onJoin: async () => {
         await join({ data: { channelId } });
@@ -140,6 +147,7 @@ export function useDirectConversation(conversationId: string) {
     // No Task refresh here either — see the channel branch above.
   });
   const { conversation } = page;
+  const viewerReactor = useViewerReactor(conversation.viewerId);
   const taskView = useConversationTasks(conversation.conversationId);
 
   return {
@@ -167,12 +175,8 @@ export function useDirectConversation(conversationId: string) {
         return message;
       },
       onToggleReaction: (messageId: string, emoji: string, active: boolean) =>
-        page.toggleReaction(
-          messageId,
-          emoji,
-          conversation.viewerHandle ? `@${conversation.viewerHandle}` : undefined,
-          active,
-          () => toggleReaction({ data: { conversationId, messageId, emoji, active } }),
+        page.toggleReaction(messageId, emoji, viewerReactor, active, () =>
+          toggleReaction({ data: { conversationId, messageId, emoji, active } }),
         ),
       onReadThread: async (threadRootId: string, throughSequence: number) => {
         await markRead({ data: { conversationId, threadRootId, throughSequence } });

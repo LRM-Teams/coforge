@@ -24,9 +24,9 @@ import {
   type SearchFilters,
   type SearchRange,
   type SearchScope,
-  type SenderKind,
 } from "./search-filters";
 import { searchDirectoryQuery } from "./search-queries";
+import { directorySenders, type Sender } from "./search-senders";
 
 const ANY = "any";
 
@@ -40,22 +40,6 @@ const SCOPE_LABEL: Record<SearchScope, () => string> = {
   mentioned: () => m.search_scope_mentioned(),
   humans: () => m.search_scope_humans(),
   agents: () => m.search_scope_agents(),
-};
-
-/** Menu rows keep their width; a very long username (a generated one) is cut with an ellipsis. */
-function shortHandle(handle: string) {
-  return handle.length > 24 ? `${handle.slice(0, 23)}…` : handle;
-}
-
-type Sender = {
-  key: string;
-  id: string;
-  kind: SenderKind;
-  /** The row label: the display name, or "Me" for the viewer. */
-  label: string;
-  name: string;
-  handle: string;
-  avatarUrl?: string | null;
 };
 
 /**
@@ -97,26 +81,11 @@ export function SearchFilterBar({
   onChange: (filters: SearchFilters) => void;
 }) {
   const directory = useQuery(searchDirectoryQuery(workspaceId)).data;
-  const senders = useMemo<Sender[]>(() => {
-    if (!directory) return [];
-    const people = [
-      // The viewer first, as "Me".
-      ...directory.people.filter((person) => person.id === directory.viewerId),
-      ...directory.people.filter((person) => person.id !== directory.viewerId),
-    ].map((person): Sender => ({
-      ...person,
-      key: `user:${person.id}`,
-      kind: "user",
-      label: person.id === directory.viewerId ? m.search_from_me() : person.name,
-    }));
-    const agents = directory.agents.map((agent): Sender => ({
-      ...agent,
-      key: `agent:${agent.id}`,
-      kind: "agent",
-      label: agent.name,
-    }));
-    return [...people, ...agents];
-  }, [directory]);
+  const senders = useMemo<Sender[]>(
+    // The viewer first, as "Me".
+    () => (directory ? directorySenders(directory, m.search_from_me()) : []),
+    [directory],
+  );
   // One avatar component per sender, kept across renders so menu rows do not remount.
   const avatars = useMemo(
     () => new Map(senders.map((candidate) => [candidate.key, senderAvatar(candidate)])),
@@ -136,8 +105,8 @@ export function SearchFilterBar({
         items={senders.map((candidate) => ({
           key: candidate.key,
           label: candidate.label,
-          textValue: `${candidate.label} ${candidate.name} ${candidate.handle}`,
-          addon: `@${shortHandle(candidate.handle)}`,
+          textValue: candidate.textValue,
+          addon: candidate.addon,
           icon: avatars.get(candidate.key),
         }))}
         onSelect={(key) => {

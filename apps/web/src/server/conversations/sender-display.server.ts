@@ -12,8 +12,8 @@ import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile
  * they had three different rules, and a person showed as `@username` next to an Agent showing
  * its display name.
  *
- * The browser shows the display name, like Slack: `@handle` is what you type, copy and see on a
- * profile, not the identity on every message row. The Agent-facing projection
+ * The browser shows the name, like Slack: `@handle` is what you type and copy, not the identity
+ * on every message row, and a person's username is not shown anywhere. The Agent-facing projection
  * (`agentMessageSender`, below) deliberately keeps `@handle`, because an Agent replies and
  * mentions by handle.
  */

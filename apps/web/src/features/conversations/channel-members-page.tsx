@@ -38,6 +38,7 @@ import {
   removePublicChannelMember,
   setPublicChannelMemberRole,
 } from "./channels.functions";
+import { memberMatchesSearch, type SearchableMember } from "./channel-member-search";
 import { channelMembersQueryKey } from "./conversation-query-keys";
 import { mentionKey } from "./mention-text";
 
@@ -58,10 +59,6 @@ export function useChannelMembers(channelId: string) {
     queryFn: () => load({ data: { channelId } }),
     refetchOnWindowFocus: true,
   });
-}
-
-function matches(query: string, ...values: string[]) {
-  return !query || values.some((value) => value.toLowerCase().includes(query));
 }
 
 /** A Workspace owner or admin administers every channel, whatever their role in it. */
@@ -169,14 +166,26 @@ function MembersRoster({
   const humans = useMemo(
     () =>
       data.humans
-        .filter((human) => matches(query, human.displayName, human.username))
+        .filter((human) =>
+          memberMatchesSearch(query, {
+            kind: "user",
+            displayName: human.displayName,
+            fullName: human.fullName,
+          }),
+        )
         .map((human): Member => ({ kind: "user", ...human })),
     [data.humans, query],
   );
   const agents = useMemo(
     () =>
       data.agents
-        .filter((agent) => matches(query, agent.displayName, agent.name))
+        .filter((agent) =>
+          memberMatchesSearch(query, {
+            kind: "agent",
+            displayName: agent.displayName,
+            name: agent.name,
+          }),
+        )
         .map((agent): Member => ({ kind: "agent", ...agent })),
     [data.agents, query],
   );
@@ -560,7 +569,8 @@ type Candidate = {
   kind: "user" | "agent";
   id: string;
   displayName: string;
-  handle: string;
+  /** What the search reads: a person's full name, an Agent's handle. */
+  search: SearchableMember;
   description?: string;
   avatarUrl?: string | null;
 };
@@ -593,7 +603,7 @@ function AddMembersView({
         kind: "agent" as const,
         id: agent.id,
         displayName: agent.displayName,
-        handle: agent.name,
+        search: { kind: "agent" as const, displayName: agent.displayName, name: agent.name },
         description: agent.description,
         avatarUrl: agent.avatarUrl,
       })),
@@ -602,7 +612,11 @@ function AddMembersView({
         kind: "user" as const,
         id: human.id,
         displayName: human.displayName,
-        handle: human.username,
+        search: {
+          kind: "user" as const,
+          displayName: human.displayName,
+          fullName: human.fullName,
+        },
         avatarUrl: human.avatarUrl,
       })),
     ],
@@ -613,7 +627,7 @@ function AddMembersView({
   const term = search.trim().replace(/^@/, "");
   const query = term.toLowerCase();
   const shown = useMemo(
-    () => candidates.filter((entry) => matches(query, entry.displayName, entry.handle)),
+    () => candidates.filter((entry) => memberMatchesSearch(query, entry.search)),
     [candidates, query],
   );
   const shownAgents = shown.filter((entry) => entry.kind === "agent");

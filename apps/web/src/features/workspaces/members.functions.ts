@@ -2,22 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { AppError } from "#src/lib/app-error";
-import { authMiddleware, workspaceUserMiddleware } from "#src/features/auth/function-auth";
-import { requireDatabaseClient } from "#src/server/db/client.server";
+import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { workspaceMemberDirectory } from "#src/server/workspaces/member-directory-store.server";
-import { INVITABLE_WORKSPACE_ROLES } from "#src/server/workspaces/member-role.server";
 import {
   PrismaWorkspaceCatalogStore,
   WorkspaceCatalog,
 } from "#src/server/workspaces/catalog.server";
 import { WorkspaceDeparture } from "#src/server/workspaces/departure.server";
 import { rememberedWorkspaceCookie } from "#src/server/workspaces/selection.server";
-import { canManageMembers } from "./workspace-roles";
-
-const inviteInputSchema = z.object({
-  username: z.string().trim().min(1),
-  role: z.enum(INVITABLE_WORKSPACE_ROLES),
-});
 
 const updateRoleInputSchema = z.object({
   userId: z.uuid(),
@@ -25,7 +17,6 @@ const updateRoleInputSchema = z.object({
 });
 
 const targetUserInputSchema = z.object({ userId: z.uuid() });
-const invitationIdInputSchema = z.object({ invitationId: z.uuid() });
 
 export const loadWorkspaceMembers = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
@@ -37,61 +28,12 @@ export const loadWorkspaceMembers = createServerFn({ method: "GET" })
     });
     if (!actor) throw new AppError("ACCESS_DENIED");
     const list = await members.listMembers({ workspaceId, actorUserId: user.id });
-    const pendingInvitations = canManageMembers(actor.role)
-      ? await members.listPendingInvitations({ workspaceId, actorUserId: user.id })
-      : [];
     return {
       workspaceId,
       actorUserId: user.id,
       actorRole: actor.role,
       members: list,
-      pendingInvitations,
     };
-  });
-
-export const inviteWorkspaceMember = createServerFn({ method: "POST" })
-  .middleware([workspaceUserMiddleware])
-  .validator(inviteInputSchema)
-  .handler(async ({ data, context: { user, db, workspaceId } }) => {
-    return workspaceMemberDirectory(db).invite({
-      workspaceId,
-      actorUserId: user.id,
-      inviteeUsername: data.username,
-      role: data.role,
-    });
-  });
-
-export const acceptWorkspaceInvitation = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .validator(invitationIdInputSchema)
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    return workspaceMemberDirectory(requireDatabaseClient()).acceptInvitation({
-      invitationId: data.invitationId,
-      userId: user.id,
-    });
-  });
-
-export const declineWorkspaceInvitation = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
-  .validator(invitationIdInputSchema)
-  .handler(async ({ data, context }) => {
-    const user = context.user;
-    return workspaceMemberDirectory(requireDatabaseClient()).declineInvitation({
-      invitationId: data.invitationId,
-      userId: user.id,
-    });
-  });
-
-export const revokeWorkspaceInvitation = createServerFn({ method: "POST" })
-  .middleware([workspaceUserMiddleware])
-  .validator(invitationIdInputSchema)
-  .handler(async ({ data, context: { user, db, workspaceId } }) => {
-    return workspaceMemberDirectory(db).revokeInvitation({
-      workspaceId,
-      actorUserId: user.id,
-      invitationId: data.invitationId,
-    });
   });
 
 export const updateWorkspaceMemberRole = createServerFn({ method: "POST" })
@@ -130,33 +72,3 @@ export const leaveWorkspace = createServerFn({ method: "POST" })
       rememberedWorkspaceCookie,
     ).leave(workspaceMemberDirectory(db), { workspaceId, userId: user.id }),
   );
-
-export const loadMyWorkspaceInvitations = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const user = context.user;
-    const db = requireDatabaseClient();
-    const rows = await db.workspaceInvitation.findMany({
-      where: {
-        inviteeUserId: user.id,
-        status: "pending",
-        expiresAt: { gt: new Date() },
-      },
-      select: {
-        id: true,
-        role: true,
-        expiresAt: true,
-        workspace: { select: { id: true, slug: true, name: true } },
-        inviter: { select: { username: true, displayName: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    return rows.map((row) => ({
-      id: row.id,
-      role: row.role,
-      expiresAt: row.expiresAt.toISOString(),
-      workspace: row.workspace,
-      inviterUsername: row.inviter.username,
-      inviterDisplayName: row.inviter.displayName,
-    }));
-  });

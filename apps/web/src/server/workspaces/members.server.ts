@@ -1,4 +1,4 @@
-import type { PrismaClient } from "#src/generated/prisma/client";
+import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { peopleDirectPeerId } from "#src/features/conversations/direct-key";
 import { AppError } from "#src/lib/app-error";
 import { compareHumanLabels, humanLabel } from "#src/lib/human-label";
@@ -38,6 +38,11 @@ export type AgentPageInput = {
 export type PeoplePageInput = { query: string; cursor?: string; limit: number };
 
 const contains = (query: string) => ({ contains: query, mode: "insensitive" as const });
+
+/** `humanLabel` as SQL over the `users` row aliased `alias`: the display name, else the full
+ * name, else the username, a blank name counting as none. */
+const personLabelSql = (alias: Prisma.Sql) =>
+  Prisma.sql`COALESCE(NULLIF(btrim(${alias}."displayName"), ''), NULLIF(btrim(${alias}."fullName"), ''), ${alias}."username")`;
 
 /** Take one extra row to learn whether another page exists; the cursor is the last row's id. */
 function pageOf<T extends { id: string }>(rows: T[], limit: number) {
@@ -212,8 +217,10 @@ export class WorkspaceMembers {
       // Listed by the name they are shown by, which the database cannot order by.
       people: [...people].sort(compareHumanLabels).map((person) => ({
         id: person.id,
-        handle: person.username,
         name: humanLabel(person),
+        /** The name behind `name` when a nickname replaced it, which a search still finds them
+         * by. There is no username here: nothing shown or searched for a person is one. */
+        fullName: person.fullName,
         avatarUrl: workspaceUserAvatarUrl(workspaceId, person.id, person.avatarObjectKey),
         /** The viewer's direct conversation with this member (`dm/<id>`; the viewer's own with
          * themself), once there is one. */
@@ -235,21 +242,10 @@ export class WorkspaceMembers {
 
   async peoplePage(workspaceId: string, userId: string, input: PeoplePageInput) {
     const { visibleAgents } = await this.viewer(workspaceId, userId);
-    const query = input.query.trim();
     const limit = Math.min(Math.max(input.limit, 1), MEMBER_PAGE_MAX);
-    const people = await this.db.user.findMany({
-      where: {
-        memberships: { some: { workspaceId } },
-        ...(query
-          ? {
-              OR: [
-                { username: contains(query) },
-                { displayName: contains(query) },
-                { fullName: contains(query) },
-              ],
-            }
-          : {}),
-      },
+    const ids = await this.orderedPersonIds(workspaceId, input, limit + 1);
+    const rows = await this.db.user.findMany({
+      where: { id: { in: ids } },
       select: {
         id: true,
         username: true,
@@ -265,16 +261,12 @@ export class WorkspaceMembers {
           orderBy: [{ name: "asc" }, { id: "asc" }],
         },
       },
-      // The one list still in username order: it pages by cursor, and the name a person is shown
-      // by (`humanLabel`) is not a column Prisma can sort or a cursor can resume from.
-      orderBy: [{ username: "asc" }, { id: "asc" }],
-      ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
-      take: limit + 1,
     });
+    const byId = new Map(rows.map((person) => [person.id, person]));
+    const people = ids.flatMap((id) => byId.get(id) ?? []);
     return pageOf(
       people.map((person) => ({
         id: person.id,
-        name: person.username,
         displayName: humanLabel(person),
         description: person.description,
         avatarUrl: workspaceUserAvatarUrl(workspaceId, person.id, person.avatarObjectKey),
@@ -289,5 +281,48 @@ export class WorkspaceMembers {
       })),
       limit,
     );
+  }
+
+  /**
+   * The ids of one page of the Workspace's people, in the order they are shown: by the name each
+   * is shown by (`humanLabel`), case-insensitively, then by username so people shown alike keep
+   * one order. Prisma cannot sort by that name, so the order and the cursor are SQL: the page
+   * resumes after the (label, username) of the person the cursor names.
+   */
+  private async orderedPersonIds(
+    workspaceId: string,
+    input: PeoplePageInput,
+    take: number,
+  ): Promise<string[]> {
+    const query = input.query.trim();
+    const label = personLabelSql(Prisma.raw("u"));
+    // The names a person is found by: the one they are shown by or the full name a nickname
+    // replaced. A username is found only for a person with neither name, whom it labels.
+    const matches = query
+      ? Prisma.sql`AND (
+          strpos(lower(u."displayName"), lower(${query})) > 0
+          OR strpos(lower(u."fullName"), lower(${query})) > 0
+          OR (NULLIF(btrim(u."displayName"), '') IS NULL AND NULLIF(btrim(u."fullName"), '') IS NULL
+              AND strpos(lower(u."username"), lower(${query})) > 0)
+        )`
+      : Prisma.empty;
+    const afterCursor = input.cursor
+      ? Prisma.sql`AND (lower(${label}), u."username") > (
+          SELECT lower(${personLabelSql(Prisma.raw("c"))}), c."username"
+          FROM "users" c WHERE c."id" = ${input.cursor}::uuid
+        )`
+      : Prisma.empty;
+    const rows = await this.db.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT u."id"
+      FROM "users" u
+      WHERE EXISTS (
+        SELECT 1 FROM "workspace_memberships" m
+        WHERE m."workspaceId" = ${workspaceId}::uuid AND m."userId" = u."id"
+      )
+      ${matches}
+      ${afterCursor}
+      ORDER BY lower(${label}), u."username"
+      LIMIT ${take}`);
+    return rows.map((row) => row.id);
   }
 }

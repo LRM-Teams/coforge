@@ -77,7 +77,15 @@ test("a re-read gives a new object only to the message that changed", () => {
       row(1),
       row(2, {
         reactions: [
-          { emoji: "👍", member: { agentId: null, agent: null, user: { username: "ada" } } },
+          {
+            emoji: "👍",
+            member: {
+              userId: "user-ada",
+              agentId: null,
+              agent: null,
+              user: { username: "ada", displayName: null, fullName: null },
+            },
+          },
         ],
       }),
       row(3),

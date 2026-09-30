@@ -104,30 +104,37 @@ test("lists only the requested Workspace directory and denies outsiders", async 
     expect(await directory(viewer.id)).toEqual({
       actorRole: "member",
       viewerId: viewer.id,
+      // The page lists people in username order, which is not shown.
       people: [
         {
-          id: otherOwner.id,
-          name: otherOwner.username,
-          displayName: "Agent Owner",
-          description: "Owns the Workspace Agents",
-          avatarUrl: null,
-          createdAgents: {
-            total: 2,
-            items: [
-              { id: assignedAgent.id, displayName: "Assigned Agent", avatarUrl: null },
-              { id: unassignedAgent.id, displayName: "Unassigned Agent", avatarUrl: null },
-            ],
+          username: otherOwner.username,
+          person: {
+            id: otherOwner.id,
+            displayName: "Agent Owner",
+            description: "Owns the Workspace Agents",
+            avatarUrl: null,
+            createdAgents: {
+              total: 2,
+              items: [
+                { id: assignedAgent.id, displayName: "Assigned Agent", avatarUrl: null },
+                { id: unassignedAgent.id, displayName: "Unassigned Agent", avatarUrl: null },
+              ],
+            },
           },
         },
         {
-          id: viewer.id,
-          name: viewer.username,
-          displayName: "Directory Viewer",
-          description: "Views the directory",
-          avatarUrl: null,
-          createdAgents: { total: 0, items: [] },
+          username: viewer.username,
+          person: {
+            id: viewer.id,
+            displayName: "Directory Viewer",
+            description: "Views the directory",
+            avatarUrl: null,
+            createdAgents: { total: 0, items: [] },
+          },
         },
-      ].sort((left, right) => left.name.localeCompare(right.name)),
+      ]
+        .sort((left, right) => left.username.localeCompare(right.username))
+        .map(({ person }) => person),
       agents: [
         {
           id: assignedAgent.id,

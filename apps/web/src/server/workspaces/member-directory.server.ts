@@ -2,11 +2,8 @@ import { AppError } from "#src/lib/app-error";
 import { compareHumanLabels } from "#src/lib/human-label";
 import {
   assertCanChangeMemberRole,
-  assertCanInvite,
   assertCanLeaveWorkspace,
-  assertCanManageMembers,
   assertCanRemoveMember,
-  type InvitableWorkspaceRole,
   type WorkspaceMemberRole,
 } from "./member-role.server";
 import {
@@ -25,47 +22,12 @@ export type WorkspaceMemberRecord = {
   avatarUrl: string | null;
 };
 
-export type WorkspaceInvitationStatus = "pending" | "accepted" | "revoked" | "expired";
-
-export type WorkspaceInvitationRecord = {
-  id: string;
-  workspaceId: string;
-  inviterUserId: string;
-  inviteeUserId: string;
-  inviteeUsername: string;
-  role: InvitableWorkspaceRole;
-  status: WorkspaceInvitationStatus;
-  expiresAt: Date;
-};
-
 export type WorkspaceMemberDirectoryStore = {
   findMembership(
     workspaceId: string,
     userId: string,
   ): Promise<Pick<WorkspaceMemberRecord, "workspaceId" | "userId" | "role"> | null>;
   listMembers(workspaceId: string): Promise<WorkspaceMemberRecord[]>;
-  findUserByUsername(username: string): Promise<{ id: string; username: string } | null>;
-  findPendingInvitation(
-    workspaceId: string,
-    inviteeUserId: string,
-  ): Promise<WorkspaceInvitationRecord | null>;
-  createInvitation(input: {
-    workspaceId: string;
-    inviterUserId: string;
-    inviteeUserId: string;
-    inviteeUsername: string;
-    role: InvitableWorkspaceRole;
-    expiresAt: Date;
-  }): Promise<WorkspaceInvitationRecord>;
-  getInvitation(invitationId: string): Promise<WorkspaceInvitationRecord | null>;
-  /** Accepts the invitation and admits the invitee; reports the channels they joined (`#general`),
-   * whose member lists now changed. */
-  acceptInvitation(input: {
-    invitationId: string;
-    userId: string;
-  }): Promise<{ member: WorkspaceMemberRecord; joinedChannelIds: string[] }>;
-  revokeInvitation(invitationId: string): Promise<WorkspaceInvitationRecord>;
-  listPendingInvitations(workspaceId: string): Promise<WorkspaceInvitationRecord[]>;
   updateRole(
     workspaceId: string,
     userId: string,
@@ -77,13 +39,10 @@ export type WorkspaceMemberDirectoryStore = {
   removeMember(workspaceId: string, userId: string): Promise<{ leftChannelIds: string[] }>;
 };
 
-const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-/** Human Workspace membership directory: list, invite, accept, role changes, remove, leave. */
+/** Human Workspace membership directory: list, role changes, remove, leave. */
 export class WorkspaceMemberDirectory {
   constructor(
     private readonly store: WorkspaceMemberDirectoryStore,
-    private readonly now: () => Date = () => new Date(),
     private readonly realtime?: Pick<ConversationRealtime, "memberChanged">,
   ) {}
 
@@ -92,79 +51,6 @@ export class WorkspaceMemberDirectory {
     const members = await this.store.listMembers(input.workspaceId);
     // By the name they are shown by; the store's order is not part of its contract.
     return [...members].sort(compareHumanLabels);
-  }
-
-  async listPendingInvitations(input: { workspaceId: string; actorUserId: string }) {
-    const actor = await this.requireMembership(input.workspaceId, input.actorUserId);
-    assertCanManageMembers(actor.role);
-    return this.store.listPendingInvitations(input.workspaceId);
-  }
-
-  async invite(input: {
-    workspaceId: string;
-    actorUserId: string;
-    inviteeUsername: string;
-    role: string;
-  }) {
-    const actor = await this.requireMembership(input.workspaceId, input.actorUserId);
-    const role = assertCanInvite(actor.role, input.role);
-    const username = input.inviteeUsername.trim().replace(/^@/, "");
-    if (!username) throw new AppError("INVALID_INPUT");
-    const invitee = await this.store.findUserByUsername(username);
-    if (!invitee) throw new AppError("NOT_FOUND");
-    if (invitee.id === input.actorUserId) throw new AppError("INVALID_INPUT");
-    const existing = await this.store.findMembership(input.workspaceId, invitee.id);
-    if (existing) throw new AppError("CONFLICT");
-    const pending = await this.store.findPendingInvitation(input.workspaceId, invitee.id);
-    if (pending && pending.expiresAt > this.now()) throw new AppError("CONFLICT");
-    return this.store.createInvitation({
-      workspaceId: input.workspaceId,
-      inviterUserId: input.actorUserId,
-      inviteeUserId: invitee.id,
-      inviteeUsername: invitee.username,
-      role,
-      expiresAt: new Date(this.now().getTime() + INVITATION_TTL_MS),
-    });
-  }
-
-  async acceptInvitation(input: { invitationId: string; userId: string }) {
-    const invitation = await this.store.getInvitation(input.invitationId);
-    if (!invitation) throw new AppError("NOT_FOUND");
-    if (invitation.inviteeUserId !== input.userId) throw new AppError("ACCESS_DENIED");
-    if (invitation.status !== "pending") throw new AppError("CONFLICT");
-    if (invitation.expiresAt <= this.now()) throw new AppError("CONFLICT");
-    const existing = await this.store.findMembership(invitation.workspaceId, input.userId);
-    if (existing) throw new AppError("CONFLICT");
-    const { member, joinedChannelIds } = await this.store.acceptInvitation(input);
-    await announceMemberChanged(this.realtime, {
-      workspaceId: member.workspaceId,
-      conversationIds: joinedChannelIds,
-    });
-    return member;
-  }
-
-  /** The invitee turning down their own pending invitation (no workspace membership required). */
-  async declineInvitation(input: { invitationId: string; userId: string }) {
-    const invitation = await this.store.getInvitation(input.invitationId);
-    if (!invitation) throw new AppError("NOT_FOUND");
-    if (invitation.inviteeUserId !== input.userId) throw new AppError("ACCESS_DENIED");
-    if (invitation.status !== "pending") throw new AppError("CONFLICT");
-    return this.store.revokeInvitation(input.invitationId);
-  }
-
-  async revokeInvitation(input: {
-    workspaceId: string;
-    actorUserId: string;
-    invitationId: string;
-  }) {
-    const actor = await this.requireMembership(input.workspaceId, input.actorUserId);
-    assertCanManageMembers(actor.role);
-    const invitation = await this.store.getInvitation(input.invitationId);
-    if (!invitation || invitation.workspaceId !== input.workspaceId) {
-      throw new AppError("NOT_FOUND");
-    }
-    if (invitation.status !== "pending") throw new AppError("CONFLICT");
-    return this.store.revokeInvitation(input.invitationId);
   }
 
   async updateRole(input: {

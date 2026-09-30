@@ -162,7 +162,7 @@ These rules apply to `src/features/conversations/`.
   rewrites the name to the handle, so the composer, the unsent row and an edited draft stay readable.
   A channel send carries the pinned members as `mentions`; a direct conversation gets the rewritten
   text only. A member's name typed by hand offers `UnpinnedMentionHint`. Whether the viewer is
-  mentioned is decided by `viewerId`; `viewerHandle` only names their own reaction.
+  mentioned, and which reaction is theirs, is decided by `viewerId`.
 - The live Agent activity strip shows one notable display (working, thinking,
   or error; newest cloud revision). Idle and offline stay in the directory.
 - A channel's members are a page of its settings panel

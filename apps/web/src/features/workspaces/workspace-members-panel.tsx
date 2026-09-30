@@ -1,28 +1,20 @@
 import { useState, type ReactNode } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { DotsVertical, Mail01, Shield01, UserMinus01, UsersPlus } from "@untitledui/icons";
+import { DotsVertical, Shield01, UserMinus01, UsersPlus } from "@untitledui/icons";
 
 import { Avatar } from "#src/components/base/avatar/avatar";
 import { Badge } from "#src/components/base/badges/badges";
 import { Button } from "#src/components/base/buttons/button";
 import { ButtonUtility } from "#src/components/base/buttons/button-utility";
 import { Dropdown } from "#src/components/base/dropdown/dropdown";
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#src/components/ui/empty";
 import { useAppToast } from "#src/components/ui/toast";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { humanLabel } from "#src/lib/human-label";
 import { m } from "#src/paraglide/messages";
 import { InviteMemberDialog } from "./invite-member-dialog";
 import { canManageMembers } from "./workspace-roles";
-import {
-  acceptWorkspaceInvitation,
-  declineWorkspaceInvitation,
-  inviteWorkspaceMember,
-  removeWorkspaceMember,
-  revokeWorkspaceInvitation,
-  updateWorkspaceMemberRole,
-} from "./members.functions";
+import { removeWorkspaceMember, updateWorkspaceMemberRole } from "./members.functions";
 
 type MemberRow = {
   userId: string;
@@ -31,19 +23,6 @@ type MemberRow = {
   displayName: string | null;
   fullName: string | null;
   avatarUrl: string | null;
-};
-
-type InvitationRow = {
-  id: string;
-  role: string;
-  inviteeUsername: string;
-};
-
-type IncomingInvitation = {
-  id: string;
-  role: string;
-  workspace: { name: string; slug: string };
-  inviterUsername: string;
 };
 
 function roleLabel(role: string) {
@@ -56,18 +35,11 @@ export function WorkspaceMembersPanel(props: {
   actorUserId: string;
   actorRole: string;
   members: MemberRow[];
-  pendingInvitations: InvitationRow[];
-  incomingInvitations: IncomingInvitation[];
-  /** Workspace-wide channel settings, for an owner or admin; placed between the members and the
-   * pending invitations. */
+  /** Workspace-wide channel settings, for an owner or admin; placed after the members. */
   systemChannels?: ReactNode;
 }) {
   const canManage = canManageMembers(props.actorRole);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const invite = useServerFn(inviteWorkspaceMember);
-  const accept = useServerFn(acceptWorkspaceInvitation);
-  const decline = useServerFn(declineWorkspaceInvitation);
-  const revoke = useServerFn(revokeWorkspaceInvitation);
   const updateRole = useServerFn(updateWorkspaceMemberRole);
   const remove = useServerFn(removeWorkspaceMember);
   const router = useRouter();
@@ -88,54 +60,26 @@ export function WorkspaceMembersPanel(props: {
 
   return (
     <div className="w-full px-4 pb-8 sm:px-6">
-      {props.incomingInvitations.length > 0 && (
-        <div className="mt-6 flex items-start gap-3 rounded-lg border border-secondary bg-secondary px-4 py-4">
-          <Mail01 aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-brand-secondary" />
-          <div className="min-w-0 flex-1 space-y-3">
-            <h2 className="text-sm font-semibold text-primary">
-              {m.workspace_invitations_incoming()}
-            </h2>
-            {props.incomingInvitations.map((invitation) => (
-              <div
-                key={invitation.id}
-                className="flex flex-wrap items-center justify-between gap-3"
-              >
-                <p className="min-w-0 text-sm text-secondary">
-                  {m.workspace_invitation_from({
-                    inviter: invitation.inviterUsername,
-                    workspace: invitation.workspace.name,
-                    role: roleLabel(invitation.role),
-                  })}
-                </p>
-                <div className="flex shrink-0 gap-2">
-                  <Button
-                    size="sm"
-                    color="secondary"
-                    onPress={() => run(() => accept({ data: { invitationId: invitation.id } }))}
-                  >
-                    {m.workspace_invitation_accept()}
-                  </Button>
-                  <Button
-                    size="sm"
-                    color="secondary"
-                    onPress={() => run(() => decline({ data: { invitationId: invitation.id } }))}
-                  >
-                    {m.workspace_invitation_decline()}
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="divide-y divide-secondary border-b border-secondary">
         <section className="py-6">
+          <header className="flex items-center justify-between gap-4 pb-4">
+            <h2 className="text-lg font-semibold">{m.workspace_members_title()}</h2>
+            {canManage && (
+              <Button
+                type="button"
+                color="secondary"
+                size="sm"
+                iconLeading={UsersPlus}
+                onPress={() => setInviteOpen(true)}
+              >
+                {m.workspace_invite_button()}
+              </Button>
+            )}
+          </header>
           <ul aria-label={m.workspace_members_title()} className="divide-y divide-secondary">
             {props.members.map((member) => {
               const isSelf = member.userId === props.actorUserId;
               const displayName = humanLabel(member);
-              const sameAsHandle = displayName === member.username;
               const canEditRole = canManage && member.role !== "owner";
               const canRemove = canManage && member.role !== "owner" && !isSelf;
               const hasActions = canEditRole || canRemove;
@@ -155,9 +99,6 @@ export function WorkspaceMembersPanel(props: {
                       <span className="truncate text-sm font-medium text-primary">
                         {displayName}
                       </span>
-                      {!sameAsHandle && (
-                        <span className="truncate text-sm text-tertiary">@{member.username}</span>
-                      )}
                       {isSelf && (
                         <span className="shrink-0 text-sm text-tertiary">
                           · {m.workspace_members_you()}
@@ -223,64 +164,9 @@ export function WorkspaceMembersPanel(props: {
         </section>
 
         {props.systemChannels}
-
-        {canManage && (
-          <section className="py-6">
-            <header className="flex items-center justify-between gap-4 pb-4">
-              <h2 className="text-lg font-semibold">{m.workspace_invitations_pending()}</h2>
-              <Button
-                type="button"
-                color="secondary"
-                size="sm"
-                iconLeading={UsersPlus}
-                onPress={() => setInviteOpen(true)}
-              >
-                {m.workspace_invite_button()}
-              </Button>
-            </header>
-            {props.pendingInvitations.length > 0 ? (
-              <ul className="divide-y divide-secondary">
-                {props.pendingInvitations.map((invitation) => (
-                  <li key={invitation.id} className="flex h-12 items-center justify-between gap-3">
-                    <p className="min-w-0 truncate text-sm">
-                      <span className="font-medium text-primary">
-                        @{invitation.inviteeUsername}
-                      </span>
-                      <span className="text-tertiary"> · {roleLabel(invitation.role)}</span>
-                    </p>
-                    <Button
-                      size="sm"
-                      color="secondary"
-                      onPress={() => run(() => revoke({ data: { invitationId: invitation.id } }))}
-                    >
-                      {m.workspace_invitation_revoke()}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyTitle>{m.workspace_invitations_pending_empty_title()}</EmptyTitle>
-                  <EmptyDescription>
-                    {m.workspace_invitations_pending_empty_description()}
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            )}
-          </section>
-        )}
       </div>
 
-      <InviteMemberDialog
-        open={inviteOpen}
-        onOpenChange={setInviteOpen}
-        actorRole={props.actorRole}
-        onInvite={async (input) => {
-          await invite({ data: input });
-          await refresh();
-        }}
-      />
+      <InviteMemberDialog open={inviteOpen} onOpenChange={setInviteOpen} />
     </div>
   );
 }

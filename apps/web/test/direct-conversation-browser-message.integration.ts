@@ -145,7 +145,7 @@ test("a direct conversation's page and poll return the same browser message shap
         attachments: [
           { id: attachment.id, fileName: "notes.txt", contentType: "text/plain", sizeBytes: 12 },
         ],
-        reactions: [{ emoji: "👍", count: 1, reactors: [`@${username}`] }],
+        reactions: [{ emoji: "👍", count: 1, reactors: [{ id: user.id, label: "Ada Lovelace" }] }],
         actionCard: undefined,
       },
       {

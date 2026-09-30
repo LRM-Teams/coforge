@@ -20,7 +20,9 @@ export type SearchEntity =
       id: string;
       peerId: string;
       name: string;
-      handle: string;
+      /** The name behind `name` when a nickname replaced it, which a search still finds them by.
+       * A member has no `@handle` here: nothing shown or searched for a person is a username. */
+      fullName: string | null;
       avatarUrl: string | null;
     };
 
@@ -47,8 +49,9 @@ function matchTier(entity: SearchEntity, lowerQuery: string): number | undefined
     case "computer":
       return nameMatchTier(entity.name, [entity.hostname], lowerQuery);
     case "agent":
-    case "dm":
       return nameMatchTier(entity.name, [entity.handle], lowerQuery);
+    case "dm":
+      return nameMatchTier(entity.name, entity.fullName ? [entity.fullName] : [], lowerQuery);
   }
 }
 

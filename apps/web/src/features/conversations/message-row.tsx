@@ -47,6 +47,7 @@ import { CollapsibleMessageBody } from "./collapsible-message-body";
 import type { ChipMention } from "./message-markdown";
 import { formatSelectionQuote, selectionAffordancePlacement } from "./message-quote";
 import { MessageReactionPicker, QUICK_REACTION_EMOJIS } from "./message-reaction-picker";
+import type { ReactionSummary } from "./message-reactions";
 import { ThreadPreview, ThreadSheetEntry, ThreadToolbarEntry } from "./thread-summary";
 import {
   copyFragmentMarkdown,
@@ -99,7 +100,7 @@ export type MessageView = {
     handle: string;
     label: string;
   }[];
-  reactions?: { emoji: string; count: number; reactors: string[] }[];
+  reactions?: ReactionSummary[];
   /** Present when this message is the summary posted for an Agent-prepared action card.
    * Replaces the plain-text draft hint line with the interactive card; the
    * underlying `body` stays available to assistive technology. */
@@ -565,7 +566,6 @@ export const MessageRow = memo(function MessageRow({
   onToggleSave,
   onOpenAgentProfile,
   viewerId,
-  viewerHandle,
   plainMentions,
   onOpenTask,
   channelNames,
@@ -605,10 +605,9 @@ export const MessageRow = memo(function MessageRow({
    * conversation owns that slot (`features/agents/profile-panel/`'s `openAgentProfile`). Absent, the
    * avatar/name render inert and the avatar has no hover card. */
   onOpenAgentProfile?: OpenAgentProfile;
-  /** The viewing user's id; a mention of them renders with the stronger "me" chip. */
+  /** The viewing user's id; a mention of them renders with the stronger "me" chip, and a reaction
+   * with them among its reactors is theirs. */
   viewerId?: string;
-  /** The viewing user's handle, which names their own reaction among a message's reactors. */
-  viewerHandle?: string;
   /** The conversation's member directory as handle → chip, so a plain `@handle` in the body
    * (DM text, or a channel body written without the completion) still renders the member's
    * display label. Absent, plain handles render as literal text. */
@@ -1015,11 +1014,15 @@ export const MessageRow = memo(function MessageRow({
           {message.reactions && message.reactions.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-0.5">
               {message.reactions.map((reaction) => {
-                // The summaries spell a reactor as `@handle`; a badge counts as mine when it
-                // carries the viewer's own handle, and flips to brand to show it.
-                const mine = viewerHandle ? reaction.reactors.includes(`@${viewerHandle}`) : false;
+                // A badge counts as mine when a reactor is the viewer, and flips to brand to show it.
+                const mine = viewerId
+                  ? reaction.reactors.some((reactor) => reactor.id === viewerId)
+                  : false;
                 return (
-                  <Tooltip key={reaction.emoji} title={reaction.reactors.join(", ")}>
+                  <Tooltip
+                    key={reaction.emoji}
+                    title={reaction.reactors.map((reactor) => reactor.label).join(", ")}
+                  >
                     <TooltipTrigger>
                       <Button
                         color="tertiary"

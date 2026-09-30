@@ -37,6 +37,11 @@ import { ButtonGroup, ButtonGroupItem } from "#src/components/base/button-group/
 import { WorkspaceMembersPanel } from "#src/features/workspaces/workspace-members-panel";
 import { WorkspaceIcon } from "#src/features/workspaces/workspace-icon";
 import { canManageWorkspaceSettings } from "#src/features/workspaces/workspace-roles";
+import {
+  checkPersonName,
+  PERSON_NAME_MAX_LENGTH,
+  type PersonNameProblem,
+} from "#src/features/profiles/person-name";
 import { WORKSPACE_NAME_MAX_LENGTH } from "#src/features/workspaces/workspace.schemas";
 import { IMAGE_MAX_BYTES, IMAGE_UPLOAD_TYPES } from "#src/lib/image-upload";
 import { GitHubSettings } from "#src/features/integrations/github-settings";
@@ -59,7 +64,6 @@ import { isTimeFormat, localeTimeFormat, type TimeFormat } from "#src/lib/time-f
 import { cn } from "#src/lib/utils";
 import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
-import { PERSON_NAME_MAX_LENGTH } from "#src/features/profiles/person-name";
 
 type Locale = "en" | "zh-CN";
 type Theme = "system" | "light" | "dark";
@@ -79,10 +83,14 @@ interface SettingsContentProps {
   githubWrongAccount?: boolean;
   onSectionChange?: (section: SettingsSection) => void;
   profile: {
+    /** The name teammates see: the display name, else the full name. */
     name: string;
+    /** Null until the person has been asked for it. */
+    fullName: string | null;
+    /** The optional nickname shown instead of the full name; null when there is none. */
+    displayName: string | null;
     /** Null for an account made with a phone number alone. */
     email: string | null;
-    username: string;
     description: string;
     avatarUrl: string | null;
   };
@@ -96,17 +104,6 @@ interface SettingsContentProps {
       displayName: string | null;
       fullName: string | null;
       avatarUrl: string | null;
-    }>;
-    pendingInvitations: Array<{
-      id: string;
-      role: string;
-      inviteeUsername: string;
-    }>;
-    incomingInvitations: Array<{
-      id: string;
-      role: string;
-      workspace: { name: string; slug: string };
-      inviterUsername: string;
     }>;
   };
   locale: Locale;
@@ -122,7 +119,11 @@ interface SettingsContentProps {
   browserNotificationPermission: NotificationPermission | "unsupported";
   browserNotificationsConfigured: boolean;
   showAddToHomeScreenGuide: boolean;
-  onProfileSave: (profile: { name: string; description: string }) => Promise<void>;
+  onProfileSave: (profile: {
+    fullName: string;
+    displayName: string;
+    description: string;
+  }) => Promise<void>;
   onAvatarUpload: (file: File) => Promise<void>;
   onAvatarRemove: () => Promise<void>;
   onLocaleChange: (locale: Locale) => void;
@@ -277,8 +278,6 @@ export function SettingsContent(props: SettingsContentProps) {
                 actorUserId={props.members.actorUserId}
                 actorRole={props.members.actorRole}
                 members={props.members.members}
-                pendingInvitations={props.members.pendingInvitations}
-                incomingInvitations={props.members.incomingInvitations}
                 systemChannels={
                   // Workspace-wide channel settings: present only for a Workspace owner or admin.
                   props.generalChannelHidden !== null && (
@@ -343,7 +342,8 @@ function AccountSettings({
   onAvatarRemove,
 }: SettingsContentProps) {
   const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(profile.name);
+  const [fullName, setFullName] = useState(profile.fullName ?? "");
+  const [displayName, setDisplayName] = useState(profile.displayName ?? "");
   const [description, setDescription] = useState(profile.description);
   const [saving, guard] = useSubmitGuard();
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
@@ -367,13 +367,15 @@ function AccountSettings({
 
   useEffect(() => {
     if (!editing) {
-      setName(profile.name);
+      setFullName(profile.fullName ?? "");
+      setDisplayName(profile.displayName ?? "");
       setDescription(profile.description);
     }
-  }, [editing, profile.name, profile.description]);
+  }, [editing, profile.fullName, profile.displayName, profile.description]);
 
   function startEditing() {
-    setName(profile.name);
+    setFullName(profile.fullName ?? "");
+    setDisplayName(profile.displayName ?? "");
     setDescription(profile.description);
     setPendingAvatar(null);
     setRemoveAvatar(false);
@@ -383,7 +385,8 @@ function AccountSettings({
   }
 
   function cancelEditing() {
-    setName(profile.name);
+    setFullName(profile.fullName ?? "");
+    setDisplayName(profile.displayName ?? "");
     setDescription(profile.description);
     setPendingAvatar(null);
     setRemoveAvatar(false);
@@ -404,8 +407,7 @@ function AccountSettings({
           avatarSaved = true;
           setRemoveAvatar(false);
         }
-        if (name !== profile.name || description !== profile.description)
-          await onProfileSave({ name, description });
+        if (profileTextChanged) await onProfileSave({ fullName, displayName, description });
         setSaveSuccess(true);
         setEditing(false);
       } catch (cause) {
@@ -428,7 +430,16 @@ function AccountSettings({
   }
 
   const avatarChanged = pendingAvatar !== null || removeAvatar;
-  const changed = avatarChanged || name !== profile.name || description !== profile.description;
+  const profileTextChanged =
+    fullName !== (profile.fullName ?? "") ||
+    displayName !== (profile.displayName ?? "") ||
+    description !== profile.description;
+  const changed = avatarChanged || profileTextChanged;
+  // A name the server would refuse is said so here, where it is typed, not as a failed save. The
+  // full name is the one required field; a blank display name means none.
+  const fullNameProblem = nameProblem(fullName);
+  const displayNameProblem = displayName.trim() === "" ? undefined : nameProblem(displayName);
+  const canSave = changed && !saving && !fullNameProblem && !displayNameProblem;
 
   return (
     <div className="w-full px-4 pb-8 sm:px-6">
@@ -490,27 +501,36 @@ function AccountSettings({
               <p className="mt-2 text-xs text-tertiary">{m.settings_avatar_help()}</p>
 
               <div className="mt-6 grid gap-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
-                {/* Both identities are visible while editing, but only one is editable: the
-                 * display name is what teammates read, and the username is the fixed handle
-                 * mentions resolve against, so it is shown as a value rather than a field
-                 * nobody can submit. "Display name" replaces the old ambiguous "Name". */}
+                {/* Slack's split: the full name is required, and the display name is an optional
+                 * nickname teammates see instead of it. */}
+                <Input
+                  label={m.settings_full_name()}
+                  value={fullName}
+                  isRequired
+                  isInvalid={fullNameProblem !== undefined}
+                  hint={
+                    fullNameProblem ? (
+                      <span role="alert">{nameProblemText[fullNameProblem]()}</span>
+                    ) : undefined
+                  }
+                  isDisabled={saving}
+                  onChange={setFullName}
+                />
                 <Input
                   label={m.settings_display_name()}
-                  value={name}
-                  maxLength={PERSON_NAME_MAX_LENGTH}
+                  hint={
+                    displayNameProblem ? (
+                      <span role="alert">{nameProblemText[displayNameProblem]()}</span>
+                    ) : (
+                      m.settings_display_name_hint()
+                    )
+                  }
+                  isInvalid={displayNameProblem !== undefined}
+                  value={displayName}
                   isDisabled={saving}
                   hideRequiredIndicator
-                  onChange={setName}
+                  onChange={setDisplayName}
                 />
-                <div className="flex min-w-0 flex-col gap-1.5">
-                  <span className="text-sm font-medium text-secondary">
-                    {m.settings_username()}
-                  </span>
-                  <p className="min-w-0 truncate text-sm font-medium text-primary">
-                    @{profile.username}
-                  </p>
-                  <p className="text-xs text-tertiary">{m.settings_username_fixed()}</p>
-                </div>
 
                 <div className="flex flex-col gap-1.5 md:col-span-2 xl:col-span-3">
                   <TextArea
@@ -539,7 +559,7 @@ function AccountSettings({
               <Button type="button" color="secondary" isDisabled={saving} onPress={cancelEditing}>
                 {m.settings_profile_cancel()}
               </Button>
-              <Button type="button" isDisabled={saving || !changed} onPress={save}>
+              <Button type="button" isDisabled={!canSave} onPress={save}>
                 {saving ? m.settings_profile_saving() : m.settings_profile_save()}
               </Button>
             </footer>
@@ -562,15 +582,17 @@ function AccountSettings({
               />
               <div className="min-w-0">
                 <p className="break-words text-lg font-semibold">{profile.name}</p>
-                <p className="break-words text-sm text-tertiary">@{profile.username}</p>
+                {profile.email ? (
+                  <p className="break-words text-sm text-tertiary">{profile.email}</p>
+                ) : null}
               </div>
             </div>
             <dl className="grid gap-x-8 gap-y-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
-              <ProfileValue label={m.settings_display_name()} value={profile.name} />
+              <ProfileValue label={m.settings_full_name()} value={profile.fullName || "-"} />
+              <ProfileValue label={m.settings_display_name()} value={profile.displayName || "-"} />
               {profile.email ? (
                 <ProfileValue label={m.settings_email()} value={profile.email} />
               ) : null}
-              <ProfileValue label={m.settings_username()} value={`@${profile.username}`} />
               <ProfileValue
                 label={m.settings_user_description()}
                 value={profile.description || "-"}
@@ -582,6 +604,18 @@ function AccountSettings({
       </section>
     </div>
   );
+}
+
+/** Each way a name is refused, worded as the first sign-in step words it. */
+const nameProblemText: Record<PersonNameProblem, () => string> = {
+  empty: () => m.welcome_error_empty(),
+  too_long: () => m.welcome_error_too_long({ max: PERSON_NAME_MAX_LENGTH }),
+  refused: () => m.welcome_error_refused(),
+};
+
+function nameProblem(name: string): PersonNameProblem | undefined {
+  const checked = checkPersonName(name);
+  return checked.ok ? undefined : checked.problem;
 }
 
 function ProfileValue({

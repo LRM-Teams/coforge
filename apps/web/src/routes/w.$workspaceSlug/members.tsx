@@ -17,7 +17,6 @@ import {
   getComputerRuntimeCatalog,
   listComputers,
 } from "#src/features/computers/computers.functions";
-import { inviteWorkspaceMember } from "#src/features/workspaces/members.functions";
 import { loadMemberDirectorySummary } from "#src/features/workspaces/workspaces.functions";
 import {
   MEMBER_DIRECTORY_KEY,
@@ -73,11 +72,10 @@ function AgentsPage() {
   const router = useRouter();
   const create = useServerFn(createAgent);
   const loadRuntimeCatalog = useServerFn(getComputerRuntimeCatalog);
-  const invite = useServerFn(inviteWorkspaceMember);
   const removeAgent = useServerFn(deleteAgent);
   const visibleAgents = useLiveAgents();
   const queryClient = useQueryClient();
-  // Counts, filter choices and every loaded page change together after a create, delete or invite.
+  // Counts, filter choices and every loaded page change together after a create or delete.
   const refreshDirectory = async () => {
     await Promise.all([
       router.invalidate({ sync: true }),
@@ -112,10 +110,6 @@ function AgentsPage() {
         const result = await create({ data });
         await refreshDirectory();
         return result;
-      }}
-      onInviteMember={async (data) => {
-        await invite({ data });
-        await refreshDirectory();
       }}
       onDeleteAgent={async (agentId, confirmation) => {
         await removeAgent({ data: { agentId, confirmation } });

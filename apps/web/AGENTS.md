@@ -13,6 +13,7 @@ live in nested `AGENTS.md` files listed at the end.
   - Components (product UI; `features/landing` keeps its Spell / Magic UI motion components): only official Untitled UI components, unmodified, and the primitives listed in `components/ui/README.md`, per §7 including its listed exceptions. Icons only from `@untitledui/icons`; vendor logos from `@lobehub/icons-static-svg`.
   - Sizes: anything that affects layout or reading (font size, spacing, width, height, radius, icon/avatar size, offsets) uses rem — the Tailwind scale, or a rem arbitrary value such as `w-[18rem]`; never `w-[280px]`, `text-[10px]`, or numeric inline `style` sizes. px is only for hairlines (border, ring, outline, divider), stroke widths, shadows/blur, and positions and sizes measured from the DOM (§12).
   - Colors: semantic tokens only, no hex or `dark:` color overrides (§11).
+  - People: show a person by `humanLabel` (`src/lib/human-label.ts`), never as `@username`, and do not search by username (`docs/database-schema/identity-models.md`); an Agent keeps its `@handle`.
   - Feedback: a toast only confirms an action; anything the user must see, handle, or come back to stays inline (§13). Toasts go through the existing `AppToastProvider`; do not add a second notification system.
 - Do not apply marketing-page defaults from `design-taste-frontend` to the product workspace.
 - Keep supplemental explanations behind accessible, on-demand help when appropriate; keep essential constraints, errors, and risks visible. Help must work for keyboard and touch users, not only on hover.
@@ -125,7 +126,7 @@ responsibility.
   about the browser for the server render (phone or desktop).
 - `features/search/` — the Workspace search page (`search`): filters, matching channels, Agents and Computers, message results with their preview, and the browser-local search history and frequently used places.
 - `features/tasks/` — Task board, list, overview, and message task actions.
-- `features/workspaces/` — Workspace switcher and creation (the switcher dialog and the page a signed-in person in no Workspace lands on, `/workspaces/new`), the Workspace a page URL names (`/w/<slug>`) and the one each QueryClient last showed, member directory reads, member presence (`presence:workspace:<workspace_id>`), invitations, join links and the invite-link page (`/join/<token>`), human roles, the Settings → Workspace profile Danger zone (leave, or delete for its owner), leaving a page whose Workspace was deleted (`workspace.deleted.v1`), and the last page `/` returns to.
+- `features/workspaces/` — Workspace switcher and creation (the switcher dialog and the page a signed-in person in no Workspace lands on, `/workspaces/new`), the Workspace a page URL names (`/w/<slug>`) and the one each QueryClient last showed, member directory reads, member presence (`presence:workspace:<workspace_id>`), join links and the invite-link page (`/join/<token>`), human roles, the Settings → Workspace profile Danger zone (leave, or delete for its owner), leaving a page whose Workspace was deleted (`workspace.deleted.v1`), and the last page `/` returns to.
 - `server/agents/` — Agent lifecycle, control, sessions, display reduction,
   Activity (Computer lifecycle rows included), visibility, deletion, and the
   Agent HTTPS API.
@@ -150,10 +151,7 @@ responsibility.
 - `server/records/` — Workspace Records (see the last section).
 - `server/reminders/` — cloud Agent Reminders.
 - `server/tasks/` — the message-backed TaskBoard, the shape a Task command must have, the Tasks page's overview reads, its Task view, history records, and notice wording.
-- `server/workspaces/` — Workspace catalog (name and icon), selection,
-  enrollment, member roles, member directory, join links, admitting a member (one step for
-  invitations and join links), deleting a Workspace, removing its memory first and its stored files after, and going
-  out of a Workspace (leaving or deleting it) to the next one.
+- `server/workspaces/` — Workspace catalog (name and icon), selection, enrollment, member roles, member directory, join links, admitting a member (`admitWorkspaceMember`, the one step a join link takes), deleting a Workspace, removing its memory first and its stored files after, and going out of a Workspace (leaving or deleting it) to the next one.
 - `prisma/` (app root) — schema and migrations; `messages/` — UI translations.
 
 ## A changed file ends without a blank line

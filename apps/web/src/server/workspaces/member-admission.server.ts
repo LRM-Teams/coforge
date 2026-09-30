@@ -3,7 +3,7 @@ import { enrollGeneralChannel } from "#src/server/conversations/public-channels.
 import type { WorkspaceMemberRole } from "./member-role.server";
 
 /**
- * Someone joins the Workspace, by an accepted invitation or a join link: their membership, their
+ * Someone joins the Workspace, by a join link: their membership, their
  * place in `#general`, and their direct conversations from an earlier stay active again with read
  * positions kept (the other channels they were in stay left until they join them). Runs inside the
  * caller's transaction; it reports the channels whose member lists changed so the caller can

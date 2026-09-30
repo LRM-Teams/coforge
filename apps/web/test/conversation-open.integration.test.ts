@@ -170,7 +170,6 @@ test.skipIf(!connectionString)(
         coordinatorAgent: { id: agent.id, name: agent.name, displayName: agent.displayName },
         senderMemberId: ownerRow.id,
         viewerId: owner!.id,
-        viewerHandle: owner!.username,
         muted: false,
         collapseLongMessages: true,
         pinned: true,
@@ -229,7 +228,6 @@ test.skipIf(!connectionString)(
       expect(leaverPage).toMatchObject({
         senderMemberId: "",
         viewerId: undefined,
-        viewerHandle: undefined,
         pinned: false,
         channelCapabilities: NO_CAPABILITIES,
         canStopAgents: false,
@@ -350,7 +348,6 @@ test.skipIf(!connectionString)(
         agent: { id: agent.id, name: agent.name, displayName: agent.displayName },
         dmWritable: true,
         viewerId: viewer.id,
-        viewerHandle: viewer.username,
         hasOlder: false,
         hasNewer: false,
       });

@@ -15,6 +15,7 @@ import type {
 import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 import { PrismaWorkspaceMemberDirectoryStore } from "#src/server/workspaces/member-directory-store.server";
 import { WorkspaceMemberDirectory } from "#src/server/workspaces/member-directory.server";
+import { admitWorkspaceMember } from "#src/server/workspaces/member-admission.server";
 import {
   PrismaWorkspaceCatalogStore,
   WorkspaceCatalog,
@@ -67,23 +68,18 @@ async function setup() {
   });
   const directory = new WorkspaceMemberDirectory(
     new PrismaWorkspaceMemberDirectoryStore(db),
-    undefined,
     silentRealtime,
   );
   const channels = new PublicChannels(db, passThrough, undefined, undefined, silentRealtime);
-  const invite = async () => {
-    const invitation = await directory.invite({
-      workspaceId: workspace.id,
-      actorUserId: owner.id,
-      inviteeUsername: bob.username,
-      role: "member",
-    });
-    await directory.acceptInvitation({ invitationId: invitation.id, userId: bob.id });
-  };
-  await invite();
+  // Bob joins (again, after he has left) the way anyone is admitted.
+  const admit = () =>
+    db.$transaction((tx) =>
+      admitWorkspaceMember(tx, { workspaceId: workspace.id, userId: bob.id, role: "member" }),
+    );
+  await admit();
   const team = await channels.create(workspace.id, owner.id, `team-${suffix}`);
   await channels.join(workspace.id, bob.id, team.id);
-  return { db, directory, channels, invite, workspace, owner, bob, team };
+  return { db, directory, channels, admit, workspace, owner, bob, team };
 }
 
 async function teardown(db: PrismaClient, workspaceId: string, userIds: string[]) {
@@ -112,7 +108,7 @@ function rememberedWorkspace(slug?: string) {
 test.skipIf(!connectionString)(
   "leaving goes to the Workspace last opened while still a member, else the first one left, and `/` remembers it",
   async () => {
-    const { db, directory, invite, workspace, owner, bob } = await setup();
+    const { db, directory, admit, workspace, owner, bob } = await setup();
     const suffix = crypto.randomUUID().slice(0, 8);
     const [first, second] = [
       await db.workspace.create({
@@ -153,7 +149,7 @@ test.skipIf(!connectionString)(
       expect(leavingOpened.remembered.slug).toBe(first.slug);
 
       // Left from another tab while `/` remembered a Workspace they are still in: that one stays.
-      await invite();
+      await admit();
       const leavingElsewhere = departure(second.slug);
       expect(
         await leavingElsewhere.departure.leave(directory, {
@@ -228,7 +224,7 @@ test.skipIf(!connectionString)(
 test.skipIf(!connectionString)(
   "a removed member keeps their Tasks, and when invited back returns to #general and can rejoin",
   async () => {
-    const { db, directory, channels, invite, workspace, owner, bob, team } = await setup();
+    const { db, directory, channels, admit, workspace, owner, bob, team } = await setup();
     try {
       const board = new TaskBoard(db);
       const created = await board.execute(
@@ -257,7 +253,7 @@ test.skipIf(!connectionString)(
         owner: { kind: "user", id: bob.id, left: true },
       });
 
-      await invite();
+      await admit();
       const general = await db.conversation.findUniqueOrThrow({
         where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
       });
@@ -291,7 +287,7 @@ test.skipIf(!connectionString)(
 test.skipIf(!connectionString)(
   "a member's direct conversations stay readable to the other side, and are theirs again when they return",
   async () => {
-    const { db, directory, invite, workspace, owner, bob } = await setup();
+    const { db, directory, admit, workspace, owner, bob } = await setup();
     try {
       const announced: ConversationRealtimeMessage[] = [];
       const taskSignals: TaskChangedSignal[] = [];
@@ -354,7 +350,7 @@ test.skipIf(!connectionString)(
         direct.page(workspace.id, bob.id, withOwner.conversationId),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
-      await invite();
+      await admit();
       const back = await direct.page(workspace.id, bob.id, withOwner.conversationId);
       expect(back.messages.map((message) => message.body)).toEqual(
         expect.arrayContaining(["see you", "take care"]),
