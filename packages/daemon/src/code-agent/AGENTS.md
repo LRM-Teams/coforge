@@ -44,6 +44,10 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
 - Report the maintained Claude Code model catalog when Claude Code is
   installed. Never launch the CLI to infer a dynamic catalog; its
   machine-readable initialization does not give a dependable list.
+  `claudeStaticCatalog(version)` lists a pinned model only when the probed CLI
+  meets the minimum `code.claude.com/docs/en/model-config` states for it
+  (`CLAUDE_CODE_MODEL_MINIMUM_VERSION`); aliases always stay, and an unknown
+  version keeps every model.
 
 ## Standing instructions
 

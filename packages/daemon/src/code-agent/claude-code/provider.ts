@@ -45,8 +45,8 @@ export class ClaudeCodeProvider implements CodeAgentProvider {
     )[0];
   }
 
-  async discoverModelCatalog() {
-    return claudeStaticCatalog();
+  async discoverModelCatalog(options: ProviderDiscoveryOptions = {}) {
+    return claudeStaticCatalog(options.runtime?.version);
   }
 
   async readUsage(options: {

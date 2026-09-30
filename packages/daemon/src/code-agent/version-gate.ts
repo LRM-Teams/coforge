@@ -31,7 +31,8 @@ export const VERSION_PROBE_TIMEOUT_MS = 5_000;
 const dottedNumbers = (value: string) =>
   value.split(".").map((part) => (/^\d+$/.test(part) ? Number(part) : Number.NaN));
 
-function isVersionBelow(version: string, minimum: string): boolean {
+/** Whether `version` is confidently lower than `minimum`; a version that is not dotted numbers is never below. */
+export function isVersionBelow(version: string, minimum: string): boolean {
   const actual = dottedNumbers(version);
   const min = dottedNumbers(minimum);
   if (actual.some(Number.isNaN) || min.some(Number.isNaN)) return false;

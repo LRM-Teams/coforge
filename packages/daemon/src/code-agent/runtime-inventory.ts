@@ -40,6 +40,7 @@ import {
 import { getLogger } from "@logtape/logtape";
 import type { CodeAgentProbe } from "./contract";
 import { createCodeAgentProvider } from "./registry";
+import { isVersionBelow } from "./version-gate";
 import { asRecord } from "./json-record";
 import { diagnosticErrorCode } from "#src/platform/diagnostic-error-code";
 import {
@@ -364,7 +365,7 @@ export async function loadCachedCodeAgentCatalogs(
   const searchPath = codeAgentExecutableSearchPath(environment, options.platform);
   const catalogs: CodeAgentModelCatalog[] = [discoverCoforgeCatalog()];
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CLAUDE_CODE))
-    catalogs.push(claudeStaticCatalog());
+    catalogs.push(claudeStaticCatalog(installedClaudeCodeVersion(runtimes)));
   const cache = options.cacheDirectory
     ? await readInventoryCache(options.cacheDirectory)
     : undefined;
@@ -424,7 +425,9 @@ export async function discoverCodeAgentCatalogs(
       );
   }
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CLAUDE_CODE)) {
-    discoveries.push(Promise.resolve({ catalog: claudeStaticCatalog() }));
+    discoveries.push(
+      Promise.resolve({ catalog: claudeStaticCatalog(installedClaudeCodeVersion(runtimes)) }),
+    );
   }
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.KIRO)) {
     const executable = probe.which(externalCodeAgentExecutable[RUNTIME_PROVIDER.KIRO], searchPath);
@@ -545,6 +548,7 @@ export async function discoverCodeAgentInventory(
             cwd: options.cwd,
             environment: options.environment,
             platform: options.platform,
+            runtime,
           })
         : undefined;
       return { runtime, catalog };
@@ -951,7 +955,28 @@ function codexModel(value: unknown): CodeAgentModelMetadata | undefined {
   };
 }
 
-export function claudeStaticCatalog(): CodeAgentModelCatalog {
+/**
+ * The oldest Claude Code that can run a pinned model, from "Version history" and the model notes
+ * in https://code.claude.com/docs/en/model-config. Only a minimum the page states belongs here: a
+ * model it states none for is listed for every version. The aliases (`opus`, `sonnet`, `fable`,
+ * `haiku`) are never gated; an older CLI resolves each to an older model.
+ */
+const CLAUDE_CODE_MODEL_MINIMUM_VERSION: Readonly<Record<string, string>> = {
+  "claude-sonnet-5-5": "2.1.284",
+  "claude-opus-5-5": "2.1.280",
+  "claude-fable-5-1": "2.1.257",
+};
+
+function installedClaudeCodeVersion(runtimes: readonly RuntimeMetadata[]): string | undefined {
+  return runtimes.find((runtime) => runtime.provider === RUNTIME_PROVIDER.CLAUDE_CODE)?.version;
+}
+
+/**
+ * The maintained Claude Code catalog for the installed CLI. A pinned model appears only when
+ * `claudeCodeVersion` reaches its minimum; an unknown or unparseable version lists every model,
+ * because a failed probe must not hide one.
+ */
+export function claudeStaticCatalog(claudeCodeVersion?: string): CodeAgentModelCatalog {
   // Effort levels per model from https://code.claude.com/docs/en/model-config ("Adjust effort
   // level"); a model the table leaves out (Sonnet 4.5, Haiku 4.5) takes no effort setting.
   const fullReasoning = ["low", "medium", "high", "xhigh", "max"];
@@ -977,7 +1002,14 @@ export function claudeStaticCatalog(): CodeAgentModelCatalog {
       claudeStaticModel("claude-sonnet-4-6", "Claude Sonnet 4.6", standardReasoning),
       claudeStaticModel("claude-sonnet-4-5", "Claude Sonnet 4.5"),
       claudeStaticModel("claude-haiku-4-5", "Claude Haiku 4.5"),
-    ],
+    ].filter((model) => {
+      const minimum = CLAUDE_CODE_MODEL_MINIMUM_VERSION[model.id];
+      return (
+        minimum === undefined ||
+        claudeCodeVersion === undefined ||
+        !isVersionBelow(claudeCodeVersion, minimum)
+      );
+    }),
   };
 }
 
