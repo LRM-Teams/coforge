@@ -11,7 +11,7 @@ import { InterruptTracker } from "#src/code-agent/interrupt-tracker";
 import { asRecord, errorMessage } from "#src/code-agent/json-record";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { discoverAntigravityCatalog } from "./catalog";
-import { antigravitySubagentInput, antigravityToolCall } from "./tool-call";
+import { antigravityToolCall } from "./tool-call";
 import { readAntigravityUsage } from "./usage";
 import { withoutSshSessionVariables } from "./ssh-environment";
 import { AntigravityTurnProcess, type AntigravityTurnResult } from "./turn-process";
@@ -288,7 +288,8 @@ class AntigravityAgentSession implements AgentSession {
   /** `agent_response` steps carry the reply as `text_delta`s. Each `tool` step, and each
    * `subagent` step that hands work to subagents, is announced once and ended once, whether agy
    * reports it ACTIVE first or only DONE. A subagent runs on its own: its steps are not in this
-   * stream, and its report arrives later as a `system_message`. Other step types (`user_input`,
+   * stream, and its report arrives later as a `system_message`. Its task and the subagents' local
+   * paths are not Activity, so it starts with no input. Other step types (`user_input`,
    * `system_message`, `checkpoint`) carry no Activity. */
   #handleStep(step: Record<string, unknown> | undefined): void {
     if (!step) return;
@@ -308,9 +309,7 @@ class AntigravityAgentSession implements AgentSession {
       this.#emit({
         type: "tool-start",
         id,
-        ...(subagent
-          ? { name, input: antigravitySubagentInput(step.subagent_info) }
-          : antigravityToolCall(name, info?.parameters)),
+        ...(subagent ? { name, input: {} } : antigravityToolCall(name, info?.parameters)),
       });
     }
     if (step.state !== "DONE" || this.#endedTools.has(index)) return;

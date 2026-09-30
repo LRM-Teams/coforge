@@ -3,16 +3,11 @@ import { tmpdir } from "node:os";
 
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { AntigravityProvider } from "#src/code-agent/antigravity/provider";
-import {
-  ANTIGRAVITY_USAGE_TIMEOUT_MS,
-  readAntigravityUsage,
-} from "#src/code-agent/antigravity/usage";
+import { readAntigravityUsage } from "#src/code-agent/antigravity/usage";
 import { UsageUnavailableError, UsageUnsupportedError } from "#src/code-agent/contract";
-import { PROCESS_TREE_EXIT_GRACE_MS } from "#src/code-agent/process-tree-cleanup";
+import { ANTIGRAVITY_USAGE_BUDGET_MS as USAGE_BUDGET_MS } from "./catalog-discovery-budget";
 
 const FIXTURE = new URL("./fixtures/antigravity-models-fixture.ts", import.meta.url).pathname;
-/** One `/usage` read runs to its own deadline, then the process cleanup ladder. */
-const USAGE_BUDGET_MS = ANTIGRAVITY_USAGE_TIMEOUT_MS + 2 * PROCESS_TREE_EXIT_GRACE_MS;
 
 function readUsage(environment: Record<string, string> = {}) {
   return readAntigravityUsage(tmpdir(), {
@@ -33,21 +28,22 @@ test(
     const snapshot = await readUsage();
     expect(snapshot?.provider).toBe(RUNTIME_PROVIDER.ANTIGRAVITY);
     expect(snapshot?.health).toBe("ok");
-    expect(snapshot?.planType).toBe("Gemini Models");
+    // agy's group names ("Gemini Models") are not plans, so no plan is reported.
+    expect(snapshot?.planType).toBeUndefined();
     expect(snapshot?.primary).toMatchObject({
       id: "antigravity-gemini-5h",
       status: "ok",
       windowDurationMinutes: 300,
+      usedPercent: 1.24,
       resetsAt: "2026-09-30T08:17:14.000Z",
     });
-    expect(snapshot?.primary?.usedPercent).toBeCloseTo(1.238, 2);
     expect(snapshot?.secondary).toMatchObject({
       id: "antigravity-gemini-weekly",
       status: "ok",
       windowDurationMinutes: 10_080,
+      usedPercent: 0.52,
       resetsAt: "2026-10-05T01:34:48.000Z",
     });
-    expect(snapshot?.secondary?.usedPercent).toBeCloseTo(0.517, 2);
   },
   USAGE_BUDGET_MS,
 );
@@ -87,14 +83,13 @@ test(
         },
       ]),
     });
-    expect(snapshot?.planType).toBe("Claude and GPT models");
     expect(snapshot?.health).toBe("rate_limited");
     expect(snapshot?.primary).toMatchObject({
       id: "antigravity-3p-5h",
       usedPercent: 100,
       status: "limit_reached",
     });
-    expect(snapshot?.secondary?.usedPercent).toBeCloseTo(10, 5);
+    expect(snapshot?.secondary).toMatchObject({ id: "antigravity-3p-weekly", usedPercent: 10 });
   },
   USAGE_BUDGET_MS,
 );
@@ -118,6 +113,8 @@ test(
 test(
   "a signed-out agy is usage unavailable, not a failed scan",
   async () => {
+    // Assumed shape: a signed-out /usage answer was not captured, so this stands in for any
+    // error that names sign-in or auth.
     await expect(
       readUsage({
         COFORGE_ANTIGRAVITY_USAGE_OUTPUT: JSON.stringify({
@@ -127,6 +124,19 @@ test(
         COFORGE_ANTIGRAVITY_USAGE_EXIT: "1",
       }),
     ).rejects.toBeInstanceOf(UsageUnavailableError);
+  },
+  USAGE_BUDGET_MS,
+);
+
+test(
+  "an answer that is not JSON is a failed scan that names the exit code, not a signed-out account",
+  async () => {
+    const read = readUsage({
+      COFORGE_ANTIGRAVITY_USAGE_OUTPUT: "panic: runtime error\n",
+      COFORGE_ANTIGRAVITY_USAGE_EXIT: "2",
+    });
+    await expect(read).rejects.not.toBeInstanceOf(UsageUnavailableError);
+    await expect(read).rejects.toThrow("agy /usage exited 2 without a JSON answer");
   },
   USAGE_BUDGET_MS,
 );
@@ -157,7 +167,7 @@ test(
     const snapshot = await new AntigravityProvider({
       command: [process.execPath, FIXTURE],
     }).readUsage({ workingDirectory: tmpdir() });
-    expect(snapshot?.planType).toBe("Gemini Models");
+    expect(snapshot?.primary?.id).toBe("antigravity-gemini-5h");
   },
   USAGE_BUDGET_MS,
 );

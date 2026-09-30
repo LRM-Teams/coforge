@@ -167,9 +167,19 @@ if (mode === "tools") {
     tool_name: "browser_scroll",
     tool_info: { name: "browser_scroll", parameters: { Direction: "down" } },
   });
-  step({ step_index: 4, state: "DONE", step_type: "checkpoint" });
   step({
-    step_index: 5,
+    step_index: 4,
+    state: "DONE",
+    step_type: "tool",
+    tool_name: "write_to_file",
+    tool_info: {
+      name: "write_to_file",
+      parameters: { TargetFile: "/tmp/probe.txt", CodeContent: "probe" },
+    },
+  });
+  step({ step_index: 5, state: "DONE", step_type: "checkpoint" });
+  step({
+    step_index: 6,
     state: "DONE",
     step_type: "agent_response",
     text_delta: "done\n",

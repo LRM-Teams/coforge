@@ -9,9 +9,12 @@ import {
 import { asRecord } from "#src/code-agent/json-record";
 import { withoutSshSessionVariables } from "./ssh-environment";
 
-/** How long `agy -p /usage` may run. It answers from the account's quota without starting a turn
- * or spending quota (agy 1.1.11 changelog), but still fetches over the network. */
+/** How long `agy -p /usage` may run when the caller sets no deadline. It answers from the
+ * account's quota without starting a turn or spending quota (agy 1.1.11 changelog), but still
+ * fetches over the network. */
 export const ANTIGRAVITY_USAGE_TIMEOUT_MS = 15_000;
+
+const SIGNED_OUT = /sign(?:ed)?[ -]?in|log(?:ged)?[ -]?in|auth/iu;
 
 const WINDOW_MINUTES: Readonly<Record<string, number>> = { "5h": 300, weekly: 10_080 };
 
@@ -22,7 +25,8 @@ type QuotaGroup = { name: string; buckets: QuotaBucket[] };
  * Reads the account's quota with `agy -p /usage --output-format json`. agy groups its models
  * (Gemini; Claude and GPT) and gives each group a 5-hour and a weekly limit as a remaining
  * fraction. The snapshot shows the group with the least quota left - the one that stops an Agent
- * first - as its 5-hour (primary) and weekly (secondary) windows, named in `planType`.
+ * first - as its 5-hour (primary) and weekly (secondary) windows. A group name is not a plan, so
+ * `planType` stays unset.
  */
 export async function readAntigravityUsage(
   workingDirectory: string,
@@ -32,7 +36,7 @@ export async function readAntigravityUsage(
     timeoutMs?: number;
   } = {},
 ): Promise<UsageSnapshot> {
-  const { output } = await runCatalogCommand(
+  const { output, exitCode } = await runCatalogCommand(
     [...(options.command ?? ["agy"]), "-p", "/usage", "--output-format", "json"],
     workingDirectory,
     withoutSshSessionVariables(options.environment ?? Bun.env),
@@ -42,10 +46,13 @@ export async function readAntigravityUsage(
   // line that opens an object and runs to the end.
   const start = output.startsWith("{") ? 0 : output.indexOf("\n{") + 1;
   const answer = asRecord(parseJson(output.slice(start)));
-  if (answer?.status !== "SUCCESS") {
-    const error = typeof answer?.error === "string" ? answer.error : "";
-    if (!answer || /sign(?:ed)?[ -]?in|log(?:ged)?[ -]?in|auth/iu.test(error))
-      throw new UsageUnavailableError();
+  if (!answer) {
+    if (SIGNED_OUT.test(output)) throw new UsageUnavailableError();
+    throw new Error(`agy /usage exited ${exitCode} without a JSON answer`);
+  }
+  if (answer.status !== "SUCCESS") {
+    const error = typeof answer.error === "string" ? answer.error : "";
+    if (SIGNED_OUT.test(error)) throw new UsageUnavailableError();
     throw new Error(`agy /usage failed: ${error || String(answer.status)}`);
   }
   const groups = quotaGroups(asRecord(asRecord(answer.command)?.data)?.groups);
@@ -60,7 +67,6 @@ export async function readAntigravityUsage(
   const exhausted = group.buckets.some((bucket) => bucket.remaining <= 0);
   return {
     provider: RUNTIME_PROVIDER.ANTIGRAVITY,
-    planType: group.name,
     ...(primary ? { primary } : {}),
     ...(secondary ? { secondary } : {}),
     health: exhausted ? "rate_limited" : "ok",
@@ -99,10 +105,10 @@ function usageWindow(group: QuotaGroup, window: string): UsageWindow | undefined
   const bucket = group.buckets.find((candidate) => candidate.window === window);
   const minutes = WINDOW_MINUTES[window];
   if (!bucket || minutes === undefined) return undefined;
-  const usedPercent = Math.min(100, Math.max(0, (1 - bucket.remaining) * 100));
+  const used = Math.min(1, Math.max(0, 1 - bucket.remaining));
   return {
     id: `antigravity-${bucket.id}`,
-    usedPercent,
+    usedPercent: Math.round(used * 10_000) / 100,
     status: bucket.remaining <= 0 ? "limit_reached" : "ok",
     windowDurationMinutes: minutes,
     ...(bucket.resetsAt ? { resetsAt: bucket.resetsAt } : {}),

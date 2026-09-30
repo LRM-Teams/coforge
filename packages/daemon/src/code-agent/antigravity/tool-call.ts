@@ -34,24 +34,3 @@ export function antigravityToolCall(
       canonical.argument && typeof value === "string" ? { [canonical.argument[1]]: value } : {},
   };
 }
-
-/** The tool-start input for a step that hands work to subagents: each subagent's role and type.
- * Their prompts, conversation ids and local log and workspace paths stay on the Computer. */
-export function antigravitySubagentInput(subagentInfo: unknown): {
-  subagents: Array<{ role: string; type: string }>;
-} {
-  const subagents = asRecord(subagentInfo)?.subagents;
-  return {
-    subagents: (Array.isArray(subagents) ? subagents : []).flatMap((raw) => {
-      const subagent = asRecord(raw);
-      return typeof subagent?.role === "string"
-        ? [
-            {
-              role: subagent.role,
-              type: typeof subagent.type_name === "string" ? subagent.type_name : "",
-            },
-          ]
-        : [];
-    }),
-  };
-}

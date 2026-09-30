@@ -276,6 +276,14 @@ test(
             input: { Direction: "down" },
           },
           { type: "tool-end", id: "existing:3", isError: false },
+          // Only the target path moves across; the written content stays on the Computer.
+          {
+            type: "tool-start",
+            id: "existing:4",
+            name: "write_file",
+            input: { file_path: "/tmp/probe.txt" },
+          },
+          { type: "tool-end", id: "existing:4", isError: false },
         ]);
         expect(events.filter((event) => event.type === "text-delta")).toEqual([
           { type: "text-delta", text: "done\n" },
@@ -287,7 +295,7 @@ test(
 );
 
 test(
-  "a subagent step is one invoke_subagent tool call naming each subagent's role",
+  "a subagent step is one invoke_subagent tool call that carries none of the subagent's task",
   async () => {
     await withSession(
       { sessionId: "existing", environment: { COFORGE_AGY_MODE: "subagent" } },
@@ -298,7 +306,7 @@ test(
             type: "tool-start",
             id: "existing:2",
             name: "invoke_subagent",
-            input: { subagents: [{ role: "File Counter", type: "self" }] },
+            input: {},
           },
           { type: "tool-end", id: "existing:2", isError: false },
         ]);

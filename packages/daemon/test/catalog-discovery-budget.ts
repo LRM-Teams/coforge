@@ -1,4 +1,5 @@
 import { ANTIGRAVITY_MODELS_TIMEOUT_MS } from "#src/code-agent/antigravity/catalog";
+import { ANTIGRAVITY_USAGE_TIMEOUT_MS } from "#src/code-agent/antigravity/usage";
 import {
   OPENCODE_PLAIN_MODELS_TIMEOUT_MS,
   OPENCODE_VERBOSE_MODELS_TIMEOUT_MS,
@@ -42,3 +43,8 @@ export const OPENCODE_DISCOVERY_BUDGET_MS =
  */
 export const ANTIGRAVITY_DISCOVERY_BUDGET_MS =
   ANTIGRAVITY_MODELS_TIMEOUT_MS + 2 * PROCESS_TREE_EXIT_GRACE_MS;
+
+/** The longest one `agy -p /usage` read can run before the product gives its own verdict: its own
+ * deadline, then the process cleanup ladder. */
+export const ANTIGRAVITY_USAGE_BUDGET_MS =
+  ANTIGRAVITY_USAGE_TIMEOUT_MS + 2 * PROCESS_TREE_EXIT_GRACE_MS;
