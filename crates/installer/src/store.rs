@@ -16,8 +16,8 @@
 //! executable `coforge-computer.exe` and the launchers `coforge.cmd` and `gh.cmd`.
 
 use std::fmt::Display;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -31,6 +31,7 @@ use crate::contract::{
 };
 use crate::digest::{is_valid_identity, measure_bytes, measure_file};
 use crate::lock::MachineMutationLock;
+use crate::private_fs;
 use crate::update_error::UpdateError;
 use crate::version::is_valid_release_version;
 
@@ -122,13 +123,13 @@ impl VersionStore {
         self.require_lock(lock)?;
         assert_version(version)?;
         let staging_root = self.install_root.join(".staging");
-        create_private_directories(&staging_root).map_err(local(format_args!(
+        private_fs::create_private_directories(&staging_root).map_err(local(format_args!(
             "cannot create {}",
             staging_root.display()
         )))?;
         sweep_stale_staging(&staging_root);
         let directory = staging_root.join(format!("{version}-{}", unique_suffix()));
-        create_private_directory(&directory)
+        private_fs::create_private_directory(&directory)
             .map_err(local(format_args!("cannot create {}", directory.display())))?;
         Ok(Staging {
             _lock: lock,
@@ -271,7 +272,7 @@ impl Staging<'_> {
             photon_wasm: Some(photon_wasm),
         };
         let write = |name: &str, contents: &str, mode: u32| {
-            write_private_file(&self.directory.join(name), contents.as_bytes(), mode)
+            private_fs::create_file(&self.directory.join(name), contents.as_bytes(), mode)
                 .map_err(local(format_args!("cannot write {name}")))
         };
         write(store.agent_cli_name(), agent_cli, 0o700)?;
@@ -279,19 +280,20 @@ impl Staging<'_> {
         write("version", &format!("{}\n", self.version), 0o600)?;
         write("installation.json", &to_file_json(&identity), 0o600)?;
         // The payload was written by the transfer, which knows nothing of these modes.
-        set_mode(&self.computer_path(), 0o700).map_err(local("cannot restrict the executable"))?;
-        set_mode(&self.photon_wasm_path(), 0o600)
+        private_fs::set_mode(&self.computer_path(), 0o700)
+            .map_err(local("cannot restrict the executable"))?;
+        private_fs::set_mode(&self.photon_wasm_path(), 0o600)
             .map_err(local("cannot restrict the image library"))?;
 
         let versions = store.install_root.join("versions");
-        create_private_directories(&versions)
+        private_fs::create_private_directories(&versions)
             .map_err(local(format_args!("cannot create {}", versions.display())))?;
         let destination = store.version_directory(&self.version);
         fs::rename(&self.directory, &destination).map_err(local(format_args!(
             "cannot install {}",
             destination.display()
         )))?;
-        sync_directory(&versions);
+        private_fs::sync_directory(&versions);
         Ok(Installation::Installed)
     }
 }
@@ -402,79 +404,6 @@ fn unique_suffix() -> String {
         COUNTER.fetch_add(1, Ordering::Relaxed)
     )
 }
-
-#[cfg(unix)]
-fn create_private_directories(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)
-}
-
-#[cfg(not(unix))]
-fn create_private_directories(path: &Path) -> io::Result<()> {
-    fs::create_dir_all(path)
-}
-
-/// Creates one directory that must not exist yet.
-#[cfg(unix)]
-fn create_private_directory(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new().mode(0o700).create(path)
-}
-
-#[cfg(not(unix))]
-fn create_private_directory(path: &Path) -> io::Result<()> {
-    fs::create_dir(path)
-}
-
-/// Creates a file that must not exist yet, with exactly `mode` (not filtered by the umask), and
-/// flushes it to disk.
-fn write_private_file(path: &Path, contents: &[u8], mode: u32) -> io::Result<()> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(mode);
-    }
-    let mut file: File = options.open(path)?;
-    set_file_mode(&file, mode)?;
-    file.write_all(contents)?;
-    file.sync_all()
-}
-
-#[cfg(unix)]
-fn set_file_mode(file: &File, mode: u32) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(fs::Permissions::from_mode(mode))
-}
-
-#[cfg(not(unix))]
-fn set_file_mode(_file: &File, _mode: u32) -> io::Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(mode))
-}
-
-#[cfg(not(unix))]
-fn set_mode(path: &Path, _mode: u32) -> io::Result<()> {
-    fs::metadata(path).map(|_| ())
-}
-
-/// Persists a rename. Best effort: some filesystems refuse to fsync a directory.
-#[cfg(unix)]
-fn sync_directory(path: &Path) {
-    let _ = File::open(path).and_then(|directory| directory.sync_all());
-}
-
-#[cfg(not(unix))]
-fn sync_directory(_path: &Path) {}
 
 #[cfg(test)]
 mod tests;

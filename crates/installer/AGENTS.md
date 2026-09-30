@@ -11,14 +11,19 @@ the crate's commands, toolchain, and gotchas.
   result, maps outcomes to exit codes. No installation logic.
 - `src/lib.rs`: crate root; declares the library modules.
 - `src/fetch.rs`: verified download. One HTTPS object, hashed as it arrives,
-  optionally gunzipped under a byte cap, renamed into place only after every
-  check passes; plus the bounded in-memory read of a small metadata object.
-  Follows no redirect. Tests in `src/fetch/tests.rs` (loopback HTTP, no
-  network).
+  optionally gunzipped under a byte cap, committed only after every check
+  passes; plus the bounded in-memory read of a small metadata object. Follows
+  no redirect. Tests in `src/fetch/tests.rs` (loopback HTTP, no network).
 - `src/idle_timeout.rs`: the ureq transport wrapper that fails a transfer after
   a silent stretch (ureq has no per-read timeout).
 - `src/digest.rs`: SHA-256 identities (size and lowercase checksum) of bytes and
   files, and the rule for a valid identity.
+- `src/private_fs.rs`: private files and directories under the install root, and
+  atomic replacement. Recursive directory creation with a mode (an existing
+  directory keeps its own), a new file with an exact mode, a file replaced
+  through a temporary sibling (fsynced, renamed, its directory fsynced), and the
+  unique names of those temporaries. Tests in `src/private_fs/tests.rs` (real
+  files).
 - `src/update_error.rs`: the failures of preparing a version, carrying the
   product's `UPDATE_FEED_INVALID`, `UPDATE_INTEGRITY_FAILED`, and
   `UPDATE_UNSUPPORTED_TARGET` codes (`upgrade-error-codes.json`).
@@ -46,8 +51,8 @@ the crate's commands, toolchain, and gotchas.
   Node's `lib/path.js` as Bun runs them, so `paths.rs` writes the same strings
   as the Computer's `paths.ts`.
 - `src/version.rs`: which release version strings are acceptable.
-- `src/active.rs`: the active version. Reads `<install root>/active.json`, writes it
-  atomically, and points the `active` link (symlink; NTFS junction on Windows) and the
+- `src/active.rs`: the active version. Reads `<install root>/active.json`, writes it, and
+  points the `active` link (symlink; NTFS junction on Windows) and the
   `coforge-computer` PATH shim at that version. It trusts the caller to have verified the
   version's bytes. Tests in `src/active/tests.rs`; they also emit `contract/rust/active.v1.json`.
 - `src/contract.rs`: serde types for every file and JSON shape shared with the
@@ -55,7 +60,8 @@ the crate's commands, toolchain, and gotchas.
   `__lifecycle` output, lock, service names, paths). Tests in
   `src/contract/tests.rs`.
 - `src/test_support.rs`: test-only helpers shared by the modules' tests: a
-  scratch directory, a loopback HTTP server, and a tiny release tree.
+  scratch directory, a loopback HTTP server, a tiny release tree, and runners
+  that repeat a test in a child process, killed after `CHILD_DEADLINE` (30 s).
 
 ## Contract with the product
 

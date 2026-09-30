@@ -189,8 +189,8 @@ fn process_lock_module() -> String {
 
 /// How long any wait on a Bun child may last: for it to report, or to exit. Bun starts in well
 /// under a second; this is only the point at which a stuck child is declared hung, so that it
-/// fails one test instead of stalling the whole run.
-const BUN_DEADLINE: Duration = Duration::from_secs(30);
+/// fails one test instead of stalling the whole run. It is the crate's bound for any child.
+const BUN_DEADLINE: Duration = crate::test_support::CHILD_DEADLINE;
 
 /// A Bun child that every wait is bounded on. Once `BUN_DEADLINE` passes, the child is killed and
 /// the test fails saying what it was waiting for. It is killed when dropped too, so a failed

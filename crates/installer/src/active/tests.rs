@@ -533,6 +533,22 @@ fn a_trailing_separator_on_the_install_root_does_not_double_up_in_the_shim() {
     );
 }
 
+#[test]
+fn a_failed_creation_removes_what_it_left_but_never_what_was_already_there() {
+    let scratch = Scratch::new("left-behind");
+    let left = scratch.0.join("left");
+    let taken = scratch.0.join("taken");
+    for directory in [&left, &taken] {
+        fs::create_dir_all(directory.join("inside")).unwrap();
+    }
+
+    remove_what_creation_left(&left, &io::Error::other("the junction could not be made"));
+    remove_what_creation_left(&taken, &io::Error::from(io::ErrorKind::AlreadyExists));
+
+    assert!(!left.exists());
+    assert!(taken.join("inside").is_dir());
+}
+
 /// These run only on the Windows CI entries.
 #[cfg(windows)]
 mod windows {
