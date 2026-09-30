@@ -13,7 +13,7 @@ test("resolvePhotonWasmBytes resolves the exact photon_rs_bg.wasm Pi's dependenc
   const bytes = await resolvePhotonWasmBytes();
 
   // Pinned against the installed @silvia-odwyer/photon-node@0.3.4 package (a transitive
-  // dependency of @earendil-works/pi-coding-agent@0.84.3 declared in packages/agent/package.json).
+  // dependency of @earendil-works/pi-coding-agent@0.99.1 declared in packages/agent/package.json).
   expect(bytes.byteLength).toBe(1881634);
   expect(new Bun.CryptoHasher("sha256").update(bytes).digest("hex")).toBe(
     "10468181565c56004c867f3a4af96f89a0ef5a63a72f2b5fb12c1f1992a3615c",

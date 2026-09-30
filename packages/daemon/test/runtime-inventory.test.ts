@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { PI_SDK_VERSION } from "@coforge/agent";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   discoverCodeAgentInventory,
+  discoverPiCatalog,
   discoverExternalCodeAgents,
   type ExternalCodeAgentProbe,
 } from "#src/code-agent/runtime-inventory";
@@ -54,7 +56,7 @@ describe("external Code Agent inventory", () => {
       });
       expect(inventory.runtimes).toContainEqual({
         provider: "pi",
-        version: "0.84.3",
+        version: PI_SDK_VERSION,
         displayName: "Pi",
       });
       expect(
@@ -385,7 +387,7 @@ describe("external Code Agent inventory", () => {
     });
     expect(inventory.runtimes[1]).toEqual({
       provider: "pi",
-      version: "0.84.3",
+      version: PI_SDK_VERSION,
       displayName: "Pi",
     });
     const coforgeCatalog = inventory.catalogs.find((catalog) => catalog.provider === "coforge");
@@ -532,5 +534,34 @@ describe("external Code Agent inventory", () => {
         ],
       },
     ]);
+  });
+});
+
+test("Pi reasoning levels are the ones the SDK supports for each model", async () => {
+  // Pi's thinkingLevelMap marks an unsupported level `null` and leaves a supported one out;
+  // `xhigh` and `max` exist only when mapped. A model without reasoning offers no levels.
+  const catalog = await discoverPiCatalog(
+    tmpdir(),
+    {},
+    async () =>
+      [
+        { id: "no-off", provider: "openrouter", reasoning: true, thinkingLevelMap: { off: null } },
+        {
+          id: "with-max",
+          provider: "anthropic",
+          reasoning: true,
+          thinkingLevelMap: { max: "max" },
+        },
+        { id: "plain", provider: "openai", reasoning: true },
+        { id: "chat", provider: "openai", reasoning: false },
+      ] as never,
+  );
+  expect(
+    Object.fromEntries((catalog?.models ?? []).map((model) => [model.id, model.reasoningEfforts])),
+  ).toEqual({
+    "no-off": ["minimal", "low", "medium", "high"],
+    "with-max": ["off", "minimal", "low", "medium", "high", "max"],
+    plain: ["off", "minimal", "low", "medium", "high"],
+    chat: [],
   });
 });

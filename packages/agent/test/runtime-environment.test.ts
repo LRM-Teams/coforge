@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { createSession } from "#src/runner";
 
 /** macOS `TMPDIR` is `/var/folders/...` and `/var` is a symlink to `/private/var`, while the Agent
@@ -188,7 +189,8 @@ test("SDK auth and model requests use each session's overrides without changing 
           () => runtime.streamSimple(model, context).result(),
           () => runtime.stream(model, context).result(),
           () => runtime.complete(model, context),
-          async () => (await session.agent.streamFunction(model, context, {})).result(),
+          async () =>
+            (await session.agent.streamFunction(model, normalizeContext(context), {})).result(),
         ]) {
           const result = await request();
           expect(result.errorMessage).toBeUndefined();

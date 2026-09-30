@@ -1,5 +1,6 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { CodeAgentModelMetadata } from "@lrm/coforge-sdk/internal";
+import { supportedReasoningEfforts } from "#src/reasoning-levels";
 import { API_KEY_ENV_BY_PROVIDER } from "#src/runtime-provider";
 
 const outputPath = new URL("../src/coforge-provider-models.generated.ts", import.meta.url);
@@ -13,31 +14,31 @@ const maximumModels = 200;
 const allModels: CodeAgentModelMetadata[] = runtime
   .getModels()
   .filter((model) => Object.hasOwn(API_KEY_ENV_BY_PROVIDER, model.provider))
-  .map((model) => {
-    const thinkingLevelMap = Reflect.get(model, "thinkingLevelMap") as
-      | Record<string, unknown>
-      | undefined;
-    return {
-      id: model.id,
-      displayName: model.name || model.id,
-      description: "",
-      modelProvider: model.provider,
-      reasoningEfforts: thinkingLevelMap
-        ? Object.entries(thinkingLevelMap)
-            .filter(([, mapped]) => mapped !== null)
-            .map(([level]) => level)
-        : model.reasoning
-          ? ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-          : [],
-      defaultReasoning: "",
-      recommended: false,
-    };
+  // A dated snapshot (`claude-haiku-4-5-20251001`) duplicates its undated alias; listing both
+  // spends the provider's quota on one model twice.
+  .filter((model, _, catalog) => {
+    const alias = model.id.replace(/-\d{8}$/u, "");
+    return (
+      alias === model.id ||
+      !catalog.some((other) => other.provider === model.provider && other.id === alias)
+    );
   })
+  .map((model) => ({
+    id: model.id,
+    displayName: model.name || model.id,
+    description: "",
+    modelProvider: model.provider,
+    reasoningEfforts: supportedReasoningEfforts(model),
+    defaultReasoning: "",
+    recommended: false,
+  }))
   .sort((left, right) =>
     `${left.modelProvider}/${left.id}`.localeCompare(`${right.modelProvider}/${right.id}`),
   );
 
-const providerQuota = Math.floor(maximumModels / Object.keys(API_KEY_ENV_BY_PROVIDER).length);
+// Rounded up so a direct provider with one model past an even share (Anthropic's 13 undated models
+// against 200 / 16) keeps its whole line, newest included; OpenRouter still fills what remains.
+const providerQuota = Math.ceil(maximumModels / Object.keys(API_KEY_ENV_BY_PROVIDER).length);
 const providerCounts = new Map<string, number>();
 const models: CodeAgentModelMetadata[] = [];
 const overflow: CodeAgentModelMetadata[] = [];

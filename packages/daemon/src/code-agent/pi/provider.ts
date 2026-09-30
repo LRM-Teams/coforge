@@ -287,9 +287,9 @@ class AgentSessionImpl implements AgentSession {
       void this.#trackPrompt(
         this.#runtime.session.prompt(notice, {
           streamingBehavior: "steer",
-          preflightResult: (accepted) => {
-            if (accepted) resolve();
-          },
+          // Any disposition (`started`, `queued`, `handled`) means the SDK accepted the input; a
+          // rejected prompt settles through the returned promise instead.
+          preflightResult: () => resolve(),
         }),
       ).catch(reject);
     });
