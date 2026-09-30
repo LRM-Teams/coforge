@@ -1,6 +1,6 @@
 import type { AgentSessionOptions } from "@coforge/agent";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { asRecord, eventTime } from "#src/code-agent/json-record";
+import { asRecord, eventTime, nonEmptyString } from "#src/code-agent/json-record";
 import type { TurnRecord } from "#src/code-agent/per-turn/turn-process";
 import type {
   TurnCommand,
@@ -9,6 +9,12 @@ import type {
   TurnRequest,
   TurnScope,
 } from "#src/code-agent/per-turn/turn-protocol";
+import {
+  cursorToolCall,
+  cursorToolFailed,
+  cursorToolFrame,
+  cursorToolOutputText,
+} from "./tool-call";
 
 /**
  * Cursor CLI (`cursor-agent`): every turn is its own child process, with the prompt passed as the
@@ -53,15 +59,22 @@ function cursorCommand(
 
 /**
  * Maps only the frames CoForge's contract defines: `system/init` (session identity),
- * `system/status:compacting` and `system/compact_boundary` (compaction), `assistant` message
- * content blocks (thinking/text/tool_use), and `result` (turn outcome). Every other frame type
- * `cursor-agent` actually emits in its stream-json output - measured `thinking`, `tool_call`,
+ * `system/status:compacting` and `system/compact_boundary` (compaction), `thinking` deltas,
+ * `assistant` message content blocks (thinking/text/tool_use), `tool_call` frames (see
+ * `cursor/tool-call.ts`), and `result` (turn outcome). `cursor-agent` 2026.08.11 reports every tool
+ * as a `tool_call` frame and its `assistant` frames carry text only, so a call is never reported
+ * twice. The `tool_use` block mapping is kept for older CLI streams; 2026.08.11 never emits it.
+ * Every other frame type the CLI emits in its stream-json output - measured `thinking:completed`,
  * `connection`, and `retry` frames, and the `user` echo of the prompt - carries no CoForge
  * Activity today.
  */
 class CursorTurnReader implements TurnReader {
   readonly #scope: TurnScope;
   #failed = false;
+  /** The `call_id`s of this turn's `tool_call` frames that have been reported, so that a repeated
+   * frame is the same call and a completion still ends a call it had to start itself. */
+  readonly #startedTools = new Set<string>();
+  readonly #endedTools = new Set<string>();
 
   constructor(scope: TurnScope) {
     this.#scope = scope;
@@ -102,6 +115,10 @@ class CursorTurnReader implements TurnReader {
       this.#handleAssistant(record);
       return;
     }
+    if (record.type === "tool_call") {
+      this.#handleToolCall(record);
+      return;
+    }
     if (record.type === "result") {
       this.#handleResult(record);
     }
@@ -127,6 +144,29 @@ class CursorTurnReader implements TurnReader {
         });
       }
     }
+  }
+
+  /** A `started` frame announces its call once, and the first `completed` frame for a call ends
+   * it. Calls interleave, so `call_id` is the only match. A completion for a call whose start was
+   * never seen announces it first, from the kind and arguments it carries (a failed read has
+   * none). The call's output is only what `cursorToolOutputText` names. Cursor's frames carry a
+   * millisecond `timestamp_ms` rather than the ISO `timestamp` `eventTime` reads, and the CLI
+   * writes each frame as it happens, so the events take the daemon's observation time. */
+  #handleToolCall(record: TurnRecord): void {
+    const id = nonEmptyString(record.call_id);
+    const frame = cursorToolFrame(record.tool_call);
+    if (!id || !frame) return;
+    const completed = record.subtype === "completed";
+    if (!completed && record.subtype !== "started") return;
+    if (!this.#startedTools.has(id)) {
+      this.#startedTools.add(id);
+      this.#scope.emit({ type: "tool-start", id, ...cursorToolCall(frame.kind, frame.args) });
+    }
+    if (!completed || this.#endedTools.has(id)) return;
+    this.#endedTools.add(id);
+    const output = cursorToolOutputText(frame.kind, frame.result);
+    if (output) this.#scope.emit({ type: "tool-output", id, text: output });
+    this.#scope.emit({ type: "tool-end", id, isError: cursorToolFailed(frame.result) });
   }
 
   /** The `result` frame only records whether the turn reported an error: the turn itself ends at

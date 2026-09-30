@@ -405,11 +405,16 @@ test.each([
     "a fresh turn with shell and read tools",
     "cursor-turn-fresh.jsonl",
     "f8d5b6d7-6f40-4225-a31f-b9b441015f0b",
+    [
+      { id: "call-0-shell", name: "bash", isError: false },
+      { id: "call-1-read", name: "read_file", isError: true },
+    ],
   ],
   [
     "a resumed turn that reconnects mid-turn",
     "cursor-turn-resume-reconnect.jsonl",
     "f8d5b6d7-6f40-4225-a31f-b9b441015f0b",
+    [],
   ],
   [
     "a resume of an unknown id that silently starts a fresh chat",
@@ -417,10 +422,11 @@ test.each([
     // Deliberately different from the fixture's own reported id - Cursor's real behavior for an
     // unknown `--resume` id (see the third case below).
     "unknown-id-requested",
+    [],
   ],
 ] as const)(
-  "measured real Cursor thinking frames map to activity while unrelated frames stay ignored: %s",
-  async (_name, fixtureFile, startingSessionId) => {
+  "measured real Cursor thinking and tool_call frames map to activity while unrelated frames stay ignored: %s",
+  async (_name, fixtureFile, startingSessionId, expectedTools) => {
     const directory = await mkdtemp(join(tmpdir(), "cursor-replay-"));
     try {
       const session = await provider().createAgentSession({
@@ -438,13 +444,27 @@ test.each([
       try {
         await session.sendMessage("go");
         await nthCompleted(session, 1);
-        // Top-level thinking deltas are real provider progress and must reach the activity
-        // trajectory. Tool/connection/retry frames and the user echo remain internal.
+        // Top-level thinking deltas and `tool_call` frames are real provider progress and must
+        // reach the activity trajectory. Connection/retry frames and the user echo remain internal.
         const contentEvents = events.filter((event) => event.type !== "session");
         expect(
           contentEvents.filter((event) => event.type === "thinking-delta").length,
         ).toBeGreaterThan(0);
         expect(contentEvents.filter((event) => event.type === "text-delta")).toHaveLength(2);
+        const tools = contentEvents.flatMap((event) =>
+          event.type === "tool-start" ? [{ id: event.id, name: event.name }] : [],
+        );
+        expect(
+          tools.map((tool) => ({
+            ...tool,
+            isError: contentEvents.some(
+              (event) => event.type === "tool-end" && event.id === tool.id && event.isError,
+            ),
+          })),
+        ).toEqual([...expectedTools]);
+        expect(contentEvents.filter((event) => event.type === "tool-end")).toHaveLength(
+          expectedTools.length,
+        );
         expect(contentEvents.at(-1)).toEqual({ type: "completed", status: "completed" });
       } finally {
         await session.dispose();
@@ -454,6 +474,292 @@ test.each([
     }
   },
 );
+
+/** Replays `replayFile` as one turn of a resumed session and returns every event the session
+ * emitted. The subscription is made before the input that triggers the turn, so no event is
+ * missed to a race. */
+async function replayTurn(replayFile: string): Promise<AgentRuntimeEvent[]> {
+  const directory = await mkdtemp(join(tmpdir(), "cursor-replay-tools-"));
+  try {
+    const session = await provider().createAgentSession({
+      agentWorkspaceDirectory: directory,
+      instructions: INSTRUCTIONS,
+      sessionId: "4df1abf1-d91d-4e7b-8613-1f79686c2bb1",
+      environment: { COFORGE_CURSOR_MODE: "replay", COFORGE_CURSOR_REPLAY_FILE: replayFile },
+    });
+    const events: AgentRuntimeEvent[] = [];
+    session.subscribe((event) => events.push(event));
+    try {
+      const completed = nthCompleted(session, 1);
+      await session.sendMessage("go");
+      await completed;
+      return events;
+    } finally {
+      await session.dispose();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+const isToolEvent = (event: AgentRuntimeEvent) =>
+  event.type === "tool-start" || event.type === "tool-output" || event.type === "tool-end";
+
+// Real `call_id`s: cursor-agent 2026.08.11 joins the call and the model's function-call id with a
+// literal newline, so matching a completion to its start must not trim or split them.
+const ECHO =
+  "call-f2d0134c-0a6e-454c-b9d8-d3ea8dacb8ac-0\nfc_23359bd1-a752-90dd-b7ff-5eab346c3013_0";
+const LS_MISSING =
+  "call-f2d0134c-0a6e-454c-b9d8-d3ea8dacb8ac-1\nfc_23359bd1-a752-90dd-b7ff-5eab346c3013_1";
+const READ_PRESENT =
+  "call-f2d0134c-0a6e-454c-b9d8-d3ea8dacb8ac-2\nfc_23359bd1-a752-90dd-b7ff-5eab346c3013_2";
+const READ_MISSING =
+  "call-f2d0134c-0a6e-454c-b9d8-d3ea8dacb8ac-3\nfc_23359bd1-a752-90dd-b7ff-5eab346c3013_3";
+const EDIT_FRUIT =
+  "call-925c9113-295d-43c5-b62c-9395f599a69d-4\nfc_007ea4ad-f000-9814-8518-393133351771_0";
+const GREP =
+  "call-f311f6d1-10be-44ec-bd1b-00d99c70e155-0\nfc_e4358b29-fc00-9a4b-87f5-dad42fd2cb52_0";
+const GLOB_MD =
+  "call-f311f6d1-10be-44ec-bd1b-00d99c70e155-1\nfc_e4358b29-fc00-9a4b-87f5-dad42fd2cb52_1";
+const GLOB_ALL =
+  "call-f311f6d1-10be-44ec-bd1b-00d99c70e155-2\nfc_e4358b29-fc00-9a4b-87f5-dad42fd2cb52_2";
+const READ_NOTES =
+  "call-f048abc5-f075-439e-845e-0888418ebca3-4\nfc_bbb077e9-d1ce-9089-bd2f-34fbb5c28b5e_0";
+const EDIT_NOTES =
+  "call-be932be5-9894-431c-b1c7-c541ded5c0da-5\nfc_7c0b1a7f-24e2-9c63-a8ae-80f8a2b41ec9_0";
+
+test("a real Cursor tool_call stream reports each call once, matched by call_id, with only the verified fields", async () => {
+  // Trimmed from real cursor-agent 2026.08.11 captures (two turns, session ids unified): shell
+  // success and failure, a read that failed and one that succeeded, edits, grep, and glob. The
+  // frames of different calls interleave, and every `completed` frame carries its call's result -
+  // stdout, file contents, diffs, `streamContent`, search hits - none of which may leave the
+  // daemon beyond the shell/error output text asserted here.
+  const events = await replayTurn(
+    new URL("./fixtures/cursor-turn-tools.jsonl", import.meta.url).pathname,
+  );
+  expect(events.filter(isToolEvent)).toEqual([
+    { type: "tool-start", id: ECHO, name: "bash", input: { command: "echo probe-ok" } },
+    {
+      type: "tool-start",
+      id: LS_MISSING,
+      name: "bash",
+      input: { command: "ls /definitely-missing-dir" },
+    },
+    {
+      type: "tool-start",
+      id: READ_PRESENT,
+      name: "read_file",
+      input: { file_path: "/workspace/present.txt" },
+    },
+    {
+      type: "tool-start",
+      id: READ_MISSING,
+      name: "read_file",
+      input: { file_path: "/workspace/missing.txt" },
+    },
+    { type: "tool-output", id: READ_PRESENT, text: "File not found" },
+    { type: "tool-end", id: READ_PRESENT, isError: true },
+    { type: "tool-output", id: READ_MISSING, text: "File not found" },
+    { type: "tool-end", id: READ_MISSING, isError: true },
+    {
+      type: "tool-output",
+      id: LS_MISSING,
+      text: "ls: /definitely-missing-dir: No such file or directory\n",
+    },
+    { type: "tool-end", id: LS_MISSING, isError: true },
+    { type: "tool-output", id: ECHO, text: "probe-ok\n" },
+    { type: "tool-end", id: ECHO, isError: false },
+    {
+      type: "tool-start",
+      id: EDIT_FRUIT,
+      name: "edit_file",
+      input: { file_path: "/workspace/fruit.txt" },
+    },
+    { type: "tool-end", id: EDIT_FRUIT, isError: false },
+    { type: "tool-start", id: GREP, name: "grep", input: { pattern: "probe-marker" } },
+    { type: "tool-start", id: GLOB_MD, name: "glob", input: { pattern: "*.md" } },
+    { type: "tool-start", id: GLOB_ALL, name: "glob", input: { pattern: "*" } },
+    { type: "tool-end", id: GLOB_ALL, isError: false },
+    { type: "tool-end", id: GREP, isError: false },
+    { type: "tool-end", id: GLOB_MD, isError: false },
+    { type: "tool-start", id: READ_NOTES, name: "read_file", input: { file_path: "notes.md" } },
+    { type: "tool-end", id: READ_NOTES, isError: false },
+    { type: "tool-start", id: EDIT_NOTES, name: "edit_file", input: { file_path: "notes.md" } },
+    { type: "tool-end", id: EDIT_NOTES, isError: false },
+  ]);
+});
+
+const TOOL_SESSION = "4df1abf1-d91d-4e7b-8613-1f79686c2bb1";
+
+/** One real-shaped `tool_call` frame. A `callId` of `undefined` leaves `call_id` off. */
+function frame(
+  subtype: "started" | "completed",
+  callId: string | undefined,
+  toolCall: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    type: "tool_call",
+    subtype,
+    ...(callId ? { call_id: callId } : {}),
+    tool_call: toolCall,
+    session_id: TOOL_SESSION,
+    timestamp_ms: 1,
+    ...extra,
+  };
+}
+
+function shell(command: string, result?: Record<string, unknown>) {
+  return {
+    shellToolCall: {
+      args: { command, description: "must not travel" },
+      ...(result && { result }),
+    },
+  };
+}
+
+/** Replays `frames` between an `init` and a successful `result` as one turn and returns the tool
+ * events it emitted. */
+async function replayToolFrames(frames: readonly unknown[]): Promise<AgentRuntimeEvent[]> {
+  const directory = await mkdtemp(join(tmpdir(), "cursor-tool-frames-"));
+  try {
+    const replayFile = join(directory, "frames.jsonl");
+    await Bun.write(
+      replayFile,
+      [
+        { type: "system", subtype: "init", session_id: TOOL_SESSION },
+        ...frames,
+        { type: "result", subtype: "success", is_error: false, result: "done", usage: {} },
+      ]
+        .map((record) => JSON.stringify(record))
+        .join("\n"),
+    );
+    return (await replayTurn(replayFile)).filter(isToolEvent);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+test("Cursor tool_call frames out of the ordinary still report one start and one end per call_id", async () => {
+  const frames = [
+    // A completion whose start was never seen still opens the call first, from its own kind. A
+    // failed read's completion carries no `args`.
+    frame("completed", "orphan", {
+      readToolCall: { result: { error: { errorMessage: "File not found" } } },
+    }),
+    // Repeats of a start or an end are the same call, not a second one.
+    frame("started", "dup", shell("echo dup")),
+    frame("started", "dup", shell("echo dup")),
+    // A kind this daemon has no mapping for keeps its name, and reports nothing of its result.
+    frame("started", "web", { webSearchToolCall: { args: { searchTerm: "coforge" } } }),
+    frame(
+      "completed",
+      "dup",
+      shell("echo dup", {
+        success: { exitCode: 0, interleavedOutput: "dup\n" },
+        isBackground: false,
+      }),
+    ),
+    frame(
+      "completed",
+      "dup",
+      shell("echo dup", { success: { exitCode: 0, interleavedOutput: "again\n" } }),
+    ),
+    frame("completed", "web", {
+      webSearchToolCall: {
+        args: { searchTerm: "coforge" },
+        result: { success: { references: [{ title: "result-body-canary" }] } },
+      },
+    }),
+    // Beside `failure` and `error`, the other non-`success` arms of a shell, read, edit, grep,
+    // or glob result (`rejected`, `timeout`, `spawnError`, ...) are a call that did not run or
+    // did not finish, and none of them has output text of its own.
+    frame("started", "rejected", shell("rm -rf build")),
+    frame("completed", "rejected", shell("rm -rf build", { rejected: { reason: "blocked" } })),
+    // A completed shell frame can also carry a top-level `env` snapshot in the CLI's source;
+    // nothing outside `tool_call.<kind>ToolCall.{args,result}` is read.
+    frame("started", "envcall", shell("echo ok")),
+    frame(
+      "completed",
+      "envcall",
+      shell("echo ok", { success: { exitCode: 0, interleavedOutput: "ok\n" } }),
+      { env: "SECRET_TOKEN=env-canary" },
+    ),
+    // Frames that cannot be matched to a call are not tool activity.
+    frame("started", undefined, shell("echo nameless")),
+    frame("started", "no-kind", { toolCallId: "no-kind" }),
+  ];
+  expect(await replayToolFrames(frames)).toEqual([
+    { type: "tool-start", id: "orphan", name: "read_file", input: {} },
+    { type: "tool-output", id: "orphan", text: "File not found" },
+    { type: "tool-end", id: "orphan", isError: true },
+    { type: "tool-start", id: "dup", name: "bash", input: { command: "echo dup" } },
+    { type: "tool-start", id: "web", name: "webSearch", input: { searchTerm: "coforge" } },
+    { type: "tool-output", id: "dup", text: "dup\n" },
+    { type: "tool-end", id: "dup", isError: false },
+    { type: "tool-end", id: "web", isError: false },
+    { type: "tool-start", id: "rejected", name: "bash", input: { command: "rm -rf build" } },
+    { type: "tool-end", id: "rejected", isError: true },
+    { type: "tool-start", id: "envcall", name: "bash", input: { command: "echo ok" } },
+    { type: "tool-output", id: "envcall", text: "ok\n" },
+    { type: "tool-end", id: "envcall", isError: false },
+  ]);
+});
+
+test.each(["constructor", "toString", "hasOwnProperty"])(
+  "a Cursor tool kind named %s is reported by its own name, not looked up on Object.prototype",
+  async (kind) => {
+    expect(
+      await replayToolFrames([
+        frame("started", "odd", { [`${kind}ToolCall`]: { args: { note: "kept" } } }),
+        frame("completed", "odd", { [`${kind}ToolCall`]: { result: { success: {} } } }),
+      ]),
+    ).toEqual([
+      { type: "tool-start", id: "odd", name: kind, input: { note: "kept" } },
+      { type: "tool-end", id: "odd", isError: false },
+    ]);
+  },
+);
+
+test("a failed Cursor call's output is the message field its own kind's error carries", async () => {
+  // A read error names its text `errorMessage`; the edit, grep, and glob errors name it `error`.
+  // The edit error's `modelVisibleError` is the model's copy of the message, not Activity.
+  expect(
+    await replayToolFrames([
+      frame("completed", "edit", {
+        editToolCall: {
+          args: { path: "notes.md", streamContent: "gamma" },
+          result: {
+            error: {
+              path: "notes.md",
+              error: "Permission denied",
+              modelVisibleError: "model-visible-canary",
+            },
+          },
+        },
+      }),
+      frame("completed", "grep", {
+        grepToolCall: { args: { pattern: "(" }, result: { error: { error: "invalid regex" } } },
+      }),
+      frame("completed", "glob", {
+        globToolCall: { args: { globPattern: "[" }, result: { error: { error: "bad glob" } } },
+      }),
+      frame("completed", "silent", { editToolCall: { result: { error: { path: "notes.md" } } } }),
+    ]),
+  ).toEqual([
+    { type: "tool-start", id: "edit", name: "edit_file", input: { file_path: "notes.md" } },
+    { type: "tool-output", id: "edit", text: "Permission denied" },
+    { type: "tool-end", id: "edit", isError: true },
+    { type: "tool-start", id: "grep", name: "grep", input: { pattern: "(" } },
+    { type: "tool-output", id: "grep", text: "invalid regex" },
+    { type: "tool-end", id: "grep", isError: true },
+    { type: "tool-start", id: "glob", name: "glob", input: { pattern: "[" } },
+    { type: "tool-output", id: "glob", text: "bad glob" },
+    { type: "tool-end", id: "glob", isError: true },
+    { type: "tool-start", id: "silent", name: "edit_file", input: {} },
+    { type: "tool-end", id: "silent", isError: true },
+  ]);
+});
 
 test("interrupt() ends the running turn as interrupted and leaves the session usable", async () => {
   const directory = await mkdtemp(join(tmpdir(), "cursor-interrupt-"));
