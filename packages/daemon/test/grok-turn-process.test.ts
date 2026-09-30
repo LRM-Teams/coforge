@@ -23,7 +23,6 @@ class RecordingSpawner implements ProcessTreeSpawner {
   exited: Promise<number>;
 
   finish(exitCode = 0): void {
-    this.endCalls += 0;
     this.#release(exitCode);
   }
 
