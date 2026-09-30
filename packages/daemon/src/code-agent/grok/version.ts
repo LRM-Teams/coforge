@@ -5,10 +5,10 @@ import { cliVersionGate } from "#src/code-agent/version-gate";
  * The Grok Build CLI baseline this runtime launches against.
  *
  * Grok 1.0 is the supported contract: the headless one-shot surface this adapter consumes
- * (`-p/--single` with `--output-format streaming-json`, `--always-approve`, `--no-memory`,
- * `--session-id`/`--resume`, `--model`, `--reasoning-effort`) is documented and observed from the
- * 1.0 series (1.0.40 verified 2026-09-22, 1.0.41 verified 2026-09-23 on `s144`). The streaming
- * format is ACP session updates, the agent's native wire format, one NDJSON line per update.
+ * (`-p/--single` with `--output-format streaming-json`, `--session-id`/`--resume`, `--model`,
+ * `--reasoning-effort`) is documented; `--always-approve` is in `grok --help` but not the guide,
+ * and `--no-memory` and `--trust` are hidden flags. All of them are observed on 1.0.40 and 1.0.41
+ * only. The streaming format is ACP session updates, one NDJSON line per update.
  */
 export const GROK_MIN_CLI_VERSION = "1.0.0";
 
