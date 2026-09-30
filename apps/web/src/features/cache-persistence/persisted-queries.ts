@@ -1,5 +1,7 @@
 import type { QueryKey } from "@tanstack/react-query";
 
+import { CONVERSATION_WINDOW_PAGE_SIZE } from "#src/lib/conversation-window";
+
 /**
  * Which queries the browser keeps between page loads, and how much of each. An allow-list: a query
  * nobody has reviewed for sitting in the browser's storage is not kept, however it is keyed, and
@@ -42,9 +44,43 @@ export function persistsQuery(queryKey: QueryKey): boolean {
 }
 
 type ConversationWindow = {
-  pages: Array<{ hasNewer?: boolean }>;
+  pages: Array<{
+    hasNewer?: boolean;
+    hasOlder?: boolean;
+    messages?: unknown[];
+    threads?: Readonly<Record<string, unknown>>;
+    threadReadThrough?: Readonly<Record<string, number>>;
+    followedThreadRootIds?: readonly string[];
+  }>;
   pageParams: unknown[];
 };
+
+/**
+ * The newest page as a first read returns it: its newest `CONVERSATION_WINDOW_PAGE_SIZE` messages,
+ * the rest being history to page back into. Realtime merges into the newest page without bound,
+ * and a first paint needs one page (Slack's first read of a channel is one page, "enough to fill the
+ * view on a large monitor": https://slack.engineering/making-slack-faster-by-being-lazy/).
+ */
+function asFirstRead<P extends ConversationWindow["pages"][number]>(newest: P): P {
+  const { messages } = newest;
+  if (!messages || messages.length <= CONVERSATION_WINDOW_PAGE_SIZE) return newest;
+  const kept = messages.slice(-CONVERSATION_WINDOW_PAGE_SIZE);
+  // A read carries thread state only for the roots on its page; the roots cut here go with theirs,
+  // or it would shadow the fresh state of the older page that brings them back.
+  const keptIds = new Set(kept.map((message) => (message as { id?: unknown }).id));
+  const onlyKept = <V>(byRoot: Readonly<Record<string, V>> | undefined) =>
+    byRoot && Object.fromEntries(Object.entries(byRoot).filter(([rootId]) => keptIds.has(rootId)));
+  return {
+    ...newest,
+    messages: kept,
+    hasOlder: true,
+    ...(newest.threads && { threads: onlyKept(newest.threads) }),
+    ...(newest.threadReadThrough && { threadReadThrough: onlyKept(newest.threadReadThrough) }),
+    ...(newest.followedThreadRootIds && {
+      followedThreadRootIds: newest.followedThreadRootIds.filter((rootId) => keptIds.has(rootId)),
+    }),
+  };
+}
 
 function isConversationWindow(data: unknown): data is ConversationWindow {
   return (
@@ -97,7 +133,7 @@ function firstPaintOf(queryKey: QueryKey, data: unknown): unknown {
       const newest = data.pages.at(-1);
       // The newest page of a window is the live end only when it was read as the first page.
       if (!newest || newest.hasNewer || data.pageParams.at(-1) !== undefined) return undefined;
-      return { pages: [newest], pageParams: [undefined] };
+      return { pages: [asFirstRead(newest)], pageParams: [undefined] };
     }
     case "sidebar-directs":
       // A read that fell back per call holds rows without their pins or badges and no viewer id:

@@ -18,8 +18,9 @@ because the API is experimental.
   Workspace or conversation it belongs to (a key without one would let another Workspace show
   through), and that its data survives structured cloning. Add a test that names the real query key
   (`query-cache-persistence.test.ts`, "the queries the app really defines").
-- What is kept is the first paint, not the whole query: a conversation keeps its newest page and
-  only when that page is the live end; the Saved list keeps its newest 100; a DM list that fell
+- What is kept is the first paint, not the whole query: a conversation keeps its newest page, cut
+  to what a first read returns (`CONVERSATION_WINDOW_PAGE_SIZE` messages, and thread state only for
+  the roots kept; realtime grows the page without bound), and only when that page is the live end; the Saved list keeps its newest 100; a DM list that fell
   back per call is not kept. Apply the same cut to a new kind, so a restore never opens a page at
   a place nobody meant to open it.
 - Nothing is read or written until the person is known (`viewerId`: the Workspace layout loader's
@@ -41,7 +42,9 @@ because the API is experimental.
 - A restored query is marked invalidated, and that is what makes the read follow it: any page that
   shows it reads it again (whatever `staleTime` says: the Chat lists use `Infinity`), and the Chat
   loader's "marked stale" reads it. Do not set the persister's `refetchOnRestore`: it is a bare
-  `query.fetch()` that a page unmounting meanwhile cancels for good.
+  `query.fetch()` that a page unmounting meanwhile cancels for good. Loading older or newer pages
+  cancels that read and clears the mark, so a restored query is marked again until a read of the
+  query itself succeeds.
 - What the page writes itself (`setQueryData`: realtime messages, sends, read positions, the
   sidebar's TanStack DB writes) is stored too, with the query's newest state, at most once a second
   per query, and started at once when the page is hidden (`flush`; on `pagehide` it is best effort:
