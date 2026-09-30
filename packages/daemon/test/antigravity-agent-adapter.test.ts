@@ -446,3 +446,147 @@ test(
   },
   SESSION_BUDGET_MS,
 );
+
+test(
+  "a resumed conversation is reported as each turn completes, not when its init frame repeats it",
+  async () => {
+    await withSession({ sessionId: "existing" }, async (session, _launches, reports) => {
+      await runTurn(session, "one");
+      await runTurn(session, "two");
+      expect(reports).toEqual([{ sessionId: "existing" }, { sessionId: "existing" }]);
+      expect(await session.readSessionIdentity!()).toEqual({
+        sessionId: "existing",
+        state: "resumable",
+      });
+    });
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a conversation whose first turn failed after naming it is re-derived as empty when its id repeats",
+  async () => {
+    await withSession(
+      {
+        environment: { COFORGE_AGY_MODE: "crash-no-result", COFORGE_AGY_CONVERSATION_ID: "half" },
+      },
+      async (session, _launches, reports) => {
+        await nthCompleted(session, 1);
+        expect(await session.readSessionIdentity!()).toEqual({
+          sessionId: "half",
+          state: "empty",
+        });
+        // The next turn's init frame repeats the id: the state is re-derived (the conversation
+        // never completed a turn, so "empty") and nothing is reported for the repeat.
+        await runTurn(session, "again");
+        expect(await session.readSessionIdentity!()).toEqual({
+          sessionId: "half",
+          state: "empty",
+        });
+        expect(reports).toEqual([{ sessionId: "half" }]);
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "input queued behind a lost resume is sent with the re-queued input after the instructions",
+  async () => {
+    await withSession(
+      {
+        sessionId: "stale",
+        environment: {
+          COFORGE_AGY_LOST_CONVERSATION_ID: "stale",
+          COFORGE_AGY_CONVERSATION_ID: "replacement",
+        },
+      },
+      async (session, launches) => {
+        const bothTurns = nthCompleted(session, 2);
+        await session.sendMessage("are you there?");
+        await session.sendMessage("and later?");
+        await bothTurns;
+        expect(await launches()).toEqual([
+          { prompt: "are you there?", conversation: "stale" },
+          { prompt: INSTRUCTIONS },
+          { prompt: "are you there?\n\nand later?", conversation: "replacement" },
+        ]);
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "interrupting a resume that agy then reports as lost ends the turn as interrupted, drops its input and still restarts the conversation",
+  async () => {
+    await withSession(
+      {
+        sessionId: "stale",
+        environment: {
+          COFORGE_AGY_LOST_CONVERSATION_ID: "stale",
+          COFORGE_AGY_CONVERSATION_ID: "replacement",
+          COFORGE_AGY_HOLD_LOST_INIT: "1",
+        },
+      },
+      async (session, launches, reports) => {
+        const events = record(session);
+        const bothTurns = nthCompleted(session, 2);
+        await session.sendMessage("are you there?");
+        // The fake agy has logged its launch, so its interrupt handler is installed.
+        while ((await launches()).length < 1) await Bun.sleep(10);
+        await session.interrupt!();
+        await bothTurns;
+        // The interrupted turn's input is dropped as the interrupt asked; only the fresh
+        // conversation's instructions are sent.
+        expect(await launches()).toEqual([
+          { prompt: "are you there?", conversation: "stale" },
+          { prompt: INSTRUCTIONS },
+        ]);
+        expect(events.filter((event) => event.type === "completed")).toEqual([
+          { type: "completed", status: "interrupted" },
+          { type: "completed", status: "completed" },
+        ]);
+        expect(events.filter((event) => event.type === "error")).toEqual([]);
+        expect(reports[0]).toEqual({ sessionId: "replacement", replacedSessionId: "stale" });
+        expect(await session.readSessionIdentity!()).toEqual({
+          sessionId: "replacement",
+          state: "resumable",
+        });
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a lost resume whose replacement cannot be spawned fails the turn visibly and rejects the input queued behind it",
+  async () => {
+    await withSession(
+      {
+        sessionId: "stale",
+        environment: {
+          COFORGE_AGY_LOST_CONVERSATION_ID: "stale",
+          COFORGE_AGY_REMOVE_WORKSPACE: "1",
+        },
+      },
+      async (session) => {
+        const events = record(session);
+        const failed = nthCompleted(session, 1);
+        await session.sendMessage("hi");
+        const queued = session.sendMessage("later").then(
+          () => "delivered",
+          (error: Error) => error.message,
+        );
+        await failed;
+        // Bun.spawn throws synchronously for a working directory that does not exist.
+        const error = events.find((event) => event.type === "error");
+        expect(error?.type === "error" && error.message).toContain("ENOENT");
+        expect(events.at(-1)).toEqual({ type: "completed", status: "failed" });
+        expect(await queued).toContain("ENOENT");
+        expect(await session.readSessionIdentity!()).toBeUndefined();
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);

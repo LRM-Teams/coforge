@@ -1,4 +1,4 @@
-import { appendFile } from "node:fs/promises";
+import { appendFile, rm } from "node:fs/promises";
 
 /**
  * Stand-in for the `agy` binary in headless mode: one process per turn, the prompt read as one
@@ -31,6 +31,20 @@ for (const name of ["SSH_CLIENT", "SSH_CONNECTION", "SSH_TTY"])
 
 const model = flagValue("--model");
 const conversation = flagValue("--conversation");
+// The working directory, read once: it stops resolving after `COFORGE_AGY_REMOVE_WORKSPACE`.
+const workingDirectory = process.cwd();
+// agy silently starts a new conversation when `--conversation` names one it cannot find, and
+// reports only a stderr warning plus the new id on `init`. `COFORGE_AGY_LOST_CONVERSATION_ID`
+// names the one id this fake agy no longer has.
+const lost =
+  conversation !== undefined && conversation === Bun.env.COFORGE_AGY_LOST_CONVERSATION_ID;
+// `COFORGE_AGY_HOLD_LOST_INIT=1` holds the `init` frame of a lost resume until the turn is
+// interrupted, so a test can interrupt it before the session has seen the new conversation id. The
+// handler is installed before the launch is logged: a test that saw the launch can interrupt.
+const heldUntilInterrupted =
+  lost && Bun.env.COFORGE_AGY_HOLD_LOST_INIT === "1"
+    ? new Promise<void>((resolve) => process.once("SIGINT", () => resolve()))
+    : undefined;
 
 const stdin = await new Response(Bun.stdin.stream()).text();
 const lines = stdin.split("\n").filter((line) => line.trim());
@@ -48,11 +62,10 @@ function write(record: Record<string, unknown>): void {
 }
 
 const mode = Bun.env.COFORGE_AGY_MODE ?? "text";
-// agy silently starts a new conversation when `--conversation` names one it cannot find, and
-// reports only a stderr warning plus the new id on `init`. `COFORGE_AGY_LOST_CONVERSATION_ID`
-// names the one id this fake agy no longer has.
-const lost =
-  conversation !== undefined && conversation === Bun.env.COFORGE_AGY_LOST_CONVERSATION_ID;
+await heldUntilInterrupted;
+// Test hook: remove the workspace the turn runs in, so the session's next spawn throws.
+if (lost && Bun.env.COFORGE_AGY_REMOVE_WORKSPACE === "1")
+  await rm(workingDirectory, { recursive: true, force: true });
 const conversationId = lost
   ? (Bun.env.COFORGE_AGY_NEW_CONVERSATION_ID ?? crypto.randomUUID())
   : (conversation ?? Bun.env.COFORGE_AGY_CONVERSATION_ID ?? crypto.randomUUID());
@@ -66,7 +79,7 @@ write({
   conversation_id: conversationId,
   init: {
     ...(model ? { model } : {}),
-    cwd: process.cwd(),
+    cwd: workingDirectory,
     tools: ["run_command", "view_file", "write_to_file"],
     permission_mode: "always-proceed",
   },

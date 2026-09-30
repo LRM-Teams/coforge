@@ -19,6 +19,8 @@ const INSTRUCTIONS = "Standing Grok instructions.";
 const SESSION_BUDGET_MS = VERSION_PROBE_TIMEOUT_MS + 2 * PROCESS_TREE_EXIT_GRACE_MS;
 /** A session the fake grok already holds, the way a conversation from an earlier launch is. */
 const EXISTING = "0195d5a0-4b2e-7c11-9a53-3f2f6b1d7e10";
+/** Keeps the fake grok's turn open long enough for the test to queue input behind it. */
+const turnDelay = { COFORGE_GROK_TURN_DELAY_MS: "150" };
 
 type Launch = {
   prompt?: string;
@@ -694,6 +696,92 @@ test(
       expect(launch?.newSessionId).toBeDefined();
       expect(launch?.resumeId).toBeUndefined();
     });
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "input queued while a turn runs is joined into the next turn's prompt",
+  async () => {
+    await withSession(
+      { sessionId: EXISTING, existingSessions: [EXISTING], environment: turnDelay },
+      async ({ session, launches }) => {
+        const both = nthCompleted(session, 2);
+        // The first turn counts as running from the moment it is spawned, so the next two queue.
+        await session.sendMessage("first");
+        await Promise.all([session.sendMessage("second"), session.notify!("third")]);
+        await both;
+        const [first, second, ...rest] = await launches();
+        expect(rest).toEqual([]);
+        expect(first?.prompt).toBe("first");
+        expect(second).toMatchObject({ prompt: "second\n\nthird", resumeId: EXISTING });
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "input queued behind a lost resume runs as its own turn once the replacement session has answered",
+  async () => {
+    const stale = "0195d5a0-4b2e-7c11-9a53-3f2f6b1d7e14";
+    await withSession(
+      { sessionId: stale, environment: turnDelay },
+      async ({ session, launches, reports }) => {
+        const bothTurns = nthCompleted(session, 2);
+        await session.sendMessage("first");
+        await session.sendMessage("second");
+        await bothTurns;
+        const [attempt, retry, queued, ...rest] = await launches();
+        expect(rest).toEqual([]);
+        expect(attempt).toMatchObject({ prompt: "first", resumeId: stale });
+        expect(retry).toMatchObject({ prompt: "first" });
+        expect(retry?.newSessionId).toBeDefined();
+        expect(queued).toMatchObject({ prompt: "second", resumeId: retry?.newSessionId });
+        expect(reports).toEqual([{ sessionId: retry!.newSessionId!, replacedSessionId: stale }]);
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "dispose kills a running turn and rejects queued input",
+  async () => {
+    await withSession({ environment: { COFORGE_GROK_MODE: "hang" } }, async ({ session }) => {
+      let exited = false;
+      session.onExit(() => {
+        exited = true;
+      });
+      const working = firstText(session);
+      await session.sendMessage("go");
+      await working;
+      const queued = session.notify!("queued while disposing");
+      // Mark the rejection handled at once, so it never surfaces as unhandled before the assertion.
+      queued.catch(() => undefined);
+      await session.dispose();
+      expect(exited).toBe(true);
+      await expect(queued).rejects.toThrow("code agent session was disposed");
+      await expect(session.sendMessage("after dispose")).rejects.toThrow(
+        "code agent session is disposed",
+      );
+    });
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a first turn that fails leaves the session identity unknown and reports nothing",
+  async () => {
+    await withSession(
+      { environment: { COFORGE_GROK_MODE: "error", COFORGE_GROK_ERROR: "boom" } },
+      async ({ session, reports }) => {
+        const events = await runTurn(session, "go");
+        expect(events.at(-1)).toEqual({ type: "completed", status: "failed" });
+        expect(await session.readSessionIdentity!()).toMatchObject({ state: "unknown" });
+        expect(reports).toEqual([]);
+      },
+    );
   },
   SESSION_BUDGET_MS,
 );
