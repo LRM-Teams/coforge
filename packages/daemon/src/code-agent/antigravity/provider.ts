@@ -11,6 +11,7 @@ import { InterruptTracker } from "#src/code-agent/interrupt-tracker";
 import { asRecord, errorMessage } from "#src/code-agent/json-record";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { discoverAntigravityCatalog } from "./catalog";
+import { readAntigravityUsage } from "./usage";
 import { withoutSshSessionVariables } from "./ssh-environment";
 import { AntigravityTurnProcess, type AntigravityTurnResult } from "./turn-process";
 import { assertAntigravityVersionSupported } from "./version";
@@ -52,6 +53,13 @@ export class AntigravityProvider implements CodeAgentProvider {
       options.cwd ?? process.cwd(),
       options.environment ?? Bun.env,
     );
+  }
+
+  async readUsage(options: { workingDirectory: string; timeoutMs?: number }) {
+    return readAntigravityUsage(options.workingDirectory, {
+      command: this.#command,
+      timeoutMs: options.timeoutMs,
+    });
   }
 
   async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {

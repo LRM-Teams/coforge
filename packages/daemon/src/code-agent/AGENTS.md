@@ -108,6 +108,8 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
 - Never pass `SSH_CLIENT`, `SSH_CONNECTION`, or `SSH_TTY` to an agy turn or to
   `agy models`; agy switches to a file-based token store when it sees them. An
   explicit Agent override still applies.
+- Account usage is `agy -p /usage --output-format json`, which answers without
+  a turn; the snapshot shows the model group with the least quota left.
 - The unknown-`--conversation` fallback, the `agy models` line format, and the
   SSH token-store switch are observed on agy 1.2.12/1.2.13, not documented.
   Re-check them when raising the version gate.
