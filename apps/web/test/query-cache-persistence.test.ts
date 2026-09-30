@@ -13,6 +13,7 @@ import {
   sidebarDirectsQueryKey,
 } from "#src/features/conversations/conversation-query-keys";
 import { AppError } from "#src/lib/app-error";
+import { CONVERSATION_WINDOW_PAGE_SIZE } from "#src/lib/conversation-window";
 import { persistsQuery } from "#src/features/cache-persistence/persisted-queries";
 import {
   installQueryCachePersistence,
@@ -241,6 +242,55 @@ describe("a conversation opened in an earlier page load", () => {
       (data) => data.pages[0]?.messages.some((m) => m.body === "arrived meanwhile") ?? false,
     );
     second();
+  });
+});
+
+describe("a restored conversation whose read was cut short by loading older messages", () => {
+  test("is still read again, so the stored copy does not stay as the newest page", async () => {
+    const disk = memoryStore();
+    const before = pageLoad(disk.store);
+    await before.queryClient.fetchInfiniteQuery(
+      windowQuery("c1", async () => ({ ...page(["stored"]), hasOlder: true })),
+    );
+    await disk.written(1);
+
+    const after = pageLoad(disk.store);
+    const query = infiniteQueryOptions({
+      queryKey: channelKey("c1"),
+      // As the app's window: an older page's cursor, a newer one's cursor after it, and the live
+      // end read with no cursor.
+      queryFn: async ({
+        pageParam,
+        signal,
+      }: {
+        pageParam: string | undefined;
+        signal: AbortSignal;
+      }) => {
+        if (pageParam === "before") return page(["older"]);
+        // The newest page's read waits long enough to be cancelled by the older one.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        signal.throwIfAborted();
+        return { ...page(["stored", "fresh"]), hasOlder: true };
+      },
+      initialPageParam: undefined as string | undefined,
+      getNextPageParam: (last: Page) => (last.messages[0]?.body === "older" ? "after" : undefined),
+      getPreviousPageParam: () => "before",
+    });
+    await after.queryClient.ensureInfiniteQueryData(query);
+    // The restore has been marked for a read by the time the page mounts it.
+    await queryBecomes(after.queryClient, channelKey("c1"), () =>
+      Boolean(after.queryClient.getQueryState(channelKey("c1"))?.isInvalidated),
+    );
+    const observer = new InfiniteQueryObserver(after.queryClient, query);
+    const unsubscribe = observer.subscribe(() => {});
+    // The older sentinel is on screen at once: loading older cancels the newest page's read.
+    await observer.fetchPreviousPage();
+    await dataBecomes<{ pages: Page[] }>(
+      after.queryClient,
+      channelKey("c1"),
+      (data) => data.pages.at(-1)?.messages.some((m) => m.body === "fresh") ?? false,
+    );
+    unsubscribe();
   });
 });
 
@@ -657,6 +707,85 @@ describe("what the browser keeps", () => {
       state: { data: unknown };
     }>;
     expect(stored?.state.data).toEqual({ pages: [newest], pageParams: [undefined] });
+  });
+
+  test("keeps one page of a conversation's newest messages, however many realtime added", async () => {
+    // A page is what a first read returns (Slack: "a page of history … enough to fill the view").
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    const bodies = Array.from({ length: CONVERSATION_WINDOW_PAGE_SIZE + 7 }, (_, i) => `m${i}`);
+    await load.queryClient.fetchInfiniteQuery(
+      windowQuery("c1", async () => ({ ...page(bodies), hasOlder: false })),
+    );
+    await disk.written(1);
+    const [stored] = queryRows(disk.rows).map((key) => disk.rows.get(key)) as Array<{
+      state: { data: { pages: Array<Page & { hasOlder: boolean }> } };
+    }>;
+    const kept = stored?.state.data.pages[0];
+    expect(kept?.messages.map((m) => m.body)).toEqual(bodies.slice(-CONVERSATION_WINDOW_PAGE_SIZE));
+    // What it no longer holds is history to page back into, as after a first read.
+    expect(kept?.hasOlder).toBe(true);
+  });
+
+  test("keeps thread state only for the roots it kept, as a first read has it", async () => {
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    const bodies = Array.from({ length: CONVERSATION_WINDOW_PAGE_SIZE + 1 }, (_, i) => `m${i}`);
+    // The oldest message, m0, is a thread root that the cut removes; the newest, m20, is one it keeps.
+    const newest = `m${CONVERSATION_WINDOW_PAGE_SIZE}`;
+    await load.queryClient.fetchInfiniteQuery(
+      windowQuery("c1", async () => ({
+        ...page(bodies),
+        messages: bodies.map((body) => ({ id: body, body })),
+        threads: { m0: { replyCount: 9 }, [newest]: { replyCount: 1 } },
+        threadReadThrough: { m0: 5, [newest]: 7 },
+        followedThreadRootIds: ["m0", newest],
+      })),
+    );
+    await disk.written(1);
+    const [stored] = queryRows(disk.rows).map((key) => disk.rows.get(key)) as Array<{
+      state: { data: { pages: Array<Record<string, unknown>> } };
+    }>;
+    const kept = stored?.state.data.pages[0];
+    expect(kept?.threads).toEqual({ [newest]: { replyCount: 1 } });
+    expect(kept?.threadReadThrough).toEqual({ [newest]: 7 });
+    expect(kept?.followedThreadRootIds).toEqual([newest]);
+  });
+
+  test("keeps exactly one page as it was, and cuts one message more", async () => {
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    const full = Array.from({ length: CONVERSATION_WINDOW_PAGE_SIZE }, (_, i) => `m${i}`);
+    await load.queryClient.fetchInfiniteQuery(
+      windowQuery("full", async () => ({ ...page(full), hasOlder: false })),
+    );
+    await load.queryClient.fetchInfiniteQuery(
+      windowQuery("over", async () => ({ ...page([...full, "one more"]), hasOlder: false })),
+    );
+    await disk.written(2);
+    const stored = (id: string) =>
+      disk.rows.get(`user-1/tanstack-query-["conversation","channel","${id}"]`) as {
+        state: { data: { pages: Array<{ hasOlder: boolean; messages: unknown[] }> } };
+      };
+    expect(stored("full").state.data.pages[0]?.hasOlder).toBe(false);
+    expect(stored("over").state.data.pages[0]?.hasOlder).toBe(true);
+    expect(stored("over").state.data.pages[0]?.messages).toHaveLength(
+      CONVERSATION_WINDOW_PAGE_SIZE,
+    );
+  });
+
+  test("leaves a page no longer than one page as it was", async () => {
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    await load.queryClient.fetchInfiniteQuery(
+      windowQuery("c1", async () => ({ ...page(["only", "two"]), hasOlder: false })),
+    );
+    await disk.written(1);
+    const [stored] = queryRows(disk.rows).map((key) => disk.rows.get(key)) as Array<{
+      state: { data: { pages: Array<Page & { hasOlder: boolean }> } };
+    }>;
+    expect(stored?.state.data.pages[0]?.messages.map((m) => m.body)).toEqual(["only", "two"]);
+    expect(stored?.state.data.pages[0]?.hasOlder).toBe(false);
   });
 
   test("drops an attachment's signed preview URL, which expires long before the copy does", async () => {

@@ -274,10 +274,30 @@ export function installQueryCachePersistence(
     // After the query took the restored data as its result, which clears the flag.
     if (restoring && !networkRead)
       notifyManager.schedule(() => {
+        awaitingRead.add(query.queryHash);
         void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true });
       });
     return data;
   };
+  /**
+   * Restored queries whose own read has not succeeded yet. Loading older or newer pages cancels
+   * that read (TanStack's `fetchPreviousPage` cancels a refetch in flight) and its success clears
+   * the invalidation, which would leave the stored copy as the newest page for good: such a query
+   * is invalidated again, until a read of the query itself succeeds.
+   */
+  const awaitingRead = new Set<string>();
+  queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.action.type !== "success" || event.action.manual) return;
+    const { queryHash } = event.query;
+    if (!awaitingRead.has(queryHash)) return;
+    if (!event.query.state.fetchMeta?.fetchMore) {
+      awaitingRead.delete(queryHash);
+      return;
+    }
+    notifyManager.schedule(() => {
+      void queryClient.invalidateQueries({ queryKey: event.query.queryKey, exact: true });
+    });
+  });
   // What the server says is gone (deleted, or this person lost access: both are `NOT_FOUND`) does
   // not stay in storage, where nothing would ever read it again but a restore.
   queryClient.getQueryCache().subscribe((event) => {
