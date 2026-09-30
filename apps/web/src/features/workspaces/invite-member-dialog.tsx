@@ -14,7 +14,7 @@ import { canManageMembers } from "./workspace-roles";
 type InviteTab = "username" | "link";
 
 /** The shared invite-a-member dialog used by the Members directory and the Settings Members
- * section. Owners and admins also get the "By link" tab, as in Raft's Invite Human dialog. */
+ * section. Owners and admins also get the "By link" tab. */
 export function InviteMemberDialog({
   open,
   onOpenChange,

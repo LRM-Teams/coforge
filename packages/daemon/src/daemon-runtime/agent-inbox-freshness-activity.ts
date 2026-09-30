@@ -1,26 +1,26 @@
 import type { ActivityTrajectoryEntry } from "@lrm/coforge-sdk/internal";
 
 /**
- * Raft 1.0.32 `projectApmHeldFreshnessActivity` (bundle 812425).
+ * The Activity a held freshness decision narrates.
  *
- * One held send narrates exactly two things in Raft: a **status entry** —
+ * One held send narrates exactly two things: a **status entry** —
  * `{kind:"status", activity:"working", activityKind:"working", detail: <title>,
- * detailKind:"freshness_hold", producerFactId}` — and a **`slock_action` entry** carrying the same
- * title plus a three-line text (`target:`, the count line, the decision line(s)). CoForge has one
- * Activity frame for both (a display status with optional trajectory entries), so this projects the
+ * detailKind:"freshness_hold", producerFactId}` — and an **action entry** carrying the same
+ * title plus a three-line text (`target:`, the count line, the decision line(s)). The Activity
+ * frame carries both (a display status with optional trajectory entries), so this projects the
  * pair onto it: `activityKind`/`detail`/`detailKind` are the status entry, `entries` is the action
  * entry as the one system row our trajectory model has. The producer fact id travels on the frame.
  *
  * The wording, the count-line split between `local_hold` and `syncing_hold`, and the decision lines
- * are Raft's own strings, copied verbatim.
+ * are fixed strings.
  */
 
 export type HeldFreshnessActivityInput = {
   action: "send" | "task_claim" | "task_update";
   decision: "local_hold" | "syncing_hold";
   target: string;
-  /** Raft's `messageCount`: `pendingCount` for `local_hold`, `heldMessageCount` for
-   * `syncing_hold` (see `recordFreshnessDecisionActivity`, bundle 843454). */
+  /** The count the Activity shows: `pendingCount` for `local_hold`, `heldMessageCount` for
+   * `syncing_hold` (see `heldFreshnessMessageCount`). */
   messageCount: number;
   producerFactId: string;
 };
@@ -66,8 +66,8 @@ export function heldFreshnessActivity(input: HeldFreshnessActivityInput): HeldFr
   };
 }
 
-/** Raft's `recordFreshnessDecisionActivity` message count (bundle 843455): the sync hold counts the
- * window it showed, a local hold counts what is actually pending; each falls back to the other. */
+/** The message count of a freshness-decision Activity: the sync hold counts the window it
+ * showed, a local hold counts what is actually pending; each falls back to the other. */
 export function heldFreshnessMessageCount(input: {
   decision: "local_hold" | "syncing_hold";
   newMessageCount?: number;

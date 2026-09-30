@@ -4,11 +4,10 @@ import { AGENT_NAME_MAX_LENGTH, AGENT_NAME_PATTERN } from "#src/internal/agent-n
 import { CHANNEL_NAME_PATTERN } from "#src/internal/channel-references";
 
 /**
- * Agent-prepared action card contract, mirroring Raft Computer 1.0.32's
- * `packages/shared/src/actionCards.ts` (`raft action prepare`; see
- * `docs/agents/reference-cli-research.md`). CoForge v1 supports exactly three
- * card kinds: `channel:create`, `agent:create`, `channel:add_member`. Raft's
- * `integration:*` kinds are intentionally out of scope for this PR.
+ * Agent-prepared action card contract (`coforge action prepare`). CoForge v1
+ * supports exactly three card kinds: `channel:create`, `agent:create`,
+ * `channel:add_member`. `integration:*` kinds are intentionally out of scope
+ * for this PR.
  *
  * An Agent identifies humans, Agents, channels, and computers by handle
  * (`@alice`, `alice`, `#general`, `general`) or UUID. `ActionCards.prepare`
@@ -94,9 +93,8 @@ export type ActionCardAction = z.infer<typeof actionCardActionSchema>;
 export type ActionCardKind = ActionCardAction["type"];
 
 /**
- * Cross-field rules the schema alone cannot express, mirroring Raft's
- * `validateActionCardAction`. Returns a human-readable message, or `null`
- * when the action is valid.
+ * Cross-field rules the schema alone cannot express. Returns a human-readable
+ * message, or `null` when the action is valid.
  */
 export function validateActionCardAction(action: ActionCardAction): string | null {
   if (action.type === "agent:create") {

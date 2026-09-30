@@ -47,10 +47,10 @@ const apiKeySchema = z.preprocess(
   z.string().trim().min(8).max(4096).optional(),
 );
 
-// The @mention username: fixed at creation (Raft 1.0.32 alignment), never renamed afterward. The
-// bound and its grammar are the SDK's one definition (`@lrm/coforge-sdk/internal`, where the
-// sender-handle bound reads the same value); re-exported here because the web modules that build a
-// freed name from it import it from this file.
+// The @mention username: fixed at creation, never renamed afterward. The bound and its grammar are
+// the SDK's one definition (`@lrm/coforge-sdk/internal`, where the sender-handle bound reads the
+// same value); re-exported here because the web modules that build a freed name from it import it
+// from this file.
 export { AGENT_NAME_MAX_LENGTH };
 
 const nameSchema = z.string().trim().min(1).max(AGENT_NAME_MAX_LENGTH).regex(AGENT_NAME_PATTERN);

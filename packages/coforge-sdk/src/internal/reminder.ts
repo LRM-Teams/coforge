@@ -321,7 +321,7 @@ function fromVersionedProto<T>(message: Record<string, unknown>): T {
  * Protobuf belongs to the WebSocket path. An HTTP handler that encodes a JSON request to protobuf
  * bytes only to decode them straight back has adopted the wrong contract: it inherits the codec's
  * field names and failure modes for no benefit, and hides which of the two shapes a route really
- * speaks. Raft's own split is the same one: HTTP is JSON, the WS/RPC path is protobuf.
+ * speaks.
  */
 export function validateAgentReminderOperationRequest(
   value: unknown,

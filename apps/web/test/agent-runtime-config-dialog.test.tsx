@@ -61,7 +61,7 @@ test("renders the title, Provider and Model labels, and Save alone; Reasoning wa
   // `renderToStaticMarkup` never runs effects, so the catalog load never resolves and the
   // configured model is never confirmed against it. The Reasoning field must stay hidden here.
   expect(markup).not.toContain(m.agent_form_reasoning());
-  // Raft's footer is the save action alone: the dialog is dismissed by its header X, Esc, or the
+  // The footer is the save action alone: the dialog is dismissed by its header X, Esc, or the
   // overlay, so there is no Cancel button to render.
   expect(markup).not.toContain(m.controls_cancel());
   expect(markup).toContain(m.agent_profile_save_runtime_config());

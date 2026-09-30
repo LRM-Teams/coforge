@@ -401,8 +401,8 @@ export function parseArgs(
     let output: string | undefined;
     let json = false;
     let index = 2;
-    // A positional id (`coforge attachment view <id> --output <path>`), as Raft accepts, in
-    // addition to `--id <id>`.
+    // A positional id (`coforge attachment view <id> --output <path>`) in addition to
+    // `--id <id>`.
     if (
       args[index] !== undefined &&
       args[index] !== "--id" &&
@@ -418,7 +418,7 @@ export function parseArgs(
       else if (args[index] === "--json") json = true;
       else throw new Error("Usage:");
     }
-    // Raft's `validateViewOpts`: the same three preconditions, same codes and messages.
+    // Three preconditions that never issue a request: not both id spellings, an id, an `--output`.
     if (positionalId && explicitId)
       throw new CliError({
         code: "INVALID_ARG",
@@ -448,7 +448,7 @@ export function parseArgs(
   if (args[0] === "attachment" && args[1] === "upload") {
     let path: string | undefined;
     let target: string | undefined;
-    // Legacy alias for --target (Raft's transition alias); giving both is a usage error.
+    // Legacy alias for --target; giving both is a usage error.
     let channelAlias: string | undefined;
     let mimeType: string | undefined;
     let json = false;
@@ -603,8 +603,8 @@ export function parseArgs(
         else throw new Error("Usage:");
       }
       const outputMode = json ? "json" : "text";
-      // Repeatable; duplicate values collapse to one occurrence. No client-side count cap
-      // (Raft's send schema has none either); the server enforces the per-message limit.
+      // Repeatable; duplicate values collapse to one occurrence. No client-side count cap; the
+      // server enforces the per-message limit.
       const attachmentIds = rawAttachmentIds.length ? [...new Set(rawAttachmentIds)] : undefined;
       if (attachmentIds?.some((id) => !UUID_PATTERN.test(id)))
         throw withOutputMode(
@@ -770,8 +770,8 @@ function parseWorkspaceInfoArgs(args: readonly string[]): WorkspaceInfoInvocatio
 
 const CHANNEL_MANAGEMENT_BOOLEAN_FLAGS = new Set(["--private", "--public", "--json"]);
 
-/** Rejects `--private`/`--public`, which Raft accepts but CoForge does not; every channel is
- * public and there is no private/visibility column. */
+/** Rejects `--private`/`--public`: every channel is public and there is no private/visibility
+ * column. */
 function privateChannelsUnsupportedError(): CliError {
   return new CliError({
     code: "UNSUPPORTED",
@@ -780,10 +780,10 @@ function privateChannelsUnsupportedError(): CliError {
   });
 }
 
-/** Raft's `parseRegularChannelTarget`, applied the same way Raft applies it: to `join`, `leave`,
- * `update`, `lifecycle archive|unarchive`, `add-member`, and `remove-member` — never to `info`/
- * `members` (which accept a wider target grammar) or `create` (which has no target at all).
- * Rejects a thread target, an `@user` DM, or a bare name with no leading `#`. */
+/** Requires a regular channel target for `join`, `leave`, `update`, `lifecycle archive|unarchive`,
+ * `add-member`, and `remove-member` — never for `info`/`members` (which accept a wider target
+ * grammar) or `create` (which has no target at all). Rejects a thread target, an `@user` DM, or a
+ * bare name with no leading `#`. */
 function requireRegularChannelTarget(target: string): string {
   if (!/^#[a-z0-9][a-z0-9_-]{0,31}$/.test(target))
     throw new CliError({
@@ -1773,7 +1773,7 @@ function isHeldSend(result: unknown): result is HeldSendResult {
   return (result as { state?: unknown }).state === "held";
 }
 
-/** Raft's held-send envelope, as the daemon hands it to the CLI. */
+/** The held-send envelope, as the daemon hands it to the CLI. */
 type HeldSendResult = {
   state: "held";
   decision?: "local_hold" | "syncing_hold";
@@ -1915,7 +1915,7 @@ function formatInboxCheck(result: unknown): string {
   });
 }
 
-/** How long `--send-draft` watches stdin before deciding nothing was piped in (Raft's own bounded
+/** How long `--send-draft` watches stdin before deciding nothing was piped in (a bounded
  * observation window: the flag replays the daemon-held copy, so piped content is a mistake to
  * report, not a body to silently discard). */
 const SEND_DRAFT_STDIN_OBSERVATION_MS = 150;
@@ -2094,15 +2094,15 @@ function validateReminderShape(value: ReminderInvocation): void {
       value.repeat === "none")
   )
     throw new Error(REMINDER_USAGE);
-  // Raft's `list` defaults to scheduled,fired when neither `--all` nor `--status` is given
-  // (the server already applies that default); only passing both together is a usage error.
+  // `list` defaults to scheduled,fired when neither `--all` nor `--status` is given (the server
+  // already applies that default); only passing both together is a usage error.
   if (value.operation === "list" && present("all") && present("status"))
     throw new Error(REMINDER_USAGE);
   if (["cancel", "log"].includes(value.operation) && !id) throw new Error(REMINDER_USAGE);
   if (value.operation === "snooze" && (!id || timed !== 1)) throw new Error(REMINDER_USAGE);
   if (value.operation === "update") {
     if (!id || timed > 1) throw new Error(REMINDER_USAGE);
-    // Raft: "Pass exactly one of --fire-at, --in, --cadence, or --title" (code INVALID_ARG).
+    // "Pass exactly one of --fire-at, --in, --cadence, or --title" (code INVALID_ARG).
     // --fire-at and --in both land in `timed` (the time mutation), so they count as one slot.
     const mutations = [timed === 1, value.repeat !== undefined, value.title !== undefined].filter(
       Boolean,
@@ -2120,15 +2120,14 @@ function validateReminderShape(value: ReminderInvocation): void {
     throw new Error(REMINDER_USAGE);
 }
 
-/** The `list` scope an `--id` prefix lookup runs under, matching Raft's per-command scoping. */
+/** The `list` scope an `--id` prefix lookup runs under, per command. */
 export type ReminderIdResolutionScope = { all: true } | { statuses: readonly string[] };
 
 /**
  * Reminder operations that take `--id`, and the `list` scope each resolves a short prefix within.
- * `cancel`/`snooze` only ever act on an active reminder, so they resolve within scheduled/fired,
- * same as Raft. `update`, `log`, `ack`, and `dismiss` can target any status (Raft's `update` passes
- * `all: true`; `log` doesn't resolve client-side at all in Raft, but our wire protocol always
- * requires a full UUID, so we resolve unscoped — the "if it resolves with all, use all" case).
+ * `cancel`/`snooze` only ever act on an active reminder, so they resolve within scheduled/fired.
+ * `update`, `log`, `ack`, and `dismiss` can target any status, so they resolve unscoped
+ * (`all: true`); `log` needs the lookup because the wire protocol always requires a full UUID.
  */
 const REMINDER_ID_RESOLUTION_SCOPE: Record<string, ReminderIdResolutionScope> = {
   cancel: { statuses: ["scheduled", "fired"] },
@@ -2177,8 +2176,8 @@ export async function resolveReminderId(
   const matches = (response.reminders ?? []).filter((item: ReminderSummaryRecord) =>
     item.reminderId.replace(/-/g, "").toLowerCase().startsWith(lowerPrefix),
   );
-  // Mirrors Raft's `resolveReminderId`: an unscoped ("all") lookup just says "reminder"; a
-  // status-scoped lookup names the scope, e.g. "scheduled/fired reminder".
+  // An unscoped ("all") lookup just says "reminder"; a status-scoped lookup names the scope,
+  // e.g. "scheduled/fired reminder".
   const scopeLabel = "all" in scope ? "reminder" : `${scope.statuses.join("/")} reminder`;
   if (matches.length === 0)
     throw new CliError({

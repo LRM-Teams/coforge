@@ -93,7 +93,7 @@ export function generateJoinLinkToken(): string {
 type LinkOptions = { maxUses: number | null; expiresAt: Date | null };
 
 /**
- * Workspace join links, as Raft's: owners and admins create, update (replace) and revoke them;
+ * Workspace join links: owners and admins create, update (replace) and revoke them;
  * anyone signed in who has one joins as an ordinary member. To a visitor, an unknown, revoked,
  * expired or used-up link are all the same NOT_FOUND.
  */

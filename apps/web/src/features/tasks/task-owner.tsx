@@ -26,7 +26,7 @@ export function TaskPerson({
       />
       <span className="truncate">{person.name}</span>
       {/* A Task's holder can be a deleted Agent: its Tasks stay readable, so the card says the
-          identity is gone rather than reading as a live owner (Raft calls this `unresolved`). */}
+          identity is gone rather than reading as a live owner. */}
       {person.deleted && <DeletedAgentBadge />}
     </span>
   );

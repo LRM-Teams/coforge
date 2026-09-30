@@ -203,7 +203,7 @@ type DirectConversationMessageRow = Prisma.MessageGetPayload<{
   include: typeof AGENT_MESSAGE_INCLUDE;
 }>;
 
-/** Raft 1.0.38's `consumption_scope` of an Agent history read: which conversation it consumed, for
+/** The `consumption_scope` of an Agent history read: which conversation it consumed, for
  * a direct conversation or a thread, whose target has more than one spelling. None for a channel's
  * top level. */
 function agentHistoryConsumptionScope(

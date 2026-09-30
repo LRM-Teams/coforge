@@ -7,10 +7,10 @@ import { JsonlProcess } from "#src/code-agent/jsonl-process";
 import { COFORGE_DAEMON_VERSION } from "#src/version";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
-/** Ported from Raft 1.0.32's Codex account-usage reader (`@botiverse/oar` codex/account-usage):
- * the usage reader talks to the app-server with the experimental API, reads the signed-in
- * account before the rate limits, reports only a masked label, and treats a non-subscription
- * account (API-key / Bedrock / `requiresOpenaiAuth === false`) as having no plan usage at all. */
+/** Reads Codex plan usage: talks to the app-server with the experimental API, reads the
+ * signed-in account before the rate limits, reports only a masked label, and treats a
+ * non-subscription account (API-key / Bedrock / `requiresOpenaiAuth === false`) as having no
+ * plan usage at all. */
 export async function readCodexUsage(
   workingDirectory: string,
   options: {
@@ -42,7 +42,7 @@ export async function readCodexUsage(
     );
     await process.send({ method: "initialized", params: {} });
     // Best-effort: an app-server that predates `account/read` (or any account failure) still
-    // scans, just without the account label — Raft swallows every `account/read` error too.
+    // scans, just without the account label.
     let account: Record<string, unknown> | undefined;
     try {
       const response = await withTimeout(
@@ -85,8 +85,8 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   ]);
 }
 
-/** Raft's `isNonSubscriptionAccount`: an API-key or Bedrock account, or one with OpenAI auth
- * disabled, has no plan windows — the scan answers `unsupported` instead of an empty reading. */
+/** An API-key or Bedrock account, or one with OpenAI auth disabled, has no plan windows — the
+ * scan answers `unsupported` instead of an empty reading. */
 function isNonSubscription(account: Record<string, unknown> | undefined): boolean {
   const type = asRecord(account?.account)?.type;
   return type === "apiKey" || type === "amazonBedrock" || account?.requiresOpenaiAuth === false;
@@ -106,9 +106,9 @@ function toSnapshot(
   const hasCredits =
     credits && typeof credits.hasCredits === "boolean" && typeof credits.unlimited === "boolean";
   if (!primary && !secondary) {
-    // Raft's reader errors when a signed-in subscription account yields no usable window;
-    // without an account (an app-server predating `account/read`) keep the old `null` answer
-    // unless the reading still carries plan or credits information.
+    // A signed-in subscription account that yields no usable window is an error; without an
+    // account (an app-server predating `account/read`) keep the old `null` answer unless the
+    // reading still carries plan or credits information.
     if (account) throw new UsageUnavailableError();
     if (!hasCredits && typeof limits.planType !== "string") return null;
   }
@@ -139,8 +139,8 @@ function toSnapshot(
   };
 }
 
-/** Raft's `limitLabel`: the bucket's own name, else its `limitId` (`codex` renders as the
- * provider name), else the plain provider name. */
+/** The bucket's own name, else its `limitId` (`codex` renders as the provider name), else the
+ * plain provider name. */
 function limitLabel(limits: Record<string, unknown>): string {
   const name = label(limits.limitName);
   if (name !== undefined) return name;
@@ -154,7 +154,7 @@ function label(value: unknown): string | undefined {
   return trimmed.length > 0 && trimmed.length <= 80 ? trimmed : undefined;
 }
 
-/** Raft's `windowLabel`: a readable duration like `5 hours` / `1 week` / `90 minutes`. */
+/** A readable duration like `5 hours` / `1 week` / `90 minutes`. */
 function durationLabel(mins: number): string {
   if (mins % (7 * 24 * 60) === 0) {
     const weeks = mins / (7 * 24 * 60);
@@ -171,7 +171,7 @@ function durationLabel(mins: number): string {
   return `${mins} minutes`;
 }
 
-/** Raft's `windowId`: `w<index>_<first 12 hex of sha256(label)>`, stable for a stable label. */
+/** `w<index>_<first 12 hex of sha256(label)>`, stable for a stable label. */
 function windowId(label: string, index: number): string {
   return `w${index}_${new Bun.CryptoHasher("sha256").update(label).digest("hex").slice(0, 12)}`;
 }
@@ -187,7 +187,7 @@ function toWindow(
   const id = windowId(`${limitLabel(limits)} · ${durationLabel(item.windowDurationMins)}`, index);
   if (typeof item.usedPercent !== "number" || !Number.isFinite(item.usedPercent)) {
     // The window exists but its ratio is unreadable — report it as `parse_unavailable` with
-    // both the ratio and the reset omitted, like Raft's projection does.
+    // both the ratio and the reset omitted.
     return { id, status: "parse_unavailable", windowDurationMinutes: item.windowDurationMins };
   }
   if (item.usedPercent < 0 || item.usedPercent > 100) return undefined;

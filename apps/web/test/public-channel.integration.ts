@@ -3269,7 +3269,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
       alreadyMember: false,
     });
     expect((await manage.info(workspace.id, admin.id, "#eng")).memberCounts.humans).toBe(1);
-    // Adding the same human again reports alreadyMember, matching Raft's "@h is already in #x.".
+    // Adding the same human again reports alreadyMember.
     const reAddedHuman = await manage.addMember(workspace.id, member.id, "#eng", {
       user: `@${outsider.username}`,
     });
@@ -3299,8 +3299,7 @@ test("Agent channel management: authority, join/leave, archive, and add/remove m
     });
     expect(removedAgent).toEqual({ target: "#eng", removed: true, wasMember: true });
     expect((await manage.info(workspace.id, member.id, "#eng")).joined).toBe(false);
-    // Removing an already-left member reports wasMember: false, matching Raft's "@h was not
-    // in #x.".
+    // Removing an already-left member reports wasMember: false.
     const removedAgentAgain = await manage.removeMember(workspace.id, admin.id, "#eng", {
       agent: `@${member.name}`,
     });

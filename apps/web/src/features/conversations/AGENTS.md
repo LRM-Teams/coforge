@@ -22,11 +22,11 @@ These rules apply to `src/features/conversations/`.
   it unpinned, never a whole list, so pins it cannot see survive.
   Channels and Direct messages are not reordered by hand.
 - Direct messages list the viewer's existing DM conversations only, with
-  Agents and members mixed in the order they started, as Raft does: a
-  conversation starts from a "Message" affordance
-  (`useOpenDirectConversation`, which opens or starts it and goes to
-  `dm/<conversationId>`), never from the sidebar. Link to a DM by its
-  conversation id; only a "start" affordance knows just an Agent or a member.
+  Agents and members mixed in the order they started: a conversation starts
+  from a "Message" affordance (`useOpenDirectConversation`, which opens or
+  starts it and goes to `dm/<conversationId>`), never from the sidebar. Link to
+  a DM by its conversation id; only a "start" affordance knows just an Agent or
+  a member.
   Every DM row, its pin, menu actions, unread badge and read-cursor key go by
   conversation id (`dm:<conversationId>` for the cursor); only the live Agent
   activity strip looks a DM up by its Agent.

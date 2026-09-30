@@ -376,7 +376,7 @@ export interface DaemonConnectionClient {
     request: AgentMessageRequest,
     agentApiKey: string,
   ): Promise<AgentMessageTransportResponse>;
-  /** Whether a send's idempotency key already committed (Raft's `reconcileOnly`); never sends. */
+  /** Whether a send's idempotency key already committed (`reconcileOnly`); never sends. */
   reconcileAgentSend?(
     request: AgentSendReconciliationRequest,
     agentApiKey: string,
@@ -539,11 +539,11 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
   /** Latest-per-agent, like `#pendingActivity`. */
   readonly #pendingSessionInvalidate = new Map<string, AgentSessionInvalidate>();
-  /** Raft's `observeLaunchIdentity`: the latest launch a *non*-Activity, non-invalidate
-   * outbound message has reported for an Agent (today, only `reportAgentSession` carries a
-   * `launchId`; `AgentStatus` does not). Drives `sendSessionInvalidate`'s drop/refuse-to-queue
-   * rule below — deliberately not Activity's own `#supersededActivityLaunches` bookkeeping,
-   * which stays exactly as it was for Activity replay. */
+  /** The latest launch a *non*-Activity, non-invalidate outbound message has reported for an
+   * Agent (today, only `reportAgentSession` carries a `launchId`; `AgentStatus` does not).
+   * Drives `sendSessionInvalidate`'s drop/refuse-to-queue rule below — deliberately not
+   * Activity's own `#supersededActivityLaunches` bookkeeping, which stays exactly as it was for
+   * Activity replay. */
   readonly #latestObservedLaunchByAgent = new Map<string, string>();
   /** True once an old server's "unknown RPC method" rejection of `agent:session:invalidate` has
    * been logged; suppresses repeats for the rest of this connection's lifetime (fix for a log
@@ -652,7 +652,7 @@ export class DaemonConnection implements DaemonConnectionClient {
           outcome: "ok",
         });
         this.#reportOnline(client, config);
-        // Invalidate before Activity on reconnect, as Raft does.
+        // Invalidate before Activity on reconnect.
         this.#flushPendingSessionInvalidate(client);
         this.#flushPendingActivity(client);
         this.#flushPendingContextUsage(client);
@@ -861,9 +861,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   sendSessionInvalidate(message: AgentSessionInvalidate): void {
     if (this.#supersededActivityLaunches.get(message.agentId)?.has(message.launchId)) return;
     if (!this.#connected || !this.#client) {
-      // Raft's rule: refuse to queue a new invalidate whose launch is already known stale —
-      // never learned from Activity or from an invalidate itself, only from another outbound
-      // message that carries launch identity (`#observeLaunchIdentity`).
+      // Refuse to queue a new invalidate whose launch is already known stale — never learned
+      // from Activity or from an invalidate itself, only from another outbound message that
+      // carries launch identity (`#observeLaunchIdentity`).
       const observed = this.#latestObservedLaunchByAgent.get(message.agentId);
       if (observed !== undefined && observed !== message.launchId) return;
       this.#pendingSessionInvalidate.set(message.agentId, message);
@@ -887,12 +887,11 @@ export class DaemonConnection implements DaemonConnectionClient {
   }
 
   /**
-   * Raft's `observeLaunchIdentity`: only an outbound message that is neither Activity nor a
-   * session invalidate itself teaches this connection which launch is now current for an
-   * Agent. Drops a pending invalidate whose launch differs from the one just observed — the
-   * correctly-directional replacement for the old rule that dropped it on ANY differing-launch
-   * Activity, including a late Activity from an OLDER launch that would have wrongly dropped a
-   * NEWER pending invalidate.
+   * Only an outbound message that is neither Activity nor a session invalidate itself teaches
+   * this connection which launch is now current for an Agent. Drops a pending invalidate whose
+   * launch differs from the one just observed — the correctly-directional replacement for the
+   * old rule that dropped it on ANY differing-launch Activity, including a late Activity from
+   * an OLDER launch that would have wrongly dropped a NEWER pending invalidate.
    */
   #observeLaunchIdentity(agentId: string, launchId: string): void {
     this.#latestObservedLaunchByAgent.set(agentId, launchId);

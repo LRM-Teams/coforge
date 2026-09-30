@@ -61,7 +61,7 @@ test("rejects a missing --path before any file system access", async () => {
   });
 });
 
-test("rejects a missing --target, after the file checks, with Raft's MISSING_CHANNEL code", async () => {
+test("rejects a missing --target, after the file checks, with the MISSING_CHANNEL code", async () => {
   const dir = await mkdtemp(join(tmpdir(), "coforge-attachment-"));
   try {
     const path = join(dir, "note.txt");

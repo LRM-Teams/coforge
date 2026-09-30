@@ -116,8 +116,8 @@ function requireProxySetup(operation: string, context: string, proxyUrl: string)
  * Classifies a non-ok proxy response (or a network failure reaching the proxy) into a `CliError`.
  * `send` failures raised here happened AFTER the daemon saved the local draft and handed the
  * request to its transport (see `runtime.ts#sendAgentMessage`): delivery state is unknown, so they
- * are not retryable from this evidence alone (Raft-aligned; see `cli-error.ts`) — unless the daemon
- * says otherwise: after a failed same-key replay it knows whether the draft still holds the key.
+ * are not retryable from this evidence alone (see `cli-error.ts`) — unless the daemon says
+ * otherwise: after a failed same-key replay it knows whether the draft still holds the key.
  */
 function proxyHttpFailure(
   operation: string,
@@ -180,8 +180,8 @@ function proxyHttpFailure(
 
 /**
  * The typed code an Agent decides on. It follows the proxy's `failure_class`, not the proxy's own
- * HTTP status: a decode failure after an upstream 200 is `INVALID_JSON_RESPONSE` (Raft's code for
- * it), never `SERVER_5XX`, which is reserved for an upstream that really answered 5xx.
+ * HTTP status: a decode failure after an upstream 200 is `INVALID_JSON_RESPONSE`, never
+ * `SERVER_5XX`, which is reserved for an upstream that really answered 5xx.
  */
 function failureCode(operation: string, status: number, json: AgentProxyErrorBody | undefined) {
   const proxy = json?.proxy;
@@ -227,7 +227,7 @@ function manualFailedCode(errorCode: string | undefined): string {
  * GETs one of the two Agent Manual routes through the local daemon proxy. Unlike
  * `call` above (the multiplexed `messages` operation), the Manual routes always answer a domain
  * error as JSON `{ ok: false, errorCode, error }`, so that `errorCode` becomes the `CliError`
- * code directly, and a `knowledge_not_found` gets the Raft-aligned "browse the index" guidance.
+ * code directly, and a `knowledge_not_found` gets the "browse the index" guidance.
  */
 async function manualRequest<T>(
   proxyEndpoint: (path: string) => URL,
@@ -570,7 +570,7 @@ export function connectLocal(
         const label = operation === "send" ? "send" : `${operation} request`;
         // Reviewer isolation redacts only what could carry upstream detail — the message, the code
         // and the proxy diagnostics. The daemon's verdict (retryable, draft saved, next action)
-        // names only the key and target, so it stays (Raft's reviewer-isolation send failure).
+        // names only the key and target, so it stays.
         throw new CliError({
           code: response.status >= 500 ? "SERVER_5XX" : operationFailedCode(operation),
           message: `Reviewer-isolation ${label} failed (HTTP ${response.status}); upstream error detail was withheld.`,
@@ -746,8 +746,8 @@ export function connectLocal(
         signal: AbortSignal.timeout(60_000),
       });
       if (!response.ok) {
-        // Mirrors Raft 1.0.32's attachmentViewCommand: VIEW_FAILED (SERVER_5XX for >= 500), with
-        // a fixed message for a 404 rather than relaying upstream detail for a missing attachment.
+        // VIEW_FAILED (SERVER_5XX for >= 500), with a fixed message for a 404 rather than
+        // relaying upstream detail for a missing attachment.
         const text = await response.text().catch(() => "");
         let message = text;
         try {
@@ -775,10 +775,9 @@ export function connectLocal(
   };
 
   /**
-   * `null` means "no capability endpoint" (a 404, matching Raft 1.0.32's `attachmentUploadCommand`:
-   * `capabilityResponse.status === 404` falls back rather than failing) — the caller skips its
-   * client-side size check and disables direct upload, letting the server enforce its own limit
-   * on the real upload.
+   * `null` means "no capability endpoint" (a 404, which falls back rather than failing) — the
+   * caller skips its client-side size check and disables direct upload, letting the server
+   * enforce its own limit on the real upload.
    */
   async function callAttachmentCapabilities(): Promise<{
     maxBytes: number;
@@ -937,13 +936,12 @@ export function connectLocal(
   }
 
   /**
-   * Direct (presigned) upload, run exactly as Raft 1.0.32's `attachmentUploadCommand`: create a
-   * session, PUT the bytes straight to storage (one retry on network error / 408 / 429 / 5xx),
-   * then complete with up to 3 retries on `UPLOAD_OBJECT_NOT_FOUND` /
-   * `UPLOAD_VERIFICATION_IN_PROGRESS`. One deviation from Raft: this repo's storage (Alibaba
+   * Direct (presigned) upload: create a session, PUT the bytes straight to storage (one retry on
+   * network error / 408 / 429 / 5xx), then complete with up to 3 retries on
+   * `UPLOAD_OBJECT_NOT_FOUND` / `UPLOAD_VERIFICATION_IN_PROGRESS`. This repo's storage (Alibaba
    * Cloud OSS) has no `If-None-Match` precondition, so "the object already exists" is OSS's own
-   * `x-oss-forbid-overwrite` conflict status, `409`, not Raft's `412` (see
-   * `oss-file-storage.server.ts`'s `presignPut` doc comment).
+   * `x-oss-forbid-overwrite` conflict status, `409`, not the `412` an `If-None-Match` failure
+   * would give (see `oss-file-storage.server.ts`'s `presignPut` doc comment).
    */
   async function callAttachmentDirectUpload(input: {
     path: string;
@@ -993,7 +991,7 @@ export function connectLocal(
     }
     // Every other outcome — uploaded, already-exists (a repeat of an idempotent create), or an
     // ambiguous network failure the server may still have received — falls through to the
-    // server's own HEAD-based verification, exactly as Raft 1.0.32 does.
+    // server's own HEAD-based verification.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const completed = await callAttachmentUploadSessionComplete(created.uploadId, input.target);
       if (completed.ok) return completed.attachment;
@@ -1055,10 +1053,9 @@ export function connectLocal(
   }
 
   /**
-   * PUTs the file straight to storage. Mirrors Raft 1.0.32's `putFileToPresignedUrl`: one retry
-   * on a thrown network error or a `408`/`429`/`5xx` response; any other non-2xx is a definite
-   * failure. `already_exists` is this repo's OSS `409` (see this function's caller's own doc
-   * comment), not Raft's `412`.
+   * PUTs the file straight to storage: one retry on a thrown network error or a
+   * `408`/`429`/`5xx` response; any other non-2xx is a definite failure. `already_exists` is this
+   * repo's OSS `409` (see this function's caller's own doc comment), not `412`.
    */
   async function putFileToPresignedUrl(
     path: string,
@@ -1201,9 +1198,9 @@ export function connectLocal(
           message: envelopeError.error,
           retryable: false,
         });
-      // Raft parity: an unknown channel is CliError code NOT_FOUND with a fixed message, not a
-      // generic transport failure — for the operations that resolve a single #channel target
-      // the same way Raft's join/leave/update/lifecycle/add-member/remove-member do.
+      // An unknown channel is CliError code NOT_FOUND with a fixed message, not a generic
+      // transport failure — for the operations that resolve a single #channel target:
+      // join/leave/update/lifecycle/add-member/remove-member.
       const targetOperations = new Set([
         "join",
         "leave",

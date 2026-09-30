@@ -937,8 +937,8 @@ export class PublicChannels {
 
   /**
    * Promotes/demotes a channel member's stored `channelRole`. Human-only: there is
-   * no Agent command for changing channel roles (Raft's rule, matched verbatim in
-   * `agent-instructions.ts`). The actor needs `manage_roles` — Workspace owner/admin, or channel
+   * no Agent command for changing channel roles (stated in `agent-instructions.ts`). The actor
+   * needs `manage_roles` — Workspace owner/admin, or channel
    * admin of this specific channel — and `#general`'s roles are fixed (nobody can be its
    * channel admin), so any role change there is rejected outright.
    */

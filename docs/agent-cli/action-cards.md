@@ -5,8 +5,7 @@ proposed change a human later commits under their own identity — into
 `<target>` (the same `#channel[:thread]` / `@user[:thread]` grammar as
 `message send`; the Agent must already be a member). The card's JSON body is
 read from stdin, either a real shell heredoc or a literal body whose first
-and last lines are the delimiter `COFORGEACTION` (Raft Computer 1.0.32 uses
-`RAFTACTION` for the same purpose), or raw JSON with no delimiter:
+and last lines are the delimiter `COFORGEACTION`, or raw JSON with no delimiter:
 
 ```
 coforge action prepare --target "#design" <<'COFORGEACTION'
@@ -14,8 +13,8 @@ coforge action prepare --target "#design" <<'COFORGEACTION'
 COFORGEACTION
 ```
 
-Three kinds are supported today; CoForge does not yet implement Raft's
-`integration:*` kinds:
+Three kinds are supported today; the `integration:*` kinds are not implemented
+yet:
 
 - **`channel:create`**: `name` (1-32 chars, `^[a-z0-9][a-z0-9_-]{0,31}$` after
   trimming a leading `#`), `visibility` (`public` or `private`; `private`

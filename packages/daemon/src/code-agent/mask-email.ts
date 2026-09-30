@@ -1,9 +1,8 @@
-/** Masks a signed-in account's email before it ever leaves this Computer, ported from Raft's
- * `maskRuntimeAccountEmail` (bundle L813142): the local part keeps its first 3 characters (1
- * when shorter than 8) plus up to 5 trailing characters only when more than 4 remain, the
- * domain is lowercased, and anything that is not one plain, well-formed address is dropped, so
- * no full address or malformed input ever reaches the wire. Shared by every provider's usage
- * reader that reports the signed-in account. */
+/** Masks a signed-in account's email before it ever leaves this Computer: the local part keeps
+ * its first 3 characters (1 when shorter than 8) plus up to 5 trailing characters only when
+ * more than 4 remain, the domain is lowercased, and anything that is not one plain, well-formed
+ * address is dropped, so no full address or malformed input ever reaches the wire. Shared by
+ * every provider's usage reader that reports the signed-in account. */
 export function maskEmail(value: string): string | undefined {
   const email = value.trim();
   if (email.length === 0 || email.length > 254 || /[\u0000-\u0020\u007f]/.test(email))

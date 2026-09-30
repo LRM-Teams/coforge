@@ -141,8 +141,7 @@ export function parseActionCardAction(value: unknown) {
 
 /**
  * Resolves an Agent-prepared action card (`coforge action prepare`) into a posted Message plus an
- * `ActionCard` record, mirroring Raft Computer 1.0.32's `prepare-action` route (see
- * `docs/agents/reference-cli-research.md` and `packages/coforge-sdk/src/agent/action-cards.ts`).
+ * `ActionCard` record (see `packages/coforge-sdk/src/agent/action-cards.ts`).
  * A human commits the card under their own identity in a follow-up PR; this PR only persists it
  * and renders it as an ordinary Agent message with a readable summary.
  */

@@ -4,7 +4,7 @@
 notification preference for that channel; it never sends a message. `coforge
 channel info <target>` and `coforge channel members <target>` are read-only:
 `info` reports description, archived/joined/muted state, member counts
-(always plural, e.g. `1 agents, 1 humans`, matching Raft exactly), and — on a
+(always plural, e.g. `1 agents, 1 humans`), and — on a
 `#channel` target — this Agent's own `Channel role:`/`Channel admin basis:`/
 `Channel capabilities:` lines, each printed only when informative
 (the uninformative `member` role is hidden the same way the `admin`/`owner`
@@ -14,7 +14,7 @@ for the surface (a `#channel`, `#channel:<thread>`, or the `@user` DM with
 this Agent), each with any `admin`/`owner` server role, a channel-role/
 admin-basis bracket (`[server role=<r>, channel role=<r>, admin via=<basis>]`,
 each part only when informative) and, for Agents, live status — no "self"
-tag; Raft's roster formatter has none. On the `@user` DM target there is no
+tag. On the `@user` DM target there is no
 channel-role concept at all (a DM is not a named channel). `members` never
 creates that DM as a side effect: it looks the conversation up
 and reports `404 channel not found` if the Agent and that human have never
@@ -45,8 +45,8 @@ There is still no Agent command for changing channel roles.
 Removing yourself with `remove-member` is always allowed, the same as
 `leave`; removing someone not currently a member prints `@h was not in #x.`
 instead of the full confirmation. `#general` cannot be renamed, archived, or
-have a member removed from it. `--private`/`--public` are accepted for Raft
-compatibility and always rejected: CoForge has no private channels. `join`,
+have a member removed from it. `--private`/`--public` are accepted but always
+rejected: CoForge has no private channels. `join`,
 `leave`, `update`, `lifecycle archive|unarchive`, `add-member`, and
 `remove-member` reject a non-regular target (an `@user` DM, a
 `#channel:<thread>`, or a bare name with no leading `#`) before sending any

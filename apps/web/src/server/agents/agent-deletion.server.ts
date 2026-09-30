@@ -53,7 +53,7 @@ type AgentRuntimeControl = {
 };
 
 /**
- * Deletes one Agent. Authorization is Raft's `deleteAgents` capability — Workspace
+ * Deletes one Agent. Authorization is the `deleteAgents` capability — Workspace
  * owner/admin only, never by Agent ownership alone. Runs under the Agent runtime lock so a
  * concurrent config/credential change cannot interleave with the delete.
  *

@@ -40,7 +40,7 @@ function emphasized<K extends string>(
     );
 }
 
-/** Who is in the Workspace, Raft's way: people and Agents, either alone, or nothing when empty. */
+/** Who is in the Workspace: people and Agents, either alone, or nothing when empty. */
 function memberCounts({ memberCount, agentCount }: JoinLinkPreview): ReactNode[] | null {
   const members = m.workspace_join_count_members({ count: memberCount });
   const agents = m.workspace_join_count_agents({ count: agentCount });

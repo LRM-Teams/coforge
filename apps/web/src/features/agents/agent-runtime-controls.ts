@@ -33,7 +33,7 @@ export function useAgentRuntimeControls({
 }: {
   agentId: string;
   agentName: string;
-  /** Raft `resetAgentWorkspace`: Workspace owner/admin only. Restart and Reset session need only
+  /** `resetAgentWorkspace`: Workspace owner/admin only. Restart and Reset session need only
    * `controlAgentRuntime`, held by any current Workspace member, so they are always offered here;
    * the server is still the authority (AgentControl.execute()). */
   canFullReset: boolean;

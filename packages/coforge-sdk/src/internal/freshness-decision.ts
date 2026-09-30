@@ -1,7 +1,6 @@
 import { utf8Encoder } from "./text-codec";
 /**
- * Raft 1.0.32's freshness-decision producer fact id (`buildApmFreshnessDecisionProducerFactId`,
- * bundle 812372; `stableNormalizeApmHeldFreshness`, 812465).
+ * The freshness-decision producer fact id, and the stable normalization of its input.
  *
  * Shared because both sides of a send need the SAME fact id: the server computes it for the
  * decisions it takes, and a daemon that decides a hold locally never reaches the server's code
@@ -17,7 +16,7 @@ export type FreshnessDecisionFactInput = {
   agentId: string;
   action?: FreshnessDecisionAction;
   decision: string;
-  /** Only ever the literal `"withheld"` in Raft's stable input. */
+  /** Only ever the literal `"withheld"` in the stable input. */
   freshnessContextMode?: "inline" | "withheld";
   target?: string | null;
   reason: string;
@@ -28,21 +27,20 @@ export type FreshnessDecisionFactInput = {
 };
 
 /**
- * Raft 1.0.32 `DEFAULT_HELD_CONTEXT_LIMIT`: how many newer messages a held notice shows. The
- * server puts that many recent messages on a held response, and a daemon that decides a hold
- * locally shows the same number, so both import this one value.
+ * How many newer messages a held notice shows. The server puts that many recent messages on a
+ * held response, and a daemon that decides a hold locally shows the same number, so both import
+ * this one value.
  */
 export const HELD_CONTEXT_LIMIT = 3;
 
 /**
- * Raft 1.0.38's `MAX_EXACT_SEQS_PER_TARGET`, which is also its send body's `seenExactSeqs` limit:
- * how many messages above a target's contiguous boundary the daemon remembers the Agent was shown
- * one by one, and how many a send may report. The newest are kept.
+ * How many messages above a target's contiguous boundary the daemon remembers the Agent was shown
+ * one by one, and how many a send may report in its `seenExactSeqs`. The newest are kept.
  */
 export const SEEN_EXACT_SEQS_LIMIT = 2500;
 
-/** Raft 1.0.38's `normalizedExactSeqs`, for input nobody in this process wrote (a file, a request):
- * the distinct positive integers above `after`, ascending, the newest `SEEN_EXACT_SEQS_LIMIT`. */
+/** Normalizes exact sequences from input nobody in this process wrote (a file, a request): the
+ * distinct positive integers above `after`, ascending, the newest `SEEN_EXACT_SEQS_LIMIT`. */
 export function normalizeSeenExactSeqs(values: unknown, after = 0): number[] {
   if (!Array.isArray(values)) return [];
   const kept = new Set<number>();
@@ -89,8 +87,8 @@ export function isSeenExactSeqs(value: unknown): value is number[] {
   );
 }
 
-/** Raft's `stableNormalizeApmHeldFreshness`: keys sorted recursively, `undefined` dropped, so the
- * same decision always serializes to the same bytes. */
+/** Keys sorted recursively, `undefined` dropped, so the same decision always serializes to the
+ * same bytes. */
 export function stableNormalizeFreshnessFact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableNormalizeFreshnessFact);
   if (!value || typeof value !== "object") return value;

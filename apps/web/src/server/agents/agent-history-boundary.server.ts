@@ -1,5 +1,5 @@
 /**
- * Raft 1.0.38's `model_seen_up_to_seq` for one Agent history page: the page's newest sequence when
+ * The `model_seen_up_to_seq` for one Agent history page: the page's newest sequence when
  * the page joins what the Agent had already read without a gap, else `null`. It is the one
  * contiguity rule: a page that joins also moves the Agent's read-through to its boundary.
  *

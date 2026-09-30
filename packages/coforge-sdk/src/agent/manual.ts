@@ -1,8 +1,8 @@
 /**
  * Wire contract for `coforge manual get|search`, CoForge's server-served Agent Manual.
- * Modelled on Raft 1.0.32's `raft manual` / `/knowledge` routes: same response field names and
- * shape (`docId`, `topicOrPath`, `docVersion`, `docState`, `contentType`, `content`, `results`
- * with `slug`/`title`/`firstScreen`), CoForge's own route names (`manual`, not `knowledge`).
+ * Response fields: `docId`, `topicOrPath`, `docVersion`, `docState`, `contentType`, `content`,
+ * and `results` with `slug`/`title`/`firstScreen`. The routes are named `manual`; only the error
+ * codes keep a `knowledge_` prefix.
  */
 
 export type AgentManualGetRequest = {
@@ -36,8 +36,8 @@ export type AgentManualSearchResult = {
   firstScreen: string;
 };
 
-/** Response for `GET /api/agent/v1/manual/search`. Raft also carries a `scope`, always `null`
- * in v1 since CoForge does not implement Raft's `--scope recipes`. */
+/** Response for `GET /api/agent/v1/manual/search`. `scope` is always `null` in v1, since CoForge
+ * does not implement a `--scope recipes` filter. */
 export type AgentManualSearchResponse = {
   ok: true;
   query: string;
@@ -54,8 +54,8 @@ export const AGENT_MANUAL_ERROR_CODES = [
 ] as const;
 export type AgentManualErrorCode = (typeof AGENT_MANUAL_ERROR_CODES)[number];
 
-/** Error shape for both manual routes, Raft-aligned (`ok: false`), unlike this repo's other
- * sibling Agent routes. */
+/** Error shape for both manual routes (`ok: false`), unlike this repo's other sibling Agent
+ * routes. */
 export type AgentManualErrorResponse = {
   ok: false;
   errorCode: AgentManualErrorCode;

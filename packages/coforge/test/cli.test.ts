@@ -39,7 +39,7 @@ test("Agent API client requests workspace info through its route contract", asyn
   expect(calls).toEqual([workspaceInfoRoute]);
 });
 
-test("Agent API raw and surface clients preserve Raft-style error layering", async () => {
+test("Agent API raw and surface clients preserve error layering", async () => {
   const transport = {
     request: async () => ({ ok: false as const, status: 403, error: "workspace access denied" }),
   };
@@ -1783,7 +1783,7 @@ test("message check --target is forwarded to the transport", async () => {
   expect(targets).toEqual(["@ada"]);
 });
 
-test("message search aligns with Raft lexical search options and dispatches them", async () => {
+test("message search parses the lexical search options and dispatches them", async () => {
   expect(
     parseArgs([
       "message",
@@ -1846,7 +1846,7 @@ test("message search aligns with Raft lexical search options and dispatches them
   expect(output).not.toContain("sequence");
 });
 
-test("message search rejects empty searches and invalid Raft options", () => {
+test("message search rejects empty searches and invalid options", () => {
   expect(() => parseArgs(["message", "search"])).toThrow("Usage:");
   expect(() => parseArgs(["message", "search", "--query", "x", "--sort", "oldest"])).toThrow(
     "Usage:",
@@ -2005,7 +2005,7 @@ test("parses attachment view with an output path", () => {
   });
 });
 
-test("parses attachment view with a positional id, Raft-style", () => {
+test("parses attachment view with a positional id", () => {
   expect(parseArgs(["attachment", "view", "attachment-1", "--output", "/tmp/file.txt"])).toEqual({
     command: "attachment.view",
     attachmentId: "attachment-1",
@@ -2024,7 +2024,7 @@ test("parses attachment view --json", () => {
   });
 });
 
-test("attachment view rejects both a positional id and --id, matching Raft's validateViewOpts", () => {
+test("attachment view rejects both a positional id and --id", () => {
   expect(() =>
     parseArgs(["attachment", "view", "attachment-1", "--id", "attachment-2", "--output", "/tmp/f"]),
   ).toThrow(CliError);
@@ -2039,7 +2039,7 @@ test("attachment view rejects both a positional id and --id, matching Raft's val
   }
 });
 
-test("attachment view rejects a missing id with Raft's exact code and message", () => {
+test("attachment view rejects a missing id with the exact code and message", () => {
   expect(() => parseArgs(["attachment", "view", "--output", "/tmp/file.txt"])).toThrow(CliError);
   try {
     parseArgs(["attachment", "view", "--output", "/tmp/file.txt"]);
@@ -2052,7 +2052,7 @@ test("attachment view rejects a missing id with Raft's exact code and message", 
   }
 });
 
-test("attachment view rejects a missing --output with Raft's exact code and message", () => {
+test("attachment view rejects a missing --output with the exact code and message", () => {
   expect(() => parseArgs(["attachment", "view", "attachment-1"])).toThrow(CliError);
   try {
     parseArgs(["attachment", "view", "attachment-1"]);
@@ -2063,7 +2063,7 @@ test("attachment view rejects a missing --output with Raft's exact code and mess
   }
 });
 
-test("dispatches attachment view and prints Raft's exact download-destination line", async () => {
+test("dispatches attachment view and prints the exact download-destination line", async () => {
   const dir = await mkdtemp(join(tmpdir(), "coforge-cli-"));
   const output = join(dir, "downloaded.txt");
   try {
@@ -2318,7 +2318,7 @@ test("attachment upload rejects local preconditions before any transport call", 
       code: "INVALID_ARG",
       message: "--mime-type must look like type/subtype, got: not-a-mime-type",
     });
-    // Missing --target surfaces after the path checks, as Raft's MISSING_CHANNEL, and wins
+    // Missing --target surfaces after the path checks, as MISSING_CHANNEL, and wins
     // over a bad --mime-type since the target check runs first.
     await expect(
       run(
@@ -3623,7 +3623,7 @@ test("manual client-side validates --intent/--reason (12-500 chars, trimmed) bef
   ).not.toThrow();
 });
 
-test("manual get surfaces a knowledge_not_found CliError with the Raft-aligned browse-index guidance", async () => {
+test("manual get surfaces a knowledge_not_found CliError with the browse-index guidance", async () => {
   const validIntent = "Open a pull request for a bound repository";
   const validReason = "Confirm the exact clone and push commands to use";
   try {

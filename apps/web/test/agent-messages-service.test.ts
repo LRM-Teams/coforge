@@ -534,7 +534,7 @@ test("every freshness decision names its own fact id", async () => {
 
   const withBoundary = await send({ seenUpToSeq: 5 });
   const withoutBoundary = await send({});
-  // Raft's `buildApmFreshnessDecisionProducerFactId` hashes the full stable decision input.
+  // The producer fact id hashes the full stable decision input.
   expect(withBoundary.producerFactId).toMatch(/^freshness_decision_fact:[0-9a-f]{64}$/);
   expect(withoutBoundary.producerFactId).toMatch(/^freshness_decision_fact:[0-9a-f]{64}$/);
   // Two different reasons must never collapse onto one fact id.
@@ -629,7 +629,7 @@ test("a first touch holds only on the recent context the Agent was not shown, pr
     },
     sendInput({ seenExactSeqs: [3, 5] }),
   );
-  // Raft's `planFirstTouchRecentContext`: the held context is the unconsumed messages, and its
+  // A first touch: the held context is the unconsumed messages, and its
   // `seenUpToSeq` is the whole recent window's newest (the consume boundary).
   expect(held).toMatchObject({
     state: "held",
@@ -737,7 +737,7 @@ test("a withheld send still treats what lies at or below the reported boundary a
     },
     sendInput({ seenUpToSeq: 5, freshnessContextMode: "withheld" }),
   );
-  // Raft's `isMessageModelSeen` does not depend on the mode.
+  // What counts as seen does not depend on the mode.
   expect(boundaries).toEqual([5]);
 });
 

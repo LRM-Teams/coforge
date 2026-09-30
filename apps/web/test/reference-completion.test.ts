@@ -159,8 +159,8 @@ test("channel suggestions keep every channel whose name contains the query", () 
     channel("all"),
     channel("le-agent"),
     channel("prj-daemon"),
-    channel("raft-like"),
-    channel("raft-research"),
+    channel("rank-like"),
+    channel("rank-research"),
     channel("general"),
     channel("ops"),
   ];
@@ -170,8 +170,8 @@ test("channel suggestions keep every channel whose name contains the query", () 
     "general",
     "le-agent",
     "prj-daemon",
-    "raft-like",
-    "raft-research",
+    "rank-like",
+    "rank-research",
   ]);
   expect(filterChannelSuggestions(channels, "zzz")).toEqual([]);
 });

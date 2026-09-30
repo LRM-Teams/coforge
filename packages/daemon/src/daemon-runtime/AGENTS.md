@@ -39,8 +39,7 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   or recovery notice.
 - After a successful current-generation `notify`, ordinary live Message
   delivery and concrete wake/resume batches report `Message received` Activity
-  with detail kind `message_received`, matching Raft Computer 1.0.32's
-  `broadcastMessageReceivedActivity`. Summary-only recovery and deduplicated
+  with detail kind `message_received`. Summary-only recovery and deduplicated
   inputs do not report it.
 - `runtime.ts` assigns launch and sequence metadata and publishes that
   best-effort Activity before the live delivery ACK. An observer failure must
@@ -49,9 +48,9 @@ Rules for one Workspace child's runtime in `src/daemon-runtime/`. They extend
   canonicalizes short channel/DM thread targets. Threads never create sessions
   or processes.
 - A delivery counts as consumed when its sequence is at or below its target's
-  frontier, or is one of the target's exact seen sequences (Raft 1.0.38's
-  `exactSeqs`: durable beside the frontier, at most 2500 per target, pruned as
-  the frontier reaches them). A `check`, an anchored `read`, and a `read` the
+  frontier, or is one of the target's exact seen sequences (`exactSeqs`:
+  durable beside the frontier, at most 2500 per target, pruned as the
+  frontier reaches them). A `check`, an anchored `read`, and a `read` the
   server does not call contiguous (`modelSeenUpToSeq: null`) record exact
   sequences only: no frontier, no read order. A `read` with a boundary moves
   the frontier there and reviews the target; one that found nothing only

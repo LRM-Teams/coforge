@@ -203,7 +203,7 @@ test("session invalidate clears a matching Session association and leaves every 
 
   expect(calls).toEqual([{ clearSession: true }]);
   expect(stored.state?.identity).toBeUndefined();
-  // Raft reports this only through the daemon's own cold-start Activity; the invalidate never
+  // The user learns of this only through the daemon's own cold-start Activity; the invalidate never
   // marks the state `recovered` (that stays `AgentControl.result`'s and the snapshot path's own
   // signal), and every other field is untouched.
   expect(stored.state?.recovered).toBeUndefined();

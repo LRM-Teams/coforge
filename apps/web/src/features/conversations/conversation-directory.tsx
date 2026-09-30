@@ -247,9 +247,9 @@ export function ConversationDirectory({
     const sortedChannels = [...channels].sort((left, right) =>
       left.joined === right.joined ? 0 : left.joined ? -1 : 1,
     );
-    /** One row per existing DM (an Agent or member the viewer never wrote to has none, as in
-     * Raft), Agents and members mixed in the list's order. A DM with an Agent that is gone is left
-     * out; a closed one is left out of its section by the split. */
+    /** One row per existing DM (an Agent or member the viewer never wrote to has none), Agents and
+     * members mixed in the list's order. A DM with an Agent that is gone is left out; a closed one
+     * is left out of its section by the split. */
     const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
     const directRows = directRowList.flatMap((row): DirectEntry[] => {
       if (row.peer.kind === "people")

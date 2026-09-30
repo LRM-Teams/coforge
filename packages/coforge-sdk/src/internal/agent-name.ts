@@ -1,5 +1,5 @@
 /**
- * Raft 1.0.32's Agent name — the public `@handle` fixed at creation and never renamed afterward:
+ * The Agent name — the public `@handle` fixed at creation and never renamed afterward:
  * lowercase alphanumerics in single-hyphen-separated segments, at most 64 characters.
  *
  * The one definition, because more than one side has to agree on it and the SDK cannot import the

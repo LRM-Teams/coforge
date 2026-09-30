@@ -57,22 +57,20 @@ export type AgentChannelRosterAgent = {
   name: string;
   displayName: string;
   description: string;
-  /** The member's own server role (a rename of this field's former `role` name, matching
-   * Raft's `serverRole`). */
+  /** The member's own server role (a rename of this field's former `role` name). */
   serverRole: string;
   /** Present for a `#channel` roster (every listed member is active there); absent for the
    * `@user` DM roster, which has no channel-role concept. */
   channelRole?: string;
   channelAdminBasis?: AgentChannelAdminBasis;
   /** True for the calling Agent's own roster row. Kept in the response for callers that need
-   * it, but not surfaced by the CLI's text renderer — Raft's `formatChannelMembers` has no
-   * self tag. */
+   * it, but not surfaced by the CLI's text renderer, which shows no self tag. */
   self: boolean;
   /** Live lifecycle; "unknown" only when the server has no data (no Computer, or the display
    * snapshot itself could not be read). */
   status: "online" | "offline" | "unknown";
   /** Present only when `status` is "online" and the Agent is doing something more specific
-   * than merely being connected (Raft's `working`/`thinking`/`error`). */
+   * than merely being connected (`working`/`thinking`/`error`). */
   activity?: string;
   activityDetail?: string;
 };
@@ -92,8 +90,8 @@ export type AgentChannelMembersResponse = {
   humans: AgentChannelRosterHuman[];
 };
 
-/** Response for `channel join`. `alreadyJoined` distinguishes Raft's "Already joined #x." text
- * from the full join confirmation. */
+/** Response for `channel join`. `alreadyJoined` is true when the Agent was already a member, and
+ * false for a full join. */
 export type AgentChannelJoinResponse = {
   idempotencyKey: string;
   target: string;
@@ -101,8 +99,8 @@ export type AgentChannelJoinResponse = {
   alreadyJoined: boolean;
 };
 
-/** Response for `channel leave`. `wasMember` distinguishes Raft's "Already not joined in #x."
- * text from the full leave confirmation. */
+/** Response for `channel leave`. `wasMember` is false when the Agent was not a member, and true
+ * for a full leave. */
 export type AgentChannelLeaveResponse = {
   idempotencyKey: string;
   target: string;
@@ -124,8 +122,8 @@ export type AgentChannelArchiveResponse = {
   archived: boolean;
 };
 
-/** Response for `channel add-member`. `alreadyMember` distinguishes Raft's "@h is already in
- * #x." text from the full add-member confirmation. */
+/** Response for `channel add-member`. `alreadyMember` is true when the target was already in the
+ * channel, and false for a full add. */
 export type AgentChannelAddMemberResponse = {
   idempotencyKey: string;
   target: string;
@@ -134,8 +132,8 @@ export type AgentChannelAddMemberResponse = {
   alreadyMember: boolean;
 };
 
-/** Response for `channel remove-member`. `wasMember` distinguishes Raft's "@h was not in #x."
- * text from the full remove-member confirmation. */
+/** Response for `channel remove-member`. `wasMember` is false when the target was not in the
+ * channel, and true for a full removal. */
 export type AgentChannelRemoveMemberResponse = {
   idempotencyKey: string;
   target: string;

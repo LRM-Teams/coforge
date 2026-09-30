@@ -159,10 +159,9 @@ test("non-CoForge bash commands: detail is always the generic label, toolInput i
   expect([...truncatedInput].length).toBe(200);
   expect(truncatedInput).toBe(long.slice(0, 200));
 
-  // Raft-aligned: an inline script's opening is visible, so a `cat <<'EOF'` no longer collapses to
-  // `cat `. Redaction is best-effort and now covers the heredoc body: the credential-shaped values
-  // are still replaced, while prose the rules cannot recognise is reported, as the reference client
-  // does.
+  // An inline script's opening is visible, so a `cat <<'EOF'` no longer collapses to `cat `.
+  // Redaction is best-effort and now covers the heredoc body: the credential-shaped values are
+  // still replaced, while prose the rules cannot recognise is reported.
   const heredocCommand = `cat <<'EOF'\nprivate body with password=hunter2\nEOF`;
   const heredocResult = toolActivity("bash", { command: heredocCommand });
   expect(heredocResult.detail).toBe("Running command…");
@@ -487,8 +486,8 @@ test("a bare `coforge` with no subcommand and a non-coforge shell command are un
 });
 
 test("only the server drain is a semantic operation; the local inbox view is an ordinary command", () => {
-  // The reference client's semantic map contains `message check` and not `inbox check`, so the
-  // two commands report different things. Both expectations are pinned as literal text: the
+  // The semantic map contains `message check` and not `inbox check`, so the two commands report
+  // different things. Both expectations are pinned as literal text: the
   // command table above expects `detail: toolActivityLabel(toolName)`, which computes the
   // expectation with the function under test and would not notice a name missing from the label
   // vocabulary — that is how `Using check_inbox…` reached the UI in the first place.

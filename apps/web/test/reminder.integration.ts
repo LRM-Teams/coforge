@@ -480,7 +480,7 @@ test("list filters by a comma-separated status set, defaulting to scheduled,fire
     expect(everything).toContain(scheduled.reminderId);
     expect(everything).toContain(canceled.reminderId);
 
-    // `status` wins over `all` when both are given, matching Raft's CLI precedence.
+    // `status` wins over `all` when both are given.
     const statusWinsOverAll = await list({ all: true, status: "canceled" });
     expect(statusWinsOverAll).toContain(canceled.reminderId);
     expect(statusWinsOverAll).not.toContain(scheduled.reminderId);

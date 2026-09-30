@@ -27,7 +27,7 @@ function invalidArg(message: string): CliError {
   return new CliError({ code: "INVALID_ARG", message, retryable: false });
 }
 
-/** Raft 1.0.32's code and message shape for a missing upload target (`resolveTargetAlias`). */
+/** The error for a missing upload target: code `MISSING_CHANNEL`, naming the accepted forms. */
 function missingTarget(): CliError {
   return new CliError({
     code: "MISSING_CHANNEL",
@@ -44,12 +44,11 @@ export function validateAttachmentMimeType(mimeType: string): void {
 }
 
 /**
- * The `coforge attachment upload` preconditions that never issue a request, in Raft 1.0.32's
- * exact order (`src/commands/attachment/upload.ts`): `--path` presence, existence, regular-file,
- * non-empty, then `--target` presence (`MISSING_CHANNEL`, Raft's code for a missing upload
- * target), then `--mime-type` well-formedness. Returns the file's size for the caller's
- * subsequent server-capability size check (`GET .../attachments/capabilities`), which does issue
- * a request.
+ * The `coforge attachment upload` preconditions that never issue a request, in this exact order:
+ * `--path` presence, existence, regular-file, non-empty, then `--target` presence
+ * (`MISSING_CHANNEL`), then `--mime-type` well-formedness. Returns the file's size for the
+ * caller's subsequent server-capability size check (`GET .../attachments/capabilities`), which
+ * does issue a request.
  */
 export async function validateAttachmentUploadArgs(input: {
   path?: string;

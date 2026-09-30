@@ -293,8 +293,8 @@ export function formatSendSuccess(
 }
 
 /**
- * A send whose response was lost but whose commit the daemon confirmed by its idempotency key
- * (Raft 1.0.38's reconciliation). Only the message id is known; nothing was sent a second time.
+ * A send whose response was lost but whose commit the daemon confirmed by its idempotency key.
+ * Only the message id is known; nothing was sent a second time.
  */
 export function formatSendCommitted(target: string, messageId: string): string {
   return [
@@ -310,7 +310,7 @@ type AttachmentUploadResponse = {
   sizeBytes: number;
 };
 
-/** Matches Raft 1.0.32's `formatAttachmentUploaded` shape exactly, `raft` swapped for `coforge`. */
+/** The `coforge attachment upload` success text. */
 export function formatAttachmentUploadSuccess(response: AttachmentUploadResponse): string {
   const sizeKB = (response.sizeBytes / 1024).toFixed(1);
   return (
@@ -320,7 +320,7 @@ export function formatAttachmentUploadSuccess(response: AttachmentUploadResponse
   );
 }
 
-/** Matches Raft 1.0.32's `formatAttachmentDownloaded` shape exactly. */
+/** The `coforge attachment view` success line: where the file was written. */
 export function formatAttachmentDownloadSuccess(output: string): string {
   return `Downloaded to: ${output}`;
 }
@@ -334,14 +334,14 @@ type HeldSendResponse = {
   continueAnywaySuggested?: boolean;
 };
 
-/** Raft 1.0.32's `HOLD_PREVIEW_CHARS`: the held-context preview cut, counted in code points. */
+/** The held-context preview cut, counted in code points. */
 const HELD_PREVIEW_CHARS = 160;
 
 function formatUtcHourMinute(createdAt: string): string {
   return formatUtcTimestamp(createdAt).slice(11, 16);
 }
 
-/** Raft 1.0.32's `previewLine`: `  │ @sender HH:MM  content…⟨n more chars⟩`. */
+/** One held-context preview line: `  │ @sender HH:MM  content…⟨n more chars⟩`. */
 function heldPreviewLine(message: AgentMessageRecord): string {
   const collapsed = message.body.replace(/\s+/g, " ").trim();
   const points = Array.from(collapsed);
@@ -355,9 +355,9 @@ function heldPreviewLine(message: AgentMessageRecord): string {
 }
 
 /**
- * Raft 1.0.32's held-send notice (`formatHeldSendOutput` → `formatFreshnessHoldOutput`): the
- * opening count line, the bounded held-context window with its omitted-earlier-messages note, the
- * "choose one path" recovery block, and the `--anyway` escape only when the server suggests it.
+ * The held-send notice: the opening count line, the bounded held-context window with its
+ * omitted-earlier-messages note, the "choose one path" recovery block, and the `--anyway` escape
+ * only when the server suggests it.
  */
 export function formatHeldSend(target: string, response: HeldSendResponse): string {
   const heldMessages = response.heldMessages ?? [];

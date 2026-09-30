@@ -1085,8 +1085,8 @@ test("a workspace clear failure is non-fatal: it reports workspace-reset with a 
 
   const { records: logs } = await captureDaemonLogs(() => control.resetWorkspace(scope));
 
-  // Non-fatal: the daemon-level outcome is plain "workspace-reset", never "failed" — matching
-  // Raft 1.0.32, which only logs a clear failure and reports nothing on the wire for it.
+  // Non-fatal: the daemon-level outcome is plain "workspace-reset", never "failed"; the clear
+  // failure is logged at error level and only surfaces as a warning `errorCode` on the result.
   expect(record).toMatchObject({ phase: "workspace-reset" });
   expect(record?.identity).toBeUndefined();
   const resetResult = results.at(-1);

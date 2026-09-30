@@ -10,8 +10,8 @@ import {
 export type AgentManualGetPrincipal = { workspaceId: string; agentId: string };
 
 /** `GET /api/agent/v1/manual` — Agent Manual `get`: topic content, or the generated
- * `index` catalog. Mirrors Raft 1.0.32's `/knowledge` response shape (`ok`, `docId`,
- * `topicOrPath`, `docVersion`, `docState`, `contentType`, `content`). */
+ * `index` catalog. The response shape is `ok`, `docId`, `topicOrPath`, `docVersion`, `docState`,
+ * `contentType`, `content`. */
 export async function handleAgentManualGet(
   request: Request,
   principal: AgentManualGetPrincipal,

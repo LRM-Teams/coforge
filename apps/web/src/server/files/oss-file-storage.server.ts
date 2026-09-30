@@ -167,7 +167,7 @@ export class OssFileStorage implements FileStorage, BulkFileRemoval {
    * `fixAdditionalHeaders` explicitly strips those same headers back out of whatever
    * `additionalHeaders` list is passed — so passing one here would be a no-op at best. A
    * conflict on OSS answers `409 FileAlreadyExists` (confirmed against this file's own fake-OSS
-   * test fixture), not the `412` Raft 1.0.32's own `If-None-Match` contract expects; the caller
+   * test fixture), not the `412` an `If-None-Match` precondition would give; the caller
    * of `presignPut` (the upload session route, and the CLI's PUT-outcome check) is where this
    * repo's "already uploaded" check lives, and it checks for 409.
    */

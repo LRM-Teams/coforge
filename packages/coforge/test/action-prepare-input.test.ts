@@ -6,7 +6,7 @@ import {
 } from "#src/action-prepare-input";
 import { CliError } from "#src/cli-error";
 
-test("ACTION_HEREDOC_DELIMITER is COFORGEACTION, not Raft's RAFTACTION", () => {
+test("ACTION_HEREDOC_DELIMITER is COFORGEACTION", () => {
   expect(ACTION_HEREDOC_DELIMITER).toBe("COFORGEACTION");
 });
 

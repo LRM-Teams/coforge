@@ -1,13 +1,7 @@
 /** Text renderers for `coforge channel info|members|join|leave|create|update|lifecycle|
- * add-member|remove-member`. Success text matches Raft 1.0.32's channel formatters verbatim
- * (`raft` renamed to `coforge`, from the Raft 1.0.32 bundle's `formatJoinChannelResult`/
- * `formatLeaveChannelResult`/`formatCreateChannelResult`/`formatUpdateChannelResult`/
- * `formatArchiveChannelResult`/`formatUnarchiveChannelResult`/`formatAddMemberResult`/
- * `formatRemoveMemberResult`/`formatChannelMembers`/`formatChannelInfo`/
- * `channelMemberRoleDetail`), minus the parts of Raft's shape CoForge has no equivalent for
- * (private channels, the `attention` block on leave/remove-member). Every subcommand's `--json`
- * mode prints the response object these functions render, unchanged; see `run()` in
- * `../index.ts`. */
+ * add-member|remove-member`. CoForge has no private channels and no `attention` block on
+ * leave/remove-member, so neither is rendered. Every subcommand's `--json` mode prints the
+ * response object these functions render, unchanged; see `run()` in `../index.ts`. */
 
 export type ChannelAdminBasis = "server_role" | "channel_role";
 
@@ -62,16 +56,15 @@ export type ChannelRosterHumanLike = {
   channelAdminBasis?: ChannelAdminBasis;
 };
 
-/** Raft's `roleLabel`: ` (admin)`/` (owner)`, or nothing for an ordinary member. */
+/** The role tag: ` (admin)`/` (owner)`, or nothing for an ordinary member. */
 function roleSuffix(role: string): string {
   return role === "admin" || role === "owner" ? ` (${role})` : "";
 }
 
-/** Raft's `channelMemberRoleDetail`: ` [server role=<r>, channel role=<r>, admin via=<basis>]`,
- * each part only when present. CoForge's server always populates `serverRole`/`channelRole` for
- * a listed member, so this renderer — not the server — hides the uninformative default
- * (`"member"`), the same convention `roleSuffix` already uses for the plain `(admin)`/`(owner)`
- * tag. */
+/** The role detail: ` [server role=<r>, channel role=<r>, admin via=<basis>]`, each part only
+ * when present. CoForge's server always populates `serverRole`/`channelRole` for a listed
+ * member, so this renderer — not the server — hides the uninformative default (`"member"`), the
+ * same convention `roleSuffix` already uses for the plain `(admin)`/`(owner)` tag. */
 function channelMemberRoleDetail(member: {
   serverRole?: string;
   channelRole?: string;
@@ -86,8 +79,8 @@ function channelMemberRoleDetail(member: {
   return details.length > 0 ? ` [${details.join(", ")}]` : "";
 }
 
-/** Raft's `agentStatusLabel`: the lifecycle alone, or `<lifecycle>; <activity>[: <detail>]`
- * when the Agent is doing something more specific than merely being connected. */
+/** An Agent's status label: the lifecycle alone, or `<lifecycle>; <activity>[: <detail>]` when
+ * the Agent is doing something more specific than merely being connected. */
 function agentStatusLabel(
   agent: Pick<ChannelRosterAgentLike, "status" | "activity" | "activityDetail">,
 ): string {
@@ -132,7 +125,7 @@ export function formatChannelInfo(response: { channel: ChannelInfoLike }): strin
       `Project: ${channel.project.name} (${channel.project.slug})${channel.project.githubFullName ? ` github=${channel.project.githubFullName}` : ""}`,
     );
   lines.push(
-    // Always plural, like Raft's formatChannelInfo — never singularized for a count of 1.
+    // Always plural — never singularized for a count of 1.
     `Members: ${total} (${channel.memberCounts.agents} agents, ${channel.memberCounts.humans} humans)`,
     "",
     `More: coforge channel members "${channel.name}"`,
@@ -140,9 +133,8 @@ export function formatChannelInfo(response: { channel: ChannelInfoLike }): strin
   return lines.join("\n");
 }
 
-/** Raft's `formatChannelMembers`: `  - @name (<status>)<role><channel detail> — <description>`
- * for an Agent (no "self" tag; Raft has none), `  - @username<role><channel detail>` for a
- * human. */
+/** Renders `  - @name (<status>)<role><channel detail> — <description>` for an Agent (no "self"
+ * tag), `  - @username<role><channel detail>` for a human. */
 export function formatChannelMembers(response: {
   target: string;
   agents: ChannelRosterAgentLike[];
@@ -183,7 +175,7 @@ export function formatChannelMembers(response: {
   return lines.join("\n");
 }
 
-/** Raft's `formatJoinChannelResult`/`formatAlreadyJoined`. */
+/** The `channel join` result: joined, or already a member. */
 export function formatChannelJoin(response: { target: string; alreadyJoined: boolean }): string {
   if (response.alreadyJoined) return `Already joined ${response.target}.`;
   return [
@@ -194,31 +186,31 @@ export function formatChannelJoin(response: { target: string; alreadyJoined: boo
   ].join("\n");
 }
 
-/** Raft's `formatLeaveChannelResult`/`formatAlreadyNotJoined`. */
+/** The `channel leave` result: left, or already not a member. */
 export function formatChannelLeave(response: { target: string; wasMember: boolean }): string {
   if (!response.wasMember) return `Already not joined in ${response.target}.`;
   return `Left ${response.target}. You can still inspect visible public channel history there, but you can no longer send or receive ordinary channel delivery until you join the public channel again or a human re-adds you to a private channel.`;
 }
 
-/** Raft's `formatCreateChannelResult`; CoForge has no private channels, so visibility is
- * always "(public)". */
+/** The `channel create` result; CoForge has no private channels, so visibility is always
+ * "(public)". */
 export function formatChannelCreate(response: { channel: { name: string } }): string {
   return `Created ${response.channel.name} (public). You are joined and can send messages there.`;
 }
 
-/** Raft's `formatUpdateChannelResult` — not the info block. */
+/** The `channel update` result: a one-line confirmation, not the info block. */
 export function formatChannelUpdate(response: { channel: { name: string } }): string {
   return `Updated ${response.channel.name} (public).`;
 }
 
-/** Raft's `formatArchiveChannelResult`/`formatUnarchiveChannelResult`. */
+/** The `channel lifecycle archive|unarchive` result. */
 export function formatChannelArchive(response: { target: string; archived: boolean }): string {
   return response.archived
     ? `Archived ${response.target}. The channel is read-only until unarchived.`
     : `Unarchived ${response.target}. Messages and other writes are enabled again.`;
 }
 
-/** Raft's `formatAddMemberResult`. */
+/** The `channel add-member` result: added, or already a member. */
 export function formatChannelAddMember(response: {
   target: string;
   member: { kind: "user" | "agent"; handle: string };
@@ -230,7 +222,7 @@ export function formatChannelAddMember(response: {
   }.`;
 }
 
-/** Raft's `formatRemoveMemberResult`. The route's `{ target, removed: true, wasMember }`
+/** The `channel remove-member` result. The route's `{ target, removed: true, wasMember }`
  * response carries no member handle; the CLI already knows which `--user`/`--agent` it asked
  * to remove. */
 export function formatChannelRemoveMember(

@@ -75,9 +75,9 @@ export class UsageUnavailableError extends Error {
     super("Provider usage is unavailable");
   }
 }
-/** The signed-in account has no plan usage to scan at all (Raft-aligned: a Codex API-key or
- * Bedrock account, or `requiresOpenaiAuth === false`, has no rate-limit windows) — mapped to
- * the `unsupported` scan status like Pi's static answer, not a misleading empty reading. */
+/** The signed-in account has no plan usage to scan at all (a Codex API-key or Bedrock account,
+ * or `requiresOpenaiAuth === false`, has no rate-limit windows) — mapped to the `unsupported`
+ * scan status like Pi's static answer, not a misleading empty reading. */
 export class UsageUnsupportedError extends Error {
   constructor() {
     super("Usage scanning is unsupported for this account");

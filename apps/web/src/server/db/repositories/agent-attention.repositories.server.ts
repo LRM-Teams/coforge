@@ -17,9 +17,8 @@ export const NOTIFIED_AGENT_WHERE = (agentId: string) =>
 
 /**
  * One target an Agent owes attention in: above `afterSequence` (no bound when absent), less
- * `excludeSequences` (the messages the Agent reported it was shown one by one, Raft 1.0.38's
- * `seenExactSeqs`), and never the Agent's own messages (`ownMemberId`; Raft's `isMessageModelSeen`
- * counts them as seen).
+ * `excludeSequences` (the messages the Agent reported it was shown one by one, `seenExactSeqs`),
+ * and never the Agent's own messages (`ownMemberId`; they count as seen).
  */
 export type AgentAttentionScope = {
   agentId: string;
@@ -101,10 +100,10 @@ export function agentAttentionMaxSql(scope: AgentAttentionScope) {
 }
 
 /**
- * A target's first-touch window (Raft 1.0.38's `loadRecentTargetMessages`, the target's newest
- * rows): the `take` newest of the messages the Agent owes attention to and its own messages, as
- * `{ id, sequence, seen }`, newest first. The scope's `ownMemberId` is the Agent's member; `seen`
- * marks the Agent's own messages and the scope's excluded sequences (Raft's `isMessageModelSeen`).
+ * A target's first-touch window (the target's newest rows): the `take` newest of the messages the
+ * Agent owes attention to and its own messages, as `{ id, sequence, seen }`, newest first. The
+ * scope's `ownMemberId` is the Agent's member; `seen` marks the Agent's own messages and the
+ * scope's excluded sequences.
  * Each half is its own index range, so the window never walks a channel's history.
  */
 export function agentRecentContextSql(scope: AgentAttentionScope, take: number) {

@@ -10,8 +10,8 @@ import {
 export type AgentManualSearchPrincipal = { workspaceId: string; agentId: string };
 
 /** `GET /api/agent/v1/manual/search` — Agent Manual `search`: plain keyword scoring
- * over the topic registry (v1, no embeddings). Mirrors Raft 1.0.32's `/knowledge/search` response
- * shape (`ok`, `query`, `scope: null`, `results`). */
+ * over the topic registry (v1, no embeddings). The response shape is `ok`, `query`,
+ * `scope: null`, `results`. */
 export async function handleAgentManualSearchGet(
   request: Request,
   principal: AgentManualSearchPrincipal,

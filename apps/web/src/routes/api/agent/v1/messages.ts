@@ -109,7 +109,7 @@ export async function handleAgentMessagesGet(
 }
 
 /** Maps `executeAgentSendMessageWithPolicy`'s side-effect decision onto the send route's response,
- * using Raft's own field names for both states (`agentApiSendResponseSchema`). */
+ * using the field names of `agentApiSendResponseSchema` for both states. */
 function mapSendResult(idempotencyKey: string, result: AgentSendMessageResult) {
   const toAgentMessage = (message: { createdAt: Date }) =>
     ({
@@ -175,15 +175,15 @@ const inProgress = (error: MessageRequestInProgressError) =>
   errorResponse("MESSAGE_REQUEST_IN_PROGRESS", error.message, 409, true);
 
 /**
- * Raft 1.0.38's `reconcileOnly` send: whether this key already committed, answered from the
- * request record alone. It needs only the target and the key, and never sends or holds.
+ * The `reconcileOnly` send: whether this key already committed, answered from the request record
+ * alone. It needs only the target and the key, and never sends or holds.
  */
 async function handleAgentSendReconciliation(
   body: Record<string, unknown>,
   principal: AgentMessagesPostPrincipal,
   requestRecords: MessageRequestRecords,
 ): Promise<Response> {
-  // The key alone identifies the send's record, but Raft's `reconcileOnly` contract carries the
+  // The key alone identifies the send's record, but the `reconcileOnly` contract carries the
   // target too, so a request without one is malformed.
   if (
     typeof body.target !== "string" ||
@@ -259,10 +259,10 @@ export async function handleAgentMessagesPost(
     return Response.json({ error: "invalid mentions" }, { status: 400 });
   if (body.seenExactSeqs !== undefined && !isSeenExactSeqs(body.seenExactSeqs))
     return Response.json({ error: "invalid seenExactSeqs" }, { status: 400 });
-  // Raft's own name for this request's idempotency key (task #58 ④), and our only one: a request
-  // must not be deduplicable under two spellings, so `requestId` is not read. Raft's
+  // `idempotencyKey` is this request's idempotency key (task #58 ④), and our only one: a request
+  // must not be deduplicable under two spellings, so `requestId` is not read. A
   // declared-but-unused `continue` field needs no handling here — this handler only reads what it
-  // acts on (the force-send flag is `continueAnyway`, as in Raft).
+  // acts on (the force-send flag is `continueAnyway`).
   const idempotencyKey =
     typeof body.idempotencyKey === "string" && body.idempotencyKey
       ? body.idempotencyKey

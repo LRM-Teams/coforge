@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { maskEmail } from "#src/code-agent/mask-email";
 
-test("masks the local part like Raft's maskRuntimeAccountEmail", () => {
+test("masks the local part with a `****` marker and lowercases the domain", () => {
   // Local part shorter than 8 keeps 1 character and, with 3 remaining, no suffix.
   expect(maskEmail("abcd@gmail.com")).toBe("a****@gmail.com");
   // Local part of 8 keeps 3 + 1 trailing character (min(5, remaining - 4)).

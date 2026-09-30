@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { agentHistoryModelSeenBoundary } from "#src/server/agents/agent-history-boundary.server";
 
-// Raft 1.0.38's `model_seen_up_to_seq`: a history page moves the Agent's contiguous boundary to its
-// newest message only when the page joins what the Agent had already read (its read-through).
+// `model_seen_up_to_seq`: a history page moves the Agent's contiguous boundary to its newest
+// message only when the page joins what the Agent had already read (its read-through).
 const page = { readThrough: 10, minSequence: 8, maxSequence: 14, hasOlder: true } as const;
 
 test("an unanchored read starts right after the read-through, so it reaches its newest message", () => {

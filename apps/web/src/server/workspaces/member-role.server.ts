@@ -47,19 +47,17 @@ export function assertCanCreateAgents(actorRole: WorkspaceMemberRole): void {
 }
 
 /**
- * Raft capability table (`shared/src/serverPermissions.ts`): `deleteAgents` sits with
- * `createAgents`/`editAgents` in `ADMIN_SERVER_CAPABILITIES` and is absent from
- * `MEMBER_SERVER_CAPABILITIES`, so deleting an Agent is Workspace owner/admin only — not even the
- * Agent's own owner may delete it as a plain member.
+ * The `deleteAgents` capability sits with `createAgents`/`editAgents` among the owner/admin-only
+ * capabilities and is not a plain member's, so deleting an Agent is Workspace owner/admin only —
+ * not even the Agent's own owner may delete it as a plain member.
  */
 export function assertCanDeleteAgents(actorRole: WorkspaceMemberRole): void {
   if (!isAdminLike(actorRole)) throw new AppError("ACCESS_DENIED");
 }
 
 /**
- * Raft capability table (`shared/src/serverPermissions.ts`): `controlAgentRuntime` is held by
- * the server owner, admin, and every plain member; `resetAgentWorkspace` is owner/admin only.
- * Named seam for `AgentControl.execute()`'s user-initiated Restart/Reset session/Full reset
+ * `controlAgentRuntime` is held by the server owner, admin, and every plain member;
+ * `resetAgentWorkspace` is owner/admin only. Named seam for `AgentControl.execute()`'s user-initiated Restart/Reset session/Full reset
  * authorization — not a general capability framework.
  */
 export const AGENT_CONTROL_CAPABILITIES = ["controlAgentRuntime", "resetAgentWorkspace"] as const;

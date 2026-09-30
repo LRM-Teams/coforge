@@ -27,7 +27,7 @@ describe("system message kind", () => {
     expect(systemMessageKind("frank-an converted a message to task #7")).toBe("taskUpdate");
   });
 
-  test("an assignment or unassignment notice is summarized as a system message, as in Raft", () => {
+  test("an assignment or unassignment notice is summarized as a system message", () => {
     expect(systemMessageKind('📌 Assigned @coder to task #3 "Fix login"')).toBe("system");
     expect(systemMessageKind('🔓 Frank An unassigned #4 "Fix login"')).toBe("system");
   });

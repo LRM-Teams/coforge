@@ -154,7 +154,7 @@ export type AgentMessageTransportResponse = {
   attentionCount: number;
   messageId?: string;
   messages: AgentMessage[];
-  /** `send` only: Raft's send contract (state/decision/reason/counts); `committed` is a send whose
+  /** `send` only: the send contract (state/decision/reason/counts); `committed` is a send whose
    * lost answer reconciliation confirmed. */
   state?: AgentSendDecisionResponse["state"] | AgentSendCommittedResponse["state"];
   decision?: AgentSendDecisionResponse["decision"];
@@ -169,16 +169,16 @@ export type AgentMessageTransportResponse = {
   hasNewer?: boolean;
   olderCursor?: string;
   newerCursor?: string;
-  /** `read` only: the server's contiguous model-seen boundary (Raft 1.0.38's
-   * `model_seen_up_to_seq`); `null` when the page does not join what the Agent had read. */
+  /** `read` only: the server's contiguous model-seen boundary (`model_seen_up_to_seq`); `null`
+   * when the page does not join what the Agent had read. */
   modelSeenUpToSeq?: number | null;
-  /** `read` only: the conversation the read consumed (Raft 1.0.38's `consumption_scope`). */
+  /** `read` only: the conversation the read consumed (`consumption_scope`). */
   consumptionScope?: AgentHistoryConsumptionScope;
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;
-  /** `send` only: Raft's `seenUpToSeq` — on a held response, the frontier the notice presented; on a
-   * sent one, the boundary the server advanced over messages the Agent had already seen. Either is
-   * what the daemon records as consumed. */
+  /** `send` only: `seenUpToSeq` — on a held response, the frontier the notice presented; on a
+   * sent one, the boundary the server advanced over messages the Agent had already seen. Either
+   * is what the daemon records as consumed. */
   seenUpToSeq?: number;
   hasMore?: boolean;
   /** `send` only: pending messages a bypassed hold chose not to review; empty otherwise. */
@@ -190,7 +190,7 @@ export type AgentMessageTransportResponse = {
 
 /** Adapts the read route's response into the shape `DaemonRuntime` consumes. A boundary or a scope
  * that is not well formed is not trusted: a malformed or missing boundary reads as "no boundary"
- * (`null`), and a malformed scope is dropped, as Raft's `safeParse` drops it. */
+ * (`null`), and a malformed scope is dropped. */
 export function adaptAgentHistoryResponse(
   response: AgentHistoryResponse,
 ): AgentMessageTransportResponse {
@@ -241,7 +241,7 @@ export function adaptAgentSearchResponse(
 }
 
 /**
- * Adapts the send route's response into the shape `DaemonRuntime` consumes. Raft's own
+ * Adapts the send route's response into the shape `DaemonRuntime` consumes. The server's
  * `state`/`decision` are carried through unchanged; `messages` is the held context window.
  */
 export function adaptAgentSendResponse(
@@ -388,11 +388,9 @@ export const createAgentMessageHttpClient = (
         method: "POST",
         headers: agentHeaders(keys, true),
         signal: AbortSignal.timeout(AGENT_SEND_REQUEST_TIMEOUT_MS),
-        // Raft's `agentApiSendV2BodySchema` field names (1.0.32 bundle 16728-16744): the idempotency
-        // key is `idempotencyKey`, `sendDraft` is declared when this
-        // send is the resend of a held draft, and `mentions` is the structured list. Raft also
-        // declares `continue`, which its own CLI never sets and whose semantics are unverified — we
-        // neither send nor interpret it (the force-send flag is `continueAnyway`, as in Raft).
+        // The send body's field names: the idempotency key is `idempotencyKey`, `sendDraft` is
+        // declared when this send is the resend of a held draft, and `mentions` is the structured
+        // list. The body carries no `continue` field; the force-send flag is `continueAnyway`.
         body: JSON.stringify({
           idempotencyKey: request.idempotencyKey,
           target: request.target,
@@ -417,7 +415,7 @@ export const createAgentMessageHttpClient = (
       validateAgentSendResponseShape,
     );
   },
-  /** Raft 1.0.38's `reconcileOnly` request on the send route: it asks only whether this key already
+  /** The `reconcileOnly` request on the send route: it asks only whether this key already
    * committed, so it carries the key and the target and nothing that could send or hold. */
   async requestSendReconciliation({ url, request, ...keys }) {
     const response = await fetchAgentResponse(

@@ -100,13 +100,14 @@ function cliTempStateRoot(
 const userDirectoryName = encodeURIComponent(
   String(process.geteuid?.() ?? userInfo().username),
 ).replaceAll(".", "%2E");
-/** Where the daemon's consumed cursor lands when a test passes no state directory: Raft's temporary
- * root (`SLOCK_CLI_CONSUMED_SEQ_STATE_DIR ?? tmpdir()`), under CoForge's own directory name. */
+/** Where the daemon's consumed cursor lands when a test passes no state directory: the temporary
+ * state root (`COFORGE_CLI_CONSUMED_SEQ_STATE_DIR ?? tmpdir()`), under CoForge's own directory
+ * name. */
 const CONSUMED_SEQ_ROOT = join(
   cliTempStateRoot("COFORGE_CLI_CONSUMED_SEQ_STATE_DIR"),
   `coforge-cli-consumed-seq-${userDirectoryName}`,
 );
-/** Where the daemon's per-Agent send drafts land in tests: Raft's temporary root
+/** Where the daemon's per-Agent send drafts land in tests: the temporary state root
  * (`COFORGE_CLI_DRAFT_STATE_DIR ?? tmpdir()`), shared by every runtime in this file, so each test
  * starts without another test's draft. */
 const DRAFT_ROOT = join(
@@ -129,7 +130,7 @@ const config: AgentRuntimeConfig = {
   reasoning: "balanced",
 };
 
-// The daemon's consumed cursor is durable now (Raft's `consumed-seqs.json`), and its home is the
+// The daemon's consumed cursor is durable now (`consumed-seqs.json`), and its home is the
 // temporary state root every runtime in this process shares by default. Left alone, one test's reviewed
 // boundary would reach the next and suppress a delivery its Agent was never shown — correct in
 // production, wrong here. Every test starts from a clean cursor, exactly as it already starts from a
@@ -2004,7 +2005,7 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("blocks a top-level send after a more recently read thread, saves the draft (Raft-aligned), and --send-draft resends it unchanged", async () => {
+  test("blocks a top-level send after a more recently read thread, saves the draft, and --send-draft resends it unchanged", async () => {
     const rootId = "12345678-1234-4234-8234-123456789abc";
     const sends: AgentMessageRequest[] = [];
     const harness = await messageHarness(async (request) => {
@@ -2059,8 +2060,8 @@ describe("DaemonRuntime", () => {
       expect(preflight.code).toBe("THREAD_CONTEXT_TARGET_CONFIRMATION_REQUIRED");
       expect(preflight.message).toContain("Possible thread target mismatch");
       expect(preflight.message).toContain('coforge message send --send-draft --target "@ada"');
-      // Raft-aligned: the guard saves the outgoing content as a draft before refusing, and reports
-      // that back so the CLI renders `Draft saved: yes`, not `no`.
+      // The guard saves the outgoing content as a draft before refusing, and reports that back so
+      // the CLI renders `Draft saved: yes`, not `no`.
       expect(preflight.verdict.draftSaved).toBe(true);
       expect(sends).toEqual([]);
 
@@ -2217,8 +2218,8 @@ describe("DaemonRuntime", () => {
     });
 
     test("a paged thread read the server does not call contiguous does not count", async () => {
-      // Raft 1.0.38's `message read`: a page with rows and no model-seen boundary records exact
-      // sequences only (`recordConsumedExactSeqs`), never a read (`recordConsumedRead`).
+      // A `message read` page with rows and no model-seen boundary records exact sequences only
+      // (`recordConsumedExactSeqs`), never a read (`recordConsumedRead`).
       const { harness, sends, run, sendTopLevel } = await guardHarness(
         () => [3],
         () => false,
@@ -2393,7 +2394,7 @@ describe("DaemonRuntime", () => {
         .catch(() => undefined);
 
       // `--send-draft --anyway` is the Agent's explicit decision to send anyway: it forwards the
-      // flag and is never refused (Raft has no "denied" outcome).
+      // flag and is never refused (there is no "denied" outcome).
       await harness.runtime.agentMessage(
         harness.context,
         {
@@ -3089,7 +3090,7 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
-  test("a server-held send stores Raft's draft fields and the resend carries its seenUpToSeq", async () => {
+  test("a server-held send stores the draft fields and the resend carries its seenUpToSeq", async () => {
     const stateDirectory = join(tempRoot, `coforge-message-drafts-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -3268,10 +3269,10 @@ describe("DaemonRuntime", () => {
     expect(operations).toEqual(["send", "send"]);
     // The replayed draft has been held once — that is what makes `continueAnywaySuggested` true —
     // and it carries the frontier the held notice presented, so the resend is not held again by
-    // the same context (Raft's `recordConsumedSeqs(data.seenUpToSeq)` + `setSavedDraft`).
+    // the same context.
     expect(messageRequests).toEqual([
       { idempotencyKey: "send-1", draftReholdCount: 0, seenUpToSeq: undefined },
-      // Raft 1.0.38: the resend is the same logical send, under the draft's own key.
+      // The resend is the same logical send, under the draft's own key.
       { idempotencyKey: "send-1", draftReholdCount: 1, seenUpToSeq: 7 },
     ]);
 
@@ -3303,10 +3304,10 @@ describe("DaemonRuntime", () => {
     expect(ordinarySend).toMatchObject({ accepted: true, decision: "forward" });
     expect(operations).toEqual(["send", "send", "send"]);
     // A fresh send from the recovered daemon still accounts for the frontier the held notice
-    // presented: the consumed cursor outlives the process (Raft's `consumed-seqs.json`, read back
-    // through `getConsumedSeq`, 1.0.32 bundle 753652), so the context that was already reviewed is
-    // not presented — or held — a second time. The draft carried it within the restart above; the
-    // cursor is what carries it for a send that never saw that draft.
+    // presented: the consumed cursor outlives the process (`consumed-seqs.json`), so the context
+    // that was already reviewed is not presented — or held — a second time. The draft carried it
+    // within the restart above; the cursor is what carries it for a send that never saw that
+    // draft.
     expect(messageRequests.at(-1)).toEqual({
       idempotencyKey: "send-3",
       draftReholdCount: 0,
@@ -9322,10 +9323,10 @@ test("a send the daemon holds locally is never issued, and what it showed is the
     expect(held.decision).toBe("local_hold");
     expect(held.reason).toBe("exact_target_pending");
     expect(held.newMessageCount).toBe(1);
-    // The notice shows the message, so the Agent has now reviewed it — Raft's
-    // `recordConsumedSeqs(data.seenUpToSeq)` — which is why the same target no longer holds this
-    // request: the held send itself was still never issued (the point of deciding locally), and the
-    // next attempt is the Agent's own resend rather than something the freshness gate withheld.
+    // The notice shows the message, so the Agent has now reviewed it, which is why the same target
+    // no longer holds this request: the held send itself was still never issued (the point of
+    // deciding locally), and the next attempt is the Agent's own resend rather than something the
+    // freshness gate withheld.
     expect(held.messages.map((message) => message.sequence)).toEqual([1]);
     expect(held.messageId).toBe("");
     expect(calls.filter((call) => call.operation === "send")).toHaveLength(0);
@@ -9341,7 +9342,7 @@ test("a send the daemon holds locally is never issued, and what it showed is the
   }
 });
 
-test("a held send reports Raft's freshness-decision activity and fact id", async () => {
+test("a held send reports the freshness-decision activity and fact id", async () => {
   const stateDirectory = join(tempRoot, `coforge-freshness-activity-${crypto.randomUUID()}`);
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -9415,8 +9416,8 @@ test("a held send reports Raft's freshness-decision activity and fact id", async
     );
     expect(held).toMatchObject({ state: "held", decision: "local_hold" });
 
-    // Raft's `projectApmHeldFreshnessActivity` (bundle 812425): a working status row titled
-    // `Send held by freshness check` carrying the target, the count line and the decision line.
+    // A working status row titled `Send held by freshness check` carrying the target, the count
+    // line and the decision line.
     const frame = activities.find((activity) => activity.detailKind === "freshness_hold");
     expect(frame).toMatchObject({
       detail: "Send held by freshness check",
@@ -9433,8 +9434,8 @@ test("a held send reports Raft's freshness-decision activity and fact id", async
         },
       ],
     });
-    // Raft's `buildApmFreshnessDecisionProducerFactId`: the `freshness_decision_fact:` prefix plus
-    // a full sha256 — computed here, because this decision never reached the server's code path.
+    // The producer fact id: the `freshness_decision_fact:` prefix plus a full sha256 — computed
+    // here, because this decision never reached the server's code path.
     expect(frame?.producerFactId).toMatch(/^freshness_decision_fact:[0-9a-f]{64}$/);
   } finally {
     await runtime.stop();
@@ -9510,11 +9511,11 @@ test("a locally held send shows the unreviewed window, and a resend after it goe
     const held = await harness.runtime.agentMessage(harness.context, send, harness.apiKey);
     expect(held.state).toBe("held");
     expect(held.newMessageCount).toBe(2);
-    // The notice carries what the daemon still holds for this target (Raft's bounded window).
+    // The notice carries what the daemon still holds for this target, a bounded window.
     expect(held.messages.map((message) => message.sequence)).toEqual([1, 2]);
     expect(calls.filter((call) => call.operation === "send")).toHaveLength(0);
-    // Showing that window counts as consuming it (Raft's `recordConsumedSeqs`), so the Agent's own
-    // resend is no longer held by those messages: it reaches the transport and goes through.
+    // Showing that window counts as consuming it, so the Agent's own resend is no longer held by
+    // those messages: it reaches the transport and goes through.
     const resent = await harness.runtime.agentMessage(
       harness.context,
       { ...send, idempotencyKey: "send-window-2", sendDraft: true },
@@ -9527,7 +9528,7 @@ test("a locally held send shows the unreviewed window, and a resend after it goe
   }
 });
 
-test("a genuinely new send still replaces the target's draft, as Raft documents", async () => {
+test("a genuinely new send still replaces the target's draft", async () => {
   const calls: AgentMessageRequest[] = [];
   const harness = await messageHarness(async (request) => {
     calls.push(request);
@@ -9573,7 +9574,7 @@ test("a genuinely new send still replaces the target's draft, as Raft documents"
       harness.apiKey,
     );
     // A new send is the newest writer, so its content (and key) replace the draft — the "new send
-    // replaces the stored draft" behaviour Raft documents, with its replaced-draft warning.
+    // replaces the stored draft" behaviour, with its replaced-draft warning.
     await harness.runtime.agentMessage(
       harness.context,
       {
@@ -9608,7 +9609,7 @@ test("a genuinely new send still replaces the target's draft, as Raft documents"
   }
 });
 
-describe("one logical send keeps one idempotency key (Raft 1.0.38)", () => {
+describe("one logical send keeps one idempotency key", () => {
   const sent = (
     request: Pick<AgentMessageRequest, "idempotencyKey">,
     messageId = "sent",
@@ -10057,7 +10058,7 @@ describe("one logical send keeps one idempotency key (Raft 1.0.38)", () => {
   });
 });
 
-describe("the Agent read boundary (Raft 1.0.38's exact seen sequences)", () => {
+describe("the Agent read boundary (exact seen sequences)", () => {
   type Harness = Awaited<ReturnType<typeof messageHarness>>;
   type Respond = Parameters<typeof messageHarness>[0];
   const sent = (request: AgentMessageRequest): AgentMessageTransportResponse => ({

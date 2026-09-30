@@ -4,7 +4,8 @@ import type {
   AgentMessageDraftStore,
 } from "#src/persistence/agent-message-draft-store";
 
-/** The draft while it is only in memory: Raft's entry minus the file-only `target`/`savedAt`. */
+/** The draft while it is only in memory: the stored entry minus the file-only
+ * `target`/`savedAt`. */
 type InMemoryDraft = AgentMessageDraftContent & { reholdCount: number };
 
 /** What `--send-draft` found for a target: the store's lookup, whose found draft may also be one
@@ -14,10 +15,9 @@ export type AgentInboxDraftLookup =
   | { status: "found"; draft: InMemoryDraft };
 
 /**
- * Draft continuation state, shaped like Raft's `continue-state.json` entry: `content`,
- * `attachmentIds`, `idempotencyKey`, `mentions`, `reholdCount`, `seenUpToSeq`. The daemon owns the
- * draft (the CLI is a thin client), so this is the one place a held send is remembered between
- * requests.
+ * Draft continuation state: `content`, `attachmentIds`, `idempotencyKey`, `mentions`,
+ * `reholdCount`, `seenUpToSeq`. The daemon owns the draft (the CLI is a thin client), so this is
+ * the one place a held send is remembered between requests.
  */
 export class AgentInboxStateMachine {
   readonly #drafts = new Map<string, InMemoryDraft>();

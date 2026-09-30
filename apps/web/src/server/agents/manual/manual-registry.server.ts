@@ -128,5 +128,5 @@ function ensureTrailingNewline(content: string): string {
   return content.endsWith("\n") ? content : `${content}\n`;
 }
 
-/** Raft-aligned: `manual get` stdout is the doc content verbatim, always ending in a newline. */
+/** `manual get` stdout is the doc content verbatim, always ending in a newline. */
 export { ensureTrailingNewline };

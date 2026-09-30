@@ -10,10 +10,9 @@ import { runCatalogCommand } from "#src/code-agent/catalog-command";
 const logger = getLogger(["coforge", "daemon", "code-agent", "opencode"]);
 
 /**
- * OpenCode's reasoning-effort names and their order, copied from Raft's `opencodeVariantOrder`
- * (`server/pkg/agent/models.go:790`). A model's `variants` map keyed by these names is what makes
- * its thinking selector: the value is what the model id's `#variant` suffix accepts in v2
- * (`opencode run --model provider/model#variant`).
+ * OpenCode's reasoning-effort names and their order. A model's `variants` map keyed by these
+ * names is what makes its thinking selector: the value is what the model id's `#variant` suffix
+ * accepts in v2 (`opencode run --model provider/model#variant`).
  */
 const VARIANT_ORDER: Readonly<Record<string, number>> = {
   none: 0,
@@ -37,9 +36,6 @@ const MAX_METADATA_LINES = 400;
  * effort order. Non-verbose output (just the id rows) yields the same models with no reasoning
  * levels. The released v2 CLI (`2.0.12`) does not accept `--verbose` yet — it is on OpenCode's
  * `dev` branch — so today the call degrades to the plain list through the fallback below.
- *
- * Raft's `parseOpenCodeModels` (`models.go:687`) is the reference: it too keeps the id verbatim
- * and projects variants into the thinking picker.
  */
 export function parseOpenCodeModelList(output: string): CodeAgentModelMetadata[] {
   const models: CodeAgentModelMetadata[] = [];
@@ -105,8 +101,8 @@ function applyModelMetadata(model: CodeAgentModelMetadata, value: unknown): void
   const metadata = value as OpenCodeModelMetadata;
   if (typeof metadata.name === "string" && metadata.name.trim())
     model.displayName = metadata.name.trim();
-  // Raft's gate (`models.go:805`): the model advertises reasoning (`capabilities.reasoning`) or
-  // carries a variant that looks like a reasoning effort; only then do its variants become levels.
+  // The gate: the model advertises reasoning (`capabilities.reasoning`) or carries a variant
+  // that looks like a reasoning effort; only then do its variants become levels.
   const variants = metadata.variants;
   const reasoning = metadata.capabilities?.reasoning === true;
   if (!reasoning && !variantsLookLikeReasoning(variants)) return;
@@ -114,8 +110,8 @@ function applyModelMetadata(model: CodeAgentModelMetadata, value: unknown): void
   if (levels.length > 0) model.reasoningEfforts = levels;
 }
 
-/** Raft's `openCodeVariantsLookReasoning` (`models.go:815`): a known effort name, or an entry that
- * carries `reasoningEffort`/`thinking`, is what makes a variant map a reasoning picker. */
+/** A known effort name, or an entry that carries `reasoningEffort`/`thinking`, is what makes a
+ * variant map a reasoning picker. */
 function variantsLookLikeReasoning(variants: unknown): boolean {
   if (!variants || typeof variants !== "object" || Array.isArray(variants)) return false;
   return Object.entries(variants as Record<string, unknown>).some(([name, variant]) => {
@@ -131,8 +127,7 @@ function variantsLookLikeReasoning(variants: unknown): boolean {
 
 /**
  * The reasoning levels a model advertises: its enabled variants, ordered by OpenCode's own effort
- * order (`none < minimal < low < medium < high < xhigh < max`, Raft's `opencodeVariantOrder`).
- * Raft's `openCodeThinkingLevelsFromVariants` (`models.go:827`) is the reference.
+ * order (`none < minimal < low < medium < high < xhigh < max`).
  */
 function reasoningLevels(variants: unknown): string[] {
   if (!variants || typeof variants !== "object" || Array.isArray(variants)) return [];
@@ -208,7 +203,7 @@ async function runOpenCodeModels(
   try {
     const { output, exitCode } = await runCatalogCommand(command, cwd, environment, timeoutMs);
     // A stale config entry can make `opencode models` exit non-zero while still listing the
-    // resolvable catalog (Raft reads the output regardless of exit code, `models.go:674-680`).
+    // resolvable catalog, so the output is read regardless of exit code.
     if (!output.trim()) {
       logger.warning("OpenCode model catalog unavailable", {
         event: "opencode.catalog.unavailable",

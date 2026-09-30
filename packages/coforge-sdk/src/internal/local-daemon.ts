@@ -348,14 +348,14 @@ export type AgentMessageResponse = {
   messages: AgentMessageRecord[];
   messageId: string;
   summaries: MessageAttentionSummary[];
-  /** `message send` only: Raft's send contract, `"sent"` or `"held"`, or `"committed"` when the
+  /** `message send` only: the send outcome, `"sent"` or `"held"`, or `"committed"` when the
    * daemon confirmed an ambiguous send's commit by its key and has no delivery receipt for it. */
   state?: "sent" | "held" | "committed";
   /** `message send` only: `forward`/`bypass` sent the message, `local_hold`/`syncing_hold` held it. */
   decision?: "forward" | "bypass" | "local_hold" | "syncing_hold";
   reason?: string;
   producerFactId?: string;
-  /** `message send` only, held: Raft's `available_actions` recovery paths. */
+  /** `message send` only, held: the recovery actions. */
   availableActions?: string[];
   /** `message send` only, held: an already-re-held draft may be forced with `--send-draft --anyway`. */
   continueAnywaySuggested?: boolean;

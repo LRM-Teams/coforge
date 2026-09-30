@@ -3,7 +3,7 @@
  * a machine-readable `error` code — unlike `AppError` (whose codes are shared across many call
  * sites), this class carries the exact shape the CLI/SDK contract promises: a handle miss names
  * its `field` (an Agent the caller cannot see is `AGENT_NOT_VISIBLE`, as channel management
- * answers it), and a schema/cross-field failure carries the Raft-aligned issue list. Mirrors the
+ * answers it), and a schema/cross-field failure carries the issue list. Mirrors the
  * narrow-class pattern in `agent-send-rejected-error.server.ts`.
  */
 export type ActionCardErrorCode =

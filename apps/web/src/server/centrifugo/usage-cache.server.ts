@@ -40,7 +40,7 @@ export type UsageSnapshot = {
   /** The signed-in account, already masked on the Computer. Populated only when that provider's
    * usage/auth read reports it. */
   accountLabel?: string;
-  /** Raft-aligned account-level health: `rate_limited` once any reported window is at its
+  /** Account-level health: `rate_limited` once any reported window is at its
    * limit, `ok` otherwise. Older Computers omit it. */
   health?: "ok" | "rate_limited" | "reauth_required" | "unsupported" | "error";
 };

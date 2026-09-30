@@ -59,7 +59,7 @@ test("deriveChannelCapabilities: channel admin (channel_role basis) additionally
     manage_roles: true,
     ...ADMIN_CAPS,
   });
-  // Same basis, but an Agent: never manage_roles (Raft: no Agent command changes channel roles).
+  // Same basis, but an Agent: never manage_roles (no Agent command changes channel roles).
   const agent = deriveChannelCapabilities({
     isHuman: false,
     isActiveMember: true,

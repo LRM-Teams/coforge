@@ -80,14 +80,14 @@ message AgentMessageResponse {
   bool has_more = 16;
   // `message send` only: the pending messages a bypassed hold chose not to review; empty otherwise.
   repeated AgentMessageRecord recent_unread = 17;
-  // `message send` only, Raft's send contract: "sent" | "held".
+  // `message send` only, the send outcome: "sent" | "held".
   string state = 18;
   // `message send` only: `forward`/`bypass` for a sent message, `local_hold`/`syncing_hold` for a
   // held one.
   string decision = 19;
   string reason = 20;
   string producer_fact_id = 21;
-  // Raft's `available_actions` for a held send: `check_messages`, `send_draft`, `send_anyway`.
+  // The `available_actions` for a held send: `check_messages`, `send_draft`, `send_anyway`.
   repeated string available_actions = 22;
   bool continue_anyway_suggested = 23;
   // `message send` only: the held context window, oldest to newest.

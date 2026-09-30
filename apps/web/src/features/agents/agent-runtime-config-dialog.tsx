@@ -110,8 +110,8 @@ export function AgentRuntimeConfigForm({
         title={computerId ? m.agent_profile_edit_runtime_config() : m.agent_profile_setup_runtime()}
         onClose={onClose}
       />
-      {/* One column, like Raft's dialog: the runtime fields stack (provider, then the model it
-          belongs to, then reasoning) instead of splitting into two columns on a wide screen. */}
+      {/* One column: the runtime fields stack (provider, then the model it belongs to, then
+          reasoning) instead of splitting into two columns on a wide screen. */}
       <div className="grid gap-4 px-6 py-6">
         {showComputerPicker ? (
           <Select
@@ -164,8 +164,8 @@ export function AgentRuntimeConfigForm({
           <p className="text-sm text-tertiary">{m.agent_form_computer_required()}</p>
         )}
         {environment !== undefined && (
-          // Raft's dialog shows this as a plain "More" disclosure — a small-caps trigger with a
-          // chevron, not a bordered pill — whose panel is a titled section: the section's own
+          // This is a plain "More" disclosure — a small-caps trigger with a chevron, not a
+          // bordered pill — whose panel is a titled section: the section's own
           // heading, one line saying what environment variables do, then the rows and the add
           // action. The heading and the line together replace what used to be a bordered box with
           // a trailing hint, which read as a stray control rather than a section of the form.
@@ -255,7 +255,7 @@ export function AgentRuntimeConfigForm({
           </p>
         )}
       </div>
-      {/* Raft's footer is the save action alone; the dialog is dismissed by its header X, Esc or the
+      {/* The footer is the save action alone; the dialog is dismissed by its header X, Esc or the
           overlay (all already wired, and already blocked while saving). */}
       <div className="flex justify-end gap-3 border-t border-secondary px-6 py-4">
         <Button

@@ -291,7 +291,7 @@ describe("oss file storage", () => {
     expect(put.status).toBe(200);
     expect(objects.get(key)?.contentType).toBe("text/plain");
     // A second PUT to the very same object is OSS's own no-overwrite conflict: 409
-    // FileAlreadyExists, not Raft 1.0.32's `If-None-Match: *` 412 — OSS has no such precondition
+    // FileAlreadyExists, not an `If-None-Match: *` 412 — OSS has no such precondition
     // header, so `x-oss-forbid-overwrite` is what the presigned URL actually signs and OSS's own
     // conflict status is what the upload-session `complete`/CLI retry logic checks for.
     const conflict = await fetch(url, {

@@ -438,7 +438,7 @@ test("maps a >=500 upload response to SERVER_5XX", async () => {
   }
 });
 
-test("a 404 from the capabilities route skips the client-side size check, matching Raft 1.0.32", async () => {
+test("a 404 from the capabilities route skips the client-side size check", async () => {
   const calls: string[] = [];
   spyOn(globalThis, "fetch").mockImplementation((async (input) => {
     calls.push(String(input));
