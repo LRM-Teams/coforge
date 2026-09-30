@@ -240,15 +240,23 @@ const store = (key: string, value: unknown) =>
     ),
   );
 const visible = (text: string) => `document.body.innerText.includes(${JSON.stringify(text)})`;
-/** The page is up once the layout has stored what the server rendered (its sweep marker). */
-const pageIsUp = `(async () => {
-  const dbs = await indexedDB.databases();
-  if (!dbs.some((d) => d.name === "coforge-query-cache")) return false;
-  const db = await new Promise((r) => { const q = indexedDB.open("coforge-query-cache"); q.onsuccess = () => r(q.result); });
-  const keys = await new Promise((r) => { const q = db.transaction("queries").objectStore("queries").getAllKeys(); q.onsuccess = () => r(q.result); });
-  db.close();
-  return keys.some((key) => String(key).endsWith("/meta/collected-at"));
-})()`;
+/** Whether IndexedDB holds a row under `key` now: what a read that was stored left there. */
+const stored = (key: string) =>
+  withStore(
+    "readonly",
+    `return new Promise((r) => { const q = store.getKey(${JSON.stringify(key)}); q.onsuccess = () => r(q.result !== undefined); });`,
+  );
+/**
+ * The page just opened is up: its own reads are done (no request for a moment), so what it stores
+ * is stored and a click reaches it. Per load, unlike a row a previous load left behind (the daily
+ * sweep's marker made every later wait return at once).
+ */
+async function pageIsUp(ready: string) {
+  await waitFor(ready, 60_000);
+  await browser("wait", "--load", "networkidle");
+}
+/** A Workspace page away from Chat, up with the rail's Chat link to click. */
+const chatLinkShown = `[...document.querySelectorAll("a")].some((a) => a.textContent.trim() === "Chat")`;
 
 let workspacePath = "";
 let workspaceId = "";
@@ -300,8 +308,7 @@ test("Chat opens from the browser's copy while its reads are outstanding, then t
   // stores what it read.
   await browser("open", `${proxy.origin}${workspacePath}/channel/${channelId}`);
   await waitFor(visible(first), 60_000);
-  await until(pageIsUp);
-  expect(await storedKeys()).toContain(channelKey(DEV_BROWSER_USER.id));
+  await until(stored(channelKey(DEV_BROWSER_USER.id)));
 
   // Something new arrives while nobody has the channel open.
   const member = await db.conversationMember.findFirstOrThrow({
@@ -319,7 +326,7 @@ test("Chat opens from the browser's copy while its reads are outstanding, then t
 
   // A new page load away from Chat: nothing of the conversation is in memory.
   await browser("open", `${proxy.origin}${workspacePath}/members`);
-  await until(pageIsUp);
+  await pageIsUp(chatLinkShown);
   proxy.hold();
   await browser("eval", "window.__stayedInThisDocument = true");
   await browser(
@@ -357,8 +364,7 @@ test("a conversation read in one page load opens from the browser's copy without
     },
   });
   await browser("open", `${proxy.origin}${workspacePath}/channel/${channelId}`);
-  await waitFor(visible(third), 60_000);
-  await until(pageIsUp);
+  await pageIsUp(visible(third));
   const readThroughThird = async () =>
     (
       await db.conversationMember.findFirstOrThrow({
@@ -379,7 +385,7 @@ test("a conversation read in one page load opens from the browser's copy without
   )})?.state.data.pages[0]?.readThroughSequence)()`;
   await until(`${storedCursor}.then((cursor) => cursor === 3)`);
   await browser("open", `${proxy.origin}${workspacePath}/members`);
-  await until(pageIsUp);
+  await pageIsUp(chatLinkShown);
 
   // A new page load opens the channel from storage, with its reads held.
   proxy.hold();
@@ -453,8 +459,7 @@ test("a conversation read and left, then opened again in the same page load, sho
 test("signing out removes what the browser kept", async () => {
   await browser("open", `${proxy.origin}${workspacePath}/channel/${channelId}`);
   await waitFor(visible(first), 60_000);
-  await until(pageIsUp);
-  expect((await storedKeys()).some((key) => key.includes("tanstack-query-"))).toBe(true);
+  await until(stored(channelKey(DEV_BROWSER_USER.id)));
 
   await browser("eval", `document.querySelector('button[aria-label^="Current user"]').click()`);
   await waitFor(
@@ -493,8 +498,7 @@ test("another person on the same browser starts from nothing", async () => {
   expect(await storedKeys()).toEqual([channelKey(earlier)]);
 
   await browser("open", `${proxy.origin}${workspacePath}/channel/${channelId}`);
-  await waitFor(visible(first), 60_000);
-  await until(pageIsUp);
+  await pageIsUp(visible(first));
   expect((await storedKeys()).filter((key) => key.startsWith(`${earlier}/`))).toEqual([]);
   expect(await evaluate<boolean>(visible(secret))).toBe(false);
 }, 120_000);
