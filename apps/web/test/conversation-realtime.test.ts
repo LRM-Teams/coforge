@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
+
 import { createConversationReconciler } from "#src/features/conversations/conversation-reconciliation";
+import { onNetworkRead } from "#src/features/conversations/conversation-queries";
 import {
   decodeChannelCreatedEvent,
   decodeChannelUpdatedEvent,
@@ -228,6 +231,59 @@ describe("conversation realtime", () => {
       { afterSequence: 5, afterReplySequence: 40 },
       { afterSequence: 5, afterReplySequence: 40 },
     ]);
+  });
+
+  test("starts from the window's newer read, not an older copy it opened from", async () => {
+    // The window opened from a stored copy ending at 10; its network read then brought it to 500.
+    const cursors: unknown[] = [];
+    const reconciler = createConversationReconciler(
+      { afterSequence: 10, afterReplySequence: 12 },
+      async (cursor) => {
+        cursors.push(cursor);
+        return [];
+      },
+      () => {},
+    );
+    reconciler.advance({ afterSequence: 500, afterReplySequence: 510 });
+    // A read of an older window (one that slid back into history) does not move it back.
+    reconciler.advance({ afterSequence: 200 });
+
+    await reconciler.reconcile();
+
+    expect(cursors).toEqual([{ afterSequence: 500, afterReplySequence: 510 }]);
+  });
+
+  test("hears the window's own network reads, not the page's own writes to it", async () => {
+    // A sent message merged into the window must not move the reconciler past messages from
+    // others that arrived before it and are still unread.
+    const queryClient = new QueryClient();
+    const key = ["conversation", "channel", "c1"];
+    const heard: unknown[] = [];
+    const stop = onNetworkRead(queryClient, key, (data) => heard.push(data));
+    queryClient.setQueryData(key, { sent: 105 });
+    await queryClient.fetchQuery({ queryKey: key, queryFn: async () => ({ read: 105 }) });
+    queryClient.setQueryData(["conversation", "channel", "c2"], { other: true });
+    stop();
+    expect(heard).toEqual([{ read: 105 }]);
+  });
+
+  test("does not count loading older or newer pages as a read of the newest one", async () => {
+    // Loading more keeps the pages already held as they were, the viewer's own merges included.
+    const queryClient = new QueryClient();
+    const key = ["conversation", "channel", "c1"];
+    const options = {
+      queryKey: key,
+      queryFn: async ({ pageParam }: { pageParam: number }) => ({ page: pageParam }),
+      initialPageParam: 0,
+      getNextPageParam: () => undefined,
+      getPreviousPageParam: (first: { page: number }) => first.page - 1,
+    };
+    await queryClient.fetchInfiniteQuery(options);
+    const heard: unknown[] = [];
+    const stop = onNetworkRead(queryClient, key, (data) => heard.push(data));
+    await new InfiniteQueryObserver(queryClient, options).fetchPreviousPage();
+    stop();
+    expect(heard).toEqual([]);
   });
 
   test("coalesces a signal received while reconciliation is in flight", async () => {

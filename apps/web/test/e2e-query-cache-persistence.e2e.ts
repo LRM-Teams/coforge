@@ -87,14 +87,16 @@ function gatedProxy() {
       const forwardHeaders = new Headers(request.headers);
       forwardHeaders.set("origin", upstream.origin);
       forwardHeaders.delete("referer");
-      const response = await fetch(upstream.origin + url.pathname + url.search, {
+      // A streamed request body needs `duplex` (Fetch standard), which this `RequestInit` type
+      // does not declare yet.
+      const init: RequestInit & { duplex: "half" } = {
         method: request.method,
         headers: forwardHeaders,
         body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
         redirect: "manual",
-        // @ts-expect-error Bun's fetch streams a request body only with `duplex`.
         duplex: "half",
-      });
+      };
+      const response = await fetch(upstream.origin + url.pathname + url.search, init);
       const headers = new Headers(response.headers);
       headers.delete("content-encoding");
       headers.delete("content-length");
