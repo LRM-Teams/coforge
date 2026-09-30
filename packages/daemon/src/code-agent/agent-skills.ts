@@ -103,9 +103,11 @@ export async function listAgentSkills(options: {
         ];
       break;
     case RUNTIME_PROVIDER.GROK:
-      // https://docs.x.ai/build/features/skills-plugins-marketplaces; Grok 1.0.41 was observed
-      // loading these roots. It reads the workspace roots only for a trusted workspace; the scan
-      // lists them regardless of trust.
+      // https://docs.x.ai/build/features/skills-plugins-marketplaces documents `.grok/skills`,
+      // `~/.grok/skills` and `~/.agents/skills`, and Claude Code compatibility in general; the
+      // workspace `.agents/skills` and `.claude/skills` and the global `~/.claude/skills` are
+      // observed on grok 1.0.41, not documented. Grok reads workspace roots only for a trusted
+      // workspace; the scan lists them regardless of trust.
       locals = [local(".grok/skills"), local(".agents/skills"), local(".claude/skills")];
       if (home)
         globals = [
