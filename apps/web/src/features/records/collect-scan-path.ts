@@ -1,6 +1,9 @@
 /** Placeholder scan root shown before the user edits a computer's collect paths. */
 export function defaultCollectScanPath(platform: string | null | undefined): string {
-  return platform === "win32" ? "D:/" : "/home/jian40/\n";
+  // The Web server cannot know the OS account/home directory of a remote Computer.
+  // An empty Unix default lets the collector use its own HOME/collect-roots instead of
+  // sending a path copied from one developer machine to every Computer.
+  return platform === "win32" ? "D:/" : "\n";
 }
 
 /** One editable scan path per row. A single trailing newline is the placeholder, not an extra row. */

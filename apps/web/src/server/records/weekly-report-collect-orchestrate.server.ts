@@ -202,30 +202,55 @@ export async function submitWeeklyReportCollectPlan(
   });
   if (!owner) throw new AppError("NOT_FOUND");
 
-  for (const slot of detailed.slots) {
-    const opened = await conversations.memberForUser(
-      input.workspaceId,
-      input.userId,
-      slot.collectorAgentId,
-    );
-    await sender.execute({
-      idempotencyKey: crypto.randomUUID(),
-      workspaceId: input.workspaceId,
-      conversationId: opened.conversationId,
-      senderMemberId: opened.senderMemberId,
-      senderUserId: input.userId,
-      body: buildCollectorWakeBody({
-        runId: run.id,
-        reportId: input.reportId,
-        slotId: slot.id,
-        windowStart,
-        windowEnd,
-        scanPaths: slot.scanPaths,
-        ownerUsername: owner.username,
-        ownerDisplayName: owner.displayName,
-        ownerGitHubLogin: owner.gitHubConnection?.login ?? null,
-      }),
+  try {
+    for (const slot of detailed.slots) {
+      const opened = await conversations.memberForUser(
+        input.workspaceId,
+        input.userId,
+        slot.collectorAgentId,
+      );
+      await sender.execute({
+        idempotencyKey: crypto.randomUUID(),
+        workspaceId: input.workspaceId,
+        conversationId: opened.conversationId,
+        senderMemberId: opened.senderMemberId,
+        senderUserId: input.userId,
+        body: buildCollectorWakeBody({
+          runId: run.id,
+          reportId: input.reportId,
+          slotId: slot.id,
+          windowStart,
+          windowEnd,
+          scanPaths: slot.scanPaths,
+          ownerUsername: owner.username,
+          ownerDisplayName: owner.displayName,
+          ownerGitHubLogin: owner.gitHubConnection?.login ?? null,
+        }),
+      });
+    }
+  } catch (error) {
+    // Do not leave a collecting Run behind when dispatch fails halfway through the wave.
+    // Otherwise the card shows a permanently running collection and every retry adds another
+    // orphan Run. Keep the original error so the browser can render its safe AppError code.
+    await db.weeklyReportCollectSlot.updateMany({
+      where: { runId: run.id, status: "running" },
+      data: { status: "cancelled", failureReason: "collector dispatch failed" },
     });
+    await db.weeklyReportCollectRun.updateMany({
+      where: { id: run.id, status: COLLECT_RUN_STATUS.collecting },
+      data: { status: COLLECT_RUN_STATUS.cancelled, completedAt: new Date() },
+    });
+    console.error(
+      JSON.stringify({
+        event: "weekly_report.collect_dispatch_failed",
+        run_id: run.id,
+        report_id: input.reportId,
+        computer_ids: detailed.slots.map((slot) => slot.computerId),
+        error_type: error instanceof Error ? error.name : typeof error,
+        error_message: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    throw error;
   }
 
   const catalog = new RecordCatalog(db);
