@@ -1,13 +1,12 @@
-/** The pending-interrupt bookkeeping the promise-based code agent providers share.
+/** The pending-interrupt bookkeeping the promise-based code agent sessions share (the Claude Code
+ * provider and the per-turn session).
  *
  * `interrupt()` cannot settle when the turn's own `interrupt()` returns: the turn ends later, a
- * process can close, and a dispose can land while an interrupt is still pending. Each provider
- * used to carry its own copy of that bookkeeping - the pending slot plus the promise whose
- * `resolve` and `reject` are handed to those later events - and four copies had already drifted
- * apart (one provider's settle sites differed from the other three).
+ * process can close, and a dispose can land while an interrupt is still pending. This holds the
+ * pending slot plus the promise whose `resolve` and `reject` are handed to those later events.
  *
- * The provider still owns its `#state` and decides when an interrupt applies; this owns only the
- * pending slot and the promise handed back to the caller. A provider reports the events it already
+ * The session still owns its `#state` and decides when an interrupt applies; this owns only the
+ * pending slot and the promise handed back to the caller. A session reports the events it already
  * observes: `settle()` when the interrupted turn is over, `fail()` when the session is disposed,
  * the process closes, or the delegation itself threw.
  */

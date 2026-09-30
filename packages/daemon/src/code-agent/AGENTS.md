@@ -96,6 +96,23 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   notifications stay internal diagnostics. Numbered stderr reconnect lines
   become informational `runtime_reconnecting` Activity.
 
+## Per-turn providers (Cursor, Grok, OpenCode, Antigravity)
+
+- One child process per turn. `per-turn/session.ts` is their one `AgentSession` (state machine,
+  input queue, interrupt, dispose, session identity and its reports, exit handling) and
+  `per-turn/turn-process.ts` their one process wrapper. A provider adds `<provider>/turn-protocol.ts`
+  (argv, environment, stdin mode, record mapping) and calls `createPerTurnSession` from its
+  `provider.ts`, which keeps discovery, catalog, usage, and the version gate. Never add a session copy.
+- Composition, not inheritance: a difference is a `TurnProtocol` field or a `TurnReader` hook. Each
+  one (`instructionsTurn`, `resumedIdentity`, `repeatedSessionId`, `identityReports`,
+  `mintSessionId`, `lostResume`) records an observed CLI difference. Check the real CLI before adding
+  one or making two providers agree; the fixtures do not prove a binary.
+- The session never parses provider output. A reader emits through the `TurnScope`, synchronously,
+  so events keep the CLI's order. A turn's stdin mode is a CLI fact: `eof` where the CLI waits for
+  stdin EOF (OpenCode, #652), `open` for Cursor (`eof` is unverified there), `line` for agy.
+- `#spawnTurn` builds the process before it marks the turn running, so a spawn that throws leaves
+  the session idle.
+
 ## Antigravity (`agy`)
 
 - One headless process per turn. The prompt is one stdin line under
