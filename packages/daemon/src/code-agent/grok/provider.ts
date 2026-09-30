@@ -74,6 +74,17 @@ type SessionState = "idle" | "running" | "interrupting" | "disposed";
 /** The turn in flight: its process, the input it carries, and whether it resumes a session. */
 type ActiveTurn = { process: GrokTurnProcess; prompt: string; resumed: boolean };
 
+/** `end.stopReason` spellings that mean the turn was cancelled. The guide documents `cancelled`. */
+const CANCELLED_STOP_REASONS: ReadonlySet<string> = new Set(["cancelled", "canceled", "aborted"]);
+/** `end.stopReason` spellings that mean the turn ran out of model requests. The guide documents
+ * `max_turn_requests`. */
+const MAX_TURNS_STOP_REASONS: ReadonlySet<string> = new Set([
+  "max_turn_requests",
+  "max_turns",
+  "maxturns",
+  "max_turns_reached",
+]);
+
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -254,11 +265,10 @@ class GrokAgentSession implements AgentSession {
   }
 
   /**
-   * Maps the `streaming-json` events this adapter consumes (the vocabulary Raft's
-   * `server/pkg/agent/grok.go` documents, verified against 1.0.41's output): `text` (output),
-   * `thought` (reasoning), `end` (turn boundary; carries the session id and the stop reason),
-   * `error`, and `max_turns_reached`. `available_commands` (and any future unknown type) is
-   * ignored — it announces the tool vocabulary, not turn content.
+   * Maps the `streaming-json` events this adapter consumes (14-headless-mode.md, "streaming-json"):
+   * `text` (output), `thought` (reasoning), `end` (turn boundary; carries the session id and the
+   * stop reason), `error`, and `max_turns_reached`. The guide calls its event list non-exhaustive,
+   * so an event type this adapter has no use for is ignored, never fatal.
    */
   #handleRecord(record: Readonly<Record<string, unknown>>): void {
     if (this.#state === "disposed") return;
@@ -274,40 +284,23 @@ class GrokAgentSession implements AgentSession {
         return;
       }
       case "end": {
-        // An `end` with no failure reason is the turn's success boundary; stopReason carries the
-        // abnormal exits (Raft's adapter treats cancelled and max-turns the same way).
-        const reason = typeof record.stopReason === "string" ? record.stopReason.toLowerCase() : "";
-        if (reason === "cancelled" || reason === "canceled" || reason === "aborted") {
-          this.#emit({ type: "error", message: "Grok stopped: " + record.stopReason });
-          this.#pendingOutcome = "failed";
-        } else if (
-          reason === "max_turns" ||
-          reason === "maxturns" ||
-          reason === "max_turns_reached"
-        ) {
-          this.#emit({ type: "error", message: "Grok reached max turns" });
-          this.#pendingOutcome = "failed";
-        } else {
-          this.#pendingOutcome = "success";
-        }
+        this.#handleEnd(record.stopReason);
         return;
       }
       case "error": {
+        // Whatever grok reports on its way out of an interrupt belongs to the stop that was asked
+        // for; the turn's exit reports it as interrupted.
+        if (this.#state === "interrupting") return;
         const message =
           (typeof record.message === "string" && record.message.trim()) || data || "Grok error";
-        this.#emit({ type: "error", message });
-        this.#pendingOutcome = "failed";
+        this.#failTurn(message);
         return;
       }
       case "max_turns_reached": {
-        this.#emit({ type: "error", message: "Grok reached max turns" });
-        this.#pendingOutcome = "failed";
+        this.#failTurn("Grok reached max turns");
         return;
       }
       default: {
-        // The vocabulary above is Raft-reference + CLI-help derived, with the 402-constrained
-        // live probe able to observe only the envelope: an unknown event is logged and ignored,
-        // never fatal — a mis-mapped vocabulary costs one unrendered update, not the turn.
         logger.warning("Grok turn emitted an unrecognized event", {
           event: "code_agent.grok.unknown_event",
           type: typeof record.type === "string" ? record.type : "untyped",
@@ -316,6 +309,32 @@ class GrokAgentSession implements AgentSession {
         return;
       }
     }
+  }
+
+  /** `end` is the last event of a turn, and its `stopReason` is one of `end_turn`, `max_tokens`,
+   * `max_turn_requests`, `refusal` or `cancelled` (14-headless-mode.md). Only `end_turn` succeeds,
+   * and it never undoes a failure an earlier `error` event already recorded. */
+  #handleEnd(stopReason: unknown): void {
+    const reason = typeof stopReason === "string" ? stopReason.toLowerCase() : "";
+    if (CANCELLED_STOP_REASONS.has(reason)) {
+      // An `interrupt()` sends SIGINT and grok ends the turn `cancelled`: that is the stop the
+      // caller asked for, not a failure.
+      if (this.#state === "interrupting") return;
+      this.#failTurn(`Grok stopped: ${String(stopReason)}`);
+    } else if (MAX_TURNS_STOP_REASONS.has(reason)) {
+      this.#failTurn("Grok reached max turns");
+    } else if (reason === "max_tokens") {
+      this.#failTurn("Grok stopped: the response reached the output token limit (max_tokens)");
+    } else if (reason === "refusal") {
+      this.#failTurn("Grok stopped: the model refused to continue (refusal)");
+    } else if (this.#pendingOutcome !== "failed") {
+      this.#pendingOutcome = "success";
+    }
+  }
+
+  #failTurn(message: string): void {
+    this.#emit({ type: "error", message });
+    this.#pendingOutcome = "failed";
   }
 
   /** Records the session id Grok reports on its `end` and `error` events; the id is also pinned

@@ -246,6 +246,73 @@ test(
   SESSION_BUDGET_MS,
 );
 
+test(
+  "an error frame does not turn a turn that then ends with end_turn into a success",
+  async () => {
+    await withSession(
+      {
+        environment: {
+          COFORGE_GROK_MODE: "error-then-end",
+          COFORGE_GROK_ERROR: "usage balance exhausted",
+        },
+      },
+      async ({ session }) => {
+        const events = await runTurn(session, "go");
+        expect(events.filter((event) => event.type === "error")).toEqual([
+          { type: "error", message: "usage balance exhausted" },
+        ]);
+        // The clean exit and the closing `end_turn` do not undo the failure the error frame named.
+        expect(events.at(-1)).toEqual({ type: "completed", status: "failed" });
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test.each([
+  ["max_turn_requests", "Grok reached max turns"],
+  ["max_tokens", "Grok stopped: the response reached the output token limit (max_tokens)"],
+  ["refusal", "Grok stopped: the model refused to continue (refusal)"],
+] as const)(
+  "an end with stop reason %s fails the turn with an explanation",
+  async (stopReason, message) => {
+    // 14-headless-mode.md lists `end.stopReason` as end_turn, max_tokens, max_turn_requests,
+    // refusal or cancelled; only end_turn is a success.
+    await withSession(
+      { environment: { COFORGE_GROK_MODE: "end-reason", COFORGE_GROK_STOP_REASON: stopReason } },
+      async ({ session }) => {
+        const events = await runTurn(session, "go");
+        expect(events.filter((event) => event.type === "error")).toEqual([
+          { type: "error", message },
+        ]);
+        expect(events.at(-1)).toEqual({ type: "completed", status: "failed" });
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "interrupt() ends the running turn as interrupted, without reporting grok's cancelled end as an error",
+  async () => {
+    await withSession({ environment: { COFORGE_GROK_MODE: "hang" } }, async ({ session }) => {
+      const events = record(session);
+      const working = firstText(session);
+      const completed = nthCompleted(session, 1);
+      await session.sendMessage("hi");
+      // The fake grok answers SIGINT once it has streamed its first text.
+      await working;
+      await session.interrupt!();
+      await completed;
+      // The interrupt is the requested stop: neither the `cancelled` end nor the error frame that
+      // came with it is a runtime error.
+      expect(events.filter((event) => event.type === "error")).toEqual([]);
+      expect(events.at(-1)).toEqual({ type: "completed", status: "interrupted" });
+    });
+  },
+  SESSION_BUDGET_MS,
+);
+
 test.each([
   ["fails with an error frame", { COFORGE_GROK_NEW_SESSION_MODE: "error" }],
   ["crashes before any frame", { COFORGE_GROK_NEW_SESSION_MODE: "crash" }],
