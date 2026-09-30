@@ -2,9 +2,14 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
-import { coordinatorServiceName, createDaemonHost } from "@lrm/coforge-daemon";
+import {
+  coordinatorServiceName,
+  createDaemonHost,
+  holdRunnersUntilQuiescent,
+  LocalDaemonLauncher,
+} from "@lrm/coforge-daemon";
 
-import { createSupervisorControl, type SupervisorControlOptions } from "./supervisor-control";
+import { createSupervisorStatusReader } from "./supervisor-status";
 
 const logger = getLogger(["coforge", "computer", "upgrade"]);
 
@@ -103,13 +108,25 @@ export interface UpgradeLifecycle {
   resumeLaunches(requestId: string): Promise<void>;
 }
 
-export type SupervisorUpgradeIntegrationOptions = SupervisorControlOptions & {
+export type SupervisorUpgradeIntegrationOptions = {
   installRoot: string;
+  supervisorSocketPath: string;
+  supervisorStatePath: string;
   /** Internal host-adapter seam used by native integration tests. Production omits these values. */
   serviceName?: string;
   homeDirectory?: string;
   runtimeHomeDirectory?: string;
+  /** How long an upgrade waits for a start or restart already under way; tests shorten it. */
+  lifecycleSettle?: { timeoutMs: number; pollMs: number };
 };
+
+/**
+ * How long an upgrade, once it paused the Coordinator, waits for the Workspace lifecycle work
+ * already running to finish: one restart's runner hold (30 s), its stop, and its readiness
+ * (30 s), with room to spare. Work still queued is refused by the pause, so only running work is
+ * waited for.
+ */
+const LIFECYCLE_SETTLE = { timeoutMs: 120_000, pollMs: 500 };
 
 /** `<state>/launch-hold`: the owning request ID and a newline. The Coordinator refuses to launch
  * Workspaces while it exists and reads the trimmed ID back; see installer/contract/launch-hold.txt. */
@@ -125,7 +142,13 @@ export function createSupervisorUpgradeLifecycle(
     "active",
     process.platform === "win32" ? "coforge-computer.exe" : "coforge-computer",
   );
-  const supervisorControl = createSupervisorControl(options);
+  const local = new LocalDaemonLauncher({
+    executablePath,
+    socketPath: options.supervisorSocketPath,
+    stateDirectory: options.supervisorStatePath,
+    spawn: () => {},
+  });
+  const supervisorStatus = createSupervisorStatusReader(options);
   const host = createDaemonHost({
     platform: process.platform,
     executablePath,
@@ -156,8 +179,8 @@ export function createSupervisorUpgradeLifecycle(
     restartsInPlace,
     async snapshot() {
       const status = supervisorWasRunning
-        ? await supervisorControl.runningStatus()
-        : await supervisorControl.persistedStatus();
+        ? await supervisorStatus.runningStatus()
+        : await supervisorStatus.persistedStatus();
       if (status.problems.length) {
         const messages = status.problems.map((problem) => problem.message).join(" ");
         throw new Error(
@@ -177,19 +200,43 @@ export function createSupervisorUpgradeLifecycle(
     async pauseLaunches(requestId) {
       await mkdir(options.supervisorStatePath, { recursive: true, mode: 0o700 });
       await writeFile(holdPath, launchHoldContents(requestId), { mode: 0o600 });
-      supervisorWasRunning = await supervisorControl.isRunning();
+      supervisorWasRunning = await local.identity().then(
+        () => true,
+        () => false,
+      );
       if (!supervisorWasRunning) return;
+      // The pause takes effect at once, so nothing queued can start behind this check; then wait
+      // for the work already running to finish.
+      await local.control("pause");
       try {
-        await supervisorControl.pause(requestId);
+        await settleLifecycleWork(local, options.lifecycleSettle ?? LIFECYCLE_SETTLE);
       } catch (error) {
-        // This transaction owns the pause: undo it, hold file included, before reporting.
         await this.resumeLaunches(requestId).catch(() => {});
         throw error;
       }
     },
     async holdRunners() {
       if (!supervisorWasRunning) return;
-      await supervisorControl.hold();
+      const outcome = await holdRunnersUntilQuiescent({
+        hold: async () => {
+          const response = await local.hold("hold");
+          if (!response.accepted) throw new Error("Coordinator did not accept the runner hold");
+          return response;
+        },
+        // The wait itself now lives in the daemon package, shared with the Coordinator's restart
+        // hold. Keep this path's own logger and `upgrade:` event names.
+        logger,
+        eventPrefix: "upgrade",
+      });
+      logger.info("Runner hold completed", {
+        event: outcome.quiescent ? "upgrade:runner_hold_quiescent" : "upgrade:runner_hold_expired",
+        label: coordinatorLabel,
+        operation: "hold",
+        quiescent: outcome.quiescent,
+        elapsed_ms: outcome.elapsedMs,
+        busy_agent_count: outcome.busyAgents.length,
+        unreachable_workspace_ids: outcome.unreachableWorkspaceIds,
+      });
     },
     async stop() {
       if (!supervisorWasRunning) return;
@@ -346,13 +393,42 @@ export function createSupervisorUpgradeLifecycle(
           throw new Error("activated executable version probe failed");
         return;
       }
-      const supervisor = await supervisorControl.identity();
-      if (supervisor.id === previousSupervisorId || supervisor.version !== expected.version)
+      const identity = await local.identity();
+      if (identity.daemonId === previousSupervisorId || identity.version !== expected.version)
         throw new Error("supervisor replacement identity/version mismatch");
     },
     async resumeLaunches(requestId) {
-      if (supervisorWasRunning) await supervisorControl.resume(requestId);
+      // Releasing first is what lifts a runner hold on an upgrade aborted before the stop. On the
+      // success path the daemon answering here is a fresh process that was never held, and
+      // `daemon:release` is idempotent, so the extra call is a no-op rather than a special case.
+      if (supervisorWasRunning) {
+        await local.hold("release").catch(() => {});
+        await local.control("resume", undefined, requestId);
+      }
       await rm(holdPath, { force: true });
     },
   };
+}
+
+/**
+ * Waits until no Workspace start, restart, or configure is under way (`lifecycleUnderWay` in the
+ * Coordinator's snapshot), or gives up naming them.
+ */
+async function settleLifecycleWork(
+  local: LocalDaemonLauncher,
+  settle: { timeoutMs: number; pollMs: number },
+): Promise<void> {
+  const deadline = Date.now() + settle.timeoutMs;
+  while (true) {
+    const runtimes = await local.control("snapshot").catch(() => []);
+    const underWay = runtimes.filter((runtime) => runtime.lifecycleUnderWay);
+    if (!underWay.length) return;
+    if (Date.now() >= deadline) {
+      const ids = underWay.map((runtime) => runtime.workspaceId);
+      throw new Error(
+        `Workspace ${ids.join(", ")} ${ids.length === 1 ? "is" : "are"} still starting or restarting. Run 'coforge-computer status' to follow ${ids.length === 1 ? "it" : "them"}, then upgrade again.`,
+      );
+    }
+    await Bun.sleep(settle.pollMs);
+  }
 }

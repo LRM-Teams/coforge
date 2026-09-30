@@ -88,8 +88,6 @@ export const LIFECYCLE_EXIT_CODE = {
 /** The `code` of a failed `__lifecycle` call. */
 export const LIFECYCLE_ERROR_CODE = {
   USAGE: "LIFECYCLE_USAGE",
-  /** Nothing listens on the supervisor socket. */
-  SUPERVISOR_NOT_RUNNING: "LIFECYCLE_SUPERVISOR_NOT_RUNNING",
   /** Any other failure; `message` says what happened. */
   FAILED: "LIFECYCLE_FAILED",
 } as const;
@@ -101,7 +99,7 @@ export const LifecycleProtocolSchema = z
   .looseObject({ lifecycle_protocol: lifecycleProtocol, version: z.string() })
   .meta({ title: "__lifecycle protocol" });
 
-/** One reason the runtime set is not healthy (`SupervisorProblem` in supervisor-control.ts). */
+/** One reason the runtime set is not healthy (`SupervisorProblem` in supervisor-status.ts). */
 export const LifecycleProblemSchema = z.looseObject({
   code: z.string().regex(UPGRADE_ERROR_CODE_PATTERN),
   binding_id: z.string().optional(),
@@ -134,23 +132,6 @@ export const LifecycleStatusSchema = z
   })
   .meta({ title: "__lifecycle status" });
 export type LifecycleStatus = z.infer<typeof LifecycleStatusSchema>;
-
-/** `__lifecycle hold --request-id R`: the runner hold's outcome. */
-export const LifecycleHoldSchema = z
-  .looseObject({
-    lifecycle_protocol: lifecycleProtocol,
-    quiescent: z.boolean(),
-    elapsed_ms: z.number().int().nonnegative(),
-    busy_agent_count: z.number().int().nonnegative(),
-  })
-  .meta({ title: "__lifecycle hold" });
-export type LifecycleHold = z.infer<typeof LifecycleHoldSchema>;
-
-/** `__lifecycle pause`, `release`, and `resume`: the operation completed. */
-export const LifecycleAckSchema = z
-  .looseObject({ lifecycle_protocol: lifecycleProtocol, ok: z.literal(true) })
-  .meta({ title: "__lifecycle acknowledgement" });
-export type LifecycleAck = z.infer<typeof LifecycleAckSchema>;
 
 /** Any failed `__lifecycle` call, printed with a non-zero exit status. */
 export const LifecycleErrorSchema = z

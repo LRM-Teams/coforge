@@ -15,7 +15,7 @@ the crate's commands, toolchain, and gotchas.
   check passes. Tests in `src/fetch/tests.rs` (loopback HTTP, no network).
 - `src/contract.rs`: serde types for every file and JSON shape shared with the
   product (manifests, `active.json`, `installation.json`, receipts,
-  `__lifecycle` output, launch-hold, lock, service names, paths). Tests in
+  `__lifecycle` output, lock, service names, paths). Tests in
   `src/contract/tests.rs`.
 
 ## Contract with the product
@@ -28,8 +28,8 @@ the crate's commands, toolchain, and gotchas.
 - The Rust tests read every golden, round-trip it, and add an unknown field to
   prove it is ignored. Keep contract structs free of `deny_unknown_fields`, and
   mirror optional TypeScript fields with `skip_serializing_if`.
-- Anything the installer writes (receipts, `active.json`, `installation.json`,
-  launch-hold) is emitted by the tests into `contract/rust/`, which
+- Anything the installer writes (receipts, `active.json`, `installation.json`)
+  is emitted by the tests into `contract/rust/`, which
   `packages/computer/test/installer-contract.test.ts` reads with the zod
   schemas and the product's own readers. `cargo test` rewrites those files;
   commit them.

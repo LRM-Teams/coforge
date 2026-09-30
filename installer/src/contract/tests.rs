@@ -67,13 +67,10 @@ fn every_golden_is_covered_by_a_test() {
         "installation.v3.json",
         "installation.v4.json",
         "installer-manifest.v1.json",
-        "launch-hold.txt",
         "launchers.posix.json",
         "launchers.windows.json",
         "lifecycle-codes.json",
-        "lifecycle.ack.json",
         "lifecycle.error.json",
-        "lifecycle.hold.json",
         "lifecycle.protocol.json",
         "lifecycle.status.absent.json",
         "lifecycle.status.running.json",
@@ -232,13 +229,9 @@ fn lifecycle_responses() {
             .iter()
             .all(|binding| binding.process_id.is_none())
     );
-    let hold: LifecycleHold = golden("lifecycle.hold.json");
-    assert!(hold.quiescent);
-    let ack: LifecycleAck = golden("lifecycle.ack.json");
-    assert!(ack.ok);
     let error: LifecycleError = golden("lifecycle.error.json");
     assert!(!error.ok);
-    assert_eq!(error.code, codes.error_codes["SUPERVISOR_NOT_RUNNING"]);
+    assert_eq!(error.code, codes.error_codes["FAILED"]);
 }
 
 #[test]
@@ -251,11 +244,7 @@ fn lifecycle_codes() {
 }
 
 #[test]
-fn launch_hold_and_supervisor_lock_owner() {
-    assert_eq!(
-        parse_launch_hold(&read_text("launch-hold.txt")).as_deref(),
-        Some(REQUEST_ID)
-    );
+fn supervisor_lock_owner() {
     assert_eq!(
         parse_supervisor_lock_owner(&read_text("supervisor-lock-owner.txt")),
         Some(4242)
@@ -400,9 +389,4 @@ fn emits_receipts() {
             ..receipt(ReceiptStatus::Failed, EXIT_UNRESOLVED)
         }),
     );
-}
-
-#[test]
-fn emits_launch_hold() {
-    emit("launch-hold.txt", &launch_hold_contents(REQUEST_ID));
 }

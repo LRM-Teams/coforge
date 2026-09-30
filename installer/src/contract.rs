@@ -297,22 +297,6 @@ pub struct LifecycleBinding {
     pub process_id: Option<u32>,
 }
 
-/// `coforge-computer __lifecycle hold --request-id R`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LifecycleHold {
-    pub lifecycle_protocol: u32,
-    pub quiescent: bool,
-    pub elapsed_ms: u64,
-    pub busy_agent_count: u32,
-}
-
-/// `coforge-computer __lifecycle pause`, `release`, and `resume`: the operation completed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LifecycleAck {
-    pub lifecycle_protocol: u32,
-    pub ok: bool,
-}
-
 /// `__lifecycle` exit statuses, error codes, and status problem codes (`lifecycle-codes.json`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LifecycleCodes {
@@ -413,17 +397,6 @@ pub fn to_file_json<T: Serialize>(value: &T) -> String {
     let mut text = serde_json::to_string(value).expect("contract types always serialize");
     text.push('\n');
     text
-}
-
-/// `<state>/launch-hold`: the owning request ID and a newline.
-pub fn launch_hold_contents(request_id: &str) -> String {
-    format!("{request_id}\n")
-}
-
-/// The request ID a launch-hold file names, if any.
-pub fn parse_launch_hold(contents: &str) -> Option<String> {
-    let request_id = contents.trim();
-    (!request_id.is_empty()).then(|| request_id.to_owned())
 }
 
 /// The process ID in `<state>/supervisor.lock/owner`, if it names one.

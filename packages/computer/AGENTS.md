@@ -10,7 +10,7 @@ The Computer starts or reuses the Daemon and talks to it through the local
 versioned RPC boundary. It may perform the one-time user-authorized setup
 registration, but the Daemon owns ongoing Workspace and Agent operation.
 The executable dispatches `__daemon` to the Daemon runtime, `__agent-cli` to
-the existing `@lrm/coforge/runner`, `__lifecycle` to the installer's control
+the existing `@lrm/coforge/runner`, `__lifecycle` to the installer's read-only
 surface, and all normal invocations to the Computer management CLI. These internal modes do not make Daemon or Agent CLI public
 management commands.
 Normal lifecycle commands request startup through the platform user process
@@ -49,19 +49,17 @@ relative to `src/`.
 | `updater.ts`                         | Verified installation, launchers, and version activation                      |
 | `release/`                           | Installer scripts and the independent upgrade/rollback coordinator            |
 | `release/installer-contract.ts`      | Shapes shared only with `coforge-installer` (manifest, receipt, lifecycle)    |
-| `release/supervisor-control.ts`      | Control of the running supervisor: status, pause/resume, runner hold          |
-| `release/lifecycle-command.ts`       | Hidden `__lifecycle` command: the installer's JSON control surface            |
+| `release/supervisor-status.ts`       | What the supervisor runs: live snapshot, or persisted bindings when stopped   |
+| `release/lifecycle-command.ts`       | Hidden `__lifecycle` command: the installer's read-only JSON surface          |
 | `version.ts`                         | Build version                                                                 |
 
-`coforge-computer __lifecycle protocol|status|pause|hold|release|resume` is how
-the installer controls a running Computer. It prints exactly one JSON object on
-stdout (the `Lifecycle*` shapes) and exits with `LIFECYCLE_EXIT_CODE`; logs go to
-the Computer log file only (`protocol` and `status` write nothing). Every verb
-but `protocol` and `status` fails with `LIFECYCLE_SUPERVISOR_NOT_RUNNING` when no
-supervisor listens, so read `status` first. A failed step is not undone for the
-caller: after any failure following `pause`, call `resume`. It never writes or removes
-`launch-hold`; the owner of the upgrade transaction does. The product's own
-upgrade and `__lifecycle` share `release/supervisor-control.ts`.
+`coforge-computer __lifecycle protocol|status` is how the installer reads a
+Computer. It prints exactly one JSON object on stdout (the `Lifecycle*` shapes),
+exits with `LIFECYCLE_EXIT_CODE`, and writes nothing, since the installer also
+probes a candidate binary that never ran. It has no pause, runner hold, or
+resume: an installer upgrade stops the service outright and busy Agents are
+stopped with it. Do not add a control verb without a product decision. The
+product's own upgrade and `__lifecycle status` share `release/supervisor-status.ts`.
 
 `scripts/installer-contract.ts` (outside `src/`, never bundled) generates
 `installer/contract/`, the cross-language contract with the Rust installer:

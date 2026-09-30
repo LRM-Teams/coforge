@@ -3,30 +3,23 @@ import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  DaemonCommandRejectedError,
   LocalDaemonLauncher,
-  RUNNER_HOLD_MS,
   WorkspaceHealthJournal,
   workspaceHealthJournalPath,
   workspaceStateDirectory,
 } from "@lrm/coforge-daemon";
-import { UPGRADE_ERROR_CODE } from "@lrm/coforge-sdk/internal";
 import {
   LIFECYCLE_ERROR_CODE,
   LIFECYCLE_EXIT_CODE,
-  LIFECYCLE_PROTOCOL,
-  LifecycleAckSchema,
-  type LifecycleAck,
   LifecycleErrorSchema,
-  LifecycleHoldSchema,
   LifecycleProtocolSchema,
   LifecycleStatusSchema,
 } from "#src/release/installer-contract";
-import { LIFECYCLE_SETTLE, SUPERVISOR_PROBLEM_CODE } from "#src/release/supervisor-control";
+import { SUPERVISOR_PROBLEM_CODE } from "#src/release/supervisor-status";
 
 /*
- * `coforge-computer __lifecycle` is the only way the separately released installer controls a
- * running Computer, so its seam is the compiled executable: arguments in, one JSON object on
+ * `coforge-computer __lifecycle` is the only way the separately released installer reads a
+ * Computer's state, so its seam is the compiled executable: arguments in, one JSON object on
  * stdout, an exit status. Every response is parsed with the contract schema the installer's own
  * tests read (installer/contract/lifecycle.*.json).
  */
@@ -47,12 +40,8 @@ const COMPILE_TIMEOUT_MS = 120_000;
 /** How long a freshly spawned supervisor gets to answer on its socket. */
 const SUPERVISOR_READY_MS = 30_000;
 
-/** A test that starts a supervisor: its readiness bound, plus the product's own bounds for a
- * pause (waiting for lifecycle work) and a runner hold (waiting for busy Agents). */
-const SUPERVISOR_TEST_TIMEOUT_MS =
-  SUPERVISOR_READY_MS + LIFECYCLE_SETTLE.timeoutMs + RUNNER_HOLD_MS;
-
-const ACK: LifecycleAck = { lifecycle_protocol: LIFECYCLE_PROTOCOL, ok: true };
+/** A test that starts a supervisor: its readiness bound plus one `__lifecycle status` call. */
+const SUPERVISOR_TEST_TIMEOUT_MS = SUPERVISOR_READY_MS + 10_000;
 
 beforeAll(async () => {
   root = await mkdtemp(join(await realpath(FIXTURE_ROOT), "cf-lifecycle-"));
@@ -244,64 +233,19 @@ test(
   SUPERVISOR_TEST_TIMEOUT_MS,
 );
 
-test(
-  "pause refuses Workspace lifecycle commands until resume lifts it",
-  async () => {
-    const home = await freshHome();
-    await using supervisor = await startSupervisor(home);
-    const requestId = crypto.randomUUID();
+test.each(["pause", "hold", "release", "resume"])(
+  "%s is not a lifecycle command: upgrades stop the service without pausing it",
+  async (command) => {
+    const result = await lifecycle(
+      await freshHome(),
+      command,
+      "--request-id",
+      "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f",
+    );
 
-    const paused = await lifecycle(home, "pause", "--request-id", requestId);
-    expect(paused.exitCode).toBe(0);
-    expect(LifecycleAckSchema.parse(paused.json())).toEqual(ACK);
-    await expectGoldenFields(paused.json(), "lifecycle.ack.json");
-    const refusal = await supervisor.client.control("stop").catch((error: unknown) => error);
-    expect(refusal).toBeInstanceOf(DaemonCommandRejectedError);
-    expect((refusal as DaemonCommandRejectedError).code).toBe(UPGRADE_ERROR_CODE.LAUNCHES_PAUSED);
-
-    const resumed = await lifecycle(home, "resume", "--request-id", requestId);
-    expect(resumed.exitCode).toBe(0);
-    expect(LifecycleAckSchema.parse(resumed.json())).toEqual(ACK);
-    expect(await supervisor.client.control("stop")).toEqual([]);
-  },
-  SUPERVISOR_TEST_TIMEOUT_MS,
-);
-
-test(
-  "hold reports an idle Computer quiescent at once, and release lifts it",
-  async () => {
-    const home = await freshHome();
-    await using _supervisor = await startSupervisor(home);
-
-    const held = await lifecycle(home, "hold", "--request-id", crypto.randomUUID());
-    expect(held.exitCode).toBe(0);
-    expect(LifecycleHoldSchema.parse(held.json())).toMatchObject({
-      lifecycle_protocol: 1,
-      quiescent: true,
-      busy_agent_count: 0,
-    });
-    await expectGoldenFields(held.json(), "lifecycle.hold.json");
-
-    const released = await lifecycle(home, "release");
-    expect(released.exitCode).toBe(0);
-    expect(LifecycleAckSchema.parse(released.json())).toEqual(ACK);
-  },
-  SUPERVISOR_TEST_TIMEOUT_MS,
-);
-
-test.each([
-  { args: ["pause", "--request-id", "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f"] },
-  { args: ["hold", "--request-id", "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f"] },
-  { args: ["release"] },
-  { args: ["resume", "--request-id", "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f"] },
-])(
-  "$args.0 without a running supervisor fails with a stable code and exit status 1",
-  async ({ args }) => {
-    const result = await lifecycle(await freshHome(), ...args);
-
-    expect(result.exitCode).toBe(LIFECYCLE_EXIT_CODE.FAILED);
+    expect(result.exitCode).toBe(LIFECYCLE_EXIT_CODE.USAGE);
     const error = LifecycleErrorSchema.parse(result.json());
-    expect(error).toMatchObject({ ok: false, code: LIFECYCLE_ERROR_CODE.SUPERVISOR_NOT_RUNNING });
+    expect(error).toMatchObject({ code: LIFECYCLE_ERROR_CODE.USAGE });
     await expectGoldenFields(error, "lifecycle.error.json");
   },
 );

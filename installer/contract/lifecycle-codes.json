@@ -6,7 +6,6 @@
   },
   "error_codes": {
     "USAGE": "LIFECYCLE_USAGE",
-    "SUPERVISOR_NOT_RUNNING": "LIFECYCLE_SUPERVISOR_NOT_RUNNING",
     "FAILED": "LIFECYCLE_FAILED"
   },
   "problem_codes": {

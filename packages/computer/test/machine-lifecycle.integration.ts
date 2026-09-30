@@ -10,6 +10,8 @@ import {
   decodeDaemonRuntimeReadyRequest,
   type DaemonRuntimeReadyRequest,
 } from "@lrm/coforge-sdk/internal";
+import { LifecycleStatusSchema } from "#src/release/installer-contract";
+import { SUPERVISOR_PROBLEM_CODE } from "#src/release/supervisor-status";
 
 let root: string;
 let executable: string;
@@ -142,8 +144,23 @@ afterAll(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 
+/** `coforge-computer __lifecycle status` for the supervisor under `home`, parsed with the contract
+ * schema the installer's tests read. */
+async function lifecycleStatus(home: string) {
+  const child = Bun.spawn([executable, "__lifecycle", "status"], {
+    env: { PATH: Bun.env.PATH, HOME: home },
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  expect(exitCode).toBe(0);
+  return LifecycleStatusSchema.parse(JSON.parse(stdout));
+}
+
 test("real compiled machine supervisor preserves Workspace lifecycle and recovery state", async () => {
-  const stateDirectory = join(root, "machine");
+  // The default state directory under a home of its own, so `__lifecycle` finds this supervisor.
+  const home = join(root, "home");
+  const stateDirectory = join(home, ".coforge", "daemon");
   const socketPath = join(stateDirectory, "daemon.sock");
   const spawn = () =>
     Bun.spawn(
@@ -204,6 +221,21 @@ test("real compiled machine supervisor preserves Workspace lifecycle and recover
     );
 
     await client.control("stop", "b");
+    const running = await lifecycleStatus(home);
+    const runtimeA = (await client.control("snapshot")).find(
+      (runtime) => runtime.workspaceId === "a",
+    )!;
+    expect(running).toMatchObject({
+      supervisor: { running: true },
+      healthy: true,
+      problems: [],
+    });
+    expect(running.bindings).toEqual(
+      expect.arrayContaining([
+        { binding_id: "a", enabled: true, running: true, process_id: runtimeA.processId },
+        { binding_id: "b", enabled: false, running: false, process_id: null },
+      ]),
+    );
     await client.control("pause");
     await client.control("resume");
     await client.control("start", "a");
@@ -212,6 +244,13 @@ test("real compiled machine supervisor preserves Workspace lifecycle and recover
     )!.processId;
     supervisor.kill("SIGKILL");
     expect(await supervisor.exited).not.toBe(0);
+    // Workspace a is enabled and not parked, and nothing supervises it now.
+    const orphaned = await lifecycleStatus(home);
+    expect(orphaned).toMatchObject({
+      supervisor: { running: false },
+      healthy: false,
+      problems: [{ code: SUPERVISOR_PROBLEM_CODE.SUPERVISOR_NOT_RUNNING }],
+    });
     supervisor = spawn();
     await client.ensureRunning();
     const recovered = await client.control("snapshot");
