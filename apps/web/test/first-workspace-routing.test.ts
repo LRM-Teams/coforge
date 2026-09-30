@@ -12,7 +12,9 @@ let startPage: string | null = null;
 
 mock.module("#src/features/auth/current-user.functions", () => ({
   getAuthenticationStatus: async () => signedIn,
-  getSignedInEmail: async () => (signedIn ? "ada@example.com" : null),
+  // The signed-in person is one with no email address (a phone-number sign-up), named by their
+  // username: having no email does not make them a signed-out visitor.
+  getSignedInAccount: async () => (signedIn ? "@user-0a1b2c3d" : null),
 }));
 mock.module("#src/features/workspaces/last-location.functions", () => ({
   getStartPage: async () => startPage,

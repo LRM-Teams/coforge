@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getSignedInEmail } from "#src/features/auth/current-user.functions";
+import { getSignedInAccount } from "#src/features/auth/current-user.functions";
 import { inspectWorkspaceJoinLink } from "#src/features/workspaces/join-links.functions";
 import { JoinWorkspacePage } from "#src/features/workspaces/join-workspace-page";
 import { isAppError } from "#src/lib/app-error";
@@ -11,14 +11,14 @@ import { isAppError } from "#src/lib/app-error";
  */
 export const Route = createFileRoute("/join/$token")({
   loader: async ({ params }) => {
-    const [preview, viewerEmail] = await Promise.all([
+    const [preview, viewerAccount] = await Promise.all([
       inspectWorkspaceJoinLink({ data: { token: params.token } }).catch((error: unknown) => {
         if (isAppError(error) && error.code === "NOT_FOUND") return null;
         throw error;
       }),
-      getSignedInEmail(),
+      getSignedInAccount(),
     ]);
-    return { preview, viewerEmail };
+    return { preview, viewerAccount };
   },
   // Whether the link still works, and who is looking, must never come from a cache.
   staleTime: 0,
@@ -28,8 +28,8 @@ export const Route = createFileRoute("/join/$token")({
 
 function Join() {
   const { token } = Route.useParams();
-  const { preview, viewerEmail } = Route.useLoaderData();
+  const { preview, viewerAccount } = Route.useLoaderData();
   return (
-    <JoinWorkspacePage key={token} token={token} preview={preview} viewerEmail={viewerEmail} />
+    <JoinWorkspacePage key={token} token={token} preview={preview} viewerAccount={viewerAccount} />
   );
 }

@@ -123,3 +123,43 @@ test.skipIf(!connectionString)(
     }
   },
 );
+
+test.skipIf(!connectionString)(
+  "a preferred_username made only of digits is a phone number, and never becomes the username",
+  async () => {
+    const { suffix, login, teardown } = await setup();
+    try {
+      // Sign-up by phone number and nothing else: the username is the generated one.
+      const phoneOnly = await login(`sub-phone-only-${suffix}`, {
+        preferredUsername: " 13800138000 ",
+      });
+      expect(phoneOnly.username).toMatch(/^user-[0-9a-f]{8}$/);
+      expect(phoneOnly.username).not.toContain("13800138000");
+      expect(phoneOnly.email).toBeNull();
+
+      // With an email as well, the email's local part names the account, not the phone number.
+      const withEmail = await login(`sub-phone-email-${suffix}`, {
+        email: `ada-${suffix}@example.com`,
+        preferredUsername: "13800138000",
+      });
+      expect(withEmail.username).toStartWith(`ada-${suffix}-`);
+      expect(withEmail.username).not.toContain("13800138000");
+    } finally {
+      await teardown();
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "a preferred_username that is a name, even with digits in it, is still the username",
+  async () => {
+    const { suffix, login, teardown } = await setup();
+    try {
+      const named = await login(`sub-named-${suffix}`, { preferredUsername: `ada2024-${suffix}` });
+
+      expect(named.username).toBe(`ada2024-${suffix}`);
+    } finally {
+      await teardown();
+    }
+  },
+);

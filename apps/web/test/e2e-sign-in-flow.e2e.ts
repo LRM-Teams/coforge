@@ -12,8 +12,9 @@ import { workspaceJoinLinks } from "#src/server/workspaces/join-links-store.serv
  * Signing in through the hosted login page, end to end, from a Workspace invite link. A signed-out
  * visitor signs in and comes back to the link to join; "Use another account" signs out and comes
  * back to the same link as the other account; a sign-in that does not finish says so and signs in
- * again to the same link; two tabs signing in at once both finish; and a sign-in's own state cookie
- * never passes as a session.
+ * again to the same link; an account with no email address (a phone-number sign-up) signs in like
+ * any other; two tabs signing in at once both finish; and a sign-in's own state cookie never passes
+ * as a session.
  *
  * Opt-in like the other browser E2Es, but it brings its own servers: a stand-in for Authing's OIDC
  * endpoints over HTTPS (a throwaway self-signed certificate; the Web server trusts it through
@@ -39,12 +40,14 @@ const webPort = Number(Bun.env.COFORGE_E2E_SIGN_IN_WEB_PORT ?? 8798);
 const origin = `http://127.0.0.1:${webPort}`;
 const artifacts = join(import.meta.dir, "../../../.amp/e2e/sign-in-flow");
 
-type Person = { sub: string; email?: string; name: string };
+type Person = { sub: string; email?: string; name: string; refused?: true };
 const people = {
   alice: { sub: "e2e-sign-in-alice", email: "e2e-alice@coforge.test", name: "Alice E2E" },
   bob: { sub: "e2e-sign-in-bob", email: "e2e-bob@coforge.test", name: "Bob E2E" },
-  // CoForge needs an email, so this account's sign-in cannot finish.
-  "no-email": { sub: "e2e-sign-in-no-email", name: "No Email E2E" },
+  // A phone-number sign-up: Authing reports no email.
+  "phone-only": { sub: "e2e-sign-in-phone-only", name: "Phone Only E2E" },
+  // Authing refuses this account's userinfo request, so its sign-in cannot finish.
+  refused: { sub: "e2e-sign-in-refused", name: "Refused E2E", refused: true },
 } satisfies Record<string, Person>;
 type PersonKey = keyof typeof people;
 const appId = "e2e-sign-in-app";
@@ -132,7 +135,10 @@ function startFakeAuthing(tls: { cert: string; key: string }) {
       if (url.pathname === "/oidc/me") {
         const token = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
         const person = accessTokens.get(token);
-        return person ? Response.json(people[person]) : new Response(null, { status: 401 });
+        const profile: Person | undefined = person && people[person];
+        return profile && !profile.refused
+          ? Response.json(profile)
+          : new Response(null, { status: 401 });
       }
       if (url.pathname === "/oidc/session/end") {
         if (
@@ -328,8 +334,9 @@ test("signing in through the hosted page, from a Workspace invite link", async (
       expiresAt: null,
     });
     const joinPath = `/join/${link.token}`;
-    const onJoinPageAs = (person: "alice" | "bob") =>
-      `location.origin === ${JSON.stringify(origin)} && location.pathname.endsWith(${JSON.stringify(joinPath)}) && document.querySelector("main")?.innerText.includes(${JSON.stringify(`Signed in as ${people[person].email}`)})`;
+    /** The invite page, signed in and naming the account `account` (its email, or its @username). */
+    const onJoinPageAs = (account: string) =>
+      `location.origin === ${JSON.stringify(origin)} && location.pathname.endsWith(${JSON.stringify(joinPath)}) && document.querySelector("main")?.innerText.includes(${JSON.stringify(`Signed in as ${account}`)})`;
     await mkdir(artifacts, { recursive: true });
 
     // The Web server is up once it answers; signed out, /api/me says so.
@@ -373,6 +380,31 @@ test("signing in through the hosted page, from a Workspace invite link", async (
     expect(me.status).toBe(200);
     expect(((await me.json()) as { user: { email: string } }).user.email).toBe(people.alice.email);
 
+    // An account with no email signs in the same way, and is left without one.
+    const phoneStarted = await fetch(
+      `${origin}/auth/login?returnTo=${encodeURIComponent(joinPath)}`,
+      { redirect: "manual" },
+    );
+    const phoneStateCookie = phoneStarted.headers.getSetCookie()[0]?.split(";", 1)[0];
+    if (!phoneStateCookie) throw new Error("sign-in set no state cookie");
+    const phoneCallback = await fetch(
+      fake.approve("phone-only", new URL(phoneStarted.headers.get("location") ?? "").searchParams),
+      { headers: { cookie: phoneStateCookie }, redirect: "manual" },
+    );
+    expect(phoneCallback.headers.get("location")).toEndWith(joinPath);
+    const phoneSessionCookie = phoneCallback.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith("coforge_session="))
+      ?.split(";", 1)[0];
+    if (!phoneSessionCookie) throw new Error("the callback set no session cookie");
+    const phoneMe = await fetch(`${origin}/api/me`, { headers: { cookie: phoneSessionCookie } });
+    expect(phoneMe.status).toBe(200);
+    const phoneUser = ((await phoneMe.json()) as { user: Record<string, unknown> }).user;
+    expect(phoneUser.email).toBeNull();
+    expect(phoneUser.name).toBe(people["phone-only"].name);
+    // Named by nothing they typed in: the generated username, never a phone number.
+    expect(phoneUser.username).toMatch(/^user-[0-9a-f]{8}$/);
+
     await browser("set", "viewport", "1440", "900");
 
     // Signed out, the invite link offers to sign in, and signing in comes back to it to join.
@@ -382,7 +414,7 @@ test("signing in through the hosted page, from a Workspace invite link", async (
     await browser("eval", `${button("Sign in to join")}.click()`);
     await waitFor(onAuthingPage);
     await browser("click", "#as-alice");
-    await waitFor(onJoinPageAs("alice"));
+    await waitFor(onJoinPageAs(people.alice.email));
     await waitFor(hydrated(button(`Join ${name}`)));
     await browser("screenshot", join(artifacts, "2-back-on-invite-as-alice.png"));
     await browser("eval", `${button(`Join ${name}`)}.click()`);
@@ -417,7 +449,7 @@ test("signing in through the hosted page, from a Workspace invite link", async (
     await waitFor(onAuthingPage);
     expect(fake.endedSessions.at(-1)).toBe("id-alice");
     await browser("click", "#as-bob");
-    await waitFor(onJoinPageAs("bob"));
+    await waitFor(onJoinPageAs(people.bob.email));
     expect(await evaluate<boolean>(`!!${button(`Join ${name}`)}`)).toBe(true);
     await browser("screenshot", join(artifacts, "4-switched-to-bob.png"));
 
@@ -425,7 +457,7 @@ test("signing in through the hosted page, from a Workspace invite link", async (
     await browser("cookies", "clear");
     await browser("open", `${origin}/auth/login?returnTo=${encodeURIComponent(joinPath)}`);
     await waitFor(onAuthingPage);
-    await browser("click", "#as-no-email");
+    await browser("click", "#as-refused");
     await waitFor(
       `location.origin === ${JSON.stringify(origin)} && document.querySelector("main [role=alert]")?.textContent === "Sign-in failed. Try again."`,
     );
@@ -436,7 +468,18 @@ test("signing in through the hosted page, from a Workspace invite link", async (
     await browser("eval", `${button("Sign in again")}.click()`);
     await waitFor(onAuthingPage);
     await browser("click", "#as-bob");
-    await waitFor(onJoinPageAs("bob"));
+    await waitFor(onJoinPageAs(people.bob.email));
+
+    // An account with no email is signed in, not signed out: the invite offers to join it, and
+    // names the account by its @username.
+    await browser("cookies", "clear");
+    await browser("open", `${origin}/auth/login?returnTo=${encodeURIComponent(joinPath)}`);
+    await waitFor(onAuthingPage);
+    await browser("click", "#as-phone-only");
+    await waitFor(onJoinPageAs(`@${String(phoneUser.username)}`));
+    expect(await evaluate<boolean>(`!!${button(`Join ${name}`)}`)).toBe(true);
+    expect(await evaluate<boolean>(`!!${button("Sign in to join")}`)).toBe(false);
+    await browser("screenshot", join(artifacts, "6-signed-in-without-email.png"));
 
     // Two tabs signing in at the same time both finish: each sign-in keeps its own state.
     await browser("cookies", "clear");
@@ -446,12 +489,12 @@ test("signing in through the hosted page, from a Workspace invite link", async (
     await browser("open", `${origin}/auth/login?returnTo=${encodeURIComponent(joinPath)}`);
     await waitFor(onAuthingPage);
     await browser("click", "#as-bob");
-    await waitFor(onJoinPageAs("bob"));
+    await waitFor(onJoinPageAs(people.bob.email));
     await browser("tab", "0");
     await waitFor(onAuthingPage);
     await browser("click", "#as-alice");
-    await waitFor(onJoinPageAs("alice"));
-    await browser("screenshot", join(artifacts, "6-first-tab-finished-as-alice.png"));
+    await waitFor(onJoinPageAs(people.alice.email));
+    await browser("screenshot", join(artifacts, "7-first-tab-finished-as-alice.png"));
   } finally {
     await browser("close").catch(() => undefined);
     if (web) {

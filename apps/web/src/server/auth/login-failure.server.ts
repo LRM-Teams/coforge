@@ -10,7 +10,6 @@ const FAILURE_REASONS = {
   state: "invalid login state",
   token_exchange: "failed to exchange authorization code",
   userinfo: "failed to fetch Authing user info",
-  email: "email is required",
   user_resolution: "failed to resolve user",
   enrollment: "failed to enroll user in a Workspace",
 } as const;

@@ -79,7 +79,8 @@ interface SettingsContentProps {
   onSectionChange?: (section: SettingsSection) => void;
   profile: {
     name: string;
-    email: string;
+    /** Null for an account made with a phone number alone. */
+    email: string | null;
     username: string;
     description: string;
     avatarUrl: string | null;
@@ -564,7 +565,9 @@ function AccountSettings({
             </div>
             <dl className="grid gap-x-8 gap-y-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
               <ProfileValue label={m.settings_display_name()} value={profile.name} />
-              <ProfileValue label={m.settings_email()} value={profile.email} />
+              {profile.email ? (
+                <ProfileValue label={m.settings_email()} value={profile.email} />
+              ) : null}
               <ProfileValue label={m.settings_username()} value={`@${profile.username}`} />
               <ProfileValue
                 label={m.settings_user_description()}

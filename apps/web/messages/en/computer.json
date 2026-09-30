@@ -100,7 +100,7 @@
   "device_verify_code_label": "Device code",
   "device_verify_continue": "Continue",
   "device_verify_checking": "Checking…",
-  "device_verify_signed_in_as": "Signed in as {email}",
+  "device_verify_signed_in_as": "Signed in as {account}",
   "device_verify_confirm_title": "Approve this computer?",
   "device_verify_confirm_description": "The computer showing code {code} will be able to act as you until you remove it.",
   "device_verify_approve": "Approve",

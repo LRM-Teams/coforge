@@ -43,7 +43,14 @@ function problemMessage(state: DeviceCodeState): string | null {
   return null;
 }
 
-export function DeviceVerifyPage({ email, initialCode }: { email: string; initialCode: string }) {
+export function DeviceVerifyPage({
+  account,
+  initialCode,
+}: {
+  /** How the signed-in account is named: its email, or its @username. */
+  account: string;
+  initialCode: string;
+}) {
   const [code, setCode] = useState(initialCode);
   const [stage, setStage] = useState<Stage>({ name: "entry" });
   const [problem, setProblem] = useState<string | null>(null);
@@ -197,7 +204,7 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
             )}
 
             <p className="mt-8 text-center text-sm break-words text-tertiary">
-              {m.device_verify_signed_in_as({ email })}
+              {m.device_verify_signed_in_as({ account })}
             </p>
           </>
         )}

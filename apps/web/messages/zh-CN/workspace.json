@@ -199,7 +199,7 @@
   "workspace_join_sign_in": "登录后加入",
   "workspace_join_submit": "加入 {name}",
   "workspace_join_open": "进入 {name}",
-  "workspace_join_signed_in_as": "当前账号 {email}",
+  "workspace_join_signed_in_as": "当前账号 {account}",
   "workspace_join_switch_account": "换一个账号",
   "workspace_join_failed": "加入失败，请检查网络后重试。",
   "workspace_join_server_failed": "加入失败，服务出了问题，请稍后重试。",

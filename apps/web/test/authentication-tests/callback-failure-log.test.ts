@@ -250,22 +250,6 @@ test("a userinfo request Authing refuses says userinfo failed, with the status",
   expectNoSecrets(lines, secrets);
 });
 
-test("an Authing account without an email says the email is required", async () => {
-  const config = authingAt({
-    token: tokenGranted,
-    userinfo: () => Response.json({ sub: "authing-user-1", name: "No Email" }),
-  });
-  const { response, lines, secrets } = await failedCallback({ config });
-  expectLoginFailedRedirect(response);
-  expect(lines).toHaveLength(1);
-  expect(callbackFailure(lines)).toEqual({
-    event: "auth.login_callback_failed",
-    stage: "email",
-    reason: "email is required",
-  });
-  expectNoSecrets(lines, secrets);
-});
-
 test("a user that cannot be resolved says so, without the error's message or the email in it", async () => {
   const config = authingAt({ token: tokenGranted, userinfo: userinfoOk });
   const { response, lines, secrets } = await failedCallback({

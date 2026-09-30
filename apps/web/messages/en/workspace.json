@@ -201,7 +201,7 @@
   "workspace_join_sign_in": "Sign in to join",
   "workspace_join_submit": "Join {name}",
   "workspace_join_open": "Open {name}",
-  "workspace_join_signed_in_as": "Signed in as {email}",
+  "workspace_join_signed_in_as": "Signed in as {account}",
   "workspace_join_switch_account": "Use another account",
   "workspace_join_failed": "Couldn’t join. Check your connection and try again.",
   "workspace_join_server_failed": "Couldn’t join because of a problem on our side. Try again in a moment.",

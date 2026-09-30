@@ -6,6 +6,7 @@ import {
   endBrowserLogin,
   readBrowserSession,
   startBrowserLogin,
+  type InternalUserResolver,
   type TokenExchanger,
 } from "#src/server/auth/browser-login.server";
 
@@ -21,12 +22,15 @@ const config = {
   redirectUri: "http://localhost:3000/auth/callback",
 };
 
-function fakeAuthing(user: {
+type AuthingProfile = {
   sub: string;
   email?: string;
   name?: string;
+  nickname?: string;
   preferred_username?: string;
-}): TokenExchanger {
+};
+
+function fakeAuthing(user: AuthingProfile): TokenExchanger {
   return {
     async exchangeAuthorizationCode(input) {
       if (input.code !== "valid-code") throw new Error("invalid authorization code");
@@ -193,21 +197,54 @@ test("completeBrowserLogin rejects a mismatched or missing state", async () => {
   ).rejects.toThrow("invalid login state");
 });
 
-test("completeBrowserLogin rejects an Authing account without email", async () => {
-  const started = startBrowserLogin({ config, sessionSecret });
-  const state = new URL(started.authorizationUrl).searchParams.get("state");
-  if (!state) throw new Error("state missing");
+test("completeBrowserLogin signs in an Authing account that has no email", async () => {
+  const completed = await signIn({ sub: "authing-phone-user", name: "Ada" });
 
-  await expect(
-    completeBrowserLogin({
-      config,
-      sessionSecret,
-      code: "valid-code",
-      state,
-      cookieHeader: cookieHeader(started.stateCookie),
-      authing: fakeAuthing({ sub: "authing-user-1", name: "No Email" }),
-    }),
-  ).rejects.toThrow("email is required");
+  expect(completed.user.email).toBeNull();
+  expect(completed.user.name).toBe("Ada");
+  expect(completed.user.authingSub).toBe("authing-phone-user");
+  expect(completed.sessionCookie).toContain("coforge_session=");
+  // The session keeps the missing email as an explicit null, not as a key that is gone.
+  expect(
+    readBrowserSession({ sessionSecret, cookieHeader: cookieHeader(completed.sessionCookie) }),
+  ).toEqual({ ...completed.user, email: null });
+});
+
+test("an account with no email reaches user resolution with a null email, and no username hint it did not send", async () => {
+  let resolved: unknown;
+  await signIn({ sub: "authing-phone-user" }, async (input) => {
+    resolved = input;
+    return { id: "00000000-0000-5000-8000-000000000003", username: "user-0a1b2c3d" };
+  });
+
+  expect(resolved).toEqual({ provider: "authing", subject: "authing-phone-user", email: null });
+});
+
+test("without an email the name is the profile name, then the nickname, then the username", async () => {
+  const resolveUser = async () => ({
+    id: "00000000-0000-5000-8000-000000000003",
+    username: "user-0a1b2c3d",
+  });
+
+  expect((await signIn({ sub: "s", name: " Ada ", nickname: "Ace" }, resolveUser)).user.name).toBe(
+    "Ada",
+  );
+  expect((await signIn({ sub: "s", nickname: " Ace " }, resolveUser)).user.name).toBe("Ace");
+  expect((await signIn({ sub: "s", name: "  ", nickname: "" }, resolveUser)).user.name).toBe(
+    "user-0a1b2c3d",
+  );
+});
+
+test("an email is trimmed and lower-cased, and a blank one counts as none", async () => {
+  const padded = await signIn({ sub: "s", email: "  Ada@Example.COM ", name: "Ada" });
+  expect(padded.user.email).toBe("ada@example.com");
+
+  const blank = await signIn({ sub: "s", email: "   ", name: "Ada" });
+  expect(blank.user.email).toBeNull();
+
+  // With an email and no name, the name is what comes before the @ (unchanged behaviour).
+  const unnamed = await signIn({ sub: "s", email: "Grace@Example.com" });
+  expect(unnamed.user.name).toBe("grace");
 });
 
 test("endBrowserLogin clears the session cookie and returns the Authing logout URL", () => {
@@ -371,6 +408,21 @@ async function loginAs(sub: string, email: string) {
   });
 }
 
+async function signIn(profile: AuthingProfile, resolveUser?: InternalUserResolver) {
+  const started = startBrowserLogin({ config, sessionSecret });
+  const state = new URL(started.authorizationUrl).searchParams.get("state");
+  if (!state) throw new Error("state missing");
+  return completeBrowserLogin({
+    config,
+    sessionSecret,
+    code: "valid-code",
+    state,
+    cookieHeader: cookieHeader(started.stateCookie),
+    authing: fakeAuthing(profile),
+    ...(resolveUser ? { resolveUser } : {}),
+  });
+}
+
 function cookieHeader(setCookie: string): string {
   return setCookie.split(";", 1)[0] ?? "";
 }
@@ -406,6 +458,37 @@ test("a switch-account return cookie replayed as the session cookie signs nobody
       cookieHeader: `coforge_session=${cookieValue(ended.returnCookie)}`,
     }),
   ).toBeNull();
+});
+
+/** A session cookie for `fields` laid over a valid session, signed the way this module signs one. */
+function sessionCookieWith(fields: Record<string, unknown>): string {
+  const body = Buffer.from(
+    JSON.stringify({
+      id: "user-1",
+      email: "ada@example.com",
+      name: "Ada",
+      authingSub: "authing-user-1",
+      username: "ada",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      ...fields,
+    }),
+  ).toString("base64url");
+  const signature = new Bun.CryptoHasher("sha256", sessionSecret)
+    .update(`session.${body}`)
+    .digest("base64url");
+  return `coforge_session=${body}.${signature}`;
+}
+
+test("a session cookie signed in with an email, or with none, still reads as that session", () => {
+  const read = (fields: Record<string, unknown>) =>
+    readBrowserSession({ sessionSecret, cookieHeader: sessionCookieWith(fields) });
+
+  // Cookies made before an email became optional carry a string, and stay valid.
+  expect(read({})).toMatchObject({ id: "user-1", email: "ada@example.com" });
+  expect(read({ email: null })).toMatchObject({ id: "user-1", email: null });
+  // Anything else in the email's place is not a session this module wrote.
+  expect(read({ email: 42 })).toBeNull();
+  expect(read({ email: undefined })).toBeNull();
 });
 
 test("only a signature made for a session reads as a session", () => {
