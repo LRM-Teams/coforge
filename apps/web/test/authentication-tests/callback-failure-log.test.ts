@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 
 import { startBrowserLogin, type AuthingConfig } from "#src/server/auth/browser-login.server";
 import { handleLoginCallback } from "#src/server/auth/http.server";
+import { reportLoginCallbackFailure } from "#src/server/auth/login-failure.server";
 
 // A failed sign-in redirects to /login and says nothing else to the browser. The operator's only
 // account of why is the callback's log line, so it must name the step and the non-secret reason,
@@ -325,4 +326,38 @@ test("a database that is missing says so as the step that needed it", async () =
     if (previous === undefined) delete process.env.DATABASE_URL;
     else process.env.DATABASE_URL = previous;
   }
+});
+
+test("an error the callback did not classify is logged as unexpected, carrying none of its message", () => {
+  // Every other stage is reached through handleLoginCallback. This one is the catch-all for a
+  // throw that no stage wrapped, and the callback's guarded paths do not produce one: three
+  // malformed state cookies all arrived as stage "state"/"invalid login state". So drive the
+  // reporter directly, which is where the catch-all's contract lives, and assert both halves -
+  // the step is named, and the exception's own text never reaches the log.
+  const message = `boom for ${email} carrying ${accessToken} and ${appSecret}`;
+  const lines: string[] = [];
+  const spy = spyOn(console, "error").mockImplementation((line: unknown) => {
+    lines.push(String(line));
+  });
+  try {
+    reportLoginCallbackFailure(new Error(message));
+  } finally {
+    spy.mockRestore();
+  }
+  const failure = callbackFailure(lines);
+  expect(failure).toEqual({
+    event: "auth.login_callback_failed",
+    stage: "unexpected",
+    reason: "unexpected error",
+    errorType: "error",
+    errorId: expect.any(String),
+  });
+  // The exception itself still reports once, on the generic line, under the same errorId - measured,
+  // not assumed: reportLoginCallbackFailure emits both. This is the assertion that fails if someone
+  // later routes the exception's message into either line.
+  expect(records(lines).find((record) => record.event === "server_operation_failed")).toMatchObject(
+    { errorId: failure.errorId },
+  );
+  expectNoSecrets(lines, [email, accessToken, appSecret]);
+  expect(lines.join("\n")).not.toContain("boom for");
 });
