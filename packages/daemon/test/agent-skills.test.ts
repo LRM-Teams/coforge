@@ -48,7 +48,7 @@ test("Skills metadata distinguishes native global and workspace roots and reread
       ".pi/agent/skills",
       ".kiro/skills",
       ".cursor/skills",
-      ".gemini/antigravity-cli/skills",
+      ".gemini/config/skills",
     ]) {
       await Bun.write(
         join(home, dir, "review/SKILL.md"),
@@ -165,10 +165,11 @@ test("Antigravity Skills scan the workspace .agents root and only its own global
   try {
     const skill = "---\nname: agy-review\ndescription: Antigravity review\n---\nprivate";
     await Bun.write(join(cwd, ".agents/skills/local/SKILL.md"), skill);
-    await Bun.write(join(home, ".gemini/antigravity-cli/skills/global/SKILL.md"), skill);
-    // Other CLIs' personal roots, which the Antigravity CLI does not read.
+    await Bun.write(join(home, ".gemini/config/skills/global/SKILL.md"), skill);
+    // Roots the Antigravity CLI does not read: another CLI's personal root, and the CLI's own
+    // state directory, which agy 1.2.13 ignores for skills.
     await Bun.write(join(home, ".agents/skills/must-not-scan/SKILL.md"), skill);
-    await Bun.write(join(home, ".gemini/config/skills/must-not-scan/SKILL.md"), skill);
+    await Bun.write(join(home, ".gemini/antigravity-cli/skills/must-not-scan/SKILL.md"), skill);
 
     const result = await listAgentSkills({
       provider: "antigravity",
@@ -191,7 +192,7 @@ test("Antigravity Skills scan the workspace .agents root and only its own global
         displayName: "agy-review",
         description: "Antigravity review",
         userInvocable: false,
-        sourcePath: "~/.gemini/antigravity-cli/skills",
+        sourcePath: "~/.gemini/config/skills",
       },
     ]);
   } finally {

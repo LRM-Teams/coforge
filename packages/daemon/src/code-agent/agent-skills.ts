@@ -84,12 +84,13 @@ export async function listAgentSkills(options: {
       if (home) globals = [native("GROK_HOME", ".grok", "skills")];
       break;
     case RUNTIME_PROVIDER.ANTIGRAVITY:
-      // The Antigravity CLI loads workspace skills from `<workspace-root>/.agents/skills/` and
-      // global ones from `~/.gemini/antigravity-cli/skills/`
-      // (https://antigravity.google/docs/skills/). Plugin-provided skill directories are not
-      // scanned here.
+      // The Antigravity CLI loads workspace skills from `<workspace-root>/.agents/skills/`
+      // (https://antigravity.google/docs/skills/) and global ones from `~/.gemini/config/skills/`
+      // (agy's bundled migration guide; verified live on 1.2.13, which ignores
+      // `~/.gemini/antigravity-cli/skills/`). Neither needs a trusted workspace. Plugin-provided
+      // skill directories are not scanned here.
       locals = [local(".agents/skills")];
-      if (home) globals = [personal(".gemini/antigravity-cli/skills")];
+      if (home) globals = [personal(".gemini/config/skills")];
       break;
     case RUNTIME_PROVIDER.PI:
       locals = [local(".pi/skills", "pi"), local(".agents/skills")];

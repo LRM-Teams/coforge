@@ -11,6 +11,8 @@ import { InterruptTracker } from "#src/code-agent/interrupt-tracker";
 import { asRecord, errorMessage } from "#src/code-agent/json-record";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { discoverAntigravityCatalog } from "./catalog";
+import { antigravityToolCall } from "./tool-call";
+import { readAntigravityUsage } from "./usage";
 import { withoutSshSessionVariables } from "./ssh-environment";
 import { AntigravityTurnProcess, type AntigravityTurnResult } from "./turn-process";
 import { assertAntigravityVersionSupported } from "./version";
@@ -52,6 +54,13 @@ export class AntigravityProvider implements CodeAgentProvider {
       options.cwd ?? process.cwd(),
       options.environment ?? Bun.env,
     );
+  }
+
+  async readUsage(options: { workingDirectory: string; timeoutMs?: number }) {
+    return readAntigravityUsage(options.workingDirectory, {
+      command: this.#command,
+      timeoutMs: options.timeoutMs,
+    });
   }
 
   async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
@@ -262,8 +271,8 @@ class AntigravityAgentSession implements AgentSession {
     if (this.#sessionId && conversationId !== this.#sessionId) {
       // agy answers a `--conversation` it cannot find with a stderr warning and a brand-new
       // conversation that never saw the standing instructions (observed on 1.2.12/1.2.13; the
-      // headless docs do not say). Discard that turn; once it has
-      // exited, a fresh conversation is bootstrapped and the same input is sent into it.
+      // headless docs do not say). Discard that turn; once it has exited, a fresh conversation
+      // is bootstrapped and the same input is sent into it.
       this.#conversationLost = true;
       void this.#currentTurn?.dispose();
       return;
@@ -276,9 +285,12 @@ class AntigravityAgentSession implements AgentSession {
     this.#settleBootstrap();
   }
 
-  /** `agent_response` steps carry the reply as `text_delta`s; each `tool` step is announced once
-   * and ended once, whether agy reports it ACTIVE first or only DONE. Other step types
-   * (`user_input`, `system_message`, `checkpoint`) carry no Activity. */
+  /** `agent_response` steps carry the reply as `text_delta`s. Each `tool` step, and each
+   * `subagent` step that hands work to subagents, is announced once and ended once, whether agy
+   * reports it ACTIVE first or only DONE. A subagent runs on its own: its steps are not in this
+   * stream, and its report arrives later as a `system_message`. Its task and the subagents' local
+   * paths are not Activity, so it starts with no input. Other step types (`user_input`,
+   * `system_message`, `checkpoint`) carry no Activity. */
   #handleStep(step: Record<string, unknown> | undefined): void {
     if (!step) return;
     if (step.step_type === "agent_response") {
@@ -286,14 +298,19 @@ class AntigravityAgentSession implements AgentSession {
       if (text) this.#emit({ type: "text-delta", text });
       return;
     }
-    if (step.step_type !== "tool" || typeof step.step_index !== "number") return;
+    const subagent = step.step_type === "subagent";
+    if ((!subagent && step.step_type !== "tool") || typeof step.step_index !== "number") return;
     const index = step.step_index;
     const info = asRecord(step.tool_info);
     const id = `${this.#sessionId ?? "agy"}:${index}`;
     if (!this.#startedTools.has(index)) {
       this.#startedTools.add(index);
       const name = nonEmpty(step.tool_name) ?? nonEmpty(info?.name) ?? "unknown_tool";
-      this.#emit({ type: "tool-start", id, name, input: info?.parameters });
+      this.#emit({
+        type: "tool-start",
+        id,
+        ...(subagent ? { name, input: {} } : antigravityToolCall(name, info?.parameters)),
+      });
     }
     if (step.state !== "DONE" || this.#endedTools.has(index)) return;
     this.#endedTools.add(index);
