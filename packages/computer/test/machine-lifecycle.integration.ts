@@ -199,6 +199,19 @@ test("real compiled machine supervisor preserves Workspace lifecycle and recover
     const both = await client.control("snapshot");
     expect(both.find((runtime) => runtime.workspaceId === "a")?.processId).toBe(firstA.processId);
     expect(both.find((runtime) => runtime.workspaceId === "a")?.instanceId).toBe(firstA.instanceId);
+    // `__lifecycle status` sees both running Workspaces with the supervisor's own process IDs.
+    const running = await lifecycleStatus(home);
+    expect(running).toMatchObject({ supervisor: { running: true }, healthy: true, problems: [] });
+    expect(running.bindings).toEqual(
+      expect.arrayContaining(
+        both.map((runtime) => ({
+          binding_id: runtime.workspaceId,
+          enabled: true,
+          running: true,
+          process_id: runtime.processId,
+        })),
+      ),
+    );
 
     await client.control("restart", "a", "stable-restart-a");
     const restarted = await client.control("snapshot");
@@ -221,21 +234,6 @@ test("real compiled machine supervisor preserves Workspace lifecycle and recover
     );
 
     await client.control("stop", "b");
-    const running = await lifecycleStatus(home);
-    const runtimeA = (await client.control("snapshot")).find(
-      (runtime) => runtime.workspaceId === "a",
-    )!;
-    expect(running).toMatchObject({
-      supervisor: { running: true },
-      healthy: true,
-      problems: [],
-    });
-    expect(running.bindings).toEqual(
-      expect.arrayContaining([
-        { binding_id: "a", enabled: true, running: true, process_id: runtimeA.processId },
-        { binding_id: "b", enabled: false, running: false, process_id: null },
-      ]),
-    );
     await client.control("pause");
     await client.control("resume");
     await client.control("start", "a");
