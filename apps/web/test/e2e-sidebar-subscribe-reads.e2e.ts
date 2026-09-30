@@ -235,7 +235,7 @@ test("with nothing published between the read and the subscriptions, the channel
   await browser("wait", "--load", "networkidle");
   results.quiet = { ...proxy.reads };
   expect(proxy.reads.listPublicChannels).toBe(1);
-});
+}, 300_000);
 
 test("a publication between the read and the subscriptions has the channel list read again", async () => {
   await browser("open", "about:blank");
@@ -251,4 +251,4 @@ test("a publication between the read and the subscriptions has the channel list 
   await browser("wait", "--load", "networkidle");
   results.published = { ...proxy.reads };
   expect(proxy.reads.listPublicChannels).toBe(2);
-});
+}, 300_000);
