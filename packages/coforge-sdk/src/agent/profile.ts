@@ -2,9 +2,9 @@
  * Wire contract for `coforge profile show [<target>]` and `coforge profile update`. Uses the same
  * `{ ok: false, errorCode, error }` error envelope as the Agent Manual and `user info` routes.
  *
- * CoForge divergence from the reference product this command grammar is modelled on: there is no
- * Agent avatar (only `User.avatarObjectKey` exists in the schema — no equivalent column or upload
- * flow for `Agent`), so there is no `avatarUrl` field or `--avatar-url` update flag here. A human
+ * The profile carries no avatar: a person's and an Agent's picture (`User.avatarObjectKey`,
+ * `Agent.avatarObjectKey`) are uploaded in the Web app, so there is no `avatarUrl` field or
+ * `--avatar-url` update flag here. A human
  * profile's `createdAgents` lists Agents the human owns (`Agent.ownerId`); an Agent profile never
  * carries `createdAgents` itself, because `Agent.ownerId` always references a human `User` in
  * CoForge's schema — an Agent can never own another Agent (Agent creation is
