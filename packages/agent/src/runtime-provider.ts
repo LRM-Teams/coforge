@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+// oxlint-disable-next-line no-restricted-imports -- Reads Bun's bundled roots, opens no socket: https://bun.com/reference/node/tls/rootCertificates
+import { rootCertificates } from "node:tls";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 export const API_KEY_ENV_BY_PROVIDER = {
@@ -19,8 +22,12 @@ export const API_KEY_ENV_BY_PROVIDER = {
   xiaomi: "XIAOMI_API_KEY",
 } as const;
 
-/** Bun does not apply request-local Pi provider env to its process-level proxy settings. */
+/**
+ * Bun applies proxy settings and extra CAs from the process env only, so a session's own values
+ * (an Agent's overrides) reach Pi's model requests through here, per request.
+ */
 export function runtimeFetch(environment: Readonly<Record<string, string>>): typeof fetch {
+  const ca = extraCertificateAuthorities(environment.NODE_EXTRA_CA_CERTS);
   const request = (input: Request | string | URL, init?: RequestInit) => {
     const target = new URL(input instanceof Request ? input.url : input);
     const port = target.port || (target.protocol === "https:" ? "443" : "80");
@@ -45,10 +52,26 @@ export function runtimeFetch(environment: Readonly<Record<string, string>>): typ
         environment.all_proxy ||
         environment.ALL_PROXY ||
         "";
-    return fetch(input, { ...init, proxy });
+    return fetch(input, { ...init, proxy, ...(ca ? { tls: { ca } } : {}) });
   };
   // Bun's optional optimization must not open a direct connection around this proxy.
   return Object.assign(request, { preconnect: () => {} });
+}
+
+/**
+ * A request's `ca` replaces the trust store, so Bun's bundled roots stay alongside the file. Read
+ * at session launch so a bad path fails by name, not later as the SDK's bare "Connection error.".
+ */
+function extraCertificateAuthorities(path: string | undefined): string[] | undefined {
+  if (!path) return undefined;
+  try {
+    return [...rootCertificates, readFileSync(path, "utf8")];
+  } catch (error) {
+    throw new Error(
+      `NODE_EXTRA_CA_CERTS names ${path}, which could not be read: ${(error as Error).message}`,
+      { cause: error },
+    );
+  }
 }
 
 /** Bind only this Pi runtime; summaries resolve auth before requesting a stream. */

@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runtimeFetch } from "#src/runtime-provider";
 
 test("session fetch uses proxy precedence and honors exact host, wildcard, and port exclusions", async () => {
@@ -41,6 +44,97 @@ test("session fetch uses proxy precedence and honors exact host, wildcard, and p
     restoreHostEnv("no_proxy", hostNoProxy.lower);
   }
 });
+
+test("session fetch trusts the Agent's NODE_EXTRA_CA_CERTS for a server that omits its intermediate", async () => {
+  // An internal model endpoint signed by a private CA presents only its leaf, so the file must
+  // carry the root and the intermediate.
+  const directory = await mkdtemp(join(tmpdir(), "coforge-extra-ca-"));
+  try {
+    const pki = await writeCertificates(directory);
+    const serve = (name: string) =>
+      Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        tls: {
+          cert: Bun.file(join(directory, `${name}.pem`)),
+          key: Bun.file(join(directory, `${name}.key`)),
+        },
+        fetch: () => new Response("private"),
+      });
+    const server = serve("leaf");
+    const other = serve("unrelated");
+    const url = `https://localhost:${server.port}/probe`;
+    try {
+      await expect(runtimeFetch({ NO_PROXY: "*" })(url)).rejects.toMatchObject({
+        code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+      });
+      const trusted = runtimeFetch({ NO_PROXY: "*", NODE_EXTRA_CA_CERTS: pki.caBundle });
+      expect(await (await trusted(url)).text()).toBe("private");
+      // The file adds trust for its own CA only; it does not turn verification off.
+      await expect(trusted(`https://localhost:${other.port}/probe`)).rejects.toMatchObject({
+        code: "DEPTH_ZERO_SELF_SIGNED_CERT",
+      });
+    } finally {
+      server.stop(true);
+      other.stop(true);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an unreadable NODE_EXTRA_CA_CERTS names the variable and the path instead of a bare connection error", () => {
+  const path = join(tmpdir(), `coforge-missing-ca-${crypto.randomUUID()}.pem`);
+  expect(() => runtimeFetch({ NODE_EXTRA_CA_CERTS: path })).toThrow(
+    `NODE_EXTRA_CA_CERTS names ${path}, which could not be read`,
+  );
+});
+
+/**
+ * Throwaway certificates for `localhost` in `directory`: root -> intermediate -> `leaf`, the
+ * root + intermediate bundle, and a self-signed `unrelated` leaf outside that chain.
+ */
+async function writeCertificates(directory: string) {
+  const openssl = Bun.which("openssl");
+  if (!openssl) throw new Error("openssl is required");
+  const issue = (name: string, extensions: string[], issuer?: string) => {
+    const signing = issuer ? ["-CA", `${issuer}.pem`, "-CAkey", `${issuer}.key`] : [];
+    const args = [
+      "req",
+      "-x509",
+      ...signing,
+      "-newkey",
+      "ec",
+      "-pkeyopt",
+      "ec_paramgen_curve:prime256v1",
+    ];
+    args.push(
+      "-nodes",
+      "-days",
+      "1",
+      "-subj",
+      `/CN=${name}`,
+      "-keyout",
+      `${name}.key`,
+      "-out",
+      `${name}.pem`,
+    );
+    const result = Bun.spawnSync([openssl, ...args, ...extensions.flatMap((e) => ["-addext", e])], {
+      cwd: directory,
+    });
+    if (result.exitCode !== 0) throw new Error(`openssl failed: ${result.stderr.toString()}`);
+  };
+  const authority = ["basicConstraints=critical,CA:TRUE", "keyUsage=critical,keyCertSign,cRLSign"];
+  const server = ["basicConstraints=critical,CA:FALSE", "subjectAltName=DNS:localhost"];
+  issue("root", authority);
+  issue("intermediate", authority, "root");
+  issue("leaf", server, "intermediate");
+  issue("unrelated", server);
+  const caBundle = join(directory, "ca-bundle.pem");
+  const pem = (name: string) => Bun.file(join(directory, `${name}.pem`)).text();
+  await Bun.write(caBundle, (await pem("root")) + (await pem("intermediate")));
+  return { caBundle };
+}
 
 /** Put a process environment variable back the way the host had it, absence included. */
 function restoreHostEnv(name: "NO_PROXY" | "no_proxy", value: string | undefined) {
