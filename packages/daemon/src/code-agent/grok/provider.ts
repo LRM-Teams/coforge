@@ -16,12 +16,13 @@ import { assertGrokVersionSupported } from "./version";
 import { readGrokUsage } from "./usage";
 import type { UsageSnapshot } from "@coforge/agent";
 
+const logger = getLogger(["coforge", "daemon", "code-agent", RUNTIME_PROVIDER.GROK]);
+
 /**
- * Grok Build (`grok`, xAI) is a per-turn provider, the same shape as OpenCode's (ADR 0058):
- * every turn is its own `grok -p <prompt> --output-format streaming-json` child process and the
- * turn ends when that process exits. The stream is one ACP-shaped NDJSON session update per line
- * (`thought` / `text` / `end` / `error`, verified live on 1.0.41), which is exactly the
- * `server/pkg/agent/grok.go` contract the bundled Raft reference documents.
+ * Grok Build (`grok`, xAI) is a per-turn provider, the same shape as OpenCode's: every turn is its
+ * own `grok -p <prompt> --output-format streaming-json` child process and the turn ends when that
+ * process exits. The stream is one `type`-tagged JSON object per line, derived from the agent's ACP
+ * session updates (14-headless-mode.md, "streaming-json").
  *
  * Unlike OpenCode, Grok has a system-prompt channel (`--rules` appends to the agent's system
  * prompt), so the standing Agent instructions ride every turn as rules and a fresh session needs
@@ -30,8 +31,6 @@ import type { UsageSnapshot } from "@coforge/agent";
  * an id that is already in use (14-headless-mode.md, "Named Sessions"); once a turn has been
  * spawned with it, every later turn carries `--resume <id>`, whatever that turn's outcome was.
  */
-const logger = getLogger(["coforge", "daemon", "code-agent", "grok"]);
-
 export class GrokProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.GROK;
   readonly #command: readonly string[];
