@@ -1,7 +1,7 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { listComputerNames } from "#src/features/computers/computers.functions";
-import { listChannelNames } from "#src/features/conversations/channels.functions";
+import { channelNamesQuery } from "#src/features/conversations/conversation-queries";
 import { loadWorkspaceDirectory } from "#src/features/workspaces/workspaces.functions";
 import { messageSearchParams, type SearchFilters } from "./search-filters";
 import { searchWorkspaceMessages } from "./search.functions";
@@ -62,14 +62,15 @@ export const messageSearchQuery = (
   });
 
 /** The people, Agents, channels and Computers the page offers and names; channels in name
- * order. */
+ * order, from the Query Chat keeps every channel's name in (`channelNamesQuery`), so a page that
+ * holds them already does not read them again. */
 export const searchDirectoryQuery = (workspaceId: string) =>
   queryOptions({
     queryKey: ["search-directory", workspaceId],
-    queryFn: async () => {
+    queryFn: async ({ client }) => {
       const [directory, channels, computers] = await Promise.all([
         loadWorkspaceDirectory(),
-        listChannelNames(),
+        client.ensureQueryData(channelNamesQuery(workspaceId)),
         listComputerNames(),
       ]);
       return {
