@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -29,26 +30,44 @@ if (!databaseUrl || new URL(databaseUrl).hostname !== "127.0.0.1")
 const artifacts = join(import.meta.dir, "../../../.amp/e2e/query-cache-persistence");
 
 /** The reads Chat makes for what the browser keeps: the two sidebar lists' calls, the channel
- * names and the conversation. Their Server Function ids are the base64 of `{ file, export }`. */
-const CHAT_READS = new Set([
+ * names and the conversation. */
+const CHAT_READS = [
   "listPublicChannels",
   "loadDirectConversationPreferences",
   "loadDirectConversationBadges",
   "listChannelNames",
   "loadPublicChannel",
-]);
-function serverFunctionExport(pathname: string) {
-  const id = pathname.split("/_serverFn/")[1];
-  if (!id) return undefined;
+] as const;
+
+/** This build's Server Function ids, by export name. The id on the wire is the hash the build gave
+ * the function - it does not encode the name, so it cannot be decoded back out of the URL. The
+ * artifact the local Web is serving states the pairing, one line per function:
+ * `NAME_createServerFn_handler = createServerRpc({ id: "<64 hex>" ...`. */
+function serverFunctionIds(): Map<string, string> {
+  const bundle = join(import.meta.dir, "../.output/server/index.mjs");
+  let source: string;
   try {
-    const { export: name } = JSON.parse(Buffer.from(id, "base64url").toString()) as {
-      export?: string;
-    };
-    return name?.replace(/_createServerFn_handler$/, "");
+    source = readFileSync(bundle, "utf8");
   } catch {
-    return undefined;
+    throw new Error(
+      `${bundle} is missing: build the Web package first (NODE_ENV=production bun run --cwd apps/web build)`,
+    );
   }
+  const byName = new Map<string, string>();
+  const pattern =
+    /([A-Za-z0-9_$]+)_createServerFn_handler\s*=\s*createServerRpc\(\{\s*id:\s*"([0-9a-f]{64})"/g;
+  for (const [, name, id] of source.matchAll(pattern)) byName.set(name, id);
+  const ids = new Map<string, string>();
+  for (const name of CHAT_READS) {
+    const id = byName.get(name);
+    // Never skip silently: an e2e that means to hold Chat's reads must fail loudly if it cannot
+    // recognise them in this build (docs/agents/testing.md).
+    if (!id) throw new Error(`Server Function ${name} is not in ${bundle}`);
+    ids.set(id, name);
+  }
+  return ids;
 }
+const chatReadIds = serverFunctionIds();
 
 type ProxySocket = {
   path: string;
@@ -77,8 +96,8 @@ function gatedProxy() {
       }
       if (url.pathname === "/auth/logout" || url.pathname.endsWith("/auth/logout"))
         return new Response("signed out (stand-in for Authing)", { status: 200 });
-      const name = serverFunctionExport(url.pathname);
-      if (gate && name && CHAT_READS.has(name)) {
+      const name = chatReadIds.get(url.pathname.split("/_serverFn/")[1] ?? "");
+      if (gate && name) {
         const held = `${name} ${heldNow.size}`;
         heldNow.add(held);
         await gate.opened;
