@@ -1,0 +1,15 @@
+# The Cargo workspace: Rust crates live under crates/, JavaScript packages under packages/ and
+# apps/. Each crate pins its own toolchain in its mise.toml, so the root `mise install` never
+# downloads Rust. https://doc.rust-lang.org/cargo/reference/workspaces.html
+[workspace]
+members = ["crates/installer"]
+resolver = "3"
+
+# Profiles apply to the whole workspace and are read only from this file.
+# https://doc.rust-lang.org/cargo/reference/profiles.html
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

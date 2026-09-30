@@ -1,9 +1,9 @@
 /**
- * Renders the cross-language contract with the Rust installer into installer/contract/: a JSON
+ * Renders the cross-language contract with the Rust installer into crates/installer/contract/: a JSON
  * Schema for every JSON shape (z.toJSONSchema, draft 2020-12; https://zod.dev/json-schema) and a
  * golden instance of every file either side writes or reads. The TypeScript modules named in each
  * entry are the source of truth; the Rust crate's tests read these files and write their own
- * output into installer/contract/rust/, which test/installer-contract.test.ts reads back.
+ * output into crates/installer/contract/rust/, which test/installer-contract.test.ts reads back.
  *
  * Run `bun run generate:installer-contract` after changing any of those modules. CI regenerates
  * and fails when the committed files differ.
@@ -51,7 +51,15 @@ import {
   windowsComputerLauncher,
 } from "#src/updater";
 
-export const CONTRACT_DIRECTORY = join(import.meta.dir, "..", "..", "..", "installer", "contract");
+export const CONTRACT_DIRECTORY = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "..",
+  "crates",
+  "installer",
+  "contract",
+);
 
 /** The request every example names; the Rust tests use the same one. */
 export const EXAMPLE_REQUEST_ID = "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f";
@@ -124,7 +132,7 @@ function receipt(fields: Record<string, unknown>) {
   };
 }
 
-/** Every contract file, by name under installer/contract/. */
+/** Every contract file, by name under crates/installer/contract/. */
 export function renderInstallerContract(): Map<string, string> {
   const windowsInstallRoot = resolveComputerInstallDirectory({
     platform: "win32",

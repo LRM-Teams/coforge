@@ -98,13 +98,22 @@ test("documentation skips application checks, while shared and unknown inputs fa
     "windows-installer",
   ]);
   expect(selectChecks(["scripts/release/install.sh"], "changes")).toEqual(["release", "web"]);
-  for (const path of ["installer/src/fetch.rs", "installer/Cargo.lock", "installer/mise.toml"]) {
+  for (const path of [
+    "crates/installer/src/fetch.rs",
+    "Cargo.lock",
+    "Cargo.toml",
+    "crates/installer/Cargo.toml",
+    "crates/installer/mise.toml",
+  ]) {
     expect(selectChecks([path], "changes")).toEqual(["installer-crate"]);
   }
-  for (const path of ["installer/contract/receipt.schema.json", "installer/contract/rust/x.json"]) {
+  for (const path of [
+    "crates/installer/contract/receipt.schema.json",
+    "crates/installer/contract/rust/x.json",
+  ]) {
     expect(selectChecks([path], "changes")).toEqual(["computer", "installer-crate"]);
   }
-  expect(selectChecks(["installer/AGENTS.md"], "changes")).toEqual([]);
+  expect(selectChecks(["crates/installer/AGENTS.md"], "changes")).toEqual([]);
   expect(selectChecks(["infra/staging/caddy/Caddyfile"], "changes")).toEqual(["deploy", "web"]);
   expect(selectChecks(["scripts/ops/renew-cdn-certificates.sh"], "changes")).toEqual(["cdn-certs"]);
   expect(selectChecks(["scripts/release/compile-targets.ts"], "changes")).toEqual([

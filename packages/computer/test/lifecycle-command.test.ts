@@ -21,7 +21,7 @@ import { SUPERVISOR_PROBLEM_CODE } from "#src/release/supervisor-status";
  * `coforge-computer __lifecycle` is the only way the separately released installer reads a
  * Computer's state, so its seam is the compiled executable: arguments in, one JSON object on
  * stdout, an exit status. Every response is parsed with the contract schema the installer's own
- * tests read (installer/contract/lifecycle.*.json).
+ * tests read (crates/installer/contract/lifecycle.*.json).
  */
 
 let root: string;
@@ -69,7 +69,7 @@ async function freshHome(): Promise<string> {
   return home;
 }
 
-/** The supervisor's state directory under `home` (installer/contract/paths.json). */
+/** The supervisor's state directory under `home` (crates/installer/contract/paths.json). */
 function stateDirectory(home: string): string {
   return join(home, ".coforge", "daemon");
 }
@@ -112,10 +112,10 @@ async function startSupervisor(home: string) {
 }
 
 /** Asserts that `actual` has exactly the top-level fields of the named golden in
- * installer/contract/, the files the installer's own tests read. */
+ * crates/installer/contract/, the files the installer's own tests read. */
 async function expectGoldenFields(actual: unknown, golden: string) {
   const expected = await Bun.file(
-    new URL(`../../../installer/contract/${golden}`, import.meta.url),
+    new URL(`../../../crates/installer/contract/${golden}`, import.meta.url),
   ).json();
   expect(Object.keys(actual as object).sort()).toEqual(Object.keys(expected).sort());
 }

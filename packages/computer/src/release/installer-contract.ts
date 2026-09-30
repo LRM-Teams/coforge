@@ -8,7 +8,7 @@ import { UpgradeResultSchema } from "./upgrade-coordinator";
  * Shapes exchanged with the separately released `coforge-installer` that no existing module owns
  * yet: the installer's release manifest, the fields its receipts add, and the JSON the product's
  * hidden `__lifecycle` command prints for it. `bun run generate:installer-contract` exports these
- * as JSON Schema plus golden instances into installer/contract/, where the Rust crate's tests read
+ * as JSON Schema plus golden instances into crates/installer/contract/, where the Rust crate's tests read
  * them. Versioning rule for every shape here: fields are only ever added; a field whose meaning
  * changes needs a new protocol number.
  */

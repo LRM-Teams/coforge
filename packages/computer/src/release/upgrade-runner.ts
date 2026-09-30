@@ -13,7 +13,7 @@ import { resolveSupervisorPaths } from "./supervisor-status";
 
 /** This machine's installation, release feed, and Coordinator locations, all resolved from
  * `os.homedir()`: HOME on POSIX (else the account's passwd entry), USERPROFILE on Windows (else
- * the profile directory). The installer follows the same rule; see installer/contract/paths.json. */
+ * the profile directory). The installer follows the same rule; see crates/installer/contract/paths.json. */
 export function resolveUpgradeCoordinatorPaths(): LaunchUpgradeCoordinatorPaths {
   const homeDirectory = homedir();
   return {

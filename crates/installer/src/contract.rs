@@ -1,7 +1,7 @@
 //! The files and JSON this installer shares with the CoForge Computer product.
 //!
 //! The TypeScript product is the source of truth: `packages/computer` defines each shape with zod
-//! and generates JSON Schema plus golden instances into `installer/contract/`
+//! and generates JSON Schema plus golden instances into `crates/installer/contract/`
 //! (`bun run --cwd packages/computer generate:installer-contract`). These types read and write
 //! the same shapes. Every struct ignores fields it does not know, because a contract version only
 //! ever gains fields; tests in `contract/tests.rs` read every golden and round-trip it, and write

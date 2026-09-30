@@ -29,7 +29,7 @@ export type SupervisorStatus = {
   problems: SupervisorProblem[];
 };
 
-/** Why a runtime set is not healthy (`SupervisorProblem.code`; installer/contract/lifecycle-codes.json). */
+/** Why a runtime set is not healthy (`SupervisorProblem.code`; crates/installer/contract/lifecycle-codes.json). */
 export const SUPERVISOR_PROBLEM_CODE = {
   /** Enabled Workspaces that are not parked, and no supervisor running them. */
   SUPERVISOR_NOT_RUNNING: "LIFECYCLE_SUPERVISOR_NOT_RUNNING",
@@ -53,7 +53,7 @@ class SupervisorNotRunningError extends Error {
 }
 
 /** This machine's supervisor socket and state directory, resolved from `os.homedir()` as the
- * installer does (installer/contract/paths.json). */
+ * installer does (crates/installer/contract/paths.json). */
 export function resolveSupervisorPaths(): Pick<
   SupervisorStatusOptions,
   "supervisorSocketPath" | "supervisorStatePath"

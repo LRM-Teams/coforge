@@ -1,6 +1,6 @@
 /**
  * The per-user service each platform registers for the Coordinator. The installer stops and
- * starts the same services, so these names are part of installer/contract/service-identities.json.
+ * starts the same services, so these names are part of crates/installer/contract/service-identities.json.
  */
 export const COORDINATOR_SERVICE = {
   launchdLabel: "cn.coforge.computer.daemon",

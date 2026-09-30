@@ -201,13 +201,13 @@ jobs:
       - name: Run tests
         run: mise run test:computer
 
-      # installer/contract/ is generated from this package (see installer/AGENTS.md); a change to
+      # crates/installer/contract/ is generated from this package (see crates/installer/AGENTS.md); a change to
       # a contract source must commit the regenerated files.
       - name: Check the installer contract is regenerated
         run: |
           bun run --cwd packages/computer generate:installer-contract
-          git diff --exit-code -- installer/contract
-          untracked="$(git ls-files --others --exclude-standard -- installer/contract)"
+          git diff --exit-code -- crates/installer/contract
+          untracked="$(git ls-files --others --exclude-standard -- crates/installer/contract)"
           if [ -n "$untracked" ]; then
             echo "::error::Commit the generated installer contract files: $untracked"
             exit 1
@@ -433,7 +433,7 @@ jobs:
             exit 1
           }
 
-  # The Rust installer crate (installer/, its own toolchain in installer/mise.toml): lint, test,
+  # The Rust installer crate (crates/installer/, its own toolchain in crates/installer/mise.toml): lint, test,
   # and release-build it on the native runner of each of its six release targets, and gate its
   # dependency graph (licenses, bans, sources, RustSec advisories) once on linux-x64.
   # Runner labels: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
@@ -488,10 +488,11 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: installer
+        working-directory: crates/installer
     env:
-      BINARY: target/${{ matrix.rust_target }}/release/coforge-installer${{ startsWith(matrix.release_target, 'windows') && '.exe' || '' }}
-      # `mise exec` would otherwise install every tool in installer/mise.toml (and the root one)
+      # The workspace's target directory is at the repository root.
+      BINARY: ../../target/${{ matrix.rust_target }}/release/coforge-installer${{ startsWith(matrix.release_target, 'windows') && '.exe' || '' }}
+      # `mise exec` would otherwise install every tool in crates/installer/mise.toml (and the root one)
       # that is missing, including supply-chain tools only linux-x64 installs and uses; cargo-audit
       # publishes no windows-arm64 build. Each entry uses exactly its `tools`.
       # https://mise.jdx.dev/configuration/settings.html#exec_auto_install
@@ -503,12 +504,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # From installer/ mise also sees the root tools, so install only what this entry uses.
+      # From crates/installer/ mise also sees the root tools, so install only what this entry uses.
       - name: Install pinned Rust tools
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
-          working_directory: installer
+          working_directory: crates/installer
           install_args: ${{ matrix.tools }}
 
       - name: Add the Rust target
@@ -589,7 +590,7 @@ jobs:
 
       - name: Audit dependencies against RustSec
         if: matrix.release_target == 'linux-x64'
-        run: mise exec -- cargo audit --deny warnings
+        run: mise exec -- cargo audit --deny warnings --file ../../Cargo.lock
 
       - name: Generate third-party notices
         if: matrix.release_target == 'linux-x64'
@@ -600,7 +601,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coforge-installer-third-party-notices
-          path: installer/THIRD_PARTY_NOTICES.txt
+          path: crates/installer/THIRD_PARTY_NOTICES.txt
           if-no-files-found: error
 
   ci-passed:

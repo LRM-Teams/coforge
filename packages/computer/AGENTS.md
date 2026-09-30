@@ -62,7 +62,7 @@ stopped with it. Do not add a control verb without a product decision. The
 product's own upgrade and `__lifecycle status` share `release/supervisor-status.ts`.
 
 `scripts/installer-contract.ts` (outside `src/`, never bundled) generates
-`installer/contract/`, the cross-language contract with the Rust installer:
+`crates/installer/contract/`, the cross-language contract with the Rust installer:
 JSON Schema via `z.toJSONSchema()` plus golden files. This package is its source
 of truth; each shape's zod schema lives in the module that owns the concept
 (`updater.ts`, `release/upgrade-coordinator.ts`, `release/installer-contract.ts`).
@@ -71,7 +71,7 @@ launchers, lock, feed environments), run `bun run generate:installer-contract`
 and commit the result; `test/installer-contract.test.ts` and CI fail otherwise.
 Contract objects are `z.looseObject` (fields only get added). Resolve the home
 directory with `os.homedir()` only, never `HOME`/`USERPROFILE` directly: the
-installer follows the same rule (`installer/contract/paths.json`).
+installer follows the same rule (`crates/installer/contract/paths.json`).
 
 The map describes ownership, not permission to create empty layers. Keep an
 existing file in place when it still has one clear responsibility; move code

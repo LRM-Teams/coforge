@@ -8,7 +8,7 @@ export const DEFAULT_RELEASE_FEED_URL = "https://releases.coforge.cn/";
 
 /** The official build environments: a release feed (without a trailing slash) and the Web server
  * its builds talk to. The installer compiles in one of these feeds too; see
- * installer/contract/feed-environments.json. */
+ * crates/installer/contract/feed-environments.json. */
 export const OFFICIAL_RELEASE_ENVIRONMENTS = [
   { feed: "https://releases.coforge.cn", server: "https://coforge.cn" },
   { feed: "https://releases-staging.coforge.cn", server: "https://staging.coforge.cn" },
