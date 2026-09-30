@@ -16,7 +16,7 @@ surrounded (it may be a phone number), and a reserved word are never used. A tak
 number of times and ends with an 8-hex suffix. The username is not changed by
 later logins. Accounts created before letter-first allocation keep their
 existing names, some digit-first or ending in an 8-hex suffix, and stay valid
-`@username` targets until they are renamed. `UserIdentity` maps
+`@username` targets. `UserIdentity` maps
 an external provider and subject to that User; provider subjects are never
 business foreign keys. Membership, Agent ownership, and Computer ownership use
 the internal User UUID. Existing rows are backfilled by the migration before

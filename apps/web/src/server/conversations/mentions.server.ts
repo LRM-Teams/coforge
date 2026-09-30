@@ -6,8 +6,8 @@ import { humanLabel } from "#src/lib/human-label";
 export type MessageMentionRef = { kind: string; actorId: string; handle: string };
 
 /** The one select for a message's `MessageMentionRef` rows: stable mention identity for
- * Agent-facing text, which always reads the stored handle (an Agent's name is fixed; a username
- * changes only through the one-time rename, which rewrites the stored handle with it). */
+ * Agent-facing text, which always reads the stored handle (neither an Agent's name nor a username
+ * changes once allocated). */
 export const MESSAGE_MENTIONS_SELECT = {
   select: { kind: true, actorId: true, handle: true },
 } satisfies NonNullable<Prisma.MessageSelect["mentions"]>;

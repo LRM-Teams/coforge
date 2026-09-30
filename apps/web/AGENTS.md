@@ -131,14 +131,14 @@ responsibility.
   Activity (Computer lifecycle rows included), visibility, deletion, and the
   Agent HTTPS API.
 - `server/attachments/` — attachment upload sessions, claiming a sender's uploads for a new message, and delivery.
-- `server/auth/` — login, sessions, username allocation, the first-sign-in name step, the one-time rename of existing usernames (run by `scripts/rename-usernames.ts`: `username-rename-plan` the pure rules, `-text` the `@handle` rewrite, `-copies.repository` where a username is stored, `-dump` and `-dump-file` the way back and its file, `-violations` what a renamed database keeps, `username-rename` preview, apply and restore), device auth, API keys, and auth guards.
+- `server/auth/` — login, sessions, username allocation, the first-sign-in name step, device auth, API keys, and auth guards.
 - `server/centrifugo/` — Centrifugo proxies, RPC receivers, and short-lived
   result caches.
 - `server/computers/` — Computer registration, metadata, restart and upgrade
   operations, runtime visibility, and what the server remembers across a
   daemon's shutdown and return.
 - `server/conversations/` — public channels, channel authority, stopping and resuming a channel's Agents, direct messages, history, message search, action cards, reactions, tracked @mention delivery outcomes (`mention-deliveries`), and conversation realtime.
-- `server/db/` — the Prisma client, repositories (a DM's list preferences apart from its messages; the Agent attention rule in `agent-attention`), the shared unique-violation check, and how to say which database a connection string points at without its credentials (`database-target`).
+- `server/db/` — the Prisma client, repositories (a DM's list preferences apart from its messages; the Agent attention rule in `agent-attention`), and the shared unique-violation check.
 - `server/errors/` — public error mapping and request error handling.
 - `server/files/` — file storage (per object, and bulk removal by keys or prefix), delivery, and uploaded-image validation.
 - `server/http/`, `server/install/`, `server/observability/` — public origin and

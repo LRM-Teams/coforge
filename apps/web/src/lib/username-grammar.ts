@@ -12,7 +12,7 @@ export const USERNAME_PATTERN = /^[a-z][a-z0-9_-]{1,30}[a-z0-9]$/;
 
 /**
  * What a stored username may look like. Accounts created before letter-first allocation keep
- * digit-first and one-character names until they are renamed, and they must stay reachable by
+ * digit-first and one-character names, and they must stay reachable by
  * `@username`, so a lookup accepts this wider shape. Every `USERNAME_PATTERN` match is one.
  */
 export const STORED_USERNAME_SOURCE = "[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?";
