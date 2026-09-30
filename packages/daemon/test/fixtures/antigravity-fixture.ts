@@ -160,15 +160,47 @@ if (mode === "tools") {
       error: { type: "NOT_FOUND", message: "not found" },
     },
   });
-  step({ step_index: 3, state: "DONE", step_type: "checkpoint" });
   step({
-    step_index: 4,
+    step_index: 3,
+    state: "DONE",
+    step_type: "tool",
+    tool_name: "browser_scroll",
+    tool_info: { name: "browser_scroll", parameters: { Direction: "down" } },
+  });
+  step({ step_index: 4, state: "DONE", step_type: "checkpoint" });
+  step({
+    step_index: 5,
     state: "DONE",
     step_type: "agent_response",
     text_delta: "done\n",
     usage,
   });
   result({ status: "SUCCESS", response: "done\n", num_turns: 1 });
+  process.exit(0);
+}
+
+if (mode === "subagent") {
+  // The frames agy 1.2.13 printed for a delegated task: the subagent runs on its own, and only its
+  // report comes back later as a system message.
+  const subagent_info = {
+    subagents: [
+      {
+        type_name: "self",
+        role: "File Counter",
+        initial_prompt: "Count the .txt files in the current working directory.",
+        conversation_id: "a05cf0f1-1c60-432a-a2e4-628e5ea4ff4a",
+        log_uri: "file:///home/user/.gemini/antigravity-cli/brain/a05cf0f1/transcript.jsonl",
+        workspace_uris: ["file:///home/user/workspace"],
+      },
+    ],
+  };
+  const tool_name = "invoke_subagent";
+  step({ step_index: 1, state: "DONE", step_type: "agent_response", usage });
+  step({ step_index: 2, state: "ACTIVE", step_type: "subagent", tool_name, subagent_info });
+  step({ step_index: 2, state: "DONE", step_type: "subagent", tool_name, subagent_info });
+  step({ step_index: 3, state: "DONE", step_type: "system_message" });
+  step({ step_index: 4, state: "DONE", step_type: "agent_response", text_delta: "2\n", usage });
+  result({ status: "SUCCESS", response: "2\n" });
   process.exit(0);
 }
 

@@ -108,6 +108,9 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
 - Never pass `SSH_CLIENT`, `SSH_CONNECTION`, or `SSH_TTY` to an agy turn or to
   `agy models`; agy switches to a file-based token store when it sees them. An
   explicit Agent override still applies.
+- `antigravity/tool-call.ts` maps agy tool names to canonical tools and moves
+  only verified argument fields; a `subagent` step is one `invoke_subagent`
+  tool call carrying roles, never prompts or local paths.
 - Account usage is `agy -p /usage --output-format json`, which answers without
   a turn; the snapshot shows the model group with the least quota left.
 - The unknown-`--conversation` fallback, the `agy models` line format, and the

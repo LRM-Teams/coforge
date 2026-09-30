@@ -245,7 +245,7 @@ test(
 );
 
 test(
-  "tool steps map to tool-start, tool-output and tool-end once per step",
+  "agy tool steps map to canonical tool events with the verified argument",
   async () => {
     await withSession(
       { sessionId: "existing", environment: { COFORGE_AGY_MODE: "tools" } },
@@ -255,22 +255,52 @@ test(
           {
             type: "tool-start",
             id: "existing:1",
-            name: "run_command",
-            input: { CommandLine: "echo probe-ok" },
+            name: "bash",
+            input: { command: "echo probe-ok" },
           },
           { type: "tool-output", id: "existing:1", text: "probe-ok\n" },
           { type: "tool-end", id: "existing:1", isError: false },
           {
             type: "tool-start",
             id: "existing:2",
-            name: "view_file",
-            input: { AbsolutePath: "/missing" },
+            name: "read_file",
+            input: { file_path: "/missing" },
           },
           { type: "tool-output", id: "existing:2", text: "not found" },
           { type: "tool-end", id: "existing:2", isError: true },
+          // A tool this mapping does not know keeps agy's own name and arguments.
+          {
+            type: "tool-start",
+            id: "existing:3",
+            name: "browser_scroll",
+            input: { Direction: "down" },
+          },
+          { type: "tool-end", id: "existing:3", isError: false },
         ]);
         expect(events.filter((event) => event.type === "text-delta")).toEqual([
           { type: "text-delta", text: "done\n" },
+        ]);
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a subagent step is one invoke_subagent tool call naming each subagent's role",
+  async () => {
+    await withSession(
+      { sessionId: "existing", environment: { COFORGE_AGY_MODE: "subagent" } },
+      async (session) => {
+        const events = await runTurn(session, "delegate");
+        expect(events.filter((event) => event.type.startsWith("tool-"))).toEqual([
+          {
+            type: "tool-start",
+            id: "existing:2",
+            name: "invoke_subagent",
+            input: { subagents: [{ role: "File Counter", type: "self" }] },
+          },
+          { type: "tool-end", id: "existing:2", isError: false },
         ]);
       },
     );
