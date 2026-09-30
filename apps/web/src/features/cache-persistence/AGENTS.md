@@ -42,6 +42,13 @@ because the API is experimental.
   shows it reads it again (whatever `staleTime` says: the Chat lists use `Infinity`), and the Chat
   loader's "marked stale" reads it. Do not set the persister's `refetchOnRestore`: it is a bare
   `query.fetch()` that a page unmounting meanwhile cancels for good.
+- What the page writes itself (`setQueryData`: realtime messages, sends, read positions, the
+  sidebar's TanStack DB writes) is stored too, with the query's newest state, at most once a second
+  per query, and started at once when the page is hidden (`flush`; on `pagehide` it is best effort:
+  the write waits on an ownership read, which an unloading page may not finish). The persister
+  alone stores only after a read. The query is looked up when the write runs: one errored, dropped,
+  or marked stale since is not stored, and a page write whose data is not one to open at leaves
+  the stored copy alone.
 - A query the server answers `NOT_FOUND` (deleted, or access lost) is removed from storage.
 - `maxAge` is 7 days and a sweep removes older rows at most once a day. The buster is the build
   (`__COFORGE_BUILD_ID__`, defined in `vite.config.ts`; `COFORGE_BUILD_ID` overrides it), so a

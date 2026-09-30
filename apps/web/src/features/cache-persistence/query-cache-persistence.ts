@@ -4,7 +4,7 @@ import {
   type AsyncStorage,
   type PersistedQuery,
 } from "@tanstack/query-persist-client-core";
-import { notifyManager, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { notifyManager, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
 
 import { isAppError } from "#src/lib/app-error";
 import { persistsQuery, storedQueryData } from "./persisted-queries";
@@ -42,6 +42,10 @@ const STORE_WAIT_MS = 250;
  * stalls). One is not enough: a first open on a cold profile, with the one-time claim, can be slow
  * once and then answer. */
 const UNANSWERED_READS_LIMIT = 2;
+
+/** How long a write the page makes itself (realtime, a sent message, the sidebar's changes) waits
+ * for the rest of its burst: the query is stored once, with its newest state, at most this often. */
+const PAGE_WRITE_DELAY_MS = 1_000;
 
 /** The start of every key one person owns; an id cannot spell another person's. */
 const namespaceOf = (viewer: string) => `${encodeURIComponent(viewer)}/`;
@@ -206,6 +210,17 @@ export function installQueryCachePersistence(
           ]);
       }, []),
   };
+  /** What goes to storage for a query: only what a restore needs, cut to its first paint. */
+  const toStored = (persisted: Omit<PersistedQuery, "state"> & { state: Query["state"] }) => {
+    const data = storedQueryData(persisted.queryKey, persisted.state.data);
+    if (data === undefined) return undefined;
+    return {
+      buster: persisted.buster,
+      queryHash: persisted.queryHash,
+      queryKey: persisted.queryKey,
+      state: { data, dataUpdatedAt: persisted.state.dataUpdatedAt },
+    } satisfies StoredQuery;
+  };
   const persister = experimental_createQueryPersister<StoredQuery | undefined>({
     storage,
     buster,
@@ -213,16 +228,7 @@ export function installQueryCachePersistence(
     // The read after a restore is `revalidateRestored`'s, not the persister's own (see there).
     refetchOnRestore: false,
     filters: { predicate: (query) => persistsQuery(query.queryKey) },
-    serialize: (persisted) => {
-      const data = storedQueryData(persisted.queryKey, persisted.state.data);
-      if (data === undefined) return undefined;
-      return {
-        buster: persisted.buster,
-        queryHash: persisted.queryHash,
-        queryKey: persisted.queryKey,
-        state: { data, dataUpdatedAt: persisted.state.dataUpdatedAt },
-      };
-    },
+    serialize: (persisted) => toStored(persisted),
     deserialize: (stored): PersistedQuery => {
       if (!stored) throw new Error("nothing stored");
       return {
@@ -280,6 +286,44 @@ export function installQueryCachePersistence(
     if (!isAppError(event.action.error) || event.action.error.code !== "NOT_FOUND") return;
     void storage.removeItem(`${PERSISTER_KEY_PREFIX}-${event.query.queryHash}`);
   });
+  /**
+   * The persister stores a query only after its read runs (`setQueryData` is not persisted, the
+   * docs say; they persist such writes with `persistQueryByKey`). What the page writes itself is
+   * most of what a person last saw: realtime messages, their own sends, read positions, the
+   * sidebar's unread counts. So a kept query the page wrote is stored too, with its newest state,
+   * once per `PAGE_WRITE_DELAY_MS`. A write whose data is not one to open at (a window around an
+   * old message) leaves the stored copy as it is.
+   */
+  const pageWrites = new Map<string, ReturnType<typeof setTimeout>>();
+  /**
+   * Stores the query as the cache holds it now, if it still does: one the server answered
+   * `NOT_FOUND` for (removed from storage above) or the page dropped is not written back, one that
+   * was rebuilt (a Workspace switch clears the cache) is stored as rebuilt, and a stand-in the page
+   * marked stale at once (the Chat loader's empty Saved list) is not stored as data.
+   */
+  const storePageWrite = (queryHash: string) => {
+    clearTimeout(pageWrites.get(queryHash));
+    pageWrites.delete(queryHash);
+    const query = queryClient.getQueryCache().get(queryHash);
+    if (!query || query.state.status !== "success" || query.state.isInvalidated) return;
+    const stored = toStored({
+      buster,
+      queryHash,
+      queryKey: query.queryKey,
+      state: query.state,
+    });
+    if (!stored) return;
+    return storage.setItem(`${PERSISTER_KEY_PREFIX}-${queryHash}`, stored);
+  };
+  queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.action.type !== "success" || !event.action.manual) return;
+    if (!persistsQuery(event.query.queryKey) || pageWrites.has(event.query.queryHash)) return;
+    const { queryHash } = event.query;
+    pageWrites.set(
+      queryHash,
+      setTimeout(() => void storePageWrite(queryHash), PAGE_WRITE_DELAY_MS),
+    );
+  });
   const defaults = queryClient.getDefaultOptions();
   queryClient.setDefaultOptions({
     ...defaults,
@@ -318,6 +362,10 @@ export function installQueryCachePersistence(
         await persister.persisterGc();
         await store.set(marker, Date.now());
       }, undefined);
+    },
+    /** Stores the page's own writes still waiting for their burst to end: the page is going away. */
+    async flush() {
+      await Promise.all([...pageWrites.keys()].map((queryHash) => storePageWrite(queryHash)));
     },
     /** Sign-out: removes every kept query, and keeps this page from writing any more. */
     async purge() {

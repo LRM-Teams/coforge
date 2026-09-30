@@ -33,6 +33,15 @@ export function installBrowserQueryCachePersistence(
   });
   installed.set(queryClient, persistence);
   current = persistence;
+  // The page's own writes wait up to a second for their burst to end; a hidden page (which may be
+  // discarded without another event) starts them now. On `pagehide` this is best effort: each write
+  // first reads the store's owner, which an unloading page may not finish.
+  // https://developer.chrome.com/docs/web-platform/page-lifecycle-api#developer-recommendations-for-each-state
+  const flush = () => void persistence.flush();
+  window.addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flush();
+  });
 }
 
 /** The page is up: stores the kept queries it already holds, and sweeps what has aged out. */
