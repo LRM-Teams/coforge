@@ -48,6 +48,7 @@ test("Skills metadata distinguishes native global and workspace roots and reread
       ".pi/agent/skills",
       ".kiro/skills",
       ".cursor/skills",
+      ".gemini/antigravity-cli/skills",
     ]) {
       await Bun.write(
         join(home, dir, "review/SKILL.md"),
@@ -66,7 +67,15 @@ test("Skills metadata distinguishes native global and workspace roots and reread
         "---\nname: review\ndescription: >\n  Workspace review\n---\nBODY",
       );
     }
-    for (const provider of ["claude-code", "codex", "kiro", "cursor", "pi", "coforge"] as const) {
+    for (const provider of [
+      "claude-code",
+      "codex",
+      "kiro",
+      "cursor",
+      "antigravity",
+      "pi",
+      "coforge",
+    ] as const) {
       const result = await listAgentSkills({
         provider,
         agentWorkspaceDirectory: cwd,
@@ -142,6 +151,47 @@ test("Kiro Skills use KIRO_HOME without scanning the fallback home root", async 
         description: "Kiro review",
         userInvocable: false,
         sourcePath: "$KIRO_HOME/skills",
+      },
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Antigravity Skills scan the workspace .agents root and only its own global directory", async () => {
+  const root = await mkdtemp(join(tempRoot, "antigravity-skills-"));
+  const cwd = join(root, "agent"),
+    home = join(root, "home");
+  try {
+    const skill = "---\nname: agy-review\ndescription: Antigravity review\n---\nprivate";
+    await Bun.write(join(cwd, ".agents/skills/local/SKILL.md"), skill);
+    await Bun.write(join(home, ".gemini/antigravity-cli/skills/global/SKILL.md"), skill);
+    // Other CLIs' personal roots, which the Antigravity CLI does not read.
+    await Bun.write(join(home, ".agents/skills/must-not-scan/SKILL.md"), skill);
+    await Bun.write(join(home, ".gemini/config/skills/must-not-scan/SKILL.md"), skill);
+
+    const result = await listAgentSkills({
+      provider: "antigravity",
+      agentWorkspaceDirectory: cwd,
+      environment: { HOME: home },
+    });
+
+    expect(result.workspace.entries).toEqual([
+      {
+        name: "local",
+        displayName: "agy-review",
+        description: "Antigravity review",
+        userInvocable: false,
+        sourcePath: ".agents/skills",
+      },
+    ]);
+    expect(result.global.entries).toEqual([
+      {
+        name: "global",
+        displayName: "agy-review",
+        description: "Antigravity review",
+        userInvocable: false,
+        sourcePath: "~/.gemini/antigravity-cli/skills",
       },
     ]);
   } finally {

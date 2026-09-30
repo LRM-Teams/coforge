@@ -22,6 +22,7 @@ export function assignedSkillsDirectory(
     case RUNTIME_PROVIDER.CLAUDE_CODE:
       return join(cwd, ".claude", "skills");
     case RUNTIME_PROVIDER.CODEX:
+    case RUNTIME_PROVIDER.ANTIGRAVITY:
       return join(cwd, ".agents", "skills");
     case RUNTIME_PROVIDER.KIRO:
       return join(cwd, ".kiro", "skills");

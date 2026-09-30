@@ -1,3 +1,4 @@
+import { AntigravityProvider } from "#src/code-agent/antigravity/provider";
 import { ClaudeCodeProvider } from "#src/code-agent/claude-code/provider";
 import { CodexProvider } from "#src/code-agent/codex/provider";
 import type { CodeAgentProvider } from "./contract";
@@ -27,6 +28,8 @@ export function createCodeAgentProvider(provider: RuntimeProvider): CodeAgentPro
       return new OpenCodeProvider();
     case RUNTIME_PROVIDER.GROK:
       return new GrokProvider();
+    case RUNTIME_PROVIDER.ANTIGRAVITY:
+      return new AntigravityProvider();
     default: {
       const unreachable: never = provider;
       throw new Error(`Unhandled runtime provider: ${unreachable}`);

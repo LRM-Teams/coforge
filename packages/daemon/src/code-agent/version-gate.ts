@@ -26,7 +26,7 @@ export type CliVersionGate = {
 };
 
 /** How long a `--version` probe may take before it is killed and its version treated as unread. */
-const VERSION_PROBE_TIMEOUT_MS = 5_000;
+export const VERSION_PROBE_TIMEOUT_MS = 5_000;
 
 const dottedNumbers = (value: string) =>
   value.split(".").map((part) => (/^\d+$/.test(part) ? Number(part) : Number.NaN));

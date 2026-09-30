@@ -26,6 +26,11 @@ import { isKiroVersionUnsupported, logKiroVersionUnsupported } from "#src/code-a
 import { discoverCursorCatalog } from "#src/code-agent/cursor/catalog";
 import { isGrokVersionUnsupported, logGrokVersionUnsupported } from "#src/code-agent/grok/version";
 import { discoverGrokCatalog } from "#src/code-agent/grok/catalog";
+import { discoverAntigravityCatalog } from "#src/code-agent/antigravity/catalog";
+import {
+  isAntigravityVersionUnsupported,
+  logAntigravityVersionUnsupported,
+} from "#src/code-agent/antigravity/version";
 import { discoverOpenCodeCatalog } from "#src/code-agent/opencode/catalog";
 import {
   isOpenCodeVersionUnsupported,
@@ -80,6 +85,7 @@ const externalCodeAgents = [
   { provider: RUNTIME_PROVIDER.CURSOR, executable: "cursor-agent" },
   { provider: RUNTIME_PROVIDER.OPENCODE, executable: "opencode" },
   { provider: RUNTIME_PROVIDER.GROK, executable: "grok" },
+  { provider: RUNTIME_PROVIDER.ANTIGRAVITY, executable: "agy" },
 ] as const;
 
 /** The subset of RuntimeProvider backed by an external executable this module probes. */
@@ -138,6 +144,10 @@ async function probeRuntimeVersion(
   }
   if (provider === RUNTIME_PROVIDER.GROK && isGrokVersionUnsupported(version)) {
     logGrokVersionUnsupported(name, version);
+    return undefined;
+  }
+  if (provider === RUNTIME_PROVIDER.ANTIGRAVITY && isAntigravityVersionUnsupported(version)) {
+    logAntigravityVersionUnsupported(name, version);
     return undefined;
   }
   return { provider, version, displayName: externalRuntimeDisplayName(provider) };
@@ -266,6 +276,7 @@ type CatalogCommands = {
   cursor?: readonly string[];
   opencode?: readonly string[];
   grok?: readonly string[];
+  antigravity?: readonly string[];
 };
 
 export type CodeAgentDiscoveryOptions = {
@@ -288,6 +299,7 @@ const CACHEABLE_CATALOG_PROVIDERS = [
   RUNTIME_PROVIDER.KIRO,
   RUNTIME_PROVIDER.CURSOR,
   RUNTIME_PROVIDER.OPENCODE,
+  RUNTIME_PROVIDER.ANTIGRAVITY,
 ] as const;
 
 function piAgentDirectory(environment: Readonly<Record<string, string | undefined>>): string {
@@ -460,6 +472,24 @@ export async function discoverCodeAgentCatalogs(
             keyPaths: [executable],
             catalog,
           })),
+      );
+  }
+  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.ANTIGRAVITY)) {
+    const executable = probe.which(
+      externalCodeAgentExecutable[RUNTIME_PROVIDER.ANTIGRAVITY],
+      searchPath,
+    );
+    if (executable)
+      discoveries.push(
+        discoverAntigravityCatalog(
+          commands.antigravity ?? [executable, "models"],
+          cwd,
+          environment,
+        ).then((catalog) => ({
+          provider: RUNTIME_PROVIDER.ANTIGRAVITY,
+          keyPaths: [executable],
+          catalog,
+        })),
       );
   }
   // OpenCode was the one cacheable provider this refresh had no branch for, so its catalog was
@@ -875,6 +905,8 @@ function externalRuntimeDisplayName(provider: ExternalCodeAgentProvider): string
       return "OpenCode";
     case RUNTIME_PROVIDER.GROK:
       return "Grok Build";
+    case RUNTIME_PROVIDER.ANTIGRAVITY:
+      return "Antigravity CLI";
     default: {
       const unreachable: never = provider;
       throw new Error(`Unhandled external Code Agent provider: ${unreachable}`);

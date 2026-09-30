@@ -1,4 +1,5 @@
 import { RUNTIME_PROVIDER, type RuntimeProvider } from "@lrm/coforge-sdk/internal";
+import antigravityMark from "@lobehub/icons-static-svg/icons/antigravity-color.svg";
 import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
 import codexMark from "@lobehub/icons-static-svg/icons/codex-color.svg";
 import cursorMark from "@lobehub/icons-static-svg/icons/cursor.svg";
@@ -24,6 +25,7 @@ export const RUNTIME_PROVIDER_DISPLAY_ORDER: readonly RuntimeProvider[] = [
   RUNTIME_PROVIDER.CURSOR,
   RUNTIME_PROVIDER.OPENCODE,
   RUNTIME_PROVIDER.GROK,
+  RUNTIME_PROVIDER.ANTIGRAVITY,
 ];
 
 /** The label shown in the runtime picker and the Agent detail page. CoForge's own built-in
@@ -38,6 +40,7 @@ export function runtimeProviderLabel(provider: RuntimeProvider): string {
     [RUNTIME_PROVIDER.CURSOR]: "Cursor CLI",
     [RUNTIME_PROVIDER.OPENCODE]: "OpenCode",
     [RUNTIME_PROVIDER.GROK]: "Grok Build",
+    [RUNTIME_PROVIDER.ANTIGRAVITY]: "Antigravity CLI",
   };
   return labels[provider];
 }
@@ -52,6 +55,7 @@ export const RUNTIME_PROVIDER_MARK: Record<RuntimeProvider, string> = {
   [RUNTIME_PROVIDER.CURSOR]: cursorMark,
   [RUNTIME_PROVIDER.OPENCODE]: opencodeMark,
   [RUNTIME_PROVIDER.GROK]: grokMark,
+  [RUNTIME_PROVIDER.ANTIGRAVITY]: antigravityMark,
 };
 
 /** Whether that mark is a full-color icon rendered as an `<img>`, as opposed to a monochrome
@@ -65,4 +69,5 @@ export const RUNTIME_PROVIDER_MARK_IS_COLOR_ICON: Record<RuntimeProvider, boolea
   [RUNTIME_PROVIDER.CURSOR]: false,
   [RUNTIME_PROVIDER.OPENCODE]: false,
   [RUNTIME_PROVIDER.GROK]: false,
+  [RUNTIME_PROVIDER.ANTIGRAVITY]: true,
 };

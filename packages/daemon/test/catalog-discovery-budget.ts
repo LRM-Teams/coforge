@@ -1,3 +1,4 @@
+import { ANTIGRAVITY_MODELS_TIMEOUT_MS } from "#src/code-agent/antigravity/catalog";
 import {
   OPENCODE_PLAIN_MODELS_TIMEOUT_MS,
   OPENCODE_VERBOSE_MODELS_TIMEOUT_MS,
@@ -33,3 +34,11 @@ export const CATALOG_DISCOVERY_BUDGET_MS = Math.max(
  */
 export const OPENCODE_DISCOVERY_BUDGET_MS =
   OPENCODE_VERBOSE_MODELS_TIMEOUT_MS + OPENCODE_PLAIN_MODELS_TIMEOUT_MS;
+
+/**
+ * The longest one Antigravity catalog discovery over a spawned process can run before the product
+ * gives its own verdict: `agy models` fetches the list over the network, so it has its own deadline,
+ * then the process cleanup ladder.
+ */
+export const ANTIGRAVITY_DISCOVERY_BUDGET_MS =
+  ANTIGRAVITY_MODELS_TIMEOUT_MS + 2 * PROCESS_TREE_EXIT_GRACE_MS;

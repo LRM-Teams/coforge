@@ -40,6 +40,7 @@ export const AGENT_DELIVERY_MODE: Readonly<Record<RuntimeProvider, AgentDelivery
   [RUNTIME_PROVIDER.KIRO]: "steer",
   [RUNTIME_PROVIDER.OPENCODE]: "steer",
   [RUNTIME_PROVIDER.GROK]: "steer",
+  [RUNTIME_PROVIDER.ANTIGRAVITY]: "steer",
 };
 
 /**
