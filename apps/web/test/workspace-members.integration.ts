@@ -172,3 +172,35 @@ test("lists only the requested Workspace directory and denies outsiders", async 
     await db.$disconnect();
   }
 });
+
+test("the directory lists people in the order of the names they are shown by", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString)
+    throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
+
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID();
+  // The usernames sort amy < mia < zed; the names they are shown by sort Alice < mia < Zoe.
+  const usernames = ["amy", "mia", "zed"].map((name) => `label-${name}-${suffix}`);
+  try {
+    const [amy, mia, zed] = await Promise.all(
+      usernames.map((username, index) =>
+        db.user.create({ data: { username, displayName: ["Zoe", null, "Alice"][index] } }),
+      ),
+    );
+    const workspace = await db.workspace.create({
+      data: {
+        slug: `label-${suffix}`,
+        name: "Label order",
+        members: { create: [{ userId: amy!.id }, { userId: mia!.id }, { userId: zed!.id }] },
+      },
+    });
+
+    const directory = await new WorkspaceMembers(db).directory(workspace.id, amy!.id);
+    expect(directory.people.map((person) => person.name)).toEqual(["Alice", usernames[1], "Zoe"]);
+  } finally {
+    await db.workspace.deleteMany({ where: { slug: `label-${suffix}` } });
+    await db.user.deleteMany({ where: { username: { in: usernames } } });
+    await db.$disconnect();
+  }
+});

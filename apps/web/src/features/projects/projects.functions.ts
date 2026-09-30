@@ -6,6 +6,7 @@ import type { RepositorySelection } from "#src/server/integrations/github-connec
 import { gitObjectIdSchema } from "#src/lib/git-object-id";
 import { linkedRepositoryOf } from "#src/server/projects/project-files.server";
 import { AppError, isAppError } from "#src/lib/app-error";
+import { humanLabel } from "#src/lib/human-label";
 import { ProjectSettings } from "#src/server/projects/project-settings.server";
 import { z } from "zod";
 import { createProjectInput, projectIconUploadInput, updateProjectInput } from "./projects.schemas";
@@ -174,7 +175,7 @@ export const getProject = createServerFn({ method: "GET" })
         const lastSender = sender
           ? sender.user
             ? {
-                name: sender.user.displayName ?? sender.user.username,
+                name: humanLabel(sender.user),
                 avatarUrl: workspaceUserAvatarUrl(
                   workspaceId,
                   sender.user.id,

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
   agentMessageSender,
+  browserSenderName,
   UnresolvedMessageSenderError,
 } from "#src/server/conversations/sender-display.server";
 
@@ -70,4 +71,20 @@ test("an internal id standing in for a name is refused", () => {
       user: null,
     }),
   ).toThrow(UnresolvedMessageSenderError);
+});
+
+test("the browser names a person by their display name, trimmed, else by their username", () => {
+  expect(browserSenderName({ user: { username: "ada", displayName: " Ada Lovelace " } })).toBe(
+    "Ada Lovelace",
+  );
+  expect(browserSenderName({ user: { username: "ada", displayName: "  " } })).toBe("ada");
+  expect(browserSenderName({ user: { username: "ada", displayName: null } })).toBe("ada");
+  expect(browserSenderName({ user: { username: "ada" } })).toBe("ada");
+});
+
+test("the browser names an Agent by its display name, else by its name, and the server as System", () => {
+  expect(browserSenderName({ agent: { name: "scout", displayName: "Scout" } })).toBe("Scout");
+  expect(browserSenderName({ agent: { name: "scout", displayName: " " } })).toBe("scout");
+  expect(browserSenderName(null)).toBe("System");
+  expect(browserSenderName({})).toBe("System");
 });

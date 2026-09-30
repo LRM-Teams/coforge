@@ -17,6 +17,7 @@ import type { AgentTargetFreshness } from "#src/server/agents/agent-messages.ser
 import { agentHistoryModelSeenBoundary } from "#src/server/agents/agent-history-boundary.server";
 import { Prisma, type PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
+import { humanLabel } from "#src/lib/human-label";
 import { canDirectMessageAgent } from "#src/server/agents/agent-visibility.server";
 import { AgentMessageValidationError } from "#src/server/conversations/agent-message-validation-error.server";
 import { messageAnchorWhere, messageIdMatchesAnchor } from "#src/server/db/message-anchor.server";
@@ -1194,7 +1195,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 kind: "user" as const,
                 id: member.user.id,
                 handle: member.user.username,
-                label: member.user.displayName?.trim() || member.user.username,
+                label: humanLabel(member.user),
                 description: member.user.description?.trim() ?? "",
                 avatarUrl: workspaceUserAvatarUrl(
                   workspaceId,

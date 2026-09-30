@@ -16,7 +16,7 @@ export const getUserProfile = createServerFn({ method: "GET" })
     const profile = await profiles().get(user.id);
     return {
       id: user.id,
-      name: profile.displayName ?? user.name,
+      name: profile.name,
       email: user.email,
       username: profile.username,
       description: profile.description,

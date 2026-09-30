@@ -17,8 +17,11 @@ identity provider reported at login, nullable, not unique, not an identity key.
 An account registered with a phone number alone has none and signs in like any
 other; the signed session and every consumer of it treat the email as optional.
 
-`User.displayName` stores the user's optional editable name override; when it
-is null, the application displays the current identity-provider name.
+`User.displayName` stores the user's optional editable name; when it is null or
+blank, every surface names the person by their username. The provider's name is
+not stored and never labels a person. `humanLabel` in
+`apps/web/src/lib/human-label.ts` is the one rule for that label, in messages,
+member lists, mentions, and the signed-in user's own shell.
 `User.description` stores the editable profile description. The optional
 `avatarObjectKey` and `avatarContentType` identify the user's current private
 avatar in the shared user-files store; image bytes and delivery URLs are never

@@ -1,5 +1,6 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import { humanLabel } from "#src/lib/human-label";
 import {
   PROFILE_IMAGE_STYLES,
   publicImageUrl,
@@ -23,6 +24,8 @@ export class PrismaUserProfileRepository {
     });
     if (!profile) throw new AppError("NOT_FOUND");
     return {
+      /** The name teammates see for this person (`humanLabel`); never the sign-in provider's. */
+      name: humanLabel(profile),
       username: profile.username,
       displayName: profile.displayName,
       description: profile.description,
@@ -31,9 +34,21 @@ export class PrismaUserProfileRepository {
   }
 
   async set(userId: string, input: { name: string; description: string }) {
+    const current = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { username: true, displayName: true },
+    });
+    if (!current) throw new AppError("NOT_FOUND");
+    // The editor is seeded with the label shown today, so saving only the description sends that
+    // label back. When the person never set a display name it is a fallback (their username), not
+    // a name they chose, and storing it would freeze the fallback as their display name.
+    const nameUnchanged = !current.displayName?.trim() && input.name === humanLabel(current);
     const profile = await this.db.user.update({
       where: { id: userId },
-      data: { displayName: input.name, description: input.description },
+      data: {
+        ...(nameUnchanged ? {} : { displayName: input.name }),
+        description: input.description,
+      },
       select: { description: true },
     });
     return { name: input.name, description: profile.description };

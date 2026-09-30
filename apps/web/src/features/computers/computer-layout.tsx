@@ -26,6 +26,7 @@ import { Avatar } from "#src/components/base/avatar/avatar";
 import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
 import { Button } from "#src/components/base/buttons/button";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { humanLabel } from "#src/lib/human-label";
 import { computerVersionLabel, isComputerUpdateAvailable } from "./computer-identity";
 
 export type ComputerListItem = ComputerIdentity &
@@ -117,6 +118,7 @@ export function ComputerLayout({
         <ul className="flex-1 space-y-1 overflow-y-auto p-3">
           {computers.map((computer) => {
             const selected = computer.id === selectedComputerId;
+            const creatorName = computer.creator ? humanLabel(computer.creator) : "";
             return (
               <li key={computer.id}>
                 <div className="flex min-w-0 items-center">
@@ -170,7 +172,7 @@ export function ComputerLayout({
                     {computer.creator && (
                       <Tooltip
                         title={m.computer_added_by_name({
-                          name: computer.creator.displayName || computer.creator.username,
+                          name: creatorName,
                         })}
                       >
                         <TooltipTrigger className="shrink-0 rounded-full">
@@ -178,16 +180,10 @@ export function ComputerLayout({
                             size="xs"
                             src={computer.creator.avatarUrl}
                             alt=""
-                            initials={avatarInitial(
-                              computer.creator.displayName || computer.creator.username,
-                            )}
-                            contentClassName={avatarToneClassName(
-                              computer.creator.displayName || computer.creator.username,
-                            )}
+                            initials={avatarInitial(creatorName)}
+                            contentClassName={avatarToneClassName(creatorName)}
                           />
-                          <span className="sr-only">
-                            {computer.creator.displayName || computer.creator.username}
-                          </span>
+                          <span className="sr-only">{creatorName}</span>
                         </TooltipTrigger>
                       </Tooltip>
                     )}

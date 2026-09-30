@@ -14,6 +14,7 @@ import { Input } from "#src/components/base/input/input";
 import { Toggle } from "#src/components/base/toggle/toggle";
 import { useAppToast } from "#src/components/ui/toast";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { humanLabel } from "#src/lib/human-label";
 import { m } from "#src/paraglide/messages";
 import { BackToComputers } from "./back-to-computers";
 import { useUpgradingComputer } from "./computer-layout";
@@ -132,6 +133,7 @@ export function ComputerDetail({
   const [savingDisplayName, setSavingDisplayName] = useState(false);
   const [displayNameError, setDisplayNameError] = useState(false);
   const toast = useAppToast();
+  const creatorName = computer.creator ? humanLabel(computer.creator) : "";
   const mountedRef = useRef(true);
   useEffect(
     () => () => {
@@ -445,16 +447,10 @@ export function ComputerDetail({
                         size="xs"
                         src={computer.creator.avatarUrl}
                         alt=""
-                        initials={avatarInitial(
-                          computer.creator.displayName || computer.creator.username,
-                        )}
-                        contentClassName={avatarToneClassName(
-                          computer.creator.displayName || computer.creator.username,
-                        )}
+                        initials={avatarInitial(creatorName)}
+                        contentClassName={avatarToneClassName(creatorName)}
                       />
-                      <span className="truncate">
-                        {computer.creator.displayName || computer.creator.username}
-                      </span>
+                      <span className="truncate">{creatorName}</span>
                     </span>
                   }
                 />

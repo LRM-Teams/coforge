@@ -1,6 +1,7 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
 import { peopleDirectPeerId } from "#src/features/conversations/direct-key";
 import { AppError } from "#src/lib/app-error";
+import { compareHumanLabels, humanLabel } from "#src/lib/human-label";
 import type { WorkspaceMemberRole } from "./member-role.server";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
@@ -135,7 +136,7 @@ export class WorkspaceMembers {
         createdAt: agent.createdAt,
         owner: {
           id: agent.owner.id,
-          displayName: agent.owner.displayName?.trim() || agent.owner.username,
+          displayName: humanLabel(agent.owner),
           avatarUrl: workspaceUserAvatarUrl(
             workspaceId,
             agent.owner.id,
@@ -161,7 +162,6 @@ export class WorkspaceMembers {
       this.db.user.findMany({
         where: { memberships: { some: { workspaceId } } },
         select: { id: true, username: true, displayName: true, avatarObjectKey: true },
-        orderBy: [{ username: "asc" }, { id: "asc" }],
       }),
       this.db.agent.findMany({
         where: visibleAgents,
@@ -195,10 +195,11 @@ export class WorkspaceMembers {
       }),
     );
     return {
-      people: people.map((person) => ({
+      // Listed by the name they are shown by, which the database cannot order by.
+      people: [...people].sort(compareHumanLabels).map((person) => ({
         id: person.id,
         handle: person.username,
-        name: person.displayName?.trim() || person.username,
+        name: humanLabel(person),
         avatarUrl: workspaceUserAvatarUrl(workspaceId, person.id, person.avatarObjectKey),
         /** The viewer's direct conversation with this member (`dm/<id>`; the viewer's own with
          * themself), once there is one. */
@@ -241,6 +242,8 @@ export class WorkspaceMembers {
           orderBy: [{ name: "asc" }, { id: "asc" }],
         },
       },
+      // The one list still in username order: it pages by cursor, and the name a person is shown
+      // by (`humanLabel`) is not a column Prisma can sort or a cursor can resume from.
       orderBy: [{ username: "asc" }, { id: "asc" }],
       ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
       take: limit + 1,
@@ -249,7 +252,7 @@ export class WorkspaceMembers {
       people.map((person) => ({
         id: person.id,
         name: person.username,
-        displayName: person.displayName?.trim() || person.username,
+        displayName: humanLabel(person),
         description: person.description,
         avatarUrl: workspaceUserAvatarUrl(workspaceId, person.id, person.avatarObjectKey),
         createdAgents: {

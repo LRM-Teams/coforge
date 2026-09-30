@@ -1,5 +1,6 @@
 import { isValidMessageSender, type MessageSenderKind } from "@lrm/coforge-sdk/internal";
 import type { Prisma } from "#src/generated/prisma/client";
+import { humanLabel } from "#src/lib/human-label";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 
@@ -26,7 +27,7 @@ type BrowserSender =
 export function browserSenderName(sender: BrowserSender): string {
   // A null sender is the server identity; see TaskBoard's server-authored messages.
   if (!sender) return "System";
-  if (sender.user) return sender.user.displayName?.trim() || sender.user.username;
+  if (sender.user) return humanLabel(sender.user);
   if (sender.agent) return sender.agent.displayName?.trim() || sender.agent.name;
   return "System";
 }

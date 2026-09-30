@@ -9,6 +9,7 @@ import {
   handleAvatarUpload,
 } from "#src/routes/api/me/avatar";
 import { handleWorkspaceUserAvatar } from "#src/server/profiles/workspace-user-avatar.server";
+import { PrismaUserProfileRepository } from "#src/server/db/repositories/user-profile.repositories.server";
 
 test("workspace user avatar serves the requested sender only to workspace members", async () => {
   const response = await handleWorkspaceUserAvatar(
@@ -54,6 +55,28 @@ test("profile updates normalize editable names and reject an empty name", () => 
   expect(
     saveUserProfileInputSchema.safeParse({ name: "   ", description: "" }).success,
   ).toBeFalse();
+});
+
+test("the profile names the person by the label teammates see, not by the sign-in name", async () => {
+  const named = profileRepository({ username: "ada", displayName: "Ada Lovelace" });
+  expect((await named.repository.get("user-1")).name).toBe("Ada Lovelace");
+
+  const unnamed = profileRepository({ username: "ada", displayName: null });
+  expect((await unnamed.repository.get("user-1")).name).toBe("ada");
+});
+
+test("saving the label a person already shows does not turn their username into a display name", async () => {
+  const unnamed = profileRepository({ username: "ada", displayName: null });
+  await unnamed.repository.set("user-1", { name: "ada", description: "Building CoForge." });
+  expect(unnamed.updates).toEqual([{ description: "Building CoForge." }]);
+
+  const renamed = profileRepository({ username: "ada", displayName: null });
+  await renamed.repository.set("user-1", { name: "Ada Lovelace", description: "" });
+  expect(renamed.updates).toEqual([{ displayName: "Ada Lovelace", description: "" }]);
+
+  const named = profileRepository({ username: "ada", displayName: "Ada Lovelace" });
+  await named.repository.set("user-1", { name: "Ada Lovelace", description: "New" });
+  expect(named.updates).toEqual([{ displayName: "Ada Lovelace", description: "New" }]);
 });
 
 test("profile image upload rejects unsupported and oversized files before persistence", async () => {
@@ -146,6 +169,20 @@ test("profile image HTTP boundary rejects unauthenticated requests", async () =>
   expect(response.status).toBe(401);
   expect(response.headers.get("cache-control")).toBe("no-store");
 });
+
+function profileRepository(row: { username: string; displayName: string | null }) {
+  const updates: unknown[] = [];
+  const db = {
+    user: {
+      findUnique: async () => ({ ...row, description: "", avatarObjectKey: null }),
+      update: async ({ data }: { data: { description: string } }) => {
+        updates.push(data);
+        return { description: data.description };
+      },
+    },
+  } as never;
+  return { repository: new PrismaUserProfileRepository(db), updates };
+}
 
 function persistenceMustNotBeTouched() {
   return new Proxy(

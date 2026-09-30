@@ -60,6 +60,7 @@ import { AgentDeleteDialog } from "#src/features/agents/agent-delete-dialog";
 import { AgentVisibilityConfirmDialog } from "#src/features/agents/agent-visibility-confirm-dialog";
 import type { AgentVisibility } from "#src/features/agents/agent-visibility";
 import { useAppToast } from "#src/components/ui/toast";
+import { humanLabel } from "#src/lib/human-label";
 import { agentModelsQueryKey } from "#src/features/agents/agent-models";
 import { useCurrentWorkspaceId } from "#src/features/agents/workspace-agents-realtime";
 import { AgentProfileHeader } from "./agent-profile-header";
@@ -562,7 +563,7 @@ export function AgentProfilePanel({
       {profile && visibilityTarget && (
         <AgentVisibilityConfirmDialog
           agentName={profile.displayName || profile.name}
-          creatorName={profile.owner.displayName?.trim() || profile.owner.username}
+          creatorName={humanLabel(profile.owner)}
           viewerIsCreator={profile.ownedByCurrentUser}
           target={visibilityTarget}
           open={visibilityTarget !== null}

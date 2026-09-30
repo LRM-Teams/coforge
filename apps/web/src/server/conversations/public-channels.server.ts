@@ -3,6 +3,7 @@ import { lockConversation } from "./conversation-lock.server";
 import { lockMemberPins, setConversationPin } from "./conversation-pins.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError, isAppError } from "#src/lib/app-error";
+import { compareHumanLabels, humanLabel } from "#src/lib/human-label";
 import { CHANNEL_NAME_PATTERN } from "@lrm/coforge-sdk/internal";
 import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
@@ -1457,7 +1458,6 @@ export class PublicChannels {
       this.db.user.findMany({
         where: { memberships: { some: { workspaceId } } },
         select: { id: true, username: true, displayName: true, avatarObjectKey: true },
-        orderBy: [{ username: "asc" }, { id: "asc" }],
       }),
       // A private Agent can never join a channel, so it is never an add-candidate
       // either — unconditionally, the same "channels never contain a private Agent" invariant
@@ -1524,7 +1524,7 @@ export class PublicChannels {
           return {
             id: row.user!.id,
             username: row.user!.username,
-            displayName: row.user!.displayName?.trim() || row.user!.username,
+            displayName: humanLabel(row.user!),
             avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user!.id, row.user!.avatarObjectKey),
             serverRole,
             channelRole: row.channelRole,
@@ -1547,10 +1547,11 @@ export class PublicChannels {
       candidates: {
         humans: workspaceUsers
           .filter((user) => !memberUserIds.has(user.id))
+          .sort(compareHumanLabels)
           .map((user) => ({
             id: user.id,
             username: user.username,
-            displayName: user.displayName?.trim() || user.username,
+            displayName: humanLabel(user),
             avatarUrl: workspaceUserAvatarUrl(workspaceId, user.id, user.avatarObjectKey),
           })),
         agents: workspaceAgents
@@ -1892,7 +1893,7 @@ export class PublicChannels {
                 kind: "user" as const,
                 id: row.user.id,
                 handle: row.user.username,
-                label: row.user.displayName?.trim() || row.user.username,
+                label: humanLabel(row.user),
                 description: row.user.description.trim(),
                 avatarUrl: workspaceUserAvatarUrl(
                   workspaceId,
@@ -1967,7 +1968,7 @@ export class PublicChannels {
               kind: "user" as const,
               id: row.user.id,
               handle: row.user.username,
-              label: row.user.displayName?.trim() || row.user.username,
+              label: humanLabel(row.user),
               description: row.user.description.trim(),
               avatarUrl: workspaceUserAvatarUrl(workspaceId, row.user.id, row.user.avatarObjectKey),
               mentionScore: mentionScores.get(`user:${row.user.id}`) ?? 0,
@@ -1989,8 +1990,8 @@ export class PublicChannels {
    * The composer's other @-completion group for one channel: the Workspace's people and public
    * Agents who are not active members, for the viewer to mention on purpose. Such a mention does
    * not notify them; the send records it as the viewer's pending mention action. Never the viewer,
-   * a private Agent (it cannot join a channel) or a deleted one. People first, then Agents, each by
-   * handle; the composer ranks them against the query.
+   * a private Agent (it cannot join a channel) or a deleted one. People first, by label, then
+   * Agents by handle; the composer ranks them against the query.
    */
   async mentionOutsiders(workspaceId: string, userId: string, channelId: string) {
     await this.channel(workspaceId, userId, channelId);
@@ -2013,7 +2014,6 @@ export class PublicChannels {
             },
           },
         },
-        orderBy: { user: { username: "asc" } },
       }),
       this.db.agent.findMany({
         where: {
@@ -2033,16 +2033,19 @@ export class PublicChannels {
       }),
     ]);
     return [
-      ...memberships.map(({ user }) => ({
-        kind: "user" as const,
-        id: user.id,
-        handle: user.username,
-        label: user.displayName?.trim() || user.username,
-        description: user.description.trim(),
-        avatarUrl: workspaceUserAvatarUrl(workspaceId, user.id, user.avatarObjectKey),
-        mentionScore: 0,
-        outsider: true as const,
-      })),
+      ...memberships
+        .map(({ user }) => user)
+        .sort(compareHumanLabels)
+        .map((user) => ({
+          kind: "user" as const,
+          id: user.id,
+          handle: user.username,
+          label: humanLabel(user),
+          description: user.description.trim(),
+          avatarUrl: workspaceUserAvatarUrl(workspaceId, user.id, user.avatarObjectKey),
+          mentionScore: 0,
+          outsider: true as const,
+        })),
       ...agents.map((agent) => ({
         kind: "agent" as const,
         id: agent.id,

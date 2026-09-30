@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { humanLabel } from "#src/lib/human-label";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import {
   conversationAroundInputSchema,
@@ -231,7 +232,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           senderKind: "user" as const,
           senderMemberId: message.senderMemberId,
           // Reads exactly like the same message after a reload: display name, handle separately.
-          senderName: profile?.displayName?.trim() || user.username,
+          senderName: humanLabel({ displayName: profile?.displayName, username: user.username }),
           senderHandle: user.username,
           // A human-sent echo never carries an Agent id, and a human sender is never deleted.
           senderAgentId: undefined,

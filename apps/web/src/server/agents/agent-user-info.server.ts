@@ -7,6 +7,7 @@ import type {
 } from "@lrm/coforge-sdk/agent";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import type { PrismaClient } from "#src/generated/prisma/client";
+import { humanLabel } from "#src/lib/human-label";
 import { agentDisplay } from "#src/features/agents/agent-activity-presentation";
 import { getAgentDisplay } from "./agent-display.server";
 import { parseAgentRuntimeConfig } from "./agent-runtime-config.server";
@@ -194,7 +195,7 @@ export async function findWorkspaceUser(
     kind: "human",
     id: membership.user.id,
     name: membership.user.username,
-    displayName: membership.user.displayName?.trim() || membership.user.username,
+    displayName: humanLabel(membership.user),
     description: membership.user.description,
     role: membership.role,
   };

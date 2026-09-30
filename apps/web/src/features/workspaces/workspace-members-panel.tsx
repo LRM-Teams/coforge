@@ -11,6 +11,7 @@ import { Dropdown } from "#src/components/base/dropdown/dropdown";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "#src/components/ui/empty";
 import { useAppToast } from "#src/components/ui/toast";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
+import { humanLabel } from "#src/lib/human-label";
 import { m } from "#src/paraglide/messages";
 import { InviteMemberDialog } from "./invite-member-dialog";
 import { canManageMembers } from "./workspace-roles";
@@ -132,7 +133,7 @@ export function WorkspaceMembersPanel(props: {
           <ul aria-label={m.workspace_members_title()} className="divide-y divide-secondary">
             {props.members.map((member) => {
               const isSelf = member.userId === props.actorUserId;
-              const displayName = member.displayName || member.username;
+              const displayName = humanLabel(member);
               const sameAsHandle = displayName === member.username;
               const canEditRole = canManage && member.role !== "owner";
               const canRemove = canManage && member.role !== "owner" && !isSelf;
