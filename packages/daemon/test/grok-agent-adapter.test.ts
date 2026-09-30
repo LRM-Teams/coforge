@@ -143,7 +143,7 @@ async function withSession(
 test(
   "a fresh session pins its own session id on the first turn and resumes from the second",
   async () => {
-    await withSession({}, async ({ session, launches }) => {
+    await withSession({}, async ({ session, launches, reports }) => {
       // A fresh session spawns nothing until real input arrives (the standing instructions ride
       // `--rules`, so there is no instructions-only bootstrap turn).
       expect(await launches()).toEqual([]);
@@ -156,6 +156,8 @@ test(
       const [first, second, ...rest] = await launches();
       expect(rest).toEqual([]);
       expect(first!.newSessionId).toBe(identity?.sessionId);
+      // Two completed turns, one report: the id is reported when it is first known to resume.
+      expect(reports).toEqual([{ sessionId: identity!.sessionId }]);
       expect(first!.resumeId).toBeUndefined();
       expect(second!.newSessionId).toBeUndefined();
       expect(second!.resumeId).toBe(identity?.sessionId);
