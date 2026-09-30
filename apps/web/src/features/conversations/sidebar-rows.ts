@@ -1,7 +1,11 @@
 import type { loadDirectConversationPreferences } from "./conversations.functions";
 
-/** What the server says about the viewer's DMs, by conversation id. */
-type DirectPreferences = Awaited<ReturnType<typeof loadDirectConversationPreferences>>;
+/** What the server says about the viewer's DMs, by conversation id; the stream positions it was
+ * read at (`streamPositions`) belong to the list, not to a row. */
+type DirectPreferences = Omit<
+  Awaited<ReturnType<typeof loadDirectConversationPreferences>>,
+  "streamPositions"
+>;
 
 /** Who a DM is with: the viewer's Agent, or a member (the viewer themself in their own DM). */
 export type DirectPeer = DirectPreferences["conversations"][number]["peer"];

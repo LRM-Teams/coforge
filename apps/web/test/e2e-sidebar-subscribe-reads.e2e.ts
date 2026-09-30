@@ -5,12 +5,16 @@ import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
-import { workspaceConversationChannel } from "#src/features/conversations/conversation-realtime";
+import {
+  userConversationChannel,
+  workspaceConversationChannel,
+} from "#src/features/conversations/conversation-realtime";
 
 /**
- * Chat reads its channel list once when nothing was published between that read and the moment
- * its realtime subscriptions start, and reads it again when something was
- * (`listsMissedBySubscribe`, Centrifugo's read-the-position-first recipe:
+ * Chat reads each of its lists once (the channel list, every channel's name, the DM list from its
+ * two reads, and the Saved list) when nothing was published between that read and the moment its
+ * realtime subscriptions start, and reads a list again when something was that its subscription
+ * will never deliver (`rereadMissedBySubscribe`, Centrifugo's read-the-position-first recipe:
  * https://centrifugal.dev/docs/server/history_and_recovery).
  *
  * Opt-in like the other browser E2Es: a real local Web built with `bun run build` and served from
@@ -19,7 +23,8 @@ import { workspaceConversationChannel } from "#src/features/conversations/conver
  * that Web (`COFORGE_E2E_CENTRIFUGO_URL`, and `COFORGE_CENTRIFUGO_API_KEY` to publish), the Web's
  * `COFORGE_CENTRIFUGO_API_URL` pointing at the same Centrifugo, `agent-browser`, and the dev user
  * an owner of its Workspace (seed-dev). The browser talks to a proxy in this test that counts the
- * list reads, can hold the channel list's answer, and forwards `/connection/*` to Centrifugo.
+ * list reads, can hold the channel list's answer, and forwards `/connection/*` to Centrifugo,
+ * noting which channels the browser has asked to subscribe to.
  * Counts are written to `.amp/e2e/sidebar-subscribe-reads/reads.json`.
  */
 const upstreamOrigin = Bun.env.COFORGE_E2E_WEB_URL;
@@ -36,11 +41,23 @@ if (!databaseUrl || new URL(databaseUrl).hostname !== "127.0.0.1")
   throw new Error("DATABASE_URL must target local PostgreSQL");
 const artifacts = join(import.meta.dir, "../../../.amp/e2e/sidebar-subscribe-reads");
 
-/** The channel list, and the two lists each subscription still re-reads (they carry no stream
- * position): the channel names after the Workspace channel's subscribe, the saved messages
- * after the viewer's own channel's. */
-const COUNTED = ["listPublicChannels", "listChannelNames", "listSavedMessages"] as const;
+/** The server functions that read Chat's lists (the DM list is two reads). Each one takes the
+ * position of the signal channel that keeps its list live before it reads. */
+const COUNTED = [
+  "listPublicChannels",
+  "listChannelNames",
+  "listSavedMessages",
+  "loadDirectConversationPreferences",
+  "loadDirectConversationBadges",
+] as const;
 type Counted = (typeof COUNTED)[number];
+const noReads = (): Record<Counted, number> => ({
+  listPublicChannels: 0,
+  listChannelNames: 0,
+  listSavedMessages: 0,
+  loadDirectConversationPreferences: 0,
+  loadDirectConversationBadges: 0,
+});
 
 /** This build's Server Function ids by export name, as the build states them
  * (`NAME_createServerFn_handler = createServerRpc({ id: "<64 hex>" ...`). */
@@ -64,11 +81,10 @@ const countedIds = serverFunctionIds();
 type ProxySocket = { path: string; protocol?: string; upstream?: WebSocket; pending: unknown[] };
 
 function countingProxy() {
-  const reads: Record<Counted, number> = {
-    listPublicChannels: 0,
-    listChannelNames: 0,
-    listSavedMessages: 0,
-  };
+  const reads = noReads();
+  /** The watched channels the browser has sent a subscribe command naming. */
+  const subscribing = new Set<string>();
+  let watched: string[] = [];
   let gate: { opened: Promise<void>; release: () => void } | undefined;
   let heldNow = 0;
   const upstream = new URL(upstreamOrigin!);
@@ -130,6 +146,13 @@ function countingProxy() {
         socket.onerror = () => client.close(1011, "Upstream WebSocket error");
       },
       message(client, message) {
+        // A subscribe command carries its channel's name as plain bytes in the protobuf frame, so
+        // finding the name in a frame the browser sent is enough to know it asked for the
+        // channel; nothing is decoded.
+        if (client.data.path.startsWith("/connection/")) {
+          const frame = typeof message === "string" ? Buffer.from(message) : message;
+          for (const channel of watched) if (frame.includes(channel)) subscribing.add(channel);
+        }
         const socket = client.data.upstream;
         if (socket?.readyState === WebSocket.OPEN) socket.send(message);
         else client.data.pending.push(message);
@@ -144,7 +167,14 @@ function countingProxy() {
     reads,
     reset() {
       for (const name of COUNTED) reads[name] = 0;
+      subscribing.clear();
     },
+    /** Notes from now on when the browser subscribes to these channels. */
+    watch(channels: string[]) {
+      watched = channels;
+    },
+    /** The browser has asked to subscribe to every watched channel. */
+    subscribedToAll: () => watched.every((channel) => subscribing.has(channel)),
     /** From now on the channel list's answers wait for `release()`. */
     hold() {
       let release = () => {};
@@ -209,6 +239,10 @@ beforeAll(async () => {
   });
   workspacePath = `/en/w/${membership.workspace.slug}`;
   workspaceId = membership.workspaceId;
+  proxy.watch([
+    workspaceConversationChannel(workspaceId),
+    userConversationChannel(DEV_BROWSER_USER.id),
+  ]);
   await mkdir(artifacts, { recursive: true });
   await browser("set", "viewport", "1440", "900");
 });
@@ -221,20 +255,34 @@ afterAll(async () => {
   await db.$disconnect();
 });
 
-/** Both subscriptions have decided what they missed: each re-read a list that has no position. */
-const bothSubscribed = () =>
+/**
+ * Chat has loaded its lists and its realtime is running: every list has been asked for, and the
+ * browser has sent the subscribe command for both signal channels (the Workspace channel and the
+ * viewer's own). A subscription that finds a list stale re-reads it right after its subscribe
+ * reply, which follows the command within a round trip to Centrifugo; the `networkidle` wait that
+ * comes next (no request for 500 ms, restarted by a re-read's request) covers that gap. This is a
+ * per-browser signal, unlike asking Centrifugo who is subscribed: the `chat` namespace keeps no
+ * presence, and its API would also count another tab of the same user on the same channels.
+ */
+const chatIsLive = () =>
   until(
-    "both subscriptions' re-reads",
-    () => proxy.reads.listChannelNames >= 2 && proxy.reads.listSavedMessages >= 2,
+    "Chat's lists read and both signal channels subscribed",
+    () => COUNTED.every((name) => proxy.reads[name] >= 1) && proxy.subscribedToAll(),
   );
 
-test("with nothing published between the read and the subscriptions, the channel list is read once", async () => {
+test("with nothing published between the reads and the subscriptions, every list is read once", async () => {
   proxy.reset();
   await browser("open", `${proxy.origin}${workspacePath}`);
-  await bothSubscribed();
+  await chatIsLive();
   await browser("wait", "--load", "networkidle");
   results.quiet = { ...proxy.reads };
-  expect(proxy.reads.listPublicChannels).toBe(1);
+  expect(proxy.reads).toEqual({
+    listPublicChannels: 1,
+    listChannelNames: 1,
+    listSavedMessages: 1,
+    loadDirectConversationPreferences: 1,
+    loadDirectConversationBadges: 1,
+  });
 }, 300_000);
 
 test("a publication between the read and the subscriptions has the channel list read again", async () => {
@@ -249,6 +297,9 @@ test("a publication between the read and the subscriptions has the channel list 
   proxy.release();
   await until("the channel list read again", () => proxy.reads.listPublicChannels >= 2);
   await browser("wait", "--load", "networkidle");
+  // The publication moved the Workspace channel only, so the channel list is judged stale. Every
+  // count is recorded; the channel names, kept live by the same channel, are not asserted because
+  // whether their own position was read before the publication depends on the parallel reads.
   results.published = { ...proxy.reads };
   expect(proxy.reads.listPublicChannels).toBe(2);
 }, 300_000);

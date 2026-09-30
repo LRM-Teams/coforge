@@ -74,7 +74,7 @@ export const searchDirectoryQuery = (workspaceId: string) =>
       ]);
       return {
         ...directory,
-        channels: [...channels].sort((a, b) => a.name.localeCompare(b.name)),
+        channels: [...channels.names].sort((a, b) => a.name.localeCompare(b.name)),
         computers,
       };
     },

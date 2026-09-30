@@ -1,4 +1,4 @@
-import type { StreamPosition } from "#src/features/realtime/subscription-gap";
+import type { StreamPositions } from "#src/features/realtime/subscription-gap";
 import {
   createCentrifugoServerApi,
   type CentrifugoStreams,
@@ -6,8 +6,6 @@ import {
 
 /** How long a list read waits for the positions before it goes on without them. */
 const POSITIONS_TIMEOUT_MS = 500;
-
-export type StreamPositions = Readonly<Record<string, StreamPosition>>;
 
 function configuredStreams(env = process.env) {
   if (!env.COFORGE_CENTRIFUGO_API_URL || !env.COFORGE_CENTRIFUGO_API_KEY) return null;
@@ -33,4 +31,19 @@ export async function chatStreamPositions(
     console.warn(JSON.stringify({ event: "chat_stream_positions.unavailable" }));
     return {};
   }
+}
+
+/**
+ * A list read with the positions of the signal channels that keep it live: the positions are read
+ * first and `read` starts only after they have answered, never alongside them, or the list could
+ * hold rows written after the positions it claims (see `chatStreamPositions`). `read` is the
+ * list's own read; its failure is the caller's, and only the positions fall back to none.
+ */
+export async function readAfterStreamPositions<T>(
+  channels: string[],
+  read: () => Promise<T>,
+  streams?: CentrifugoStreams | null,
+): Promise<{ streamPositions: StreamPositions; data: T }> {
+  const streamPositions = await chatStreamPositions(channels, streams);
+  return { streamPositions, data: await read() };
 }

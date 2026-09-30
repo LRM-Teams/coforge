@@ -5,14 +5,23 @@ import type { QueryClient } from "@tanstack/react-query";
 import { assertBrowserOnly } from "#src/lib/browser-only";
 import type { listSavedMessages } from "./saved-messages.functions";
 
+/** One server read of the Saved list: its entries, and where the viewer's own signal channel
+ * stood in its stream when they were read (`readAfterStreamPositions`), which is what lets a
+ * subscribe leave the list alone. The Query holds this whole; the collection's rows are the
+ * entries. */
+export type SavedList = Awaited<ReturnType<typeof listSavedMessages>>;
+
 /** One saved message as the Saved view renders it, keyed by `message.id`. */
-export type SavedEntry = Awaited<ReturnType<typeof listSavedMessages>>[number];
+export type SavedEntry = SavedList["entries"][number];
+
+/** A Saved list nothing was read for, standing at no position: the stand-in when a read failed. */
+export const NO_SAVED: SavedList = { streamPositions: {}, entries: [] };
 
 /** The viewer's own bookmark write, scoped the way the server authorizes it. */
 type SavedMessageTarget = { conversationId: string; messageId: string };
 
 export type SavedMessagesApi = {
-  list: () => Promise<SavedEntry[]>;
+  list: () => Promise<SavedList>;
   save: (target: SavedMessageTarget) => Promise<unknown>;
   unsave: (target: SavedMessageTarget) => Promise<unknown>;
 };
@@ -36,13 +45,15 @@ export function savedMessagesCollection(
 ) {
   const id = `saved-messages:${workspaceId}`;
   return collectionOptions(id, (client) =>
-    queryCollectionOptions<SavedEntry>({
+    queryCollectionOptions({
       id,
       queryKey: savedMessagesQueryKey(workspaceId),
       queryFn: () => api.list(),
       queryClient: client.requireDependency<QueryClient>("queryClient"),
-      getKey: (saved) => saved.message.id,
-      initialData: initial,
+      getKey: (saved: SavedEntry): string | number => saved.message.id,
+      select: (list) => list.entries,
+      // The seed was not read at any stream position: a subscribe re-reads it.
+      initialData: { streamPositions: {}, entries: initial },
       initialDataUpdatedAt: Date.now(),
       staleTime: LOADER_LIST_FRESH_MS,
       onInsert: async ({ transaction }) => {

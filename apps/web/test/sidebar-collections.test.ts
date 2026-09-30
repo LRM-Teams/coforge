@@ -9,10 +9,18 @@ import {
   type SidebarApi,
   channelNamesBehind,
   applyChannelSignalToLists,
+  listReadPosition,
   loadSidebarLists,
 } from "#src/features/conversations/sidebar-collections";
 import { compareChannelNames, type ChannelName } from "#src/features/conversations/channel-signals";
-import { channelNamesQueryKey } from "#src/features/conversations/conversation-query-keys";
+import {
+  channelNamesQueryKey,
+  sidebarChannelsQueryKey,
+  sidebarDirectsQueryKey,
+} from "#src/features/conversations/conversation-query-keys";
+import type { ChatList } from "#src/features/conversations/conversation-unread";
+import { savedMessagesQueryKey } from "#src/features/conversations/saved-messages-collection";
+import type { StreamPositions } from "#src/features/realtime/subscription-gap";
 
 /**
  * The Chat sidebar's lists and the changes made from the sidebar, against fake server calls: each
@@ -52,6 +60,7 @@ async function sidebarWith(overrides: Partial<SidebarApi> = {}, { synced = true 
       ],
       pinned: [{ conversationId: "dm-helper", sortOrder: 0 }],
       hidden: [] as string[],
+      streamPositions: {},
     },
     failReads: false,
     channelReads: 0,
@@ -66,7 +75,7 @@ async function sidebarWith(overrides: Partial<SidebarApi> = {}, { synced = true 
       if (server.failReads) throw new Error("offline");
       return server.preferences;
     },
-    loadDirectBadges: async () => ({ viewerId: "viewer", unread: {} }),
+    loadDirectBadges: async () => ({ viewerId: "viewer", unread: {}, streamPositions: {} }),
     pin: async (target, pinned) => void saves.push(`pin ${JSON.stringify(target)} ${pinned}`),
     markUnread: async (target) => void saves.push(`unread ${JSON.stringify(target)}`),
     close: async (target) => void saves.push(`close ${JSON.stringify(target)}`),
@@ -402,11 +411,14 @@ test("a channel event before the list has synced asks for a read instead of fail
 
 describe("applyChannelSignalToLists", () => {
   const lab = { name: "lab", description: "", archived: false };
+  const streamPositions = { "chat:workspace:w": { offset: 5, epoch: "e1" } };
+  type NamesRead = { names: ChannelName[]; streamPositions: typeof streamPositions };
   async function withNames() {
     const setup = await sidebarWith();
-    setup.queryClient.setQueryData(channelNamesQueryKey("w"), [
-      { id: "general", name: "general", description: "", archived: false },
-    ]);
+    setup.queryClient.setQueryData<NamesRead>(channelNamesQueryKey("w"), {
+      streamPositions,
+      names: [{ id: "general", name: "general", description: "", archived: false }],
+    });
     return setup;
   }
 
@@ -419,10 +431,14 @@ describe("applyChannelSignalToLists", () => {
       channel: lab,
     });
     expect(stale).toEqual([]);
-    expect(queryClient.getQueryData<ChannelName[]>(channelNamesQueryKey("w"))).toEqual([
-      { id: "general", name: "general", description: "", archived: false },
-      { id: "lab", ...lab },
-    ]);
+    expect(queryClient.getQueryData<NamesRead>(channelNamesQueryKey("w"))).toEqual({
+      // A write from an event is not a server read: the positions the names were read at stay.
+      streamPositions,
+      names: [
+        { id: "general", name: "general", description: "", archived: false },
+        { id: "lab", ...lab },
+      ],
+    });
     expect(listed(sidebar)).toEqual(["general", "lab", "random"]);
   });
 
@@ -466,6 +482,107 @@ describe("applyChannelSignalToLists", () => {
   });
 });
 
+describe("the DM list's stream positions", () => {
+  // The list is two server reads, each taken at the viewer's own signal channel's position.
+  const viewerChannel = "chat:user:viewer";
+  const at = (offset: number, epoch = "e1") => ({ [viewerChannel]: { offset, epoch } });
+  async function directsRead(
+    read: {
+      preferences: StreamPositions;
+      badges: StreamPositions;
+      failing?: "preferences" | "badges";
+    },
+    tolerant = false,
+  ) {
+    const server = {
+      channels: [],
+      preferences: { conversations: [], pinned: [], hidden: [], streamPositions: read.preferences },
+    };
+    const api: SidebarApi = {
+      ...serverlessApi(server),
+      loadDirectPreferences: async () => {
+        if (read.failing === "preferences") throw new Error("offline");
+        return server.preferences;
+      },
+      loadDirectBadges: async () => {
+        if (read.failing === "badges") throw new Error("offline");
+        return { viewerId: "viewer", unread: {}, streamPositions: read.badges };
+      },
+    };
+    return new QueryClient().query(sidebarDirectsQuery("w", { tolerant, api }));
+  }
+
+  test("the list stands at the older of its two reads, per channel", async () => {
+    expect((await directsRead({ preferences: at(9), badges: at(7) })).streamPositions).toEqual(
+      at(7),
+    );
+    expect((await directsRead({ preferences: at(3), badges: at(7) })).streamPositions).toEqual(
+      at(3),
+    );
+  });
+
+  test("reads in different epochs, or a channel only one read has, leave no position", async () => {
+    expect(
+      (await directsRead({ preferences: at(9, "e2"), badges: at(7, "e1") })).streamPositions,
+    ).toEqual({});
+    expect((await directsRead({ preferences: {}, badges: at(7) })).streamPositions).toEqual({});
+    expect((await directsRead({ preferences: at(7), badges: {} })).streamPositions).toEqual({});
+  });
+
+  test("a first load that fell back on a failed read has no position, though the other read has", async () => {
+    for (const failing of ["preferences", "badges"] as const) {
+      const directs = await directsRead({ preferences: at(7), badges: at(7), failing }, true);
+      expect(directs).toMatchObject({ partial: true, streamPositions: {} });
+    }
+  });
+});
+
+describe("listReadPosition", () => {
+  const channel = "chat:user:viewer";
+  const readAt = (offset: number, epoch = "e1") => ({
+    streamPositions: { [channel]: { offset, epoch } },
+  });
+
+  test("finds where each list was last read, in that list's own query", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(sidebarChannelsQueryKey("w"), { rows: [], ...readAt(1) });
+    queryClient.setQueryData(sidebarDirectsQueryKey("w"), { rows: [], ...readAt(2) });
+    queryClient.setQueryData(channelNamesQueryKey("w"), { names: [], ...readAt(3) });
+    queryClient.setQueryData(savedMessagesQueryKey("w"), { entries: [], ...readAt(4) });
+    const lists: ChatList[] = ["channels", "dms", "channelNames", "saved"];
+    expect(
+      await Promise.all(lists.map((list) => listReadPosition(queryClient, "w", list, channel))),
+    ).toEqual([1, 2, 3, 4].map((offset) => ({ offset, epoch: "e1" })));
+  });
+
+  test("a list read without a position for the channel, or not read, has none", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(channelNamesQueryKey("w"), { names: [], ...readAt(3) });
+    queryClient.setQueryData(savedMessagesQueryKey("w"), { entries: [], streamPositions: {} });
+    expect(await listReadPosition(queryClient, "w", "channelNames", "chat:workspace:w")).toBe(
+      undefined,
+    );
+    expect(await listReadPosition(queryClient, "w", "saved", channel)).toBe(undefined);
+    expect(await listReadPosition(queryClient, "w", "dms", channel)).toBe(undefined);
+  });
+
+  test("a read under way settles first, and its position is the one reported", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(savedMessagesQueryKey("w"), { entries: [], ...readAt(3) });
+    let settle: (read: unknown) => void = () => {};
+    const answer = new Promise<unknown>((resolve) => (settle = resolve));
+    const reading = queryClient.fetchQuery({
+      queryKey: savedMessagesQueryKey("w"),
+      queryFn: () => answer,
+      staleTime: 0,
+    });
+    const position = listReadPosition(queryClient, "w", "saved", channel);
+    settle({ entries: [], ...readAt(8) });
+    await reading;
+    expect(await position).toEqual({ offset: 8, epoch: "e1" });
+  });
+});
+
 describe("loadSidebarLists", () => {
   // The chat layout's loader runs on every navigation inside Chat. The lists stay live through
   // realtime (and a subscribe's gap re-read), so a navigation reads only what is not cached.
@@ -502,7 +619,7 @@ describe("loadSidebarLists", () => {
       ...api,
       loadDirectBadges: async () => {
         if (badgesDown) throw new Error("offline");
-        return { viewerId: "viewer", unread: {} };
+        return { viewerId: "viewer", unread: {}, streamPositions: {} };
       },
     };
     await loadSidebarLists(fresh, "w", "enter", flaky);
@@ -532,7 +649,7 @@ function serverlessApi(server: {
   return {
     listChannels: async () => ({ streamPositions: {}, channels: server.channels }),
     loadDirectPreferences: async () => server.preferences,
-    loadDirectBadges: async () => ({ viewerId: "viewer", unread: {} }),
+    loadDirectBadges: async () => ({ viewerId: "viewer", unread: {}, streamPositions: {} }),
     pin: async () => {},
     markUnread: async () => {},
     close: async () => {},

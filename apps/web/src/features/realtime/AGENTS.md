@@ -24,9 +24,12 @@ These rules apply to `src/features/realtime/`.
   the client's `connected` event: a channel receives nothing until its own
   subscribe completes, which waits for its subscription token.
 - A read that a channel keeps live carries that channel's stream position, read
-  on the server before the data (`history` without a limit,
+  on the server before the data and never alongside it
+  (`readAfterStreamPositions`; `history` without a limit,
   https://centrifugal.dev/docs/server/history_and_recovery). Compare it with
   `SubscribedRecovery.position` (`streamMovedSince`) instead of re-reading on
   every first subscribe. The shared subscription moves that position with each
   publication it delivers, so a caller joining an already-subscribed channel
-  gets where the stream stands for it.
+  gets where the stream stands for it. Data built from several reads stands at
+  the older position of each channel (`olderStreamPositions`); a channel any read
+  has no position for, or has in another epoch, has none, and its reader re-reads.

@@ -9,6 +9,7 @@ import {
   saveMessageOptimistically,
   unsaveMessageOptimistically,
   type SavedEntry,
+  type SavedList,
 } from "#src/features/conversations/saved-messages-collection";
 
 function entry(id: string, savedAt = new Date(0)): SavedEntry {
@@ -34,10 +35,11 @@ function setup(initial: SavedEntry[]) {
   const calls: string[] = [];
   let pending = gate();
   let serverList = initial;
+  let serverPositions: SavedList["streamPositions"] = {};
   const queryClient = new QueryClient();
   const dbClient = new DbClient({ queryClient });
   const collection = materializeSavedMessages(dbClient, "workspace-1", initial, {
-    list: async () => serverList,
+    list: async () => ({ streamPositions: serverPositions, entries: serverList }),
     save: async ({ messageId }) => {
       calls.push(`save:${messageId}`);
       await pending.promise;
@@ -52,6 +54,7 @@ function setup(initial: SavedEntry[]) {
     queryClient,
     calls,
     setServerList: (list: SavedEntry[]) => (serverList = list),
+    setServerPositions: (positions: SavedList["streamPositions"]) => (serverPositions = positions),
     release: () => pending.release(),
     fail: (error: Error) => pending.fail(error),
     reset: () => (pending = gate()),
@@ -72,7 +75,10 @@ describe("saved messages collection", () => {
     try {
       const { collection, queryClient } = setup([entry("m1")]);
       const key = savedMessagesQueryKey("workspace-1");
-      const store = savedMessagesStore(collection, () => queryClient.getQueryData(key) ?? []);
+      const store = savedMessagesStore(
+        collection,
+        () => queryClient.getQueryData<SavedList>(key)?.entries ?? [],
+      );
       const unsubscribe = store.subscribe(() => {});
       unsubscribe();
       // The GC timer is armed from a microtask; its cleanup runs from an idle callback.
@@ -83,7 +89,7 @@ describe("saved messages collection", () => {
       expect(collection.has("m1")).toBe(false);
       // GC removed the collection's Query too; the next page's loader reads the list again.
       expect(queryClient.getQueryData(key)).toBeUndefined();
-      queryClient.setQueryData(key, [entry("m1")]);
+      queryClient.setQueryData<SavedList>(key, { streamPositions: {}, entries: [entry("m1")] });
       expect(store.has("m1")).toBe(true);
       expect(store.entries().map((saved) => saved.message.id)).toEqual(["m1"]);
     } finally {
@@ -100,6 +106,21 @@ describe("saved messages collection", () => {
     s.release();
     await done;
     expect(s.collection.has("m2")).toBe(true);
+  });
+
+  test("the re-read after a save brings the list's stream position into the Query, beside its rows", async () => {
+    const s = setup([]);
+    await s.collection.preload();
+    const done = saveMessageOptimistically(s.collection, entry("m2"));
+    const position = { offset: 6, epoch: "e1" };
+    s.setServerList([entry("m2")]);
+    s.setServerPositions({ "chat:user:viewer": position });
+    s.release();
+    await done;
+    expect(s.queryClient.getQueryData<SavedList>(savedMessagesQueryKey("workspace-1"))).toEqual({
+      streamPositions: { "chat:user:viewer": position },
+      entries: [entry("m2")],
+    });
   });
 
   test("an unsave hides the message at once and persists through the unsave call", async () => {

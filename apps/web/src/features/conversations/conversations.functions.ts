@@ -13,7 +13,10 @@ import {
   sendConversationMessageInputSchema,
   toggleMessageReactionInputSchema,
 } from "./conversation.schemas";
+import type { StreamPositions } from "#src/features/realtime/subscription-gap";
 import { createCentrifugoServerApi } from "#src/server/centrifugo/server-api.server";
+import { readAfterStreamPositions } from "#src/server/conversations/chat-stream-positions.server";
+import { userConversationChannel } from "./conversation-realtime";
 import { DirectConversations } from "#src/server/conversations/direct-conversations.server";
 import { CentrifugoConversationRealtime } from "#src/server/conversations/conversation-realtime.server";
 import { ConversationHistory } from "#src/server/conversations/conversation-history.server";
@@ -127,20 +130,27 @@ export type DirectConversationBadges = {
   viewerId: string;
   /** Unread counts by conversation id. */
   unread: DirectConversationUnread;
+  /** Where the viewer's own signal channel stood before the counts were read. */
+  streamPositions: StreamPositions;
 };
 
 /**
  * Everything the Chat sidebar needs about direct-message badges in one round trip: the viewer's
- * own id (their personal signal channel) and the unread counts seeded into the badges.
+ * own id (their personal signal channel) and the unread counts seeded into the badges. The
+ * counts change with the viewer's reads and their DMs' messages, both on that channel, whose
+ * position is read first.
  */
 export const loadDirectConversationBadges = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
   .handler(async ({ context }): Promise<DirectConversationBadges> => {
     const { user, db, workspaceId } = context;
-    const rows = await new DirectConversations(db).unreadCounts(workspaceId, user.id);
+    const { streamPositions, data: rows } = await readAfterStreamPositions(
+      [userConversationChannel(user.id)],
+      () => new DirectConversations(db).unreadCounts(workspaceId, user.id),
+    );
     const unread: DirectConversationUnread = {};
     for (const row of rows) unread[row.conversationId] = row.unread;
-    return { viewerId: user.id, unread };
+    return { viewerId: user.id, unread, streamPositions };
   });
 
 /** Advances the DM read cursor for the sidebar badge; monotone and clamped. */
@@ -182,13 +192,18 @@ export const setDirectConversationHidden = createServerFn({ method: "POST" })
 
 /**
  * The sidebar's Direct messages, by conversation id: the viewer's DMs (the sidebar lists only
- * these) and who each is with, which are pinned (with their order) and which are closed.
+ * these) and who each is with, which are pinned (with their order) and which are closed, read
+ * with the position of the viewer's own signal channel, which keeps them live.
  */
 export const loadDirectConversationPreferences = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
-  .handler(({ context: { user, db, workspaceId } }) =>
-    new DirectConversations(db).list(workspaceId, user.id),
-  );
+  .handler(async ({ context: { user, db, workspaceId } }) => {
+    const { streamPositions, data } = await readAfterStreamPositions(
+      [userConversationChannel(user.id)],
+      () => new DirectConversations(db).list(workspaceId, user.id),
+    );
+    return { ...data, streamPositions };
+  });
 
 export const sendDirectConversationMessage = createServerFn({ method: "POST" })
   .middleware([workspaceUserMiddleware])

@@ -20,9 +20,10 @@ because the API is experimental.
   (`query-cache-persistence.test.ts`, "the queries the app really defines").
 - What is kept is the first paint, not the whole query: a conversation keeps its newest page, cut
   to what a first read returns (`CONVERSATION_WINDOW_PAGE_SIZE` messages, and thread state only for
-  the roots kept; realtime grows the page without bound), and only when that page is the live end; the Saved list keeps its newest 100; a DM list that fell
-  back per call is not kept. Apply the same cut to a new kind, so a restore never opens a page at
-  a place nobody meant to open it.
+  the roots kept; realtime grows the page without bound), and only when that page is the live end;
+  the Saved list keeps its newest 100, without the stream positions it was read at (a cut copy is
+  not the whole list); a DM list that fell back per call is not kept. Apply the same cut to a new
+  kind, so a restore never opens a page at a place nobody meant to open it.
 - Nothing is read or written until the person is known (`viewerId`: the Workspace layout loader's
   `user.id`, read from the router's state in `router.tsx`). Every key starts with that person's id,
   the first use by a person removes every other person's rows and records them as the store's
