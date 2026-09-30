@@ -14,7 +14,7 @@ import { discoverAntigravityCatalog } from "./catalog";
 import { antigravityToolCall } from "./tool-call";
 import { readAntigravityUsage } from "./usage";
 import { withoutSshSessionVariables } from "./ssh-environment";
-import { AntigravityTurnProcess, type AntigravityTurnResult } from "./turn-process";
+import { TurnProcess, type TurnResult } from "#src/code-agent/per-turn/turn-process";
 import { assertAntigravityVersionSupported } from "./version";
 
 /** How long one headless turn may run. agy's own default is unlimited, and it keeps a turn open
@@ -85,6 +85,8 @@ export class AntigravityProvider implements CodeAgentProvider {
 type SessionState = "idle" | "running" | "interrupting" | "disposed";
 const INTERRUPTED_STATUSES: ReadonlySet<unknown> = new Set(["INTERRUPTED", "CANCELED"]);
 type QueuedInput = { text: string; resolve(): void; reject(error: Error): void };
+/** The turn in flight: its process and the input it carries. */
+type ActiveTurn = { process: TurnProcess; prompt: string };
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -102,7 +104,7 @@ class AntigravityAgentSession implements AgentSession {
   readonly #queue: QueuedInput[] = [];
   #state: SessionState = "idle";
   #closed = false;
-  #currentTurn: AntigravityTurnProcess | undefined;
+  #currentTurn: ActiveTurn | undefined;
   /** Set from a resumed turn's `init` frame when agy could not resume the conversation, until
    * that discarded turn has exited. */
   #conversationLost = false;
@@ -178,7 +180,7 @@ class AntigravityAgentSession implements AgentSession {
     const interrupted = this.#interrupt.begin();
     this.#state = "interrupting";
     try {
-      this.#currentTurn?.interrupt();
+      this.#currentTurn?.process.interrupt();
     } catch (error) {
       if (!this.#isDisposed()) this.#state = "running";
       this.#interrupt.fail(toError(error));
@@ -209,7 +211,7 @@ class AntigravityAgentSession implements AgentSession {
     this.#interrupt.fail(disposeError);
     const turn = this.#currentTurn;
     this.#currentTurn = undefined;
-    if (turn) await turn.dispose();
+    if (turn) await turn.process.dispose();
     this.#closed = true;
     for (const listener of this.#exitListeners) listener();
     this.#exitListeners.clear();
@@ -230,15 +232,23 @@ class AntigravityAgentSession implements AgentSession {
       ),
       NO_COLOR: "1",
     };
-    const turn = new AntigravityTurnProcess(
-      this.#buildArgv(),
-      prompt,
-      this.#options.agentWorkspaceDirectory,
+    const child = new TurnProcess({
+      provider: RUNTIME_PROVIDER.ANTIGRAVITY,
+      displayName: "Antigravity",
+      argv: this.#buildArgv(),
+      cwd: this.#options.agentWorkspaceDirectory,
       environment,
-    );
+      // The prompt is one `stream-json` user line on stdin, closed straight after it, so agy runs
+      // exactly one turn and the prompt never appears in argv or a process listing.
+      input: {
+        kind: "line",
+        text: JSON.stringify({ event: "user", message: { content: prompt } }),
+      },
+    });
+    const turn: ActiveTurn = { process: child, prompt };
     this.#currentTurn = turn;
-    turn.onRecord((record) => this.#handleRecord(record));
-    void turn.exited.then((result) => this.#onTurnExit(turn, result));
+    child.onRecord((record) => this.#handleRecord(record));
+    void child.exited.then((result) => this.#onTurnExit(turn, result));
   }
 
   #buildArgv(): string[] {
@@ -274,7 +284,7 @@ class AntigravityAgentSession implements AgentSession {
       // headless docs do not say). Discard that turn; once it has exited, a fresh conversation
       // is bootstrapped and the same input is sent into it.
       this.#conversationLost = true;
-      void this.#currentTurn?.dispose();
+      void this.#currentTurn?.process.dispose();
       return;
     }
     const reported = conversationId === this.#sessionId;
@@ -341,7 +351,7 @@ class AntigravityAgentSession implements AgentSession {
   /** The turn ends at process exit; the `result` frame only records whether it failed. A non-zero
    * or signal exit with no `result` fails the turn with the exit summary and agy's stderr (where
    * it prints sign-in errors and its `AGY_ERROR` line), so the failure explains itself. */
-  #onTurnExit(turn: AntigravityTurnProcess, result: AntigravityTurnResult): void {
+  #onTurnExit(turn: ActiveTurn, result: TurnResult): void {
     if (this.#currentTurn !== turn) return;
     this.#currentTurn = undefined;
     if (this.#conversationLost) {

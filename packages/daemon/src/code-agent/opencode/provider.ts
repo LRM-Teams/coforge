@@ -11,7 +11,7 @@ import { exitFailureMessage } from "#src/code-agent/exit-failure-message";
 import { asRecord, eventTime } from "#src/code-agent/json-record";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { discoverOpenCodeCatalog } from "./catalog";
-import { OpenCodeTurnProcess, type OpenCodeTurnResult } from "./turn-process";
+import { TurnProcess, type TurnResult } from "#src/code-agent/per-turn/turn-process";
 import { assertOpenCodeVersionSupported } from "./version";
 
 /**
@@ -79,7 +79,7 @@ class OpenCodeAgentSession implements AgentSession {
   readonly #queue: Array<{ text: string; resolve(): void; reject(error: Error): void }> = [];
   #state: SessionState = "idle";
   #closed = false;
-  #currentTurn: OpenCodeTurnProcess | undefined;
+  #currentTurn: TurnProcess | undefined;
   #sessionId: string | undefined;
   #resumeId: string | undefined;
   #identity: AgentSessionIdentity | undefined;
@@ -209,7 +209,18 @@ class OpenCodeAgentSession implements AgentSession {
       PWD: this.#options.agentWorkspaceDirectory,
       NO_COLOR: "1",
     };
-    const turn = new OpenCodeTurnProcess(argv, this.#options.agentWorkspaceDirectory, environment);
+    const turn = new TurnProcess({
+      provider: RUNTIME_PROVIDER.OPENCODE,
+      displayName: "OpenCode",
+      argv,
+      cwd: this.#options.agentWorkspaceDirectory,
+      environment,
+      // `opencode run` takes its prompt from argv and then waits for stdin EOF before it starts
+      // working: with the daemon's `stdin: "pipe"` and nothing ever written, the turn sat on an
+      // open pipe until dispose and the Agent looked permanently offline (verified: `< /dev/null`
+      // completes in ~3s, an open pipe never produces output).
+      input: { kind: "eof" },
+    });
     this.#currentTurn = turn;
     turn.onRecord((record) => this.#handleRecord(record));
     void turn.exited.then((result) => this.#onTurnExit(turn, result));
@@ -312,7 +323,7 @@ class OpenCodeAgentSession implements AgentSession {
 
   /** Turn end is the process exit: a clean exit completes the turn, a non-zero one fails it with
    * the exit summary and the recent stderr lines. */
-  #onTurnExit(turn: OpenCodeTurnProcess, result: OpenCodeTurnResult): void {
+  #onTurnExit(turn: TurnProcess, result: TurnResult): void {
     if (this.#currentTurn !== turn) return;
     this.#currentTurn = undefined;
     if (this.#bootstrap) {

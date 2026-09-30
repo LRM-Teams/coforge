@@ -8,11 +8,10 @@ export const PROCESS_TREE_EXIT_GRACE_MS = 1_000;
  * The one cleanup ladder a code-agent process runs over the tree it owns: ask politely, wait a
  * bounded moment, escalate to a forced terminate, wait again, and only then fail with
  * `AgentProcessCleanupError`; the child's stdin is closed afterwards so nothing can hold the tree
- * open. Every copy of this used to say so itself — `JsonlProcess`'s ladder was the one the three
- * per-turn processes (Cursor, Grok, OpenCode) each pointed at.
+ * open. `JsonlProcess` and the per-turn `TurnProcess` both run it.
  *
- * What the caller waits on afterwards stays the caller's: a per-turn process awaits its own
- * `exited` result, while `JsonlProcess` also waits for its adapter's diagnostics to drain.
+ * What the caller waits on afterwards stays the caller's: a `TurnProcess` awaits its own `exited`
+ * result, while `JsonlProcess` also waits for its adapter's diagnostics to drain.
  */
 export async function cleanupOwnedTree(
   tree: OwnedProcessTree,

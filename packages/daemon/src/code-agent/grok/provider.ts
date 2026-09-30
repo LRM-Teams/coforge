@@ -11,7 +11,7 @@ import { agentEnvironment } from "#src/code-agent/environment";
 import { exitFailureMessage } from "#src/code-agent/exit-failure-message";
 import { errorMessage } from "#src/code-agent/json-record";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
-import { GrokTurnProcess, type GrokTurnResult } from "./turn-process";
+import { TurnProcess, type TurnResult } from "#src/code-agent/per-turn/turn-process";
 import { assertGrokVersionSupported } from "./version";
 import { grokToolFailed, grokToolInput, grokToolOutputText } from "./tool-call";
 import { readGrokUsage } from "./usage";
@@ -72,7 +72,7 @@ export class GrokProvider implements CodeAgentProvider {
 type PendingOutcome = "success" | "failed" | undefined;
 type SessionState = "idle" | "running" | "interrupting" | "disposed";
 /** The turn in flight: its process, the input it carries, and whether it resumes a session. */
-type ActiveTurn = { process: GrokTurnProcess; prompt: string; resumed: boolean };
+type ActiveTurn = { process: TurnProcess; prompt: string; resumed: boolean };
 
 /** `end.stopReason` spellings that mean the turn was cancelled. The guide documents `cancelled`. */
 const CANCELLED_STOP_REASONS: ReadonlySet<string> = new Set(["cancelled", "canceled", "aborted"]);
@@ -235,7 +235,16 @@ class GrokAgentSession implements AgentSession {
     // Constructing the process is the one step that can throw (`Bun.spawn` throws synchronously for
     // a working directory that no longer exists), so the session records the turn as running only
     // once the process exists; a throw leaves it exactly as it was, and the caller reports it.
-    const child = new GrokTurnProcess(argv, this.#options.agentWorkspaceDirectory, environment);
+    const child = new TurnProcess({
+      provider: RUNTIME_PROVIDER.GROK,
+      displayName: "Grok",
+      argv,
+      cwd: this.#options.agentWorkspaceDirectory,
+      environment,
+      // The prompt rides argv and the turn never writes stdin: close it at once so an inherited
+      // pipe can never hold the turn open (the OpenCode turn sat on one until dispose, #652).
+      input: { kind: "eof" },
+    });
     const turn: ActiveTurn = { process: child, prompt, resumed };
     this.#currentTurn = turn;
     this.#state = "running";
@@ -404,7 +413,7 @@ class GrokAgentSession implements AgentSession {
 
   /** Turn end is the process exit: a clean exit completes the turn, a non-zero one fails it with
    * the exit summary and the recent stderr lines. */
-  #onTurnExit(turn: ActiveTurn, result: GrokTurnResult): void {
+  #onTurnExit(turn: ActiveTurn, result: TurnResult): void {
     if (this.#currentTurn !== turn) return;
     this.#currentTurn = undefined;
     const interrupted = this.#state === "interrupting";

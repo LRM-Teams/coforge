@@ -11,7 +11,7 @@ import { exitFailureMessage } from "#src/code-agent/exit-failure-message";
 import { asRecord, eventTime } from "#src/code-agent/json-record";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { discoverCursorCatalog } from "./catalog";
-import { CursorTurnProcess, type CursorTurnResult } from "./turn-process";
+import { TurnProcess, type TurnResult } from "#src/code-agent/per-turn/turn-process";
 
 /**
  * Cursor CLI (`cursor-agent`) is a per-turn provider: every turn is its own child process, with
@@ -77,7 +77,7 @@ class CursorAgentSession implements AgentSession {
   readonly #queue: Array<{ text: string; resolve(): void; reject(error: Error): void }> = [];
   #state: SessionState = "idle";
   #closed = false;
-  #currentTurn: CursorTurnProcess | undefined;
+  #currentTurn: TurnProcess | undefined;
   #sessionId: string | undefined;
   #resumeId: string | undefined;
   #identity: AgentSessionIdentity | undefined;
@@ -202,7 +202,14 @@ class CursorAgentSession implements AgentSession {
       }),
       NO_COLOR: "1",
     };
-    const turn = new CursorTurnProcess(argv, this.#options.agentWorkspaceDirectory, environment);
+    const turn = new TurnProcess({
+      provider: RUNTIME_PROVIDER.CURSOR,
+      displayName: "Cursor",
+      argv,
+      cwd: this.#options.agentWorkspaceDirectory,
+      environment,
+      input: { kind: "open" },
+    });
     this.#currentTurn = turn;
     turn.onRecord((record) => this.#handleRecord(record));
     void turn.exited.then((result) => this.#onTurnExit(turn, result));
@@ -323,7 +330,7 @@ class CursorAgentSession implements AgentSession {
    * turn reported an error. A clean exit completes the turn; a non-zero or signal exit (such as
    * the free-plan/named-model rejection, which prints its reason only on stderr) fails it with the
    * exit summary and the recent stderr lines, so the failure explains itself. */
-  #onTurnExit(turn: CursorTurnProcess, result: CursorTurnResult): void {
+  #onTurnExit(turn: TurnProcess, result: TurnResult): void {
     if (this.#currentTurn !== turn) return;
     this.#currentTurn = undefined;
     if (this.#bootstrap) {
