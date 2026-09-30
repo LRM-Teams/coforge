@@ -10,6 +10,7 @@ import { GrokProvider } from "#src/code-agent/grok/provider";
 import { isGrokVersionUnsupported } from "#src/code-agent/grok/version";
 import { PROCESS_TREE_EXIT_GRACE_MS } from "#src/code-agent/process-tree-cleanup";
 import { VERSION_PROBE_TIMEOUT_MS } from "#src/code-agent/version-gate";
+import { captureDaemonLogs } from "./log-capture";
 
 const FIXTURE = new URL("./fixtures/grok-fixture.ts", import.meta.url).pathname;
 const INSTRUCTIONS = "Standing Grok instructions.";
@@ -309,6 +310,64 @@ test(
       expect(events.filter((event) => event.type === "error")).toEqual([]);
       expect(events.at(-1)).toEqual({ type: "completed", status: "interrupted" });
     });
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "tool_call and tool_call_update map to tool-start, tool-output and tool-end once per call",
+  async () => {
+    await withSession({ environment: { COFORGE_GROK_MODE: "tools" } }, async ({ session }) => {
+      const events = await runTurn(session, "use tools");
+      // The name is grok's own tool name and the input its `rawInput`: the daemon core decides
+      // what Activity a tool call is. Only a string `rawOutput` is output text; the guide shows an
+      // object (`{"lines":42}`) for a read and says nothing of the content array's elements.
+      expect(events.filter((event) => event.type.startsWith("tool-"))).toEqual([
+        { type: "tool-start", id: "call_1", name: "read_file", input: { path: "src/main.rs" } },
+        { type: "tool-end", id: "call_1", isError: false },
+        {
+          type: "tool-start",
+          id: "call_2",
+          name: "run_terminal_command",
+          input: { command: "false" },
+        },
+        { type: "tool-output", id: "call_2", text: "command exited with status 1" },
+        { type: "tool-end", id: "call_2", isError: true },
+        { type: "tool-start", id: "call_3", name: "grep", input: { pattern: "main" } },
+        { type: "tool-end", id: "call_3", isError: false },
+      ]);
+      expect(events.filter((event) => event.type === "text-delta")).toEqual([
+        { type: "text-delta", text: "done" },
+      ]);
+      expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
+    });
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "documented frames the adapter has no use for are not logged as unrecognized",
+  async () => {
+    const { records } = await captureDaemonLogs(async () => {
+      await withSession(
+        {
+          environment: {
+            COFORGE_GROK_MODE: "documented-frames",
+            COFORGE_GROK_UNKNOWN_FRAME: "mystery",
+          },
+        },
+        async ({ session }) => {
+          const events = await runTurn(session, "go");
+          expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
+        },
+      );
+    });
+    // available_commands, plan, usage and auto_compact_* are in the guide; only a type it does not
+    // list is worth a warning.
+    const unrecognized = records.filter(
+      (entry) => entry.properties.event === "code_agent.grok.unknown_event",
+    );
+    expect(unrecognized.map((entry) => entry.properties.type)).toEqual(["mystery"]);
   },
   SESSION_BUDGET_MS,
 );

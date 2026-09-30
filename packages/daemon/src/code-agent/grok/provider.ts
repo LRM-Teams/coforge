@@ -85,6 +85,10 @@ const MAX_TURNS_STOP_REASONS: ReadonlySet<string> = new Set([
   "max_turns_reached",
 ]);
 
+function nonEmpty(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -124,6 +128,9 @@ class GrokAgentSession implements AgentSession {
   #reportedSessionId: string | undefined;
   #identity: AgentSessionIdentity | undefined;
   #pendingOutcome: PendingOutcome;
+  /** The tool calls this turn has announced, and those it has ended, by `toolCallId`. */
+  #startedTools = new Set<string>();
+  #endedTools = new Set<string>();
   #sessionReports: Promise<void> = Promise.resolve();
   #interrupt = new InterruptTracker();
 
@@ -232,6 +239,8 @@ class GrokAgentSession implements AgentSession {
     this.#currentTurn = turn;
     this.#state = "running";
     this.#pendingOutcome = undefined;
+    this.#startedTools = new Set();
+    this.#endedTools = new Set();
     this.#creatingSession = false;
     child.onRecord((record) => this.#handleRecord(record));
     void child.exited.then((result) => this.#onTurnExit(turn, result));
@@ -266,9 +275,10 @@ class GrokAgentSession implements AgentSession {
 
   /**
    * Maps the `streaming-json` events this adapter consumes (14-headless-mode.md, "streaming-json"):
-   * `text` (output), `thought` (reasoning), `end` (turn boundary; carries the session id and the
-   * stop reason), `error`, and `max_turns_reached`. The guide calls its event list non-exhaustive,
-   * so an event type this adapter has no use for is ignored, never fatal.
+   * `text` (output), `thought` (reasoning), `tool_call` and `tool_call_update` (tool activity),
+   * `end` (turn boundary; carries the session id and the stop reason), `error`, and
+   * `max_turns_reached`. The guide calls its event list non-exhaustive, so an event type this
+   * adapter has no use for is ignored, never fatal.
    */
   #handleRecord(record: Readonly<Record<string, unknown>>): void {
     if (this.#state === "disposed") return;
@@ -281,6 +291,14 @@ class GrokAgentSession implements AgentSession {
       }
       case "thought": {
         if (data) this.#emit({ type: "thinking-delta", text: data });
+        return;
+      }
+      case "tool_call": {
+        this.#handleToolCall(record);
+        return;
+      }
+      case "tool_call_update": {
+        this.#handleToolCallUpdate(record);
         return;
       }
       case "end": {
@@ -300,7 +318,16 @@ class GrokAgentSession implements AgentSession {
         this.#failTurn("Grok reached max turns");
         return;
       }
+      // Documented frames with nothing to report: the tool and command lists, the plan, and the
+      // per-response usage boundary (one per model response).
+      case "available_commands":
+      case "usage":
+      case "plan": {
+        return;
+      }
       default: {
+        // The guide names the `auto_compact_*` family without listing its members.
+        if (typeof record.type === "string" && record.type.startsWith("auto_compact_")) return;
         logger.warning("Grok turn emitted an unrecognized event", {
           event: "code_agent.grok.unknown_event",
           type: typeof record.type === "string" ? record.type : "untyped",
@@ -309,6 +336,39 @@ class GrokAgentSession implements AgentSession {
         return;
       }
     }
+  }
+
+  /** A `tool_call` opens a call: its `toolName` and `rawInput` are grok's own, passed through for
+   * the daemon core to turn into Activity. A call that arrives already finished is ended at once. */
+  #handleToolCall(record: Readonly<Record<string, unknown>>): void {
+    const id = nonEmpty(record.toolCallId);
+    if (!id) return;
+    if (!this.#startedTools.has(id)) {
+      this.#startedTools.add(id);
+      const name = nonEmpty(record.toolName) ?? nonEmpty(record.title) ?? "unknown_tool";
+      this.#emit({ type: "tool-start", id, name, input: record.rawInput });
+    }
+    this.#endToolCall(id, record);
+  }
+
+  /** A `tool_call_update` for a call this turn announced reports its status; the first terminal
+   * one ends it. */
+  #handleToolCallUpdate(record: Readonly<Record<string, unknown>>): void {
+    const id = nonEmpty(record.toolCallId);
+    if (id && this.#startedTools.has(id)) this.#endToolCall(id, record);
+  }
+
+  /** Ends a call once, when its status is terminal: `completed` (shown in the guide) or `failed`
+   * (an ACP status; the guide's leaf names follow ACP). The output text is a string `rawOutput`;
+   * the guide shows only an object there and documents no shape for the `content` elements, so
+   * nothing else is read as text. */
+  #endToolCall(id: string, record: Readonly<Record<string, unknown>>): void {
+    const status = record.status;
+    if ((status !== "completed" && status !== "failed") || this.#endedTools.has(id)) return;
+    this.#endedTools.add(id);
+    const output = nonEmpty(record.rawOutput);
+    if (output) this.#emit({ type: "tool-output", id, text: output });
+    this.#emit({ type: "tool-end", id, isError: status === "failed" });
   }
 
   /** `end` is the last event of a turn, and its `stopReason` is one of `end_turn`, `max_tokens`,
