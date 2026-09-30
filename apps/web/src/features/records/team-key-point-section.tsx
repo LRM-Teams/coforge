@@ -91,6 +91,14 @@ export function TeamKeyPointSection({
             <Download aria-hidden="true" className="size-4" />
             {m.records_weekly_export_ppt()}
           </a>
+          <a
+            href={`/api/workspaces/${encodeURIComponent(workspaceSlug)}/weekly-reports/${overviewReportId}/html`}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-secondary hover:underline"
+            download
+          >
+            <Download aria-hidden="true" className="size-4" />
+            {m.records_weekly_export_html()}
+          </a>
           {canStart ? (
             <Button
               type="button"

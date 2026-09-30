@@ -212,6 +212,14 @@ export class PrismaAgentControlStore implements AgentControlStore {
         },
       });
       if (result.count !== 1) return false;
+      if (clearSession) {
+        // Subject-scoped WeeklyReportAssistant sessions point at native provider sessions.
+        // Resetting the runtime invalidates every one of those bindings; the next subject turn
+        // must reserve a fresh native session instead of trying to resume a deleted one.
+        await tx.weeklyReportAssistantRuntimeSession.deleteMany({
+          where: { workspaceId: before.workspaceId, agentId: before.id },
+        });
+      }
       let sessionId = before.currentSessionId ?? null;
       const incompatible =
         before.state &&

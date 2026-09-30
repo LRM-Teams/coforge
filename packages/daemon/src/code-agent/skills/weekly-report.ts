@@ -131,6 +131,36 @@ subcommands or probe SSH as a fallback. The collector scans only the submitted p
 and time window; installation history alone is not the User's weekly work summary.
 `,
 
+  "weekly-report-web-export": `---
+name: weekly-report-web-export
+description: >-
+  Format detailed weekly report summaries as a self-contained HTML article in the
+  visual style of the supplied MetaRSI reading page.
+---
+
+# Weekly report web summaries
+
+When the User asks for a detailed web summary or an HTML export, use this style:
+
+- Start with a clear title, period and one-sentence subtitle.
+- Lead with a concise TL;DR, then organize the body into numbered sections.
+- Use an editorial reading layout: serif section headings, compact monospace metadata,
+  muted secondary text, bordered cards, a table of contents on wide screens, and a
+  responsive single-column layout on small screens.
+- Keep evidence concrete. Separate work summary, technical details, research,
+  achievements and next steps when those categories have evidence. Attribute work to
+  the relevant member or Computer and do not invent metrics.
+- Prefer semantic headings, paragraphs and lists. Escape user/content text before
+  embedding it in HTML. Keep the document self-contained with inline CSS and no
+  external scripts, trackers or network requests.
+- Respect reduced-motion preferences and keep visual effects subtle; readability and
+  printing matter more than animation.
+
+The platform's Records export produces the downloadable HTML file. Return the summary
+content in well-structured markdown so the exporter can preserve the same hierarchy.
+Do not paste the entire reference HTML or include unrelated MetaRSI-specific examples.
+`,
+
   "weekly-report-writing": `---
 name: weekly-report-writing
 description: >-

@@ -1090,7 +1090,12 @@ test("a workspace clear failure is non-fatal: it reports workspace-reset with a 
   expect(record).toMatchObject({ phase: "workspace-reset" });
   expect(record?.identity).toBeUndefined();
   const resetResult = results.at(-1);
-  expect(resetResult).toEqual({ ...scope, phase: "workspace-reset", sequence: 2 });
+  expect(resetResult).toEqual({
+    ...scope,
+    phase: "workspace-reset",
+    sequence: 2,
+    errorCode: "workspace_clear_failed",
+  });
 
   const failureLog = logs.find(
     (entry) => entry.properties.event === "agent_control:workspace_clear_failed",
