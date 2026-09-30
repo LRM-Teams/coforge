@@ -1,6 +1,7 @@
 import { getLogger } from "@logtape/logtape";
 import type { AgentSessionOptions } from "@coforge/agent";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import { nonEmptyString } from "#src/code-agent/json-record";
 import type { TurnRecord } from "#src/code-agent/per-turn/turn-process";
 import type {
   TurnCommand,
@@ -24,10 +25,6 @@ const MAX_TURNS_STOP_REASONS: ReadonlySet<string> = new Set([
   "maxturns",
   "max_turns_reached",
 ]);
-
-function nonEmpty(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined;
-}
 
 /**
  * Grok Build (`grok`, xAI): every turn is its own `grok -p <prompt> --output-format streaming-json`
@@ -225,17 +222,17 @@ class GrokTurnReader implements TurnReader {
   /** A `tool_call` opens a call. Its name is grok's own `toolName`, passed through for the daemon
    * core to turn into Activity, and its input is `rawInput` (see `grokToolInput`). */
   #handleToolCall(record: TurnRecord): void {
-    const id = nonEmpty(record.toolCallId);
+    const id = nonEmptyString(record.toolCallId);
     if (!id || this.#startedTools.has(id)) return;
     this.#startedTools.add(id);
-    const name = nonEmpty(record.toolName) ?? nonEmpty(record.title) ?? "unknown_tool";
+    const name = nonEmptyString(record.toolName) ?? nonEmptyString(record.title) ?? "unknown_tool";
     this.#scope.emit({ type: "tool-start", id, name, input: grokToolInput(name, record.rawInput) });
   }
 
   /** A `tool_call_update` for a call this turn announced reports its status; the first terminal
    * one (`completed` or `failed`) ends the call, and only its `content` is the call's output. */
   #handleToolCallUpdate(record: TurnRecord): void {
-    const id = nonEmpty(record.toolCallId);
+    const id = nonEmptyString(record.toolCallId);
     const status = record.status;
     if (!id || !this.#startedTools.has(id) || this.#endedTools.has(id)) return;
     if (status !== "completed" && status !== "failed") return;

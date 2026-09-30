@@ -1,6 +1,6 @@
 import type { AgentSessionOptions } from "@coforge/agent";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
-import { asRecord } from "#src/code-agent/json-record";
+import { asRecord, nonEmptyString } from "#src/code-agent/json-record";
 import type { TurnRecord } from "#src/code-agent/per-turn/turn-process";
 import type {
   TurnCommand,
@@ -17,10 +17,6 @@ import { antigravityToolCall } from "./tool-call";
 const PRINT_TIMEOUT = "30m";
 
 const INTERRUPTED_STATUSES: ReadonlySet<unknown> = new Set(["INTERRUPTED", "CANCELED"]);
-
-function nonEmpty(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined;
-}
 
 /**
  * Google's Antigravity CLI (`agy`): every turn is one headless
@@ -130,7 +126,7 @@ class AntigravityTurnReader implements TurnReader {
   #handleStep(step: Record<string, unknown> | undefined): void {
     if (!step) return;
     if (step.step_type === "agent_response") {
-      const text = nonEmpty(step.text_delta);
+      const text = nonEmptyString(step.text_delta);
       if (text) this.#scope.emit({ type: "text-delta", text });
       return;
     }
@@ -141,7 +137,7 @@ class AntigravityTurnReader implements TurnReader {
     const id = `${this.#scope.sessionId() ?? "agy"}:${index}`;
     if (!this.#startedTools.has(index)) {
       this.#startedTools.add(index);
-      const name = nonEmpty(step.tool_name) ?? nonEmpty(info?.name) ?? "unknown_tool";
+      const name = nonEmptyString(step.tool_name) ?? nonEmptyString(info?.name) ?? "unknown_tool";
       this.#scope.emit({
         type: "tool-start",
         id,
@@ -153,8 +149,8 @@ class AntigravityTurnReader implements TurnReader {
     // A failed step carries an `error` object with `type` and `message` (headless docs).
     const error = asRecord(info?.error);
     const output = error
-      ? (nonEmpty(error.message) ?? nonEmpty(error.type))
-      : nonEmpty(info?.output);
+      ? (nonEmptyString(error.message) ?? nonEmptyString(error.type))
+      : nonEmptyString(info?.output);
     if (output) this.#scope.emit({ type: "tool-output", id, text: output });
     this.#scope.emit({ type: "tool-end", id, isError: error !== undefined });
   }
@@ -168,10 +164,11 @@ class AntigravityTurnReader implements TurnReader {
     if (this.#scope.interrupting() && INTERRUPTED_STATUSES.has(result.status)) return;
     this.#resultFailed = result.status !== "SUCCESS";
     if (!this.#resultFailed) return;
-    const status = nonEmpty(result.status) ?? "unknown";
+    const status = nonEmptyString(result.status) ?? "unknown";
     this.#scope.emit({
       type: "error",
-      message: nonEmpty(result.error)?.trim() || `Antigravity turn ended with status ${status}`,
+      message:
+        nonEmptyString(result.error)?.trim() || `Antigravity turn ended with status ${status}`,
       providerErrorCode: status,
     });
   }

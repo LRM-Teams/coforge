@@ -298,6 +298,8 @@ class PerTurnAgentSession implements AgentSession {
     this.#sessionId = this.#protocol.mintSessionId?.();
     this.#creating = this.#protocol.mintSessionId !== undefined;
     this.#everCompletedTurn = false;
+    // The lost session's identity no longer holds; a provider that chose the replacement's id
+    // already has it, the others learn it from the instructions turn.
     this.#identity = undefined;
     this.#setIdentity("empty");
     const instructionsTurn = this.#protocol.instructionsTurn !== undefined;

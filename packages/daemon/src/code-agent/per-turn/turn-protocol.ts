@@ -76,8 +76,8 @@ export interface TurnProtocol {
    * adopted and reported. */
   readonly repeatedSessionId: "ignore" | "reaffirm" | "reaffirm-and-report";
   /** When the session tells the daemon its id (`onSessionId`). `every-completion`: when a record
-   * names it and every time a turn completes. `once-per-id`: once per id, and again after a report
-   * the daemon rejected. */
+   * names it (see `repeatedSessionId`) and every time a turn completes. `once-per-id`: once per id,
+   * and again after a report the daemon rejected. */
   readonly identityReports: "every-completion" | "once-per-id";
   /** Removes what the provider must never see from the Agent's declared environment and from the
    * inherited one alike, before the Agent's own overrides apply. */

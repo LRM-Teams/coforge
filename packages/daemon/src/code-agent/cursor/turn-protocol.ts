@@ -148,6 +148,7 @@ class CursorTurnReader implements TurnReader {
       });
       this.#failed = true;
     } else {
+      // The last `result` frame wins: a success after an error clears it.
       this.#failed = false;
     }
   }
