@@ -76,14 +76,40 @@ export const InstallerReceiptSchema = z
 /** Version of the JSON `coforge-computer __lifecycle` prints; every response carries it. */
 export const LIFECYCLE_PROTOCOL = 1;
 
+/** `coforge-computer __lifecycle` exit statuses. */
+export const LIFECYCLE_EXIT_CODE = {
+  OK: 0,
+  /** The operation failed; stdout holds a `LifecycleError`. */
+  FAILED: 1,
+  /** The arguments were not understood; stdout holds a `LifecycleError` with code `USAGE`. */
+  USAGE: 2,
+} as const;
+
+/** The `code` of a failed `__lifecycle` call. */
+export const LIFECYCLE_ERROR_CODE = {
+  USAGE: "LIFECYCLE_USAGE",
+  /** Nothing listens on the supervisor socket. */
+  SUPERVISOR_NOT_RUNNING: "LIFECYCLE_SUPERVISOR_NOT_RUNNING",
+  /** Any other failure; `message` says what happened. */
+  FAILED: "LIFECYCLE_FAILED",
+} as const;
+
 const lifecycleProtocol = z.number().int().positive();
 
-/** `__lifecycle protocol`: answered without contacting the Coordinator. */
+/** `__lifecycle protocol`: answered without contacting the supervisor or writing anything. */
 export const LifecycleProtocolSchema = z
   .looseObject({ lifecycle_protocol: lifecycleProtocol, version: z.string() })
   .meta({ title: "__lifecycle protocol" });
 
-/** `__lifecycle status --json`. With no supervisor running, bindings come from bindings.json. */
+/** One reason the runtime set is not healthy (`SupervisorProblem` in supervisor-control.ts). */
+export const LifecycleProblemSchema = z.looseObject({
+  code: z.string().regex(UPGRADE_ERROR_CODE_PATTERN),
+  binding_id: z.string().optional(),
+  message: z.string(),
+});
+export type LifecycleProblem = z.infer<typeof LifecycleProblemSchema>;
+
+/** `__lifecycle status`. With no supervisor running, bindings come from bindings.json. */
 export const LifecycleStatusSchema = z
   .looseObject({
     lifecycle_protocol: lifecycleProtocol,
@@ -102,8 +128,12 @@ export const LifecycleStatusSchema = z
       }),
     ),
     healthy: z.boolean(),
+    /** Why the runtime set is not healthy; empty exactly when `healthy` is true. The installer
+     * quotes their messages when it refuses to upgrade. */
+    problems: z.array(LifecycleProblemSchema),
   })
   .meta({ title: "__lifecycle status" });
+export type LifecycleStatus = z.infer<typeof LifecycleStatusSchema>;
 
 /** `__lifecycle hold --request-id R`: the runner hold's outcome. */
 export const LifecycleHoldSchema = z
@@ -114,6 +144,13 @@ export const LifecycleHoldSchema = z
     busy_agent_count: z.number().int().nonnegative(),
   })
   .meta({ title: "__lifecycle hold" });
+export type LifecycleHold = z.infer<typeof LifecycleHoldSchema>;
+
+/** `__lifecycle pause`, `release`, and `resume`: the operation completed. */
+export const LifecycleAckSchema = z
+  .looseObject({ lifecycle_protocol: lifecycleProtocol, ok: z.literal(true) })
+  .meta({ title: "__lifecycle acknowledgement" });
+export type LifecycleAck = z.infer<typeof LifecycleAckSchema>;
 
 /** Any failed `__lifecycle` call, printed with a non-zero exit status. */
 export const LifecycleErrorSchema = z
@@ -124,3 +161,4 @@ export const LifecycleErrorSchema = z
     message: z.string(),
   })
   .meta({ title: "__lifecycle error" });
+export type LifecycleError = z.infer<typeof LifecycleErrorSchema>;

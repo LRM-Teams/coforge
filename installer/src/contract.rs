@@ -259,7 +259,7 @@ pub struct LifecycleProtocol {
     pub version: String,
 }
 
-/// `coforge-computer __lifecycle status --json`.
+/// `coforge-computer __lifecycle status`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LifecycleStatus {
     pub lifecycle_protocol: u32,
@@ -267,6 +267,17 @@ pub struct LifecycleStatus {
     pub supervisor: SupervisorState,
     pub bindings: Vec<LifecycleBinding>,
     pub healthy: bool,
+    /// Why the runtime set is not healthy; empty exactly when `healthy` is true.
+    pub problems: Vec<LifecycleProblem>,
+}
+
+/// One reason a runtime set is not healthy. `message` names the command that fixes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleProblem {
+    pub code: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_id: Option<String>,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -293,6 +304,21 @@ pub struct LifecycleHold {
     pub quiescent: bool,
     pub elapsed_ms: u64,
     pub busy_agent_count: u32,
+}
+
+/// `coforge-computer __lifecycle pause`, `release`, and `resume`: the operation completed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleAck {
+    pub lifecycle_protocol: u32,
+    pub ok: bool,
+}
+
+/// `__lifecycle` exit statuses, error codes, and status problem codes (`lifecycle-codes.json`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleCodes {
+    pub exit_codes: BTreeMap<String, u8>,
+    pub error_codes: BTreeMap<String, String>,
+    pub problem_codes: BTreeMap<String, String>,
 }
 
 /// Any failed `__lifecycle` call, printed with a non-zero exit status.

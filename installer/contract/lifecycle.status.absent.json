@@ -12,5 +12,11 @@
       "process_id": null
     }
   ],
-  "healthy": false
+  "healthy": false,
+  "problems": [
+    {
+      "code": "LIFECYCLE_SUPERVISOR_NOT_RUNNING",
+      "message": "configured running bindings have no healthy supervisor. Run 'coforge-computer start' to recover them, then upgrade again."
+    }
+  ]
 }

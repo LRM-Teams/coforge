@@ -46,6 +46,9 @@ if (Bun.argv[2] === "__agent-cli") {
 } else if (Bun.argv[2] === "__upgrade") {
   const { runUpgradeCoordinator } = await import("#src/release/upgrade-coordinator");
   await runUpgradeCoordinator(Bun.argv.slice(3));
+} else if (Bun.argv[2] === "__lifecycle") {
+  const { runLifecycleCommand } = await import("#src/release/lifecycle-command");
+  process.exitCode = await runLifecycleCommand(Bun.argv.slice(3));
 } else if (Bun.argv[2] === "__remote-upgrade") {
   // The operation is built once, here, from arguments alone; nothing downstream reads the
   // environment for its identity.

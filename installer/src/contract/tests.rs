@@ -70,6 +70,8 @@ fn every_golden_is_covered_by_a_test() {
         "launch-hold.txt",
         "launchers.posix.json",
         "launchers.windows.json",
+        "lifecycle-codes.json",
+        "lifecycle.ack.json",
         "lifecycle.error.json",
         "lifecycle.hold.json",
         "lifecycle.protocol.json",
@@ -215,8 +217,15 @@ fn lifecycle_responses() {
             .iter()
             .any(|binding| binding.process_id.is_some())
     );
+    assert!(running.healthy && running.problems.is_empty());
     let absent: LifecycleStatus = golden("lifecycle.status.absent.json");
     assert!(!absent.supervisor.running && absent.supervisor.id.is_none());
+    assert!(!absent.healthy && !absent.problems.is_empty());
+    let codes: LifecycleCodes = golden("lifecycle-codes.json");
+    assert_eq!(
+        absent.problems[0].code,
+        codes.problem_codes["SUPERVISOR_NOT_RUNNING"]
+    );
     assert!(
         absent
             .bindings
@@ -225,8 +234,20 @@ fn lifecycle_responses() {
     );
     let hold: LifecycleHold = golden("lifecycle.hold.json");
     assert!(hold.quiescent);
+    let ack: LifecycleAck = golden("lifecycle.ack.json");
+    assert!(ack.ok);
     let error: LifecycleError = golden("lifecycle.error.json");
     assert!(!error.ok);
+    assert_eq!(error.code, codes.error_codes["SUPERVISOR_NOT_RUNNING"]);
+}
+
+#[test]
+fn lifecycle_codes() {
+    let codes: LifecycleCodes = golden("lifecycle-codes.json");
+    assert_eq!(codes.exit_codes["OK"], 0);
+    assert_eq!(codes.exit_codes["FAILED"], 1);
+    assert_eq!(codes.exit_codes["USAGE"], 2);
+    assert_eq!(codes.error_codes["USAGE"], "LIFECYCLE_USAGE");
 }
 
 #[test]

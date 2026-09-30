@@ -33,12 +33,16 @@ import {
   INSTALLER_RECEIPT_PROTOCOL,
   InstallerManifestSchema,
   InstallerReceiptSchema,
+  LIFECYCLE_ERROR_CODE,
+  LIFECYCLE_EXIT_CODE,
   LIFECYCLE_PROTOCOL,
+  LifecycleAckSchema,
   LifecycleErrorSchema,
   LifecycleHoldSchema,
   LifecycleProtocolSchema,
   LifecycleStatusSchema,
 } from "#src/release/installer-contract";
+import { SUPERVISOR_PROBLEM_CODE } from "#src/release/supervisor-control";
 import { launchHoldContents } from "#src/release/upgrade-lifecycle";
 import {
   ActiveStateSchema,
@@ -339,6 +343,7 @@ export function renderInstallerContract(): Map<string, string> {
           { binding_id: "ws_stopped", enabled: false, running: false, process_id: null },
         ],
         healthy: true,
+        problems: [],
       }),
     ],
     [
@@ -349,6 +354,13 @@ export function renderInstallerContract(): Map<string, string> {
         supervisor: { running: false },
         bindings: [{ binding_id: "ws_example", enabled: true, running: false, process_id: null }],
         healthy: false,
+        problems: [
+          {
+            code: SUPERVISOR_PROBLEM_CODE.SUPERVISOR_NOT_RUNNING,
+            message:
+              "configured running bindings have no healthy supervisor. Run 'coforge-computer start' to recover them, then upgrade again.",
+          },
+        ],
       }),
     ],
     ["lifecycle.hold.schema.json", jsonSchema(LifecycleHoldSchema)],
@@ -361,14 +373,29 @@ export function renderInstallerContract(): Map<string, string> {
         busy_agent_count: 0,
       }),
     ],
+    ["lifecycle.ack.schema.json", jsonSchema(LifecycleAckSchema)],
+    [
+      "lifecycle.ack.json",
+      instance(LifecycleAckSchema, { lifecycle_protocol: LIFECYCLE_PROTOCOL, ok: true }),
+    ],
     ["lifecycle.error.schema.json", jsonSchema(LifecycleErrorSchema)],
     [
       "lifecycle.error.json",
       instance(LifecycleErrorSchema, {
         lifecycle_protocol: LIFECYCLE_PROTOCOL,
         ok: false,
-        code: UPGRADE_ERROR_CODE.LAUNCHES_PAUSED,
-        message: "Workspace launches are paused by another upgrade.",
+        code: LIFECYCLE_ERROR_CODE.SUPERVISOR_NOT_RUNNING,
+        message: "The Computer supervisor is not running.",
+      }),
+    ],
+    // `__lifecycle` exit statuses and error codes (installer-contract.ts) and status problem codes
+    // (release/supervisor-control.ts).
+    [
+      "lifecycle-codes.json",
+      json({
+        exit_codes: LIFECYCLE_EXIT_CODE,
+        error_codes: LIFECYCLE_ERROR_CODE,
+        problem_codes: SUPERVISOR_PROBLEM_CODE,
       }),
     ],
     // Error codes the installer may report (@lrm/coforge-sdk).

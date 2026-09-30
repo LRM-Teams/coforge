@@ -66,6 +66,29 @@
     },
     "healthy": {
       "type": "boolean"
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+          },
+          "binding_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": {}
+      }
     }
   },
   "required": [
@@ -73,7 +96,8 @@
     "version",
     "supervisor",
     "bindings",
-    "healthy"
+    "healthy",
+    "problems"
   ],
   "additionalProperties": {},
   "title": "__lifecycle status"
