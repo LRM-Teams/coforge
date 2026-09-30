@@ -8,7 +8,7 @@ export type ProcessLock = {
 
 /** What a holder runs, in order, on its own connection to the lock database. Any process that
  * must exclude this one (the installer, too) runs the same statements on the same file; see
- * installer/contract/lock.json. */
+ * crates/installer/contract/lock.json. */
 export const PROCESS_LOCK_STATEMENTS = ["PRAGMA busy_timeout = 0", "BEGIN IMMEDIATE"] as const;
 
 /** The SQLite result codes that mean another process holds the lock. */

@@ -34,7 +34,7 @@ The architecture invariants every change must respect are in
 | [apps/web/AGENTS.md](apps/web/AGENTS.md) | Web/backend rules and module map |
 | [packages/computer/AGENTS.md](packages/computer/AGENTS.md) | Computer package rules and module map |
 | [packages/daemon/AGENTS.md](packages/daemon/AGENTS.md) | Daemon package rules and module map |
-| [installer/AGENTS.md](installer/AGENTS.md) | Rust installer crate (`coforge-installer`): toolchain, commands, CI, supply-chain gate, module map |
+| [crates/installer/AGENTS.md](crates/installer/AGENTS.md) | Rust installer crate (`coforge-installer`): toolchain, commands, CI, supply-chain gate, module map |
 | [docs/database-schema/](docs/database-schema/README.md) | Database schema and conversation/delivery model |
 | [docs/reliable-message-delivery.md](docs/reliable-message-delivery.md) | Message delivery guarantees |
 | [docs/workspace-deletion.md](docs/workspace-deletion.md) | What deleting a Workspace removes, and when |
@@ -71,6 +71,7 @@ packages/daemon         Single-workspace daemon and code-agent adapter package c
 packages/agent          Independently packable built-in Agent runtime using Pi SDK
 packages/coforge        Agent CLI
 packages/coforge-sdk    Shared protocol and Agent SDK
+crates/installer        Rust installer (coforge-installer) for Computer installations
 docs                    Project documentation
 infra                   Local and staging deployment
 ```

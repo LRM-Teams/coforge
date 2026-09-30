@@ -33,7 +33,7 @@ const isValidVersion = isValidReleaseVersion;
 /* The zod schemas below are the cross-language contract with the Rust installer: the installer
  * writes active.json and installation.json and reads the release manifest, and
  * `bun run generate:installer-contract` exports them as JSON Schema plus golden instances into
- * installer/contract/. Every object is loose: a later version only ever adds fields, and a reader
+ * crates/installer/contract/. Every object is loose: a later version only ever adds fields, and a reader
  * ignores the ones it does not know. The hand-written checks in this module stay the runtime
  * validation; the contract test runs both over the same goldens. */
 
