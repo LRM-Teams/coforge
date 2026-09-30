@@ -9,6 +9,7 @@ import {
 import { InterruptTracker } from "#src/code-agent/interrupt-tracker";
 import { agentEnvironment } from "#src/code-agent/environment";
 import { exitFailureMessage } from "#src/code-agent/exit-failure-message";
+import { errorMessage } from "#src/code-agent/json-record";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { GrokTurnProcess, type GrokTurnResult } from "./turn-process";
 import { assertGrokVersionSupported } from "./version";
@@ -25,8 +26,9 @@ import type { UsageSnapshot } from "@coforge/agent";
  * Unlike OpenCode, Grok has a system-prompt channel (`--rules` appends to the agent's system
  * prompt), so the standing Agent instructions ride every turn as rules and a fresh session needs
  * **no bootstrap turn** — nothing is spawned until real input arrives. Session identity is
- * generated here (a UUID) and pinned with `--session-id` on the fresh session's first turn; from
- * the second turn on, and for every resumed session, the turn carries `--resume <id>`.
+ * generated here (a UUID) and pinned with `--session-id`, which creates a NEW session and refuses
+ * an id that is already in use (14-headless-mode.md, "Named Sessions"); once a turn has been
+ * spawned with it, every later turn carries `--resume <id>`, whatever that turn's outcome was.
  */
 const logger = getLogger(["coforge", "daemon", "code-agent", "grok"]);
 
@@ -69,6 +71,24 @@ export class GrokProvider implements CodeAgentProvider {
 
 type PendingOutcome = "success" | "failed" | undefined;
 type SessionState = "idle" | "running" | "interrupting" | "disposed";
+/** The turn in flight: its process, the input it carries, and whether it resumes a session. */
+type ActiveTurn = { process: GrokTurnProcess; prompt: string; resumed: boolean };
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+/**
+ * A `--resume` of an id grok has no session for fails with two stderr lines and no stdout frames:
+ * `Session "<id>" not found locally, restoring conversation from remote...` and then
+ * `Error: Failed to restore session from remote: ... 404 Not Found` (observed on 1.0.41;
+ * 14-headless-mode.md says only that `--resume` "errors if the session does not exist"). Both
+ * phrases are required, so a restore that fails for another reason - the remote being down, say -
+ * fails the turn rather than discarding a session that may still exist.
+ */
+function isMissingSession(stderr: string): boolean {
+  return stderr.includes("not found locally") && stderr.includes("Failed to restore session");
+}
 
 class GrokAgentSession implements AgentSession {
   readonly #options: AgentSessionOptions;
@@ -78,11 +98,19 @@ class GrokAgentSession implements AgentSession {
   readonly #queue: Array<{ text: string; resolve(): void; reject(error: Error): void }> = [];
   #state: SessionState = "idle";
   #closed = false;
-  #currentTurn: GrokTurnProcess | undefined;
-  #sessionId: string | undefined;
-  /** A fresh session's first turn names the session with `--session-id`; every later turn resumes
-   * it, because `--session-id` refuses an id whose conversation already exists. */
-  #awaitingFirstTurn: boolean;
+  #currentTurn: ActiveTurn | undefined;
+  #sessionId: string;
+  /** Whether the next turn creates the session with `--session-id`. It is cleared once a turn has
+   * been spawned that way, never at that turn's exit: grok creates the session before the turn can
+   * fail, and refuses `--session-id` for an id that exists, so a failed or interrupted first turn
+   * must not be created again. */
+  #creatingSession: boolean;
+  /** Whether a turn of this session has completed successfully. */
+  #everCompletedTurn: boolean;
+  /** The session a lost resume replaced, reported once with its replacement. */
+  #replacedSessionId: string | undefined;
+  /** The id the daemon was last told about (or is being told about). */
+  #reportedSessionId: string | undefined;
   #identity: AgentSessionIdentity | undefined;
   #pendingOutcome: PendingOutcome;
   #sessionReports: Promise<void> = Promise.resolve();
@@ -91,9 +119,13 @@ class GrokAgentSession implements AgentSession {
   constructor(options: AgentSessionOptions, command: readonly string[]) {
     this.#options = options;
     this.#command = command;
+    // A session the daemon names but asks to `create` is new to grok, however it got its id
+    // (`AgentSessionOptions.sessionMode`); only a `resume` carries a conversation to continue.
+    const resuming = options.sessionId !== undefined && options.sessionMode !== "create";
     this.#sessionId = options.sessionId ?? crypto.randomUUID();
-    this.#awaitingFirstTurn = !options.sessionId;
-    this.#identity = { sessionId: this.#sessionId, state: options.sessionId ? "unknown" : "empty" };
+    this.#creatingSession = !resuming;
+    this.#everCompletedTurn = resuming;
+    this.#identity = { sessionId: this.#sessionId, state: resuming ? "unknown" : "empty" };
   }
 
   async sendMessage(text: string): Promise<void> {
@@ -133,7 +165,7 @@ class GrokAgentSession implements AgentSession {
     const interrupted = this.#interrupt.begin();
     this.#state = "interrupting";
     try {
-      this.#currentTurn?.interrupt();
+      this.#currentTurn?.process.interrupt();
     } catch (error) {
       if (!this.#isDisposed()) this.#state = "running";
       this.#interrupt.fail(error instanceof Error ? error : new Error(String(error)));
@@ -164,30 +196,35 @@ class GrokAgentSession implements AgentSession {
     this.#interrupt.fail(disposeError);
     const turn = this.#currentTurn;
     this.#currentTurn = undefined;
-    if (turn) await turn.dispose();
+    if (turn) await turn.process.dispose();
     this.#finishClose();
   }
 
   #spawnTurn(prompt: string): void {
-    this.#state = "running";
-    this.#pendingOutcome = undefined;
-    if (this.#sessionId) this.#setIdentity("unknown");
+    const resumed = !this.#creatingSession;
     const argv = this.#buildArgv(prompt);
     const environment = {
       ...agentEnvironment(this.#options.environment, Bun.env, undefined, {
         envVars: this.#options.runtime?.envVars,
         gitHooks: this.#options.gitHooks,
       }),
-      // Grok resolves its workspace from the process working directory (Raft's adapter pins the
-      // same pair); the override keeps an inherited `PWD` from pointing the Agent at the wrong
-      // tree.
+      // Grok resolves its workspace from the process working directory; the override keeps an
+      // inherited `PWD` from pointing the Agent at the wrong tree.
       PWD: this.#options.agentWorkspaceDirectory,
       NO_COLOR: "1",
     };
-    const turn = new GrokTurnProcess(argv, this.#options.agentWorkspaceDirectory, environment);
+    // Constructing the process is the one step that can throw (`Bun.spawn` throws synchronously for
+    // a working directory that no longer exists), so the session records the turn as running only
+    // once the process exists; a throw leaves it exactly as it was, and the caller reports it.
+    const child = new GrokTurnProcess(argv, this.#options.agentWorkspaceDirectory, environment);
+    const turn: ActiveTurn = { process: child, prompt, resumed };
     this.#currentTurn = turn;
-    turn.onRecord((record) => this.#handleRecord(record));
-    void turn.exited.then((result) => this.#onTurnExit(turn, result));
+    this.#state = "running";
+    this.#pendingOutcome = undefined;
+    this.#creatingSession = false;
+    child.onRecord((record) => this.#handleRecord(record));
+    void child.exited.then((result) => this.#onTurnExit(turn, result));
+    this.#setIdentity("unknown");
   }
 
   #buildArgv(prompt: string): string[] {
@@ -211,9 +248,8 @@ class GrokAgentSession implements AgentSession {
     if (model && model !== "default") argv.push("--model", model);
     const reasoning = this.#options.runtime?.reasoning;
     if (reasoning) argv.push("--reasoning-effort", reasoning);
-    const sessionId = this.#sessionId ?? "";
-    if (this.#awaitingFirstTurn) argv.push("--session-id", sessionId);
-    else argv.push("--resume", sessionId);
+    if (this.#creatingSession) argv.push("--session-id", this.#sessionId);
+    else argv.push("--resume", this.#sessionId);
     return argv;
   }
 
@@ -291,23 +327,28 @@ class GrokAgentSession implements AgentSession {
         : undefined;
     if (!sessionId || sessionId === this.#sessionId) return;
     this.#sessionId = sessionId;
-    this.#setIdentity(this.#everCompletedTurn() ? "unknown" : "empty");
+    this.#setIdentity(this.#everCompletedTurn ? "unknown" : "empty");
     this.#reportIdentity();
-  }
-
-  #everCompletedTurn(): boolean {
-    return this.#awaitingFirstTurn === false;
   }
 
   /** Turn end is the process exit: a clean exit completes the turn, a non-zero one fails it with
    * the exit summary and the recent stderr lines. */
-  #onTurnExit(turn: GrokTurnProcess, result: GrokTurnResult): void {
+  #onTurnExit(turn: ActiveTurn, result: GrokTurnResult): void {
     if (this.#currentTurn !== turn) return;
     this.#currentTurn = undefined;
     const interrupted = this.#state === "interrupting";
     const outcome = this.#pendingOutcome;
     this.#pendingOutcome = undefined;
-    if (!interrupted && outcome !== "failed") this.#awaitingFirstTurn = false;
+    if (
+      !interrupted &&
+      turn.resumed &&
+      outcome === undefined &&
+      result.exitCode !== 0 &&
+      isMissingSession(result.stderrTail)
+    ) {
+      this.#restartMissingSession(turn.prompt);
+      return;
+    }
     let status: "completed" | "interrupted" | "failed";
     if (interrupted) {
       status = "interrupted";
@@ -316,6 +357,7 @@ class GrokAgentSession implements AgentSession {
       status = "failed";
     } else if (result.exitCode === 0) {
       status = "completed";
+      this.#everCompletedTurn = true;
       this.#setIdentity("resumable");
       this.#reportIdentity();
     } else {
@@ -326,6 +368,27 @@ class GrokAgentSession implements AgentSession {
     this.#interrupt.settle();
     if (this.#state === "disposed") return;
     this.#drainQueueOrIdle();
+  }
+
+  /** Runs the input of a resume grok could not honor as a fresh session under a new id. The
+   * standing instructions ride `--rules` on every turn, so the new session needs no bootstrap; the
+   * discarded attempt emits nothing, and the daemon is told about the replacement once, with the
+   * id it replaces, when the new session is reported. */
+  #restartMissingSession(prompt: string): void {
+    this.#replacedSessionId ??= this.#sessionId;
+    this.#sessionId = crypto.randomUUID();
+    this.#creatingSession = true;
+    this.#everCompletedTurn = false;
+    this.#setIdentity("empty");
+    try {
+      this.#spawnTurn(prompt);
+    } catch (error) {
+      // The discarded input was already accepted, so its turn fails visibly rather than vanishing.
+      this.#emit({ type: "error", message: toError(error).message });
+      this.#emit({ type: "completed", status: "failed" });
+      this.#interrupt.settle();
+      this.#drainQueueOrIdle();
+    }
   }
 
   #drainQueueOrIdle(): void {
@@ -340,7 +403,7 @@ class GrokAgentSession implements AgentSession {
       for (const entry of entries) entry.resolve();
     } catch (error) {
       this.#state = "idle";
-      const failure = error instanceof Error ? error : new Error(String(error));
+      const failure = toError(error);
       for (const entry of entries) entry.reject(failure);
     }
   }
@@ -350,22 +413,29 @@ class GrokAgentSession implements AgentSession {
   }
 
   #setIdentity(state: AgentSessionIdentity["state"]): void {
-    if (!this.#sessionId) return;
     if (this.#identity?.sessionId === this.#sessionId && this.#identity.state === state) return;
     this.#identity = { sessionId: this.#sessionId, state };
     this.#emit({ type: "session", identity: this.#identity });
   }
 
+  /** Reports the session to the daemon once per id. The first report after a lost resume also
+   * names the session it replaced, so the daemon invalidates the stale one and tells the person the
+   * earlier context was not restored. A report that fails is retried by the next completed turn. */
   #reportIdentity(): void {
     const sessionId = this.#sessionId;
     const onSessionId = this.#options.onSessionId;
-    if (!sessionId || !onSessionId) return;
+    if (!onSessionId || sessionId === this.#reportedSessionId) return;
+    const replaced = this.#replacedSessionId;
+    this.#replacedSessionId = undefined;
+    this.#reportedSessionId = sessionId;
     this.#sessionReports = this.#sessionReports
-      .then(() => onSessionId(sessionId))
+      .then(() => onSessionId(sessionId, replaced))
       .catch((error: unknown) => {
+        if (this.#reportedSessionId === sessionId) this.#reportedSessionId = undefined;
+        this.#replacedSessionId ??= replaced;
         this.#emit({
           type: "error",
-          message: error instanceof Error ? error.message : "Grok session identity report failed",
+          message: errorMessage(error) || "Grok session identity report failed",
         });
       });
   }

@@ -1,4 +1,4 @@
-import { appendFile, mkdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
@@ -107,6 +107,9 @@ async function exists(path: string): Promise<boolean> {
 const sessionId = newSessionId ?? resumeId ?? crypto.randomUUID();
 if (resumeId) {
   if (!(await exists(join(sessionsDir, resumeId)))) {
+    // Test hook: remove the workspace the turn runs in, so the adapter's next spawn throws.
+    if (Bun.env.COFORGE_GROK_REMOVE_WORKSPACE === "1")
+      await rm(process.cwd(), { recursive: true, force: true });
     console.error(`Session "${resumeId}" not found locally, restoring conversation from remote...`);
     console.error(
       "Error: Failed to restore session from remote: fetching session record: session get failed: 404 Not Found",

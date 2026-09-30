@@ -247,6 +247,222 @@ test(
 );
 
 test.each([
+  ["fails with an error frame", { COFORGE_GROK_NEW_SESSION_MODE: "error" }],
+  ["crashes before any frame", { COFORGE_GROK_NEW_SESSION_MODE: "crash" }],
+])(
+  "a first turn that %s still leaves the session created, so the next turn resumes it",
+  async (_outcome, environment) => {
+    // Grok creates the session before the turn can fail, and refuses `--session-id` for an id
+    // that exists ("already in use"), so once a turn has been spawned with `--session-id` every
+    // later turn must `--resume`, whatever that turn's outcome was.
+    await withSession({ environment }, async ({ session, launches }) => {
+      const failed = await runTurn(session, "first");
+      expect(failed.at(-1)).toEqual({ type: "completed", status: "failed" });
+      const next = await runTurn(session, "second");
+      expect(next.filter((event) => event.type === "error")).toEqual([]);
+      expect(next.at(-1)).toEqual({ type: "completed", status: "completed" });
+
+      const [first, second] = await launches();
+      expect(first?.newSessionId).toBeDefined();
+      expect(second?.resumeId).toBe(first?.newSessionId);
+      expect(second?.newSessionId).toBeUndefined();
+    });
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "an interrupted first turn leaves the session created, so the next turn resumes it",
+  async () => {
+    await withSession(
+      { environment: { COFORGE_GROK_NEW_SESSION_MODE: "hang" } },
+      async ({ session, launches }) => {
+        const working = firstText(session);
+        await session.sendMessage("first");
+        await working;
+        const interrupted = nthCompleted(session, 1);
+        await session.interrupt!();
+        await interrupted;
+
+        const next = await runTurn(session, "second");
+        expect(next.at(-1)).toEqual({ type: "completed", status: "completed" });
+        const [first, second] = await launches();
+        expect(second?.resumeId).toBe(first?.newSessionId);
+        expect(second?.newSessionId).toBeUndefined();
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a resumed session spawns nothing until input arrives, then resumes the given id",
+  async () => {
+    await withSession(
+      { sessionId: EXISTING, existingSessions: [EXISTING] },
+      async ({ session, launches }) => {
+        expect(await session.readSessionIdentity!()).toEqual({
+          sessionId: EXISTING,
+          state: "unknown",
+        });
+        expect(await launches()).toEqual([]);
+        await runTurn(session, "continue");
+        const [launch, ...rest] = await launches();
+        expect(rest).toEqual([]);
+        expect(launch).toMatchObject({ prompt: "continue", resumeId: EXISTING });
+        expect(launch?.newSessionId).toBeUndefined();
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a session id the daemon asks to create is pinned with --session-id, then resumed",
+  async () => {
+    const id = "0195d5a0-4b2e-7c11-9a53-3f2f6b1d7e11";
+    await withSession({ sessionId: id, sessionMode: "create" }, async ({ session, launches }) => {
+      expect(await session.readSessionIdentity!()).toEqual({ sessionId: id, state: "empty" });
+      await runTurn(session, "first");
+      await runTurn(session, "second");
+      const [first, second] = await launches();
+      expect(first?.newSessionId).toBe(id);
+      expect(first?.resumeId).toBeUndefined();
+      expect(second?.resumeId).toBe(id);
+      expect(second?.newSessionId).toBeUndefined();
+    });
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a resumed id grok no longer has restarts as a fresh session with the same input",
+  async () => {
+    const stale = "0195d5a0-4b2e-7c11-9a53-3f2f6b1d7e12";
+    await withSession({ sessionId: stale }, async ({ session, launches, reports }) => {
+      const events = await runTurn(session, "are you there?");
+      const [attempt, retry, ...rest] = await launches();
+      expect(rest).toEqual([]);
+      expect(attempt).toMatchObject({ prompt: "are you there?", resumeId: stale });
+      // The standing instructions ride `--rules` on every turn, so the fresh session needs no
+      // bootstrap turn: it is the same input, pinned under a new id.
+      expect(retry).toMatchObject({ prompt: "are you there?", rules: INSTRUCTIONS });
+      expect(retry?.resumeId).toBeUndefined();
+      const replacement = retry?.newSessionId;
+      expect(replacement).toBeDefined();
+      expect(replacement).not.toBe(stale);
+      expect(await session.readSessionIdentity!()).toEqual({
+        sessionId: replacement!,
+        state: "resumable",
+      });
+      // The discarded attempt is neither an error nor a turn of its own.
+      expect(events.filter((event) => event.type === "error")).toEqual([]);
+      expect(events.filter((event) => event.type === "completed")).toEqual([
+        { type: "completed", status: "completed" },
+      ]);
+
+      // The daemon learns of the replacement once, so it invalidates the stale id.
+      await runTurn(session, "again");
+      expect((await launches())[2]?.resumeId).toBe(replacement);
+      expect(reports).toEqual([{ sessionId: replacement!, replacedSessionId: stale }]);
+    });
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a lost session whose replacement cannot be spawned fails the turn visibly and recovers",
+  async () => {
+    const stale = "0195d5a0-4b2e-7c11-9a53-3f2f6b1d7e13";
+    await withSession(
+      { sessionId: stale, environment: { COFORGE_GROK_REMOVE_WORKSPACE: "1" } },
+      async ({ session, launches, workspace }) => {
+        const events = await runTurn(session, "hi");
+        const error = events.find((event) => event.type === "error");
+        expect(error?.type === "error" && error.message).toContain("ENOENT");
+        expect(events.at(-1)).toEqual({ type: "completed", status: "failed" });
+        expect(await launches()).toHaveLength(1);
+
+        // The replacement id was never created, so the next turn pins it.
+        await mkdir(workspace);
+        const next = await runTurn(session, "again");
+        expect(next.at(-1)).toEqual({ type: "completed", status: "completed" });
+        const [, second] = await launches();
+        expect(second?.newSessionId).toBeDefined();
+        expect(second?.newSessionId).not.toBe(stale);
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a resume that fails for any other reason fails the turn instead of restarting the session",
+  async () => {
+    // Both phrases of grok's missing-session message are required; a stderr that names only one
+    // is some other restore failure, and starting a new session over it would lose a live one.
+    await withSession(
+      {
+        sessionId: EXISTING,
+        existingSessions: [EXISTING],
+        environment: {
+          COFORGE_GROK_MODE: "crash",
+          COFORGE_GROK_CRASH_STDERR: "Error: Failed to restore session from remote: 503",
+        },
+      },
+      async ({ session, launches, reports }) => {
+        const events = await runTurn(session, "hi");
+        const error = events.find((event) => event.type === "error");
+        expect(error?.type === "error" && error.message).toContain("Failed to restore session");
+        expect(events.at(-1)).toEqual({ type: "completed", status: "failed" });
+        expect(await launches()).toHaveLength(1);
+        expect(reports).toEqual([]);
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "an unchanged session id is reported once, not on every completed turn",
+  async () => {
+    await withSession(
+      { sessionId: EXISTING, existingSessions: [EXISTING] },
+      async ({ session, reports }) => {
+        await runTurn(session, "one");
+        await runTurn(session, "two");
+        await runTurn(session, "three");
+        expect(reports).toEqual([{ sessionId: EXISTING }]);
+      },
+    );
+  },
+  SESSION_BUDGET_MS,
+);
+
+test(
+  "a turn that cannot be spawned rejects the input and leaves the session idle",
+  async () => {
+    await withSession({}, async ({ session, launches, workspace }) => {
+      // Bun.spawn throws synchronously for a working directory that does not exist.
+      await rm(workspace, { recursive: true });
+      await expect(session.sendMessage("first")).rejects.toThrow("ENOENT");
+      expect(await launches()).toEqual([]);
+
+      // The failed spawn did not leave the session "running": the next input starts a turn, and
+      // it still names its session with `--session-id`, because no turn ever created it.
+      await mkdir(workspace);
+      const events = await runTurn(session, "second");
+      expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
+      const [launch, ...rest] = await launches();
+      expect(rest).toEqual([]);
+      expect(launch?.newSessionId).toBeDefined();
+      expect(launch?.resumeId).toBeUndefined();
+    });
+  },
+  SESSION_BUDGET_MS,
+);
+
+test.each([
   ["default", undefined],
   ["", undefined],
   ["grok-4.6", "grok-4.6"],
