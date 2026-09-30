@@ -841,7 +841,7 @@ export const CATALOG_DISCOVERY_TIMEOUT_MS = 5_000;
  * stages around it. A healthy Pi discovery can legitimately outlast one wait. Its network refresh
  * is capped at `PI_MODEL_REFRESH_TIMEOUT_MS` (`refreshPiModelCatalog` in
  * `packages/agent/src/runner.ts` aborts `ModelRuntime.refresh` of
- * `@earendil-works/pi-coding-agent@0.84.3`, `dist/core/model-runtime.d.ts`), and creating the model
+ * `@earendil-works/pi-coding-agent@0.99.1`, `dist/core/model-runtime.d.ts`), and creating the model
  * runtime and `createAgentSessionServices` (its resource loader) run around it. A flat single wait
  * would cut a discovery the SDK itself still bounds.
  */

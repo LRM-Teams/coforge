@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { PI_SDK_VERSION } from "@coforge/agent";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -54,7 +55,7 @@ describe("external Code Agent inventory", () => {
       });
       expect(inventory.runtimes).toContainEqual({
         provider: "pi",
-        version: "0.84.3",
+        version: PI_SDK_VERSION,
         displayName: "Pi",
       });
       expect(
@@ -385,7 +386,7 @@ describe("external Code Agent inventory", () => {
     });
     expect(inventory.runtimes[1]).toEqual({
       provider: "pi",
-      version: "0.84.3",
+      version: PI_SDK_VERSION,
       displayName: "Pi",
     });
     const coforgeCatalog = inventory.catalogs.find((catalog) => catalog.provider === "coforge");
