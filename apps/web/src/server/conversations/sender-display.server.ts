@@ -1,6 +1,6 @@
 import { isValidMessageSender, type MessageSenderKind } from "@lrm/coforge-sdk/internal";
 import type { Prisma } from "#src/generated/prisma/client";
-import { humanLabel } from "#src/lib/human-label";
+import { humanLabel, type HumanNames } from "#src/lib/human-label";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 
@@ -18,7 +18,7 @@ import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile
  */
 type BrowserSender =
   | {
-      user?: { username: string; displayName?: string | null } | null;
+      user?: HumanNames | null;
       agent?: { name: string; displayName?: string | null } | null;
     }
   | null
@@ -62,7 +62,12 @@ export function browserSenderAvatarUrl(
  * displayed name is what broke when the browser stopped being attributed by handle.
  * `undefined` for a server-authored message, which nobody can mention.
  */
-export function browserSenderHandle(sender: BrowserSender): string | undefined {
+export function browserSenderHandle(
+  sender:
+    | { user?: { username: string } | null; agent?: { name: string } | null }
+    | null
+    | undefined,
+): string | undefined {
   if (!sender) return undefined;
   if (sender.user) return sender.user.username;
   if (sender.agent) return sender.agent.name;

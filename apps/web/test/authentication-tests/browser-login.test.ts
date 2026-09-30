@@ -182,6 +182,22 @@ test("passes Authing preferred_username to first-identity resolution and stores 
   ).toMatchObject({ username: "ada" });
 });
 
+test("the profile's name and nickname reach user resolution, so a username can be derived from them", async () => {
+  let resolved: unknown;
+  await signIn({ sub: "s", name: " Ada Lovelace ", nickname: "Ace" }, async (input) => {
+    resolved = input;
+    return { id: "00000000-0000-5000-8000-000000000004", username: "ada-lovelace" };
+  });
+
+  expect(resolved).toEqual({
+    provider: "authing",
+    subject: "s",
+    email: null,
+    name: "Ada Lovelace",
+    nickname: "Ace",
+  });
+});
+
 test("completeBrowserLogin rejects a mismatched or missing state", async () => {
   const started = startBrowserLogin({ config, sessionSecret });
 

@@ -18,6 +18,7 @@ export class PrismaUserProfileRepository {
       select: {
         username: true,
         displayName: true,
+        fullName: true,
         description: true,
         avatarObjectKey: true,
       },
@@ -36,12 +37,13 @@ export class PrismaUserProfileRepository {
   async set(userId: string, input: { name: string; description: string }) {
     const current = await this.db.user.findUnique({
       where: { id: userId },
-      select: { username: true, displayName: true },
+      select: { username: true, displayName: true, fullName: true },
     });
     if (!current) throw new AppError("NOT_FOUND");
     // The editor is seeded with the label shown today, so saving only the description sends that
-    // label back. When the person never set a display name it is a fallback (their username), not
-    // a name they chose, and storing it would freeze the fallback as their display name.
+    // label back. When the person never set a display name it is a fallback (their full name or
+    // their username), not a nickname they chose, and storing it would freeze the fallback as
+    // their display name.
     const nameUnchanged = !current.displayName?.trim() && input.name === humanLabel(current);
     const profile = await this.db.user.update({
       where: { id: userId },

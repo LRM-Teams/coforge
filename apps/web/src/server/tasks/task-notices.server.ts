@@ -1,5 +1,6 @@
 import type { TaskStatus } from "@lrm/coforge-sdk/internal";
 import { AppError } from "#src/lib/app-error";
+import type { HumanNames } from "#src/lib/human-label";
 import {
   agentReadableBody,
   type MessageMentionRef,
@@ -25,7 +26,7 @@ export type DisplayName = string & { readonly [brand]: "displayName" };
 export type NoticeActor = { handle: Handle; displayName: DisplayName };
 
 type NamedMember = {
-  user?: { username: string; displayName?: string | null } | null;
+  user?: HumanNames | null;
   agent?: { name: string; displayName?: string | null } | null;
 };
 
@@ -36,8 +37,13 @@ export function noticeActor(member: NamedMember): NoticeActor {
   return { handle: handle as Handle, displayName: browserSenderName(member) as DisplayName };
 }
 
-export function assigneeMention(member: NamedMember): AssigneeMention {
-  return `@${noticeActor(member).handle}` as AssigneeMention;
+export function assigneeMention(member: {
+  user?: { username: string } | null;
+  agent?: { name: string } | null;
+}): AssigneeMention {
+  const handle = member.user?.username ?? member.agent?.name;
+  if (!handle) throw new AppError("INTERNAL_ERROR");
+  return `@${handle}` as AssigneeMention;
 }
 
 /** A Task as a notice quotes it; build it with `quotedTask`, never from a raw title. */

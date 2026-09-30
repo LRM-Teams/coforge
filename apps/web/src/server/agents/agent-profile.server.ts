@@ -72,7 +72,7 @@ export async function createdAgentsFor(
 async function creatorFor(db: PrismaClient, ownerId: string): Promise<AgentProfileCreator | null> {
   const owner = await db.user.findUnique({
     where: { id: ownerId },
-    select: { username: true, displayName: true },
+    select: { username: true, displayName: true, fullName: true },
   });
   if (!owner) return null;
   return { name: owner.username, displayName: humanLabel(owner) };

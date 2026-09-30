@@ -130,7 +130,7 @@ responsibility.
   Activity (Computer lifecycle rows included), visibility, deletion, and the
   Agent HTTPS API.
 - `server/attachments/` — attachment upload sessions, claiming a sender's uploads for a new message, and delivery.
-- `server/auth/` — login, sessions, device auth, API keys, and auth guards.
+- `server/auth/` — login, sessions, username allocation, device auth, API keys, and auth guards.
 - `server/centrifugo/` — Centrifugo proxies, RPC receivers, and short-lived
   result caches.
 - `server/computers/` — Computer registration, metadata, restart and upgrade

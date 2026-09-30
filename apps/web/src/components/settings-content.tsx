@@ -93,6 +93,7 @@ interface SettingsContentProps {
       role: string;
       username: string;
       displayName: string | null;
+      fullName: string | null;
       avatarUrl: string | null;
     }>;
     pendingInvitations: Array<{

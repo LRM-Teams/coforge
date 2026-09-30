@@ -172,7 +172,13 @@ export class PrismaDirectConversationPreferences {
     peerIds: ReadonlyMap<string, string>,
     profiles: ReadonlyMap<
       string,
-      { id: string; username: string; displayName: string | null; avatarObjectKey: string | null }
+      {
+        id: string;
+        username: string;
+        displayName: string | null;
+        fullName: string | null;
+        avatarObjectKey: string | null;
+      }
     >,
   ): DirectConversationPeer | undefined {
     const peerId = peerIds.get(conversation.id);

@@ -57,7 +57,7 @@ export const loadConversationFiles = createServerFn({ method: "GET" })
         createdAt: true,
         objectKey: true,
         message: { select: { id: true } },
-        uploader: { select: { username: true, displayName: true } },
+        uploader: { select: { username: true, displayName: true, fullName: true } },
         uploaderAgent: { select: { displayName: true, name: true } },
       },
     });

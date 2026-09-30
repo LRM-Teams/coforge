@@ -28,7 +28,7 @@ export const BROWSER_MESSAGE_MENTIONS_SELECT = {
     handle: true,
     member: {
       select: {
-        user: { select: { displayName: true } },
+        user: { select: { displayName: true, fullName: true } },
         agent: { select: { displayName: true } },
       },
     },
@@ -40,7 +40,7 @@ export const BROWSER_MESSAGE_MENTIONS_SELECT = {
  * soft-deleted; an absent/blank display name falls back to the immutable handle. */
 export type BrowserMessageMentionRow = MessageMentionRef & {
   member: {
-    user: { displayName: string | null } | null;
+    user: { displayName: string | null; fullName: string | null } | null;
     agent: { displayName: string | null } | null;
   };
 };
@@ -53,7 +53,11 @@ export function browserMessageMention(row: BrowserMessageMentionRow) {
     // A person's handle is their username, so it is the fallback `humanLabel` names them by.
     label:
       row.kind === "user"
-        ? humanLabel({ displayName: row.member.user?.displayName, username: row.handle })
+        ? humanLabel({
+            displayName: row.member.user?.displayName,
+            fullName: row.member.user?.fullName ?? null,
+            username: row.handle,
+          })
         : row.member.agent?.displayName?.trim() || row.handle,
   };
 }

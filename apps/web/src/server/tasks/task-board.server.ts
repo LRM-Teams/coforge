@@ -22,6 +22,7 @@ import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { channelThreadRootWhere } from "#src/server/db/message-anchor.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import type { HumanNames } from "#src/lib/human-label";
 import type { ConversationTaskSubset } from "#src/features/tasks/conversation-task-subset";
 import {
   conversationSignalScopes,
@@ -87,14 +88,19 @@ type Member = {
   id: string;
   userId: string | null;
   agentId: string | null;
-  user?: { username: string; displayName?: string | null } | null;
+  user?: HumanNames | null;
   agent?: { name: string; displayName?: string | null } | null;
+};
+/** The member a Task is assigned to: named in a notice by handle alone. */
+type Assignee = Omit<Member, "user" | "agent"> & {
+  user?: { username: string } | null;
+  agent?: { name: string } | null;
 };
 const MEMBER_SELECT = {
   id: true,
   userId: true,
   agentId: true,
-  user: { select: { username: true, displayName: true } },
+  user: { select: { username: true, displayName: true, fullName: true } },
   agent: { select: { name: true, displayName: true } },
 } satisfies Prisma.ConversationMemberSelect;
 /** One conversation of one Workspace: where a Task lives and where its notices go. */
@@ -112,7 +118,7 @@ type NoticeInput = {
   body: string;
   deliverTo?: string | null;
   /** The member the notice personally mentions: its one mention row. */
-  mentions?: Member;
+  mentions?: Assignee;
 };
 /** The Task fields a notice quotes; `messageId` is also the root of the Task's thread. */
 type NoticeSubject = { messageId: string; number: number; title: string };
@@ -138,7 +144,7 @@ type NoticeWriter = {
   receipt(input: {
     id: string;
     body: string;
-    assignee: Member;
+    assignee: Assignee;
     actor: Member;
   }): Promise<PostedNotice>;
 };

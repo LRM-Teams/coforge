@@ -413,8 +413,8 @@ test("signing in through the hosted page, from a Workspace invite link", async (
     const phoneUser = ((await phoneMe.json()) as { user: Record<string, unknown> }).user;
     expect(phoneUser.email).toBeNull();
     expect(phoneUser.name).toBe(people["phone-only"].name);
-    // Named by nothing they typed in: the generated username, never a phone number.
-    expect(phoneUser.username).toMatch(/^user-[0-9a-f]{8}$/);
+    // With no email or preferred_username the profile name names the account, never a phone number.
+    expect(phoneUser.username).toMatch(/^phone-only-e2e(-\d+)?$/);
 
     await browser("set", "viewport", "1440", "900");
 

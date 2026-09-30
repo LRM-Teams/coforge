@@ -138,6 +138,8 @@ function persistedIdentityResolver(): InternalUserResolver {
     identities.resolve(identity.provider, identity.subject, {
       email: identity.email,
       preferredUsername: identity.preferredUsername,
+      name: identity.name,
+      nickname: identity.nickname,
     });
 }
 

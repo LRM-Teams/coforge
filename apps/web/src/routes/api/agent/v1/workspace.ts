@@ -30,7 +30,7 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
               select: {
                 userId: true,
                 role: true,
-                user: { select: { username: true, displayName: true } },
+                user: { select: { username: true, displayName: true, fullName: true } },
               },
               orderBy: { user: { username: "asc" } },
             }),

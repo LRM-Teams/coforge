@@ -1,7 +1,10 @@
-/** The names a person can be called by. `fullName` has no column yet; callers that hold one pass it. */
+/**
+ * The names a person can be called by. `fullName` is required (a `null` when there is none) so a
+ * query that builds a label from a User row cannot forget to select it: the type check finds it.
+ */
 export type HumanNames = {
   displayName?: string | null;
-  fullName?: string | null;
+  fullName: string | null;
   username: string;
 };
 

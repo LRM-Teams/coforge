@@ -2,13 +2,21 @@
 
 `User` is the internal business subject with a stable UUID and required unique
 internal `username`. Public user targets are `@${User.username}`; provider
-subjects are never usernames. Existing users are deterministically backfilled
-as `user-` plus the full hyphenless UUID. On first identity creation a valid
-Authing `preferred_username` is preferred, unless it is made only of digits
-(it may be a phone number); otherwise the backend derives a normalized email
-local-part with a stable suffix from the already-generated User UUID, or
-`user-` plus that suffix when the account has no email. The username is not
-changed by later logins. `UserIdentity` maps
+subjects are never usernames. A username is a readable handle, not something a
+person types: it starts with a letter, is 3 to 32 characters of `a-z 0-9 _ -`
+with no `-` or `_` at either end (`apps/web/src/lib/username-grammar.ts`).
+On first identity creation `UsernameAllocator`
+(`apps/web/src/server/auth/username-allocation.server.ts`) takes the first of
+these that yields a usable name: the Authing `preferred_username`, the email
+local part without a `+tag`, the ASCII slug of the profile name, the ASCII slug
+of the nickname, and finally `user`. A name that starts with a digit gets the
+prefix `u`; a name with a run of 11 or more digits, however spaced or
+surrounded (it may be a phone number), and a reserved word are never used. A taken name gets the smallest free `-N`
+(`N >= 2`); the unique index decides races, so the create is retried a bounded
+number of times and ends with an 8-hex suffix. The username is not changed by
+later logins. Accounts created before letter-first allocation keep their
+existing names, some digit-first or ending in an 8-hex suffix, and stay valid
+`@username` targets until they are renamed. `UserIdentity` maps
 an external provider and subject to that User; provider subjects are never
 business foreign keys. Membership, Agent ownership, and Computer ownership use
 the internal User UUID. Existing rows are backfilled by the migration before
@@ -17,11 +25,18 @@ identity provider reported at login, nullable, not unique, not an identity key.
 An account registered with a phone number alone has none and signs in like any
 other; the signed session and every consumer of it treat the email as optional.
 
-`User.displayName` stores the user's optional editable name; when it is null or
-blank, every surface names the person by their username. The provider's name is
-not stored and never labels a person. `humanLabel` in
-`apps/web/src/lib/human-label.ts` is the one rule for that label, in messages,
-member lists, mentions, and the signed-in user's own shell.
+`User.fullName` is the name teammates see. It is nullable because an account
+created before it has none until it is asked for one. `User.displayName` is
+an optional nickname that replaces the full name in labels when set. The
+migration that added `fullName` copied every existing `displayName` there
+and left `displayName` as it was, so an account that had already set a name
+counts as named and its label does not change. A `displayName` equal to the
+user's `username` (a value an old save froze into it) was not copied and was
+cleared, which labels the same. A person with neither is named by
+their username. The provider's name is not stored and never labels a person.
+`humanLabel` in `apps/web/src/lib/human-label.ts` is the one rule for that label,
+in messages, member lists, mentions, and the signed-in user's own shell.
+
 `User.description` stores the editable profile description. The optional
 `avatarObjectKey` and `avatarContentType` identify the user's current private
 avatar in the shared user-files store; image bytes and delivery URLs are never

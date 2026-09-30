@@ -18,6 +18,9 @@ export type InternalUserResolver = (input: {
   subject: string;
   email: string | null;
   preferredUsername?: string;
+  /** What the provider reported as the person's name, for a username when nothing better names them. */
+  name?: string;
+  nickname?: string;
 }) => Promise<{ id: string; username: string }>;
 
 export type AuthingConfig = {
@@ -183,6 +186,8 @@ export async function completeBrowserLogin(input: {
           subject: profile.sub,
           email,
           ...(profile.preferred_username ? { preferredUsername: profile.preferred_username } : {}),
+          ...(profile.name?.trim() ? { name: profile.name.trim() } : {}),
+          ...(profile.nickname?.trim() ? { nickname: profile.nickname.trim() } : {}),
         }),
       )
     : {

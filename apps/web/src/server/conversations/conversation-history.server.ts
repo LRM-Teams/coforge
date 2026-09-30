@@ -34,7 +34,9 @@ export const browserMessageFields = {
     select: {
       userId: true,
       agentId: true,
-      user: { select: { username: true, displayName: true, avatarObjectKey: true } },
+      user: {
+        select: { username: true, displayName: true, fullName: true, avatarObjectKey: true },
+      },
       agent: { select: { name: true, displayName: true, deletedAt: true, avatarObjectKey: true } },
     },
   },

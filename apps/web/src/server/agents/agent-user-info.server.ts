@@ -187,7 +187,9 @@ export async function findWorkspaceUser(
     where: { workspaceId, user: { username: name } },
     select: {
       role: true,
-      user: { select: { id: true, username: true, displayName: true, description: true } },
+      user: {
+        select: { id: true, username: true, displayName: true, fullName: true, description: true },
+      },
     },
   });
   if (!membership) return undefined;

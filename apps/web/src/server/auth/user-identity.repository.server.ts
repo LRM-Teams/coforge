@@ -1,64 +1,55 @@
 import type { PrismaClient } from "#src/generated/prisma/client";
+import { isUniqueViolation } from "#src/server/db/unique-violation.server";
+import { UsernameAllocator, type UsernameProfile } from "./username-allocation.server";
 
 export class UserIdentityRepository {
-  constructor(private readonly db: PrismaClient) {}
+  private readonly usernames: UsernameAllocator;
 
-  async resolve(
-    provider: string,
-    providerSubject: string,
-    profile?: { email?: string | null; preferredUsername?: string | null },
-  ) {
+  constructor(private readonly db: PrismaClient) {
+    this.usernames = new UsernameAllocator(async (base) =>
+      (
+        await this.db.user.findMany({
+          where: { OR: [{ username: base }, { username: { startsWith: `${base}-` } }] },
+          select: { username: true },
+        })
+      ).map((row) => row.username),
+    );
+  }
+
+  async resolve(provider: string, providerSubject: string, profile: UsernameProfile = {}) {
     // The provider's latest email is stored on every login; it never selects the User.
-    const email = profile?.email || undefined;
-    const identity = await this.db.userIdentity.findUnique({
-      where: { provider_providerSubject: { provider, providerSubject } },
-      include: { user: true },
-    });
+    const email = profile.email || undefined;
+    const identity = await this.findIdentity(provider, providerSubject);
     if (identity) {
       if (!email || identity.user.email === email) return identity.user;
       return this.db.user.update({ where: { id: identity.user.id }, data: { email } });
     }
     const id = crypto.randomUUID();
-    const preferred = validUsername(profile?.preferredUsername);
-    const local = normalizeUsername(profile?.email?.split("@", 1)[0] ?? "") || "user";
-    const suffix = id.replaceAll("-", "").slice(0, 8);
-    const candidates = [preferred, `${local}-${suffix}`, `user-${id.replaceAll("-", "")}`].filter(
-      (candidate): candidate is string => Boolean(candidate),
-    );
-    for (const username of candidates) {
-      const collision = await this.db.user.findUnique({
-        where: { username },
-        select: { id: true },
-      });
-      if (collision) continue;
-      return this.db.user.create({
-        data: {
-          id,
-          username,
-          email,
-          identities: { create: { provider, providerSubject } },
-        },
-      });
-    }
-    throw new Error("could not allocate username");
+    return this.usernames.create(profile, async (username) => {
+      try {
+        return await this.db.user.create({
+          data: {
+            id,
+            username,
+            email,
+            identities: { create: { provider, providerSubject } },
+          },
+        });
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        // The same person's other callback got here first: the identity is theirs, not a name
+        // clash to retry. A name clash leaves no such identity and goes back to the allocator.
+        const concurrent = await this.findIdentity(provider, providerSubject);
+        if (concurrent) return concurrent.user;
+        throw error;
+      }
+    });
   }
-}
 
-const USERNAME = /^[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
-/** A `preferred_username` of digits only may be a phone number. The username is the personal
- * Workspace's slug and every `@` mention, so such a value is never used as one. */
-const PHONE_LIKE = /^[0-9]+$/;
-function validUsername(value: string | null | undefined): string | undefined {
-  const normalized = value?.trim().toLowerCase();
-  return normalized && USERNAME.test(normalized) && !PHONE_LIKE.test(normalized)
-    ? normalized
-    : undefined;
-}
-function normalizeUsername(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^[-_]+|[-_]+$/g, "")
-    .slice(0, 23);
+  private findIdentity(provider: string, providerSubject: string) {
+    return this.db.userIdentity.findUnique({
+      where: { provider_providerSubject: { provider, providerSubject } },
+      include: { user: true },
+    });
+  }
 }

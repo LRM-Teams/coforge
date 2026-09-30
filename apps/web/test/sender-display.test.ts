@@ -74,12 +74,12 @@ test("an internal id standing in for a name is refused", () => {
 });
 
 test("the browser names a person by their display name, trimmed, else by their username", () => {
-  expect(browserSenderName({ user: { username: "ada", displayName: " Ada Lovelace " } })).toBe(
+  const ada = { username: "ada", fullName: null };
+  expect(browserSenderName({ user: { ...ada, displayName: " Ada Lovelace " } })).toBe(
     "Ada Lovelace",
   );
-  expect(browserSenderName({ user: { username: "ada", displayName: "  " } })).toBe("ada");
-  expect(browserSenderName({ user: { username: "ada", displayName: null } })).toBe("ada");
-  expect(browserSenderName({ user: { username: "ada" } })).toBe("ada");
+  expect(browserSenderName({ user: { ...ada, displayName: "  " } })).toBe("ada");
+  expect(browserSenderName({ user: { ...ada, displayName: null } })).toBe("ada");
 });
 
 test("the browser names an Agent by its display name, else by its name, and the server as System", () => {
@@ -87,4 +87,18 @@ test("the browser names an Agent by its display name, else by its name, and the 
   expect(browserSenderName({ agent: { name: "scout", displayName: " " } })).toBe("scout");
   expect(browserSenderName(null)).toBe("System");
   expect(browserSenderName({})).toBe("System");
+});
+
+test("a human sender is shown by display name, else full name, else username", () => {
+  expect(
+    browserSenderName({
+      user: { username: "ada", displayName: "Countess", fullName: "Ada Lovelace" },
+    }),
+  ).toBe("Countess");
+  expect(
+    browserSenderName({ user: { username: "ada", displayName: null, fullName: "Ada Lovelace" } }),
+  ).toBe("Ada Lovelace");
+  expect(browserSenderName({ user: { username: "ada", displayName: null, fullName: null } })).toBe(
+    "ada",
+  );
 });
