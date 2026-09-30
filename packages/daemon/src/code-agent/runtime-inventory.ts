@@ -958,26 +958,31 @@ function codexModel(value: unknown): CodeAgentModelMetadata | undefined {
 }
 
 export function claudeStaticCatalog(): CodeAgentModelCatalog {
+  // Effort levels per model from https://code.claude.com/docs/en/model-config ("Adjust effort
+  // level"); a model the table leaves out (Sonnet 4.5, Haiku 4.5) takes no effort setting.
   const fullReasoning = ["low", "medium", "high", "xhigh", "max"];
   const standardReasoning = ["low", "medium", "high", "max"];
-  const limitedReasoning = ["low", "medium", "high"];
   return {
     provider: RUNTIME_PROVIDER.CLAUDE_CODE,
     models: [
-      // Maintained fallback catalog for the installed Claude Code runtime.
+      // Maintained fallback catalog for the installed Claude Code runtime: the aliases, then each
+      // model, newest first.
       claudeStaticModel("opus", "Claude Opus"),
       claudeStaticModel("fable", "Claude Fable"),
       claudeStaticModel("sonnet", "Claude Sonnet"),
       claudeStaticModel("haiku", "Claude Haiku"),
+      claudeStaticModel("claude-opus-5-5", "Claude Opus 5.5", fullReasoning),
+      claudeStaticModel("claude-sonnet-5-5", "Claude Sonnet 5.5", fullReasoning),
+      claudeStaticModel("claude-fable-5-1", "Claude Fable 5.1", fullReasoning),
       claudeStaticModel("claude-opus-5", "Claude Opus 5", fullReasoning),
       claudeStaticModel("claude-sonnet-5", "Claude Sonnet 5", fullReasoning),
-      claudeStaticModel("claude-sonnet-4-6", "Claude Sonnet 4.6", standardReasoning),
       claudeStaticModel("claude-fable-5", "Claude Fable 5", fullReasoning),
       claudeStaticModel("claude-opus-4-8", "Claude Opus 4.8", fullReasoning),
       claudeStaticModel("claude-opus-4-7", "Claude Opus 4.7", fullReasoning),
-      claudeStaticModel("claude-haiku-4-5", "Claude Haiku 4.5", limitedReasoning),
       claudeStaticModel("claude-opus-4-6", "Claude Opus 4.6", standardReasoning),
-      claudeStaticModel("claude-sonnet-4-5", "Claude Sonnet 4.5", standardReasoning),
+      claudeStaticModel("claude-sonnet-4-6", "Claude Sonnet 4.6", standardReasoning),
+      claudeStaticModel("claude-sonnet-4-5", "Claude Sonnet 4.5"),
+      claudeStaticModel("claude-haiku-4-5", "Claude Haiku 4.5"),
     ],
   };
 }
