@@ -89,7 +89,7 @@ test("orders levels by OpenCode's own effort order, and drops disabled variants"
   }
 }
 `);
-  // Known efforts first in Raft's order (minimal < high < max), then the unknown one alphabetically.
+  // Known efforts first in fixed order (minimal < high < max), then the unknown one alphabetically.
   expect(models[0]?.reasoningEfforts).toEqual(["minimal", "high", "max", "ultra"]);
 });
 

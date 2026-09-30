@@ -9,8 +9,8 @@ file…」，已知工具取其标签，未知工具退化为「Using `<name>`�
 非 CoForge CLI 的 shell 命令，`toolInput` 先复用 trajectory 文本相同的脱敏规则
 （`redactTrajectoryText`），随后截断到前 200 个 Unicode 码点；命令参数与 heredoc 正文中能被规则
 识别的 token/secret/password 等敏感片段会被替换为 `[REDACTED]`，但这仍是尽力而为的脱敏，不保证
-覆盖所有敏感文本。这里**不再**在第一个 `<<` 处截断：参考客户端（Raft Computer 1.0.32 的
-`summarizeToolInput`，`summaryKind: "command"`）直接上报 `input.command` 并只做长度截断，我们此前
+覆盖所有敏感文本。这里**不再**在第一个 `<<` 处截断：参考客户端直接上报 `input.command`
+（`summaryKind: "command"`）并只做长度截断，我们此前
 「heredoc 正文永不进入 `toolInput`」的规则是自己加的，会让 `cd x && python3 - <<'EOF' …` 这类命令在
 界面上只剩 `cd x && python3 -`，读不出它在做什么；对齐后内联脚本的开头可见（代价是 heredoc 正文
 进入尽力脱敏的范围）。`toolInput` 还要满足 SDK 的 `validToolInput`（至多 200 个 Unicode 码点、不含控制字符）：换行等控制字符先被替换为空格再合并空白，一条多行命令也不会因此
@@ -20,7 +20,7 @@ file…」，已知工具取其标签，未知工具退化为「Using `<name>`�
 工具，只记录该工具预先约定的安全摘要字段作为 `toolInput`，从不使用原始命令行或消息正文
 （`message send` 之后的 heredoc 消息体同样不会出现在 `message` 或 `toolInput` 里）；
 `message check` 使用 `checking_messages` 而不是 `running_command`/`tool_started`。语义工具集是
-一个封闭集合，与参考客户端（Raft Computer 1.0.32 的 `resolveRaftCliInvocation`）保持一致：
+一个封闭集合，与参考客户端保持一致：
 集合内的子命令才有语义身份，集合外的一律照普通命令上报，不再有代表"某个 CoForge 命令"的
 占位工具名。`inbox check` 不在集合内——它问的是 Computer 本地还握着什么，服务端 drain 才是
 `message check`：

@@ -165,8 +165,8 @@ test("thread send and unread ranges stay separate from the main conversation", a
           seenUpToSeq,
         },
       );
-    // A first touch of a target that already carries context is held for a context sync (Raft's
-    // `syncing_hold`), so the thread send is held rather than forwarded.
+    // A first touch of a target that already carries context is held for a context sync
+    // (`syncing_hold`), so the thread send is held rather than forwarded.
     expect((await sendTo(shortTarget)).state).toBe("held");
     const hold = await sendTo(otherTarget);
     expect(hold.state).toBe("held");
@@ -357,7 +357,7 @@ test("thread send and unread ranges stay separate from the main conversation", a
       continueAnywaySuggested: true,
     });
     const withheldSent = await sendWithheld(1, true);
-    // Raft's sent envelope carries no freshness-context field, and withheld mode returns no
+    // The sent envelope carries no freshness-context field, and withheld mode returns no
     // bodies for anything — including the messages it bypassed.
     expect(withheldSent).toMatchObject({
       state: "sent",

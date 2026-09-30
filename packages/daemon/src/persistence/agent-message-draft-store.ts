@@ -7,9 +7,9 @@ import { escapePathIdentity } from "./path-scope";
 export const AGENT_MESSAGE_DRAFT_TTL_MS = 10 * 60 * 1_000;
 
 /**
- * The continuation state of one held send — the fields Raft's `setSavedDraft`
- * (`continue-state.json`) writes: `content`, `attachmentIds`, `idempotencyKey`, `mentions`,
- * `savedAt`, `reholdCount`, `seenUpToSeq`, and 1.0.38's `seenExactSeqs`.
+ * The continuation state of one held send — the fields the draft file (`continue-state.json`)
+ * holds: `content`, `attachmentIds`, `idempotencyKey`, `mentions`, `savedAt`, `reholdCount`,
+ * `seenUpToSeq`, and `seenExactSeqs`.
  */
 export type AgentMessageDraftContent = Readonly<{
   content: string;
@@ -19,12 +19,12 @@ export type AgentMessageDraftContent = Readonly<{
    * commit the same logical send twice. An entry without one names no send and reads as missing. */
   idempotencyKey: string;
   mentions?: readonly LocalMentionSelector[];
-  /** Raft's `seenUpToSeq`: the reviewed frontier this draft already accounts for. Carried into the
+  /** `seenUpToSeq`: the reviewed frontier this draft already accounts for. Carried into the
    * resend so the context the held notice presented is not presented — or held — twice. */
   seenUpToSeq?: number;
-  /** Raft 1.0.38's `seenExactSeqs`: the messages above `seenUpToSeq` the Agent was shown one by one.
-   * Only a held refresh whose context was withheld keeps them: a presented hold's frontier covers
-   * them, and before a send they are already durable in the consumed cursor. */
+  /** `seenExactSeqs`: the messages above `seenUpToSeq` the Agent was shown one by one. Only a
+   * held refresh whose context was withheld keeps them: a presented hold's frontier covers them,
+   * and before a send they are already durable in the consumed cursor. */
   seenExactSeqs?: readonly number[];
 }>;
 
@@ -32,7 +32,7 @@ export type AgentMessageDraft = AgentMessageDraftContent &
   Readonly<{
     target: string;
     /** How many times this draft has already been held. Reported to the server as
-     * `draftReholdCount`, which is what makes `continueAnywaySuggested` true (Raft's draft state). */
+     * `draftReholdCount`, which is what makes `continueAnywaySuggested` true. */
     reholdCount: number;
     savedAt: number;
   }>;
@@ -47,11 +47,11 @@ export type AgentMessageDraftLookup =
 /**
  * Short-lived continuation state, isolated in one private file per Agent.
  *
- * The file shape is Raft's `continue-state.json`: a single `targets` map keyed by the message
- * target, each entry holding that target's draft. `target` is the key, never a field of the entry.
- * As in Raft's `lookupSavedDraft`, only a lookup removes an expired entry, and only its own
- * target's: `--send-draft` can then tell an expired draft from one that never existed, and a write
- * for one target never drops another target's expired draft (or its last body).
+ * The file (`continue-state.json`) holds a single `targets` map keyed by the message target, each
+ * entry holding that target's draft. `target` is the key, never a field of the entry. Only a
+ * lookup removes an expired entry, and only its own target's: `--send-draft` can then tell an
+ * expired draft from one that never existed, and a write for one target never drops another
+ * target's expired draft (or its last body).
  */
 export class AgentMessageDraftStore {
   readonly #path: string;
@@ -88,7 +88,7 @@ export class AgentMessageDraftStore {
     return this.#writeDraft(target, draft, 0);
   }
 
-  /** Raft's held-draft refresh: the same content, one hold later, at the reviewed frontier. */
+  /** The held-draft refresh: the same content, one hold later, at the reviewed frontier. */
   replace(
     target: string,
     draft: AgentMessageDraftContent & { reholdCount: number },
@@ -104,8 +104,8 @@ export class AgentMessageDraftStore {
     });
   }
 
-  /** Raft's clear after an accepted send: only the send whose key the draft holds consumes it, so
-   * an older send accepted late never removes a newer draft. Returns whether it cleared. */
+  /** The clear after an accepted send: only the send whose key the draft holds consumes it, so an
+   * older send accepted late never removes a newer draft. Returns whether it cleared. */
   clearIfIdempotencyKeyMatches(target: string, idempotencyKey: string): Promise<boolean> {
     return this.#serialized(async () => {
       const drafts = await this.#read();
@@ -188,8 +188,8 @@ export class AgentMessageDraftStore {
     for (const [target, draft] of drafts) {
       targets[target] = {
         content: draft.content,
-        // Raft writes the array even when the send carried no attachments; the read side treats an
-        // empty or absent list the same way.
+        // The array is written even when the send carried no attachments; the read side treats
+        // an empty or absent list the same way.
         attachmentIds: [...(draft.attachmentIds ?? [])],
         idempotencyKey: draft.idempotencyKey,
         ...(draft.mentions?.length ? { mentions: draft.mentions } : {}),
@@ -213,7 +213,7 @@ export class AgentMessageDraftStore {
 }
 
 /**
- * Reads Raft's `{ targets: { … } }` file. An entry without an idempotency key names no logical send,
+ * Reads the `{ targets: { … } }` file. An entry without an idempotency key names no logical send,
  * so it is left out (and so dropped by the next write).
  */
 function readDraftEntries(value: unknown): Map<string, AgentMessageDraft> | undefined {
@@ -249,7 +249,7 @@ function readDraft(value: unknown, target: string): AgentMessageDraft | "invalid
     ? draft.mentions.filter(isMentionSelector)
     : undefined;
   if (Array.isArray(draft.mentions) && mentions?.length !== draft.mentions.length) return "invalid";
-  // Raft's reader keeps what is usable rather than refusing the draft over one bad sequence.
+  // Keep what is usable rather than refusing the draft over one bad sequence.
   const seenExactSeqs = normalizeSeenExactSeqs(draft.seenExactSeqs);
   return {
     target,

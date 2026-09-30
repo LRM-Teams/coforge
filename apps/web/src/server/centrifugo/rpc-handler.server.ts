@@ -976,7 +976,7 @@ function usageWindow(value: unknown): UsageSnapshot["primary"] | undefined {
         window.usedPercent < 0 ||
         window.usedPercent > 100)) ||
     (window.status !== undefined &&
-      // `available` / `rate-limited` are the pre-Raft vocabulary an un-upgraded Computer still
+      // `available` / `rate-limited` are the older vocabulary an un-upgraded Computer still
       // sends; they normalize to `ok` / `limit_reached` below so those snapshots keep ingesting
       // during the Web-first deploy window.
       window.status !== "ok" &&

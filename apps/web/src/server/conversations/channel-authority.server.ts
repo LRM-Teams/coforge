@@ -16,7 +16,7 @@ import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
  *
  * Admin basis is computed, never stored: `server_role` when the actor's server role is
  * owner/admin; otherwise `channel_role` when the membership's `channelRole` is `admin`;
- * otherwise none. When both apply, `server_role` is reported (matches Raft's `channelAdminBasis`).
+ * otherwise none. When both apply, `server_role` is reported.
  */
 export const CHANNEL_ROLES = ["admin", "member"] as const;
 export type ChannelRole = (typeof CHANNEL_ROLES)[number];

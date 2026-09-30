@@ -14,9 +14,9 @@ const SUMMARY_ORDER: readonly SystemMessageKind[] = ["taskUpdate", "reminder", "
 /** A leading word with no letter, digit, `@` or `#` in it: the emoji a notice may open with. */
 const LEADING_SYMBOL_WORD = /^[^\p{L}\p{N}@#]+$/u;
 
-/** Raft's task-update wording, plus CoForge's current `@x started|was assigned task #N.` notice.
- * As in Raft, an assignment (`📌 Assigned @x to task #N`) or an unassignment (`X unassigned #N`)
- * is not in this list, so it is summarized as a system message. */
+/** The task-update wording, plus CoForge's current `@x started|was assigned task #N.` notice.
+ * An assignment (`📌 Assigned @x to task #N`) or an unassignment (`X unassigned #N`) is not in
+ * this list, so it is summarized as a system message. */
 const TASK_UPDATE =
   /\b(?:new tasks? created|converted a message to task #\d+|claimed #\d+|released #\d+|moved #\d+|deleted #\d+|(?:started|was assigned) tasks? #\d+)\b/iu;
 

@@ -276,10 +276,10 @@ const MAX_EVENT_DRAIN_ROUNDS = 50;
 
 /**
  * The `--target-confirmed` guard's message: `target` is the top-level target the send is about to
- * hit, `threadTarget` is the most recently read thread rooted under it. Raft-aligned recovery: the
- * outgoing content is saved as the local draft for `target` before this is thrown (`draftSaved:
- * true`, carried through `AgentPreflightError.draftSaved`/`agent-proxy-failure.ts`'s `draft_saved`
- * field), so the saved-draft resend below is `--send-draft`, not retyped content.
+ * hit, `threadTarget` is the most recently read thread rooted under it. The outgoing content is
+ * saved as the local draft for `target` before this is thrown (`draftSaved: true`, carried
+ * through `AgentPreflightError.draftSaved`/`agent-proxy-failure.ts`'s `draft_saved` field), so
+ * the saved-draft resend below is `--send-draft`, not retyped content.
  * `#sendAgentMessage` still cannot carry a `suggestedNextAction` through
  * `AgentPreflightError`/`agent-proxy-failure.ts` today, so the equivalent guidance is folded into
  * the message text itself instead.
@@ -381,8 +381,8 @@ const BUSY_ACTIVITY_DETAIL_KINDS = new Set<string>([
   AGENT_ACTIVITY_DETAIL_KIND.SYSTEM_MESSAGE,
 ]);
 
-/** Raft 1.0.38's `SEND_DRAFT_EXPIRED`: nothing is sent. The entry is gone, so the discarded body
- * travels once, in `details.discarded_draft`, which the CLI prints as its last copy. */
+/** `SEND_DRAFT_EXPIRED`: nothing is sent. The entry is gone, so the discarded body travels once,
+ * in `details.discarded_draft`, which the CLI prints as its last copy. */
 function expiredDraftError(target: string, content: string, savedAt: number): AgentPreflightError {
   const savedAtIso = new Date(savedAt).toISOString();
   return new AgentPreflightError(
@@ -480,7 +480,7 @@ function runtimeDisplayName(provider: RuntimeProvider): string {
   return RUNTIME_DISPLAY_NAME[provider];
 }
 
-/** Raft narrates an activity for exactly its two hold decisions; a send that reached the provider
+/** An activity is narrated for exactly the two hold decisions; a send that reached the provider
  * (`forward`/`bypass`) has none. */
 function heldFreshnessDecision(
   decision: string | undefined,
@@ -488,7 +488,7 @@ function heldFreshnessDecision(
   return decision === "local_hold" || decision === "syncing_hold" ? decision : undefined;
 }
 
-/** Raft-equivalent narration for a daemon-initiated cold start after a session invalidate. */
+/** Narration for a daemon-initiated cold start after a session invalidate. */
 function sessionInvalidateActivityText(
   runtimeLabel: string,
   staleSessionId: string,
@@ -522,8 +522,7 @@ export class DaemonRuntime {
   #skillsScanning = false;
   /** One Workspace Files list/read at a time per daemon, mirroring `#skillsScanning`. */
   #workspaceFilesScanning = false;
-  /** Serializes on-demand model-catalog refreshes (one CLI-spawning discovery at a time), like
-   * Raft's `refreshChain`. */
+  /** Serializes on-demand model-catalog refreshes (one CLI-spawning discovery at a time). */
   #modelRefreshChain: Promise<void> = Promise.resolve();
   readonly #messageAttention: AgentMessageAttentionIndex;
   readonly #mentionDeliveries: MentionDeliveryTracker;
@@ -695,9 +694,9 @@ export class DaemonRuntime {
         queued: (agentId) => this.#deliveryQueue.pending(agentId),
         enqueue: (agentId, message) => this.#deliveryQueue.enqueue(agentId, message),
         busy: (agentId) => this.#deliveryQueue.busy(agentId),
-        // The consumed cursor outlives the process, in Raft's `consumed-seqs.json` shape: what an
-        // Agent has already reviewed decides the next hold, the `seenUpToSeq` a fresh send inherits,
-        // and whether a top-level send under a thread-read parent needs confirming. It lives beside
+        // The consumed cursor outlives the process, in a `consumed-seqs.json` file: what an Agent
+        // has already reviewed decides the next hold, the `seenUpToSeq` a fresh send inherits, and
+        // whether a top-level send under a thread-read parent needs confirming. It lives beside
         // the draft store in the temporary state root, not in this daemon's state directory.
         consumedSeqs: new AgentConsumedSeqStore(),
       },
@@ -2448,12 +2447,12 @@ export class DaemonRuntime {
     }
     const session = this.#agentProcessManager.session(agentId);
     const identity = await session?.readSessionIdentity?.();
-    // Raft sends `agent:session` on a rebind; mirrored here as a direct, fire-and-forget report
-    // (like `#launchAgent`'s own closure), not through `AgentSessions.capture`/`replay` (which
-    // would re-enter `state.run` for this agentId and deadlock: `AgentControl.start()` is
-    // already running inside that same per-agent mutex). `previousLaunchId` carries the launch
-    // being replaced so `AgentSessions.verify` on the server can accept the hand-over even if
-    // it does not yet trust the new `launchId` alone.
+    // A rebind sends `agent:session` as a direct, fire-and-forget report (like
+    // `#launchAgent`'s own closure), not through `AgentSessions.capture`/`replay` (which would
+    // re-enter `state.run` for this agentId and deadlock: `AgentControl.start()` is already
+    // running inside that same per-agent mutex). `previousLaunchId` carries the launch being
+    // replaced so `AgentSessions.verify` on the server can accept the hand-over even if it does
+    // not yet trust the new `launchId` alone.
     if (identity?.sessionId && this.#transport.reportAgentSession) {
       try {
         await this.#reportAgentSession({
@@ -3727,9 +3726,9 @@ export class DaemonRuntime {
       hasMore = Boolean(result.hasMore);
       if (!hasMore) break;
     }
-    // Raft 1.0.38's `check` records the exact sequences it showed, per target, and no frontier: a
-    // check drains what notified the Agent, which need not be every message of the target. It
-    // reviews nothing either, so it takes no read order.
+    // A `check` records the exact sequences it showed, per target, and no frontier: a check
+    // drains what notified the Agent, which need not be every message of the target. It reviews
+    // nothing either, so it takes no read order.
     const shownByTarget = new Map<string, number[]>();
     for (const message of messages) {
       const shown = shownByTarget.get(message.target);
@@ -3759,8 +3758,8 @@ export class DaemonRuntime {
   }
 
   /**
-   * The saved draft `--send-draft` re-sends, checked before anything is issued (Raft 1.0.38): an
-   * expired draft is discarded and returned as the error's last copy, a missing one is refused, and
+   * The saved draft `--send-draft` re-sends, checked before anything is issued: an expired draft
+   * is discarded and returned as the error's last copy, a missing one is refused, and
    * `--expected-draft-key` refuses a draft that now belongs to a different logical send.
    */
   async #draftToResend(
@@ -3801,12 +3800,12 @@ export class DaemonRuntime {
     // request carries a key the CLI minted for that invocation, so the draft's key alone decides
     // which accepted send may clear it (`clearIfIdempotencyKeyMatches` below, task #70).
     const draft = request.sendDraft ? await this.#draftToResend(inbox, target, request) : undefined;
-    // Raft 1.0.38: one logical send keeps one idempotency key. A fresh send's key is this
-    // invocation's; `--send-draft` re-sends under the key the draft was saved with, so a resend
-    // after an unknown outcome can never commit the same message twice.
+    // One logical send keeps one idempotency key. A fresh send's key is this invocation's;
+    // `--send-draft` re-sends under the key the draft was saved with, so a resend after an
+    // unknown outcome can never commit the same message twice.
     const idempotencyKey = draft?.idempotencyKey ?? request.idempotencyKey;
-    // A normal send replaces whatever draft was there; Raft reports that (and the hold count the
-    // draft had reached) so the server can compute `continueAnywaySuggested`.
+    // A normal send replaces whatever draft was there; the send reports that (and the hold count
+    // the draft had reached) so the server can compute `continueAnywaySuggested`.
     const priorDraft = draft ?? (request.sendDraft ? undefined : await inbox.draft(target));
     const draftReholdCount = priorDraft?.reholdCount ?? 0;
     const content = draft?.content ?? request.content;
@@ -3815,15 +3814,15 @@ export class DaemonRuntime {
         "Agent message body is required",
         "AGENT_MESSAGE_BODY_REQUIRED",
       );
-    // Raft: the boundary a draft already accounted for travels with the next attempt — a
+    // The boundary a draft already accounted for travels with the next attempt — a
     // `--send-draft` resend reuses the draft's `seenUpToSeq`, a fresh send inherits the draft it is
     // replacing, and only when neither has one does the daemon fall back to what this Agent has
-    // consumed for the target (Raft's `getConsumedSeq`).
+    // consumed for the target.
     const draftSeenUpToSeq = request.sendDraft ? draft?.seenUpToSeq : priorDraft?.seenUpToSeq;
     const modelSeenSequence = this.#messageAttention.modelSeenSequence(agentId, target);
     const seenUpToSeq = draftSeenUpToSeq ?? (modelSeenSequence > 0 ? modelSeenSequence : undefined);
-    // Raft 1.0.38: the messages above that frontier the Agent was shown one by one travel with it,
-    // so the server's freshness check does not count them as unreviewed.
+    // The messages above that frontier the Agent was shown one by one travel with it, so the
+    // server's freshness check does not count them as unreviewed.
     const seenExactSeqs = sendSeenExactSeqs(
       request.sendDraft ? draft?.seenExactSeqs : priorDraft?.seenExactSeqs,
       this.#messageAttention.seenExactSequences(agentId, target),
@@ -3837,9 +3836,9 @@ export class DaemonRuntime {
         ? request.mentions
         : draft?.mentions
       : request.mentions;
-    // Raft-aligned: the presence check runs against the EFFECTIVE outgoing content on every path,
-    // including a `--send-draft` resend of the daemon-held body (the CLI can only run this check
-    // client-side when it has the body in hand, i.e. never for an unmodified draft resend).
+    // The presence check runs against the EFFECTIVE outgoing content on every path, including a
+    // `--send-draft` resend of the daemon-held body (the CLI can only run this check client-side
+    // when it has the body in hand, i.e. never for an unmodified draft resend).
     if (mentions?.length) {
       const present = mentionsInContent(content);
       for (const mention of mentions)
@@ -3863,8 +3862,8 @@ export class DaemonRuntime {
       if (latestThread) {
         const parentOrder = this.#messageAttention.readOrder(agentId, target);
         if (parentOrder === undefined || parentOrder < latestThread.order) {
-          // Raft-aligned: the outgoing content is saved as the local draft before refusing, so the
-          // documented recovery is resending that exact draft, not retyping it.
+          // The outgoing content is saved as the local draft before refusing, so the documented
+          // recovery is resending that exact draft, not retyping it.
           await inbox.save(target, {
             content,
             attachmentIds,
@@ -3906,12 +3905,11 @@ export class DaemonRuntime {
               draftReholdCount,
               freshnessContextMode: request.freshnessContextMode,
             },
-            // Raft's held notice shows the newest unreviewed messages. The daemon now has them (its
+            // A held notice shows the newest unreviewed messages. The daemon now has them (its
             // attention index keeps a bounded window of unreviewed deliveries), so a locally decided
             // hold carries real previews instead of a bare count — and the shared post-processing
-            // below then marks that window reviewed (`recordModelSeen`), which is what Raft's
-            // `recordConsumedSeqs(data.seenUpToSeq)` does: the Agent has been shown the newest
-            // context, so a resend is no longer held by it.
+            // below then marks that window reviewed (`recordModelSeen`): the Agent has been shown
+            // the newest context, so a resend is no longer held by it.
             this.#messageAttention
               .pendingWindow(agentId, target, HELD_CONTEXT_LIMIT)
               .map(({ delivery, receivedAt }) => ({
@@ -3962,8 +3960,8 @@ export class DaemonRuntime {
             },
           );
     const held = result.state === "held";
-    // Raft's `contextWasWithheld`: a withheld context was never presented to the Agent, so nothing
-    // about it may be recorded (or kept in the draft) as reviewed.
+    // A withheld context was never presented to the Agent, so nothing about it may be recorded
+    // (or kept in the draft) as reviewed.
     const contextWasWithheld =
       request.freshnessContextMode === "withheld" || result.freshnessContextMode === "withheld";
     if (held) {
@@ -3971,23 +3969,23 @@ export class DaemonRuntime {
         content,
         attachmentIds,
         mentions,
-        // Raft's held refresh (`setSavedDraft`, 1.0.32 bundle 753720-753728): the same content, one
-        // hold later, remembering the frontier the notice presented so the resend clears the hold.
+        // The held refresh: the same content, one hold later, remembering the frontier the notice
+        // presented so the resend clears the hold.
         reholdCount: draftReholdCount + 1,
         seenUpToSeq: contextWasWithheld ? seenUpToSeq : (result.seenUpToSeq ?? seenUpToSeq),
-        // Raft 1.0.38: a presented hold's frontier covers what the draft saw one by one; a withheld
-        // one presented nothing, so the draft keeps them.
+        // A presented hold's frontier covers what the draft saw one by one; a withheld one
+        // presented nothing, so the draft keeps them.
         seenExactSeqs: contextWasWithheld ? seenExactSeqs : undefined,
         idempotencyKey,
       });
     } else if (result.accepted) {
-      // Raft's `clearSavedDraftIfIdempotencyKeyMatches`: only the send whose key the draft holds
-      // consumes it, so an older send accepted late leaves a newer draft alone (task #70).
+      // Only the send whose key the draft holds consumes it, so an older send accepted late
+      // leaves a newer draft alone (task #70).
       await inbox.clearIfIdempotencyKeyMatches(target, idempotencyKey);
     }
-    // Raft's consume effects, one write for the send. A presented hold consumed the frontier its
-    // notice presented (`recordConsumedSeqs(data.seenUpToSeq)`, or the shown window's newest for a
-    // hold that carries no frontier) and reviewed the target; a withheld one presented nothing.
+    // The consume effects, one write for the send. A presented hold consumed the frontier its
+    // notice presented (or the shown window's newest for a hold that carries no frontier) and
+    // reviewed the target; a withheld one presented nothing.
     // A sent send whose server advanced the boundary over messages the Agent had already seen
     // (`exact_target_pending_already_seen`, `target_first_touch_recent_context_already_seen`)
     // consumes that boundary in either mode, which is what empties the exact set.
@@ -4009,10 +4007,9 @@ export class DaemonRuntime {
       through,
       presented > 0 ? { sequence: presented } : undefined,
     );
-    // Raft's freshness-decision activity (`recordFreshnessDecisionActivity`, bundle 843454): one
-    // working status row per held send, titled `Send held by freshness check`, carrying the target,
-    // the count line and the decision line(s) as its text. A held context in `withheld` mode was
-    // never presented, so Raft reports no activity for it — and neither do we.
+    // The freshness-decision activity: one working status row per held send, titled `Send held by
+    // freshness check`, carrying the target, the count line and the decision line(s) as its text.
+    // A held context in `withheld` mode was never presented, so no activity is reported for it.
     if (held && !contextWasWithheld) {
       const heldDecision = heldFreshnessDecision(result.decision);
       if (heldDecision) {
@@ -4029,8 +4026,8 @@ export class DaemonRuntime {
             heldMessageCount: result.shownMessageCount ?? result.messages.length,
             omittedMessageCount: result.omittedMessageCount,
           }));
-        // Raft's `recordTrace("daemon.agent.inbox.freshness_decision", …)`: one record per decision,
-        // field for field, so a locally decided hold is auditable next to a server-decided one.
+        // One record per decision, so a locally decided hold is auditable next to a
+        // server-decided one.
         logger.info("Agent inbox freshness decision", {
           event: "agent.inbox.freshness_decision",
           ...this.#agentLogScope(agentId, idempotencyKey),
@@ -4076,7 +4073,7 @@ export class DaemonRuntime {
       event: "agent.message.sent",
       ...this.#agentLogScope(agentId, idempotencyKey),
       // A commit confirmed by reconciliation carries no freshness decision of its own, so it logs
-      // none (the decision vocabulary stays Raft's) and says `reconciled` instead.
+      // none and says `reconciled` instead.
       ...(result.state === "committed"
         ? { reconciled: true }
         : { freshness_decision: result.decision ?? "forward" }),
@@ -4092,7 +4089,7 @@ export class DaemonRuntime {
       messageId: result.messageId ?? "",
       messages: contextWasWithheld ? [] : result.messages,
       summaries: [],
-      // Raft's send contract, carried to the Agent unchanged.
+      // The send contract, carried to the Agent unchanged.
       state: result.state,
       decision: result.decision,
       reason: result.reason,
@@ -4167,15 +4164,14 @@ export class DaemonRuntime {
   }
 
   /**
-   * What a history read showed the Agent (Raft 1.0.38's `message read` bookkeeping), kept under the
-   * target the server resolved the read to (its consumption scope; a channel's top level has none
-   * and is already canonical). An anchored `--around` read, and a page the server does not call
-   * contiguous (`modelSeenUpToSeq` null, such as a `--before` page), record the exact sequences they
-   * showed and nothing else. A read with a boundary moves the frontier there, records what it
-   * showed above it as exact, and reviews the target; so does a read that returned nothing (Raft
-   * 1.0.38's `message read`: `recordConsumedRead` with a boundary or without rows, else
-   * `recordConsumedExactSeqs`). A consumption scope for this Agent settles what the read returned
-   * in every spelling of its conversation.
+   * What a history read showed the Agent (the `message read` bookkeeping), kept under the target
+   * the server resolved the read to (its consumption scope; a channel's top level has none and is
+   * already canonical). An anchored `--around` read, and a page the server does not call
+   * contiguous (`modelSeenUpToSeq` null, such as a `--before` page), record the exact sequences
+   * they showed and nothing else. A read with a boundary moves the frontier there, records what
+   * it showed above it as exact, and reviews the target; so does a read that returned nothing. A
+   * consumption scope for this Agent settles what the read returned in every spelling of its
+   * conversation.
    */
   #consumeHistoryRead(
     agentId: string,
@@ -4696,10 +4692,10 @@ export class DaemonRuntime {
   #agentInbox(agentId: string): AgentInboxStateMachine {
     const existing = this.#agentInboxes.get(agentId);
     if (existing) return existing;
-    // Raft's local draft state (`continue-state.json`): one file per Agent under the OS temp
-    // directory, with `COFORGE_CLI_DRAFT_STATE_DIR` as the documented override (`SLOCK_CLI_DRAFT_
-    // STATE_DIR` on Raft's side). Deliberately not the daemon's state directory: this is short-lived
-    // continuation state, not daemon state, and tests point it at their own directory.
+    // The local draft state (`continue-state.json`): one file per Agent under the OS temp
+    // directory, with `COFORGE_CLI_DRAFT_STATE_DIR` as the documented override. Deliberately not
+    // the daemon's state directory: this is short-lived continuation state, not daemon state, and
+    // tests point it at their own directory.
     const inbox = new AgentInboxStateMachine(new AgentMessageDraftStore(agentId));
     this.#agentInboxes.set(agentId, inbox);
     return inbox;

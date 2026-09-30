@@ -42,9 +42,9 @@ export type MessageAttention = Readonly<{
 const REMEMBERED_DELIVERIES = 4096;
 
 /** How many of the newest unreviewed deliveries per target the index keeps for a locally decided
- * freshness hold to show: exactly Raft's `DEFAULT_HELD_CONTEXT_LIMIT` (`HELD_CONTEXT_LIMIT` in
- * the SDK's `freshness-decision.ts`), because the hold shows the newest that many and no more — and
- * anything older is consumed by the same frontier anyway. No invented slack. */
+ * freshness hold to show: exactly `HELD_CONTEXT_LIMIT` (in the SDK's `freshness-decision.ts`),
+ * because the hold shows the newest that many and no more — and anything older is consumed by the
+ * same frontier anyway. No invented slack. */
 const PENDING_WINDOW_LIMIT = HELD_CONTEXT_LIMIT;
 
 /** Footer shared by live and recovery inbox notices. Names the targeted drain; does not claim
@@ -134,14 +134,14 @@ export class AgentMessageAttentionIndex {
   >();
   readonly #attention = new Map<string, Map<string, MessageAttention>>();
   readonly #modelSeen = new Map<string, Map<string, number>>();
-  /** Raft 1.0.38's `exactSeqs`: the sequences above each target's contiguous frontier that the
-   * Agent was shown one by one (a `check`, an anchored `read`, a read the server did not call
-   * contiguous), kept ascending so a lookup is a binary search and an addition a linear merge.
-   * Durable with the frontier, bounded by `SEEN_EXACT_SEQS_LIMIT` per target, and pruned as the
-   * frontier reaches them. */
+  /** `exactSeqs`: the sequences above each target's contiguous frontier that the Agent was shown
+   * one by one (a `check`, an anchored `read`, a read the server did not call contiguous), kept
+   * ascending so a lookup is a binary search and an addition a linear merge. Durable with the
+   * frontier, bounded by `SEEN_EXACT_SEQS_LIMIT` per target, and pruned as the frontier reaches
+   * them. */
   readonly #exactSeen = new Map<string, Map<string, readonly number[]>>();
-  /** Raft 1.0.38's `aliases`, with chains compressed: every spelling maps straight to the canonical
-   * target its consumed state is kept under, so a lookup is one `get`. */
+  /** `aliases`, with chains compressed: every spelling maps straight to the canonical target its
+   * consumed state is kept under, so a lookup is one `get`. */
   readonly #aliases = new Map<string, Map<string, string>>();
   /** The targets with attention in each conversation, learned from their deliveries and pruned with
    * the attention, so a history read's consumption scope settles a conversation's targets however
@@ -163,15 +163,15 @@ export class AgentMessageAttentionIndex {
    * thread count as reply context. Persisted apart from the frontier as `reviewedSeq`. */
   readonly #reviewedSequence = new Map<string, Map<string, number>>();
   readonly #readContextCounters = new Map<string, number>();
-  /** Raft's `consumed-seqs.json`: the durable copy of `#modelSeen` (the `seq` frontier),
-   * `#readContext` (the `readOrder` each target was last reviewed at), `#reviewedSequence`
-   * (`reviewedSeq`), `#exactSeen` (`exactSeqs`) and `#aliases`. Once an Agent is hydrated these maps
-   * are the source of truth, and each operation writes one snapshot of them. */
+  /** `consumed-seqs.json`: the durable copy of `#modelSeen` (the `seq` frontier), `#readContext`
+   * (the `readOrder` each target was last reviewed at), `#reviewedSequence` (`reviewedSeq`),
+   * `#exactSeen` (`exactSeqs`) and `#aliases`. Once an Agent is hydrated these maps are the
+   * source of truth, and each operation writes one snapshot of them. */
   readonly #consumedSeqs?: AgentConsumedSeqPort;
-  /** Agents whose durable cursor has already been folded into the maps above. Raft reads the file
-   * on every lookup; reading it once per Agent per daemon life is the same answer, minus the
-   * syscall in a message loop, and `clearAgent` drops the marker so a re-registered Agent reads it
-   * again. */
+  /** Agents whose durable cursor has already been folded into the maps above. The file is read
+   * once per Agent per daemon life rather than on every lookup: the same answer, minus the
+   * syscall in a message loop, and `clearAgent` drops the marker so a re-registered Agent reads
+   * it again. */
   readonly #hydrated = new Set<string>();
   readonly #workspaceId: string;
   readonly #runtimes: Pick<AgentProcessManager, "session">;
@@ -203,7 +203,7 @@ export class AgentMessageAttentionIndex {
        * while held keeps both attempts for ACK bookkeeping — and a notice must count messages,
        * not attempts. Optional: a composition without a delivery queue holds nothing. */
       queued?(agentId: string): readonly AgentMessageDelivery[];
-      /** The Agent's durable consumed cursor (Raft's `consumed-seqs.json`). Without it the index is
+      /** The Agent's durable consumed cursor (`consumed-seqs.json`). Without it the index is
        * exactly as volatile as it was: the cursor then only lives as long as this process. */
       consumedSeqs?: AgentConsumedSeqPort;
     } = { shouldHold: () => false, enqueue: () => {}, busy: () => {} },
@@ -707,9 +707,9 @@ ${INBOX_DRAIN_HINT}]`,
 
   /**
    * Records the messages the Agent was shown one by one, per target, above its contiguous frontier
-   * (Raft 1.0.38's `recordConsumedExactSeqs`, which a `check` calls): a later delivery of any of them
-   * is already consumed, a send reports them as `seenExactSeqs`, and their pending attention is
-   * settled. The frontier does not move. At most one write, for every target.
+   * (what a `check` does): a later delivery of any of them is already consumed, a send reports
+   * them as `seenExactSeqs`, and their pending attention is settled. The frontier does not move.
+   * At most one write, for every target.
    */
   recordExactSeen(agentId: string, shown: ReadonlyMap<string, readonly number[]>): void {
     this.#hydrate(agentId);
@@ -723,11 +723,11 @@ ${INBOX_DRAIN_HINT}]`,
   }
 
   /**
-   * What one history read showed the Agent (Raft 1.0.38's `message read` bookkeeping), in at most
-   * one write: `spelling` becomes an alias of `target`; the frontier moves to `through` (0 for
-   * none); the `shown` sequences (ascending) above it become exact; a `review` orders the target;
-   * and a consumption scope settles, in every other target of its conversation, exactly the
-   * messages the read returned.
+   * What one history read showed the Agent (the `message read` bookkeeping), in at most one
+   * write: `spelling` becomes an alias of `target`; the frontier moves to `through` (0 for none);
+   * the `shown` sequences (ascending) above it become exact; a `review` orders the target; and a
+   * consumption scope settles, in every other target of its conversation, exactly the messages
+   * the read returned.
    */
   recordHistoryRead(
     agentId: string,
@@ -755,9 +755,9 @@ ${INBOX_DRAIN_HINT}]`,
   }
 
   /**
-   * Context a send presented or a sent send's advanced boundary (Raft's `recordConsumedSeqs` of a
-   * held response, and the consume effect of a forwarded one), in one write: the frontier moves to
-   * `through`, and a presented context (`review`) also reviews the target.
+   * Context a send presented or a sent send's advanced boundary (the consume effect of a held
+   * response and of a forwarded one), in one write: the frontier moves to `through`, and a
+   * presented context (`review`) also reviews the target.
    */
   recordSendContext(
     agentId: string,
@@ -772,8 +772,8 @@ ${INBOX_DRAIN_HINT}]`,
     if (changed || review) this.#persist(agentId);
   }
 
-  /** The exact sequences a send reports for `target` (Raft 1.0.38's `seenExactSeqs`): those above
-   * its frontier, ascending, at most `SEEN_EXACT_SEQS_LIMIT`. Returned as held, never copied. */
+  /** The exact sequences a send reports for `target` (`seenExactSeqs`): those above its
+   * frontier, ascending, at most `SEEN_EXACT_SEQS_LIMIT`. Returned as held, never copied. */
   seenExactSequences(agentId: string, target: string): readonly number[] {
     this.#hydrate(agentId);
     return this.#exactSeen.get(agentId)?.get(target) ?? NO_SEQUENCES;
@@ -785,13 +785,13 @@ ${INBOX_DRAIN_HINT}]`,
     return (this.#exactSeen.get(agentId)?.get(target)?.length ?? 0) > 0;
   }
 
-  /** The spelling `target`'s consumed state is kept under (Raft's `canonicalTargetKey`). */
+  /** The spelling `target`'s consumed state is kept under. */
   resolveTarget(agentId: string, target: string): string {
     this.#hydrate(agentId);
     return this.#aliases.get(agentId)?.get(target) ?? target;
   }
 
-  /** Raft's `recordTargetAlias`: `spelling` shares the consumed state kept under `canonical`. */
+  /** `spelling` shares the consumed state kept under `canonical`. */
   recordTargetAlias(agentId: string, spelling: string, canonical: string): void {
     this.#hydrate(agentId);
     if (this.#setAlias(agentId, spelling, canonical)) this.#persist(agentId);
@@ -863,10 +863,9 @@ ${INBOX_DRAIN_HINT}]`,
   /**
    * Settles, in every target of the conversation (and thread) a consumption scope names other than
    * `settled` (which the caller settled already), exactly the messages the history read returned:
-   * Raft 1.0.38 suppresses a pending notice only when the history response carried that message
-   * (`legacyDmIds.has(visibleMessageId(message))`, daemon chunk 26330), however its target is
-   * spelled. Targets are matched by conversation, and a thread by its root whatever its case or
-   * length. `shown` is ascending.
+   * a pending notice is suppressed only when the history response carried that message, however
+   * its target is spelled. Targets are matched by conversation, and a thread by its root whatever
+   * its case or length. `shown` is ascending.
    */
   #settleScope(
     agentId: string,
@@ -964,8 +963,8 @@ ${INBOX_DRAIN_HINT}]`,
       this.#reviewedSequence.set(agentId, reviewed);
     }
     // Reviewing a target is what orders it against every other target, which is the comparison
-    // the thread-mismatch guard makes (Raft's `recordConsumedRead`). The counter resumes above every
-    // order the durable cursor held (see `#hydrate`).
+    // the thread-mismatch guard makes. The counter resumes above every order the durable cursor
+    // held (see `#hydrate`).
     const order = (this.#readContextCounters.get(agentId) ?? 0) + 1;
     this.#readContextCounters.set(agentId, order);
     const byTarget = this.#readContext.get(agentId) ?? new Map<string, number>();
@@ -973,7 +972,7 @@ ${INBOX_DRAIN_HINT}]`,
     this.#readContext.set(agentId, byTarget);
   }
 
-  /** Writes one snapshot of the Agent's durable consumed state (Raft 1.0.38's file shape). */
+  /** Writes one snapshot of the Agent's durable consumed state. */
   #persist(agentId: string): void {
     const store = this.#consumedSeqs;
     if (!store) return;
@@ -1008,7 +1007,7 @@ ${INBOX_DRAIN_HINT}]`,
   }
 
   /** The newest message the Agent has not been shown for this exact target, or 0: what a locally
-   * held send presents as its `seenUpToSeq` (Raft's held boundary is the unconsumed maximum). */
+   * held send presents as its `seenUpToSeq` (the held boundary is the unconsumed maximum). */
   pendingMaxSequence(agentId: string, target: string): number {
     let max = 0;
     for (const sequence of this.#pendingSequences.get(agentId)?.get(target) ?? [])
@@ -1017,7 +1016,7 @@ ${INBOX_DRAIN_HINT}]`,
   }
 
   /** The newest unreviewed deliveries for `target`, oldest first, at most `limit` of them: the
-   * window a locally decided hold presents (Raft's `DEFAULT_HELD_CONTEXT_LIMIT`). */
+   * window a locally decided hold presents. */
   pendingWindow(agentId: string, target: string, limit: number): readonly PendingWindowEntry[] {
     const entries = this.#pendingWindow.get(agentId)?.get(target) ?? [];
     return entries.slice(-limit);
@@ -1061,9 +1060,8 @@ ${INBOX_DRAIN_HINT}]`,
   }
 
   /** The most recently read thread target rooted under `parentTarget` whose reads have shown the
-   * Agent at least one message, or `undefined` if none. A thread read that returned nothing gave the
-   * Agent no thread context to reply to (Raft's `getMostRecentConsumedThreadForParent` likewise
-   * skips a record without a `seq`). */
+   * Agent at least one message, or `undefined` if none. A thread read that returned nothing gave
+   * the Agent no thread context to reply to. */
   latestThreadReadUnderParent(
     agentId: string,
     parentTarget: string,
@@ -1088,7 +1086,7 @@ ${INBOX_DRAIN_HINT}]`,
    * life, before anything else touches that Agent's cursor; from then on these maps are the source
    * of truth and each operation writes a snapshot of them. The store has already normalized the
    * file (it is input nobody in this process wrote). The read-order counter resumes above every
-   * order in the file, exactly as Raft's `normalizeState` leaves `nextReadOrder`. */
+   * order in the file. */
   #hydrate(agentId: string): void {
     const store = this.#consumedSeqs;
     if (!store || this.#hydrated.has(agentId)) return;

@@ -21,7 +21,7 @@ async function found(store: AgentMessageDraftStore, target: string) {
   return lookup.status === "found" ? lookup.draft : undefined;
 }
 
-test("saves and looks up one Agent message draft in Raft's continue-state shape", async () => {
+test("saves and looks up one Agent message draft in the continue-state shape", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent/a", stateDirectory, () => 1_000);
 
@@ -37,7 +37,7 @@ test("saves and looks up one Agent message draft in Raft's continue-state shape"
       savedAt: 1_000,
     },
   });
-  // Raft's file: a `targets` map keyed by target, the text as `content`, and the same field names
+  // The file: a `targets` map keyed by target, the text as `content`, and the field names
   // (`attachmentIds`, `idempotencyKey`, `mentions`, `savedAt`, `reholdCount`, `seenUpToSeq`).
   expect(
     JSON.parse(
@@ -104,15 +104,15 @@ test("saves and looks up a held draft's attachmentIds, mentions and seenUpToSeq"
   });
 });
 
-test("reads a draft file Raft itself wrote, including its key and seenUpToSeq", async () => {
+test("reads a draft file the store did not write, including its key and seenUpToSeq", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
   await writeDraftFile(stateDirectory, {
     targets: {
       "@ada": {
-        content: "raft reply",
+        content: "foreign reply",
         attachmentIds: [],
-        idempotencyKey: "key-raft",
+        idempotencyKey: "key-foreign",
         savedAt: 1_000,
         reholdCount: 2,
         seenUpToSeq: 12,
@@ -122,15 +122,15 @@ test("reads a draft file Raft itself wrote, including its key and seenUpToSeq", 
 
   expect(await found(store, "@ada")).toEqual({
     target: "@ada",
-    content: "raft reply",
-    idempotencyKey: "key-raft",
+    content: "foreign reply",
+    idempotencyKey: "key-foreign",
     reholdCount: 2,
     seenUpToSeq: 12,
     savedAt: 1_000,
   });
 });
 
-test("keeps a draft's exact seen sequences, in Raft 1.0.38's field, deduplicated and bounded", async () => {
+test("keeps a draft's exact seen sequences, in the `seenExactSeqs` field, deduplicated and bounded", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentMessageDraftStore("agent-a", stateDirectory, () => 1_000);
 
@@ -142,12 +142,12 @@ test("keeps a draft's exact seen sequences, in Raft 1.0.38's field, deduplicated
     seenExactSeqs: [6, 9],
   });
 
-  // Raft's reader keeps the distinct positive integers, the newest 2500.
+  // The reader keeps the distinct positive integers, the newest 2500.
   await writeDraftFile(stateDirectory, {
     targets: {
       "@ada": {
-        content: "raft reply",
-        idempotencyKey: "key-raft",
+        content: "foreign reply",
+        idempotencyKey: "key-foreign",
         savedAt: 1_000,
         seenExactSeqs: [4, 4, 0, 2.5, ...Array.from({ length: 2600 }, (_, index) => index + 10)],
       },
@@ -218,8 +218,8 @@ test("an expired draft is reported once with its last body; only the looked-up t
     savedAt: 1_000,
   });
   expect(await store.lookup("@ada")).toEqual({ status: "missing" });
-  // Raft's `lookupSavedDraft` removes only its own target: another target's expired draft still
-  // reports itself, with its last body.
+  // Looking up an expired draft removes only its own target: another target's expired draft
+  // still reports itself, with its last body.
   expect(await store.lookup("#general")).toEqual({
     status: "expired",
     content: "other stale reply",

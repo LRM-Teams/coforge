@@ -3,12 +3,7 @@
  * and the CLI (which waits on the daemon), so the daemon's verdict always reaches the CLI.
  */
 
-/**
- * Each daemon→Web request of a message send gets this deadline. It mirrors Raft 1.0.38's daemon
- * Agent-credential-proxy upstream deadline: `getFetchPreResponseTimeoutMs` (default 30 s), used
- * as both the connect and the headers timeout of that proxy's fetch dispatcher. Raft's CLI itself
- * sets no deadline on its proxy call.
- */
+/** Each daemon→Web request of a message send gets this deadline (30 s). */
 export const AGENT_SEND_REQUEST_TIMEOUT_MS = 30_000;
 
 /** The most daemon→Web requests one `message send` costs: the read that resolves a short thread

@@ -22,15 +22,15 @@ export type AgentSendSettlementPorts = {
 };
 
 /**
- * Issues one send and settles an ambiguous outcome by its key instead of retrying blind (Raft
- * 1.0.38). After a failure before any response, or a 5xx, one reconciliation asks the server
- * whether this key committed: `committed` is the send's success; `not_found` replays the original
- * request once under the same key. A failed reconciliation leaves the original failure, whose
- * delivery state stays unknown. A failed replay is retryable only while the target's draft still
- * holds this key, since only then does the retry reuse it; a draft that cannot be checked does not.
- * A refusal because an earlier request with this key is still being processed is unknown delivery
- * too, retryable under the draft's key for the same reason: once another send replaced the draft,
- * that send cannot be retried safely.
+ * Issues one send and settles an ambiguous outcome by its key instead of retrying blind. After a
+ * failure before any response, or a 5xx, one reconciliation asks the server whether this key
+ * committed: `committed` is the send's success; `not_found` replays the original request once
+ * under the same key. A failed reconciliation leaves the original failure, whose delivery state
+ * stays unknown. A failed replay is retryable only while the target's draft still holds this key,
+ * since only then does the retry reuse it; a draft that cannot be checked does not. A refusal
+ * because an earlier request with this key is still being processed is unknown delivery too,
+ * retryable under the draft's key for the same reason: once another send replaced the draft, that
+ * send cannot be retried safely.
  */
 export async function settleAgentSend(
   send: AgentMessageRequest,
@@ -102,7 +102,7 @@ export async function settleAgentSend(
 
 /** A send whose request may have reached the server without its answer reaching the daemon: the
  * connection failed before any response began, or the server answered 5xx — whether or not its
- * body could then be read (Raft reconciles on the status alone). A failure after a successful
+ * body could then be read (reconciliation runs on the status alone). A failure after a successful
  * status started streaming, a refusal, or an undecodable answer is reported as it is. */
 function isAmbiguousSendFailure(error: unknown): boolean {
   if (!(error instanceof AgentTransportError)) return false;

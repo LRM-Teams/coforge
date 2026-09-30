@@ -971,7 +971,7 @@ test("Full Reset completes when the workspace clear could not finish, and the Ag
   const stop = decodeAgentStopIntent(sent[0]!);
   const scope = { ...stop, provider: stop.provider!, epoch: stop.controlEpoch! };
   await control.result(scope, { ...scope, phase: "stopped", sequence: 1 });
-  // The daemon's clear failed, but it is non-fatal (Raft only logs it): the result still
+  // The daemon's clear failed, but it is non-fatal (it is only logged): the result still
   // carries "workspace-reset", never "failed", and the chain still proceeds.
   await control.result(scope, {
     ...scope,
@@ -1158,7 +1158,7 @@ test("a signal-driven wakeup trusts the ACK path and never republishes the comma
 });
 
 /**
- * execute()'s Raft capability authorization (`controlAgentRuntime` for Restart/Reset session,
+ * execute()'s capability authorization (`controlAgentRuntime` for Restart/Reset session,
  * held by any current Workspace member; `resetAgentWorkspace` for Full Reset, owner/admin only).
  * Unlike the fixtures above, the actor here is never the Agent's own owner.
  */
@@ -1287,7 +1287,7 @@ test("a Workspace member who does not own the Agent cannot Full Reset it", async
   expect(isAppError(error) && error.code).toBe("ACCESS_DENIED");
 });
 
-test("the Agent's own owner cannot Full Reset it while only a plain Workspace member (deliberate Raft alignment)", async () => {
+test("the Agent's own owner cannot Full Reset it while only a plain Workspace member", async () => {
   const { control } = executeAuthorizationFixture({ ownerId: "owner-user", role: "member" });
   const error = await control
     .execute({

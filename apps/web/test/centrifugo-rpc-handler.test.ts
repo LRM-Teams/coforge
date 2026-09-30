@@ -838,7 +838,7 @@ describe("CentrifugoRpcHandler", () => {
     ]);
   });
 
-  test("an un-upgraded Computer's pre-Raft window vocabulary still ingests, normalized", async () => {
+  test("an un-upgraded Computer's older window vocabulary still ingests, normalized", async () => {
     const records: unknown[] = [];
     const method = createDaemonRuntimeUsageScanResultMethod({
       async putScan() {},

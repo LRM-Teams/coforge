@@ -3,10 +3,10 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 /**
  * Stable, human-readable classification of a model-runtime launch failure.
  *
- * This is the Raft-aligned answer to an opaque `error_code "23"` (a bare SDK
- * TimeoutError that required archaeology to diagnose): instead the failure is
- * categorized and accompanied by non-sensitive trace evidence (`provider_key_present`,
- * `base_url_present`, model presence) derived from the local model catalog.
+ * This is the answer to an opaque `error_code "23"` (a bare SDK TimeoutError that required
+ * archaeology to diagnose): instead the failure is categorized and accompanied by non-sensitive
+ * trace evidence (`provider_key_present`, `base_url_present`, model presence) derived from the
+ * local model catalog.
  */
 export type PiLaunchCategory =
   | "provider_missing"

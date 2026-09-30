@@ -299,7 +299,7 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
       }),
     ).toBe(1);
 
-    // Keep every Raft eligibility case on a distinct canonical message.  The
+    // Keep every eligibility case on a distinct canonical message.  The
     // same live Agent session remains connected, but no assertion below can
     // be satisfied by the first message's delivery or reply.
     await channels.setAgentMuted(workspace.id, agent.agent.id, `#${channel.name}`, true);

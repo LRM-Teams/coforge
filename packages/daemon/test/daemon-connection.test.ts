@@ -473,7 +473,7 @@ test("buffers the session invalidate while disconnected and flushes once on reco
   expect(calls.filter(({ method }) => method === AGENT_SESSION_INVALIDATE_METHOD)).toHaveLength(1);
 });
 
-test("keeps a buffered session invalidate when only a newer launch's Activity is observed (Raft's rule, not Activity)", async () => {
+test("keeps a buffered session invalidate when only a newer launch's Activity is observed", async () => {
   const fake = fakeClient();
   const rpcCalls: { method: string; data: Uint8Array }[] = [];
   fake.client.rpc = async (method, data) => {
@@ -486,8 +486,8 @@ test("keeps a buffered session invalidate when only a newer launch's Activity is
   fake.disconnect();
 
   transport.sendSessionInvalidate(sessionInvalidate("agent-1", "old-launch"));
-  // A late Activity for a DIFFERENT launch must never drop the pending invalidate: Raft learns
-  // "a newer launch was observed" only from status/session-report sends, never from Activity.
+  // A late Activity for a DIFFERENT launch must never drop the pending invalidate: "a newer launch
+  // was observed" is learned only from status/session-report sends, never from Activity.
   transport.sendAgentActivity({
     protocolMajor: 1,
     requestId: "agent-1-2",
@@ -3059,7 +3059,7 @@ const sendAdapterCases: Array<{
   expected: Partial<AgentMessageTransportResponse>;
 }> = [
   {
-    label: "a forwarded send carries Raft's decision through unchanged",
+    label: "a forwarded send carries the decision through unchanged",
     response: {
       idempotencyKey: "request-send",
       state: "sent",
@@ -3138,7 +3138,7 @@ const sendAdapterCases: Array<{
     },
   },
   {
-    label: "a held send carries the window as messages/attentionCount plus Raft's counts",
+    label: "a held send carries the window as messages/attentionCount plus the message counts",
     response: {
       idempotencyKey: "request-send",
       state: "held",
@@ -3215,12 +3215,12 @@ test.each(sendAdapterCases)(
     );
     expect(result).toMatchObject(expected);
     expect(result.messages).toEqual(response.state === "held" ? (response.heldMessages ?? []) : []);
-    // The send body is Raft's; the route stays our own (task #58 ④: no `/v2/send`).
+    // The send goes to the plain messages route (task #58 ④: no `/v2/send`).
     expect(sendUrl).toBe("https://server.example/api/agent/v1/messages");
   },
 );
 
-test("requestSend posts Raft's send body: idempotencyKey, sendDraft and structured mentions", async () => {
+test("requestSend posts the send body: idempotencyKey, sendDraft and structured mentions", async () => {
   let capturedBody: Record<string, unknown> | undefined;
   const client = createAgentMessageHttpClient(async (_input, init) => {
     capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -3254,9 +3254,9 @@ test("requestSend posts Raft's send body: idempotencyKey, sendDraft and structur
       mentions: [{ type: "user", id: "22222222-2222-4222-8222-222222222222", name: "ada" }],
     },
   });
-  // Raft's `agentApiSendBodyKnownSchema` names: the idempotency key is `idempotencyKey` and it is the
-  // only spelling on the wire, the resend flag is `sendDraft`, and `continueAnyway` keeps its own
-  // name. Raft's declared-but-unused `continue` is deliberately neither sent nor interpreted.
+  // Wire names: the idempotency key is `idempotencyKey` and it is the only spelling on the wire,
+  // the resend flag is `sendDraft`, and `continueAnyway` keeps its own name. There is no
+  // `continue` field: it is deliberately neither sent nor interpreted.
   expect(capturedBody).toEqual({
     idempotencyKey: "request-send",
     target: "@ada",

@@ -6,9 +6,7 @@ import { isUniqueViolation } from "#src/server/db/unique-violation.server";
 /**
  * Presigned direct-upload sessions: the Agent PUTs bytes straight to storage with a
  * short-lived presigned URL this module hands out, then `complete` verifies the object and
- * creates the real `Attachment` row that `attachmentId` reserved ahead of time. Mirrors Raft
- * 1.0.32's `attachment-upload-sessions` state machine and error codes; deviations are called out
- * where they occur (see the module's own doc comments).
+ * creates the real `Attachment` row that `attachmentId` reserved ahead of time.
  */
 export type AttachmentUploadSessionState =
   | "pending"
@@ -41,7 +39,7 @@ const STATUS_BY_CODE: Record<AttachmentUploadSessionErrorCode, number> = {
   UPLOAD_SESSION_NOT_FOUND: 404,
 };
 
-/** Matches Raft 1.0.32's `flatError` retryable flags for the two codes it marks retryable. */
+/** The two error codes a caller may retry. */
 const RETRYABLE_CODES: ReadonlySet<AttachmentUploadSessionErrorCode> = new Set([
   "UPLOAD_OBJECT_NOT_FOUND",
   "UPLOAD_VERIFICATION_IN_PROGRESS",
@@ -141,8 +139,8 @@ function toSessionView(
 /**
  * Creates (or, for a repeated `idempotencyKey`, replays) a direct-upload session. The caller has
  * already authorized `conversationId` (target resolution happens one layer up, in the route —
- * a deviation from Raft's `channelId` field to this repo's `#channel`/`@user`
- * target grammar) and confirmed the storage backend supports direct upload.
+ * from the `#channel`/`@user` target grammar) and confirmed the storage backend supports direct
+ * upload.
  */
 export async function createAttachmentUploadSession(
   db: PrismaClient,
@@ -389,11 +387,10 @@ export async function completeAttachmentUploadSession(
 /**
  * Cancels a not-yet-completed session and best-effort deletes its object. Canceling a session
  * that has already reached a terminal state (including `completed`) is a no-op that just
- * reports the current state — Raft 1.0.32 additionally refuses to cancel a completed upload once
- * it has been consumed by a sent message (`ATTACHMENT_ALREADY_CONSUMED`); this repo has no such
- * consumption tracking on the session row itself (a completed upload becomes an ordinary
- * `Attachment`, governed by the same message-send authorization every other attachment already
- * goes through), so cancel simply stops being able to change anything once the row is terminal.
+ * reports the current state. The session row itself tracks no consumption by a sent message (a
+ * completed upload becomes an ordinary `Attachment`, governed by the same message-send
+ * authorization every other attachment already goes through), so cancel simply stops being able
+ * to change anything once the row is terminal.
  */
 export async function cancelAttachmentUploadSession(
   db: PrismaClient,

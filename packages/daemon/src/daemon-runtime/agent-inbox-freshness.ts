@@ -2,8 +2,8 @@ import { mergeSeenExactSeqs } from "@lrm/coforge-sdk/internal";
 import type { AgentMessageTransportResponse } from "#src/connection/agent-http-clients";
 
 /**
- * The daemon's own freshness decision for an outgoing send — the local half of Raft's
- * `planAgentInboxSideEffect`.
+ * The daemon's own freshness decision for an outgoing send — the local half of the server's send
+ * plan (`planAgentSend` in `agent-messages.server.ts`).
  *
  * Why it has to be local: a hold decided on the server is decided *per request attempt*, and the
  * Agent's read context moves between attempts (a `search`/`resolve`/`read` advances it). Observed
@@ -21,22 +21,21 @@ import type { AgentMessageTransportResponse } from "#src/connection/agent-http-c
  * returns no `syncing_hold`: pretending to know would hold sends the server would forward.
  */
 
-/** Raft's four side-effect decisions. The daemon plans the first, second and fourth. */
+/** The four side-effect decisions. The daemon plans the first, second and fourth. */
 export type AgentInboxFreshnessDecision = "forward" | "bypass" | "local_hold" | "syncing_hold";
 
 /** What the daemon knows about one Agent's inbox state for the exact target being sent to. */
 export type AgentInboxFreshnessInput = {
   /** `--send-draft --anyway`: the Agent's explicit decision to send despite unseen context. It
-   * short-circuits every hold and is never refused — Raft's contract has no "denied" outcome. */
+   * short-circuits every hold and is never refused — the contract has no "denied" outcome. */
   continueAnyway: boolean;
   /** The model-visible boundary for this exact target; 0 means the Agent has never been shown
    * anything for it. */
   modelSeenSequence: number;
   /** Messages the daemon still counts as unseen for this exact target (its attention index). */
   pendingMessageCount: number;
-  /** The newest message the Agent has not been shown for this exact target (0 when none): Raft's
-   * held boundary is the maximum of the unconsumed messages (`heldBoundary`, 1.0.38 bundle
-   * 898685). */
+  /** The newest message the Agent has not been shown for this exact target (0 when none): the
+   * held boundary is the maximum of the unconsumed messages. */
   pendingMaxSequence: number;
 };
 
@@ -45,9 +44,9 @@ export type AgentInboxFreshnessPlan =
   | {
       decision: "local_hold";
       reason: "exact_target_pending";
-      /** Raft's notice count: messages the Agent has not reviewed for this target. */
+      /** The notice count: messages the Agent has not reviewed for this target. */
       newMessageCount: number;
-      /** Raft's `seenUpToSeq` on a held response: the frontier the Agent must review to clear it. */
+      /** `seenUpToSeq` on a held response: the frontier the Agent must review to clear it. */
       seenUpToSeq: number;
     }
   | {
@@ -68,8 +67,8 @@ export function planAgentInboxFreshness(input: AgentInboxFreshnessInput): AgentI
     };
   return {
     decision: "forward",
-    // Raft's two forward reasons, kept apart because they say different things in a log: the Agent
-    // had a boundary and is caught up, or there was nothing for this target to begin with.
+    // Two forward reasons, kept apart because they say different things in a log: the Agent had
+    // a boundary and is caught up, or there was nothing for this target to begin with.
     reason:
       input.modelSeenSequence > 0
         ? "model_seen_boundary"
@@ -77,10 +76,10 @@ export function planAgentInboxFreshness(input: AgentInboxFreshnessInput): AgentI
   };
 }
 
-/** Raft 1.0.32 `apmHeldFreshnessAvailableActions("send")`: the same list the server puts on a held
- * response it decided (`agent-messages.server.ts`'s `HELD_SEND_AVAILABLE_ACTIONS`). Kept here as
- * well because a locally held send never reaches that code path; a shared home is worth doing
- * when the activity side (task #58's PR3) starts reading the list too. */
+/** The available actions of a held send: the same list the server puts on a held response it
+ * decided (`agent-messages.server.ts`'s `HELD_SEND_AVAILABLE_ACTIONS`). Kept here as well because
+ * a locally held send never reaches that code path; a shared home is worth doing when the
+ * activity side (task #58's PR3) starts reading the list too. */
 export const HELD_SEND_AVAILABLE_ACTIONS = ["check_messages", "send_draft", "send_anyway"] as const;
 
 /**
@@ -103,7 +102,7 @@ export function locallyHeldSend(
   /** The newest unreviewed messages the daemon can still show, oldest first (at most
    * `HELD_CONTEXT_LIMIT`). An empty window is honest: the count still holds, the notice simply has
    * no previews. The caller marks whatever it passes here as reviewed once the Agent has been shown
-   * it — Raft's `recordConsumedSeqs(data.seenUpToSeq)` — which is what lets a resend through. */
+   * it, which is what lets a resend through. */
   window: readonly AgentMessageTransportResponse["messages"][number][] = [],
 ): AgentMessageTransportResponse & { state: "held" } {
   return {
@@ -123,19 +122,18 @@ export function locallyHeldSend(
     newMessageCount: plan.newMessageCount,
     shownMessageCount: window.length,
     omittedMessageCount: Math.max(0, plan.newMessageCount - window.length),
-    // Raft's held response always carries the frontier it presented; the daemon records it as the
-    // consumed boundary and keeps it in the draft, exactly as Raft's CLI does with
-    // `recordConsumedSeqs(data.seenUpToSeq)` + `setSavedDraft({ seenUpToSeq })`.
+    // A held response always carries the frontier it presented; the daemon records it as the
+    // consumed boundary and keeps it in the draft.
     seenUpToSeq: plan.seenUpToSeq,
     ...(input.freshnessContextMode ? { freshnessContextMode: input.freshnessContextMode } : {}),
   };
 }
 
 /**
- * The `seenExactSeqs` a send reports (Raft 1.0.38's `handleMessageSend`): what its draft already
- * carried plus what the Agent has been shown one by one since, above the frontier the send reports
- * as `seenUpToSeq`, ascending, the newest `SEEN_EXACT_SEQS_LIMIT`. `undefined` when there are none,
- * so the field is left off the request. Both inputs are ascending already.
+ * The `seenExactSeqs` a send reports: what its draft already carried plus what the Agent has been
+ * shown one by one since, above the frontier the send reports as `seenUpToSeq`, ascending, the
+ * newest `SEEN_EXACT_SEQS_LIMIT`. `undefined` when there are none, so the field is left off the
+ * request. Both inputs are ascending already.
  */
 export function sendSeenExactSeqs(
   draft: readonly number[] | undefined,

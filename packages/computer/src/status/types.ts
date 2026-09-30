@@ -44,8 +44,7 @@ export type PendingRequest =
  * `pending` (an external job may still be running, or its receipt has not been swept yet),
  * `succeeded`, or `failed` (a report is owed but not yet acknowledged). An `acknowledged`
  * operation is audit-only history and is never listed here. Read-only: `status` never offers a
- * way to acknowledge one (Raft Computer 1.0.32 has the same single-slot rule
- * and shows the same thing under `raft-computer status`).
+ * way to acknowledge one.
  */
 export type UnsettledUpgradeOperation = {
   requestId: string;

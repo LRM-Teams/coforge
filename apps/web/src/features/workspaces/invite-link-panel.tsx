@@ -92,8 +92,8 @@ export function useInviteLink() {
 
 export type InviteLink = ReturnType<typeof useInviteLink>;
 
-/** The invite dialog's "By link" tab, after Raft's: copy the link, change its limits by
- * replacing it, or revoke it. */
+/** The invite dialog's "By link" tab: copy the link, change its limits by replacing it, or revoke
+ * it. */
 export function InviteLinkPanel({
   inviteLink,
   onDone,

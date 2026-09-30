@@ -142,7 +142,7 @@ class ClaudeCodeAgentSession implements AgentSession {
   #sessionId: string | undefined;
   #sessionReports = Promise.resolve();
   #identity: AgentSessionIdentity | undefined;
-  // A fresh Claude session becomes ready at its first result, as in Raft 1.0.17.
+  // A fresh Claude session becomes ready at its first result.
   #sessionReadyForNotices = false;
   #compacting = false;
   #inputFailure: Error | undefined;
@@ -187,8 +187,8 @@ class ClaudeCodeAgentSession implements AgentSession {
     let otherDiagnostic = false;
     let failure: Error | undefined;
     process.onStderr((line) => {
-      // Raft uses this native diagnostic, not an SDK existence query. Match
-      // the entire selected-ID line, never arbitrary provider/model output.
+      // This native diagnostic is used rather than an SDK existence query. Match the entire
+      // selected-ID line, never arbitrary provider/model output.
       if (
         this.expectedSessionId &&
         line.trim() === `No conversation found with session ID: ${this.expectedSessionId}`
@@ -648,7 +648,7 @@ class ClaudeCodeAgentSession implements AgentSession {
     if (this.#inputFailure || this.#state === "disposed" || this.#state === "interrupting") return;
     if (!this.#sessionReadyForNotices || this.#compacting || this.#outstandingTools.size > 0)
       return;
-    // Raft-compatible written acceptance, not confirmation of model processing.
+    // Written acceptance, not confirmation of model processing.
     for (const notice of this.#waitingNotices.splice(0)) {
       void this.#sendInput(notice.text).then(notice.resolve, notice.reject);
     }

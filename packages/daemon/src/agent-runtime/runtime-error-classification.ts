@@ -11,10 +11,10 @@
  * Table-driven and ordered: the first matching rule wins, so a more specific pattern (an
  * unsupported model, an oversized prompt) must be listed ahead of a broader one (a bare "not
  * found"). Every class maps to exactly one of the two decisions in `RUNTIME_ERROR_RETRY_DECISION`
- * — there is no third "maybe" outcome here. CoForge does not yet reproduce the reference product's
- * finer three-way split between "recoverable-but-terminal" and "permanently sticky" failures
- * (auth/model/input-size handling is a later CR's territory); this module intentionally
- * simplifies that down to retry-or-stop, and the repeat fence in `runtime-error-recovery.ts`
+ * — there is no third "maybe" outcome here. CoForge does not yet split failures three ways
+ * between "recoverable-but-terminal" and "permanently sticky" (auth/model/input-size handling is
+ * a later CR's territory); this module intentionally simplifies that down to retry-or-stop, and
+ * the repeat fence in `runtime-error-recovery.ts`
  * is what keeps an always-retryable class like the generic fallback from looping forever on a
  * failure that never actually clears.
  */
@@ -44,9 +44,9 @@ export const RUNTIME_ERROR_RETRY_DECISION = {
   /**
    * Today this means only "do not hold a delivery behind a backoff for this occurrence" — it is
    * not itself evidence the Agent needs to stop or that a user must act. `TimeoutError` is
-   * deliberately in this bucket for that narrow reason (matching the reference product: a
-   * timeout gets no delivery backoff there either, but is handled by a separate stall watchdog,
-   * not folded into its sticky-terminal/action-required class) — a stuck provider needs a
+   * deliberately in this bucket for that narrow reason (a timeout gets no delivery backoff, but
+   * is handled by a separate stall watchdog, not folded into a sticky-terminal/action-required
+   * class) — a stuck provider needs a
    * kill/restart, not a redelivered message. A future CR that gives `terminal` real teeth (D:
    * stopping the Agent, prompting re-auth) must re-examine `TimeoutError` specifically before
    * attaching that behavior to it.

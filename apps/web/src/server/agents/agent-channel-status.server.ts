@@ -10,12 +10,12 @@ type Scope = { workspaceId: string; computerId: string | null; agentId: string }
 type Snapshot = Awaited<ReturnType<AgentDisplay["snapshot"]>>;
 
 /**
- * Best-effort live status for one Agent's `channel members` roster row, matching Raft's
- * `agentStatusLabel` inputs: a lifecycle (`online`/`offline`) and, when the Agent is doing
- * something more specific than merely being connected, an `activity` (`working`/`thinking`/
- * `error`) with its `activityDetail`. `unknown` only when the server truly has no data — the
- * Agent has never had a Computer, or the display snapshot itself could not be read (e.g. Redis
- * unavailable) — never as a placeholder for "didn't bother to check."
+ * Best-effort live status for one Agent's `channel members` roster row: a lifecycle
+ * (`online`/`offline`) and, when the Agent is doing something more specific than merely being
+ * connected, an `activity` (`working`/`thinking`/`error`) with its `activityDetail`. `unknown`
+ * only when the server truly has no data — the Agent has never had a Computer, or the display
+ * snapshot itself could not be read (e.g. Redis unavailable) — never as a placeholder for
+ * "didn't bother to check."
  */
 export async function resolveAgentChannelStatus(
   display: Pick<AgentDisplay, "snapshot">,

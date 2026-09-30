@@ -584,23 +584,23 @@ test("an Agent's channel send freshness reads count only its delivered messages 
       "delivered 2",
       "delivered 3",
     ]);
-    // The Agent's own post is never context to review, even delivered (Raft's `isMessageModelSeen`
-    // counts an Agent's own message as seen).
+    // The Agent's own post is never context to review, even delivered (an Agent's own message
+    // counts as seen).
     expect(await channel.countPending(0)).toBe(5);
     // A thread target reads its own delivered replies.
     const thread = await repo.agentTargetFreshness(workspace.id, agent.id, `#general:${root.id}`);
     expect(bodies(await thread.readPending())).toEqual(["delivered reply"]);
     expect(await thread.countPending()).toBe(1);
-    // Messages the Agent reported it was shown one by one (Raft 1.0.38's `seenExactSeqs`) are not
-    // pending, for a channel's top level (read from deliveries) and a thread (read from messages);
-    // one at or below the lower bound changes nothing.
+    // Messages the Agent reported it was shown one by one (`seenExactSeqs`) are not pending, for a
+    // channel's top level (read from deliveries) and a thread (read from messages); one at or below
+    // the lower bound changes nothing.
     expect(
       bodies(await channel.readPending(first.sequence, [first.sequence, third.sequence])),
     ).toEqual(["delivered 2"]);
     expect(await channel.countPending(first.sequence, [second.sequence, third.sequence])).toBe(0);
     expect(await thread.countPending(undefined, [reply.sequence])).toBe(0);
     // First-touch context ignores every boundary and skips undelivered messages; the Agent's own
-    // messages are in its window (Raft reads the target's newest rows) but are already seen.
+    // messages are in its window (the target's newest rows) but are already seen.
     const recent = await channel.readRecent(10);
     expect(bodies(recent.unseen)).toEqual([
       "delivered before own post",

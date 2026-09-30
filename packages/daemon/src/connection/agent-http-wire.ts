@@ -164,10 +164,10 @@ export async function getAgentJson<Result>(
 }
 
 /**
- * GETs an Agent Manual route, whose JSON error body is always `{ ok: false, errorCode, error }`
- * (Raft-aligned), unlike the plain-text/allowlisted `messages` error contract
- * `getAgentJson` assumes. A well-formed error body becomes a typed `AgentManualRequestError`
- * carrying its `errorCode` through to the CLI; anything else is a genuine transport failure.
+ * GETs an Agent Manual route, whose JSON error body is always `{ ok: false, errorCode, error }`,
+ * unlike the plain-text/allowlisted `messages` error contract `getAgentJson` assumes. A
+ * well-formed error body becomes a typed `AgentManualRequestError` carrying its `errorCode`
+ * through to the CLI; anything else is a genuine transport failure.
  */
 export async function getAgentManualJson<Result extends { ok: true }>(
   fetcher: HttpFetch,

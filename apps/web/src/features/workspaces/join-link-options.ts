@@ -1,6 +1,6 @@
 import { addCalendarDays } from "#src/lib/dates";
 
-/** The use limits and lifetimes (in days) a join link can be given, as Raft offers them. */
+/** The use limits and lifetimes (in days) a join link can be given. */
 export const JOIN_LINK_USE_LIMITS = [1, 5, 10, 25] as const;
 export const JOIN_LINK_LIFETIME_DAYS = [1, 7, 30] as const;
 

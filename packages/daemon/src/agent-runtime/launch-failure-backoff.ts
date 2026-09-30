@@ -1,8 +1,7 @@
 /**
- * Per-Agent launch-failure backoff (Raft 1.0.32 `SPAWN-FAIL BACKOFF`, anchored at
- * `apm:3596/4137`): each failed launch counts, and the next attempt waits an exponentially
- * growing, capped cooldown instead of burning immediately — "repeated wakes cannot burn one full
- * spawn attempt per delivery".
+ * Per-Agent launch-failure backoff: each failed launch counts, and the next attempt waits an
+ * exponentially growing, capped cooldown instead of burning immediately, so repeated wakes
+ * cannot burn one full spawn attempt per delivery.
  *
  * Pure bookkeeping on purpose: no timers, no I/O, no knowledge of `AgentControl`. The caller
  * decides what to do with the computed cooldown (AgentControl schedules the retry, tests assert
@@ -11,15 +10,15 @@
  * observed it.
  */
 
-/** First cooldown: one second. Matches Raft's ordinary-spawn base. */
+/** First cooldown: one second. */
 export const LAUNCH_FAILURE_BACKOFF_BASE_MS = 1_000;
-/** Cooldown ceiling: thirty seconds. Matches Raft's ordinary-spawn cap. */
+/** Cooldown ceiling: thirty seconds. */
 export const LAUNCH_FAILURE_BACKOFF_CAP_MS = 30_000;
 /**
  * One initial attempt plus at most (this - 1) automatic retries. With the base/cap above the
  * cooldowns are 1s, 2s, 4s, 8s, 16s, 30s — the cap is actually reached — for a ~61s total retry
  * window before the daemon reports `launch_failed` exactly as it did before this change. Bounded
- * (unlike Raft's capped-but-unbounded exponent) so a permanently broken launch configuration
+ * (a capped cooldown alone would retry forever) so a permanently broken launch configuration
  * cannot leave the server's Start operation in "starting" forever.
  */
 export const LAUNCH_FAILURE_MAX_ATTEMPTS = 7;
@@ -33,8 +32,8 @@ export type LaunchFailureBackoffState = Readonly<{
   untilMs: number;
 }>;
 
-/** `base * 2^(attempts - 1)`, capped. Raft's formula with threshold 0 (back off from the first
- * failure) and its exponent bound folded into the millisecond cap. */
+/** `base * 2^(attempts - 1)`, capped: backs off from the first failure, with the exponent bound
+ * folded into the millisecond cap. */
 export function launchFailureCooldownMs(
   attempts: number,
   baseMs: number = LAUNCH_FAILURE_BACKOFF_BASE_MS,

@@ -205,7 +205,7 @@ class OpenCodeAgentSession implements AgentSession {
       // OpenCode resolves its discovery root (AGENTS.md walk-up, `.opencode/skills/`) from the
       // process working directory / `PWD`; v2 has no `--dir` flag, so the turn pins both (cwd is
       // passed to the spawn) and this override keeps an inherited `PWD` from pointing the Agent at
-      // the wrong tree. Raft pins the same pair.
+      // the wrong tree.
       PWD: this.#options.agentWorkspaceDirectory,
       NO_COLOR: "1",
     };

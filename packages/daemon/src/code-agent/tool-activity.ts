@@ -127,9 +127,8 @@ function summarizeBash(command: unknown): {
   if (tokens.length > 1 && first !== undefined && isCoforgeInvocation(first)) {
     // An unrecognized subcommand has no semantic identity to report, so it falls through to
     // the ordinary command summary below rather than reporting a name that stands for
-    // "some CoForge command" — the reference client's own rule (Raft Computer 1.0.32's
-    // `resolveRaftCliInvocation` returns null for a pair its closed set does not contain,
-    // leaving an ordinary `bash`/`running_command` Activity).
+    // "some CoForge command": an invocation outside the closed set of known ones leaves an
+    // ordinary `bash`/`running_command` Activity.
     const invocation = resolveCoforgeInvocation(tokens);
     if (invocation)
       return {
@@ -140,12 +139,11 @@ function summarizeBash(command: unknown): {
         toolName: invocation.tool,
       };
   }
-  // Raft-aligned: the row carries the command as the Agent wrote it. Raft's `summarizeToolInput`
-  // for `summaryKind: "command"` returns `input.command` with only a length cap, so an inline
+  // The row carries the command as the Agent wrote it, with only a length cap, so an inline
   // script stays visible instead of the command appearing to stop at its heredoc (`cd x && python3
-  // -` with nothing after it). The heredoc cut this replaced never matched the reference client;
-  // redaction and the 200-code-point cap still apply, and redaction is best-effort — a heredoc body
-  // is now in scope, so text the rules cannot recognise will show.
+  // -` with nothing after it). There is no heredoc cut; redaction and the 200-code-point cap
+  // still apply, and redaction is best-effort — a heredoc body is now in scope, so text the
+  // rules cannot recognise will show.
   const redacted = redactTrajectoryText(command);
   return {
     detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND,
@@ -176,10 +174,10 @@ function resolveCoforgeInvocation(tokens: readonly string[]): CoforgeInvocation 
       };
     if (sub === "resolve") return { tool: "resolve_message" };
     if (sub === "react") return { tool: "react_message" };
-    // `inbox check` is deliberately absent: the reference client's semantic map contains
-    // `message check` and not it, so it stays an ordinary command Activity here too. The two
-    // commands answer different questions — the Computer's own held view versus a server
-    // drain — and only the drain has a semantic identity in that vocabulary.
+    // `inbox check` is deliberately absent: the semantic map contains `message check` and not
+    // it, so it stays an ordinary command Activity. The two commands answer different
+    // questions — the Computer's own held view versus a server drain — and only the drain has a
+    // semantic identity in that vocabulary.
   } else if (category === "channel" && (sub === "mute" || sub === "unmute")) {
     return {
       tool: sub === "mute" ? "mute_channel" : "unmute_channel",

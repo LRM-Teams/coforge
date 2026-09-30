@@ -8,8 +8,7 @@ import { CliError } from "./cli-error";
 /**
  * `coforge action prepare` accepts a real shell heredoc (the delimiter never reaches this
  * process; the shell strips it) or a literal body whose first and last lines are this delimiter,
- * for callers that cannot rely on shell heredoc semantics. Raft Computer 1.0.32 uses
- * `RAFTACTION` for the same purpose (see `docs/agents/reference-cli-research.md`).
+ * for callers that cannot rely on shell heredoc semantics.
  */
 export const ACTION_HEREDOC_DELIMITER = "COFORGEACTION";
 
@@ -69,7 +68,7 @@ export function parseActionCardInput(raw: string): unknown {
 
 /**
  * Local zod validation, then the cross-field rule (`validateActionCardAction`). Both failures map
- * to `INVALID_ACTION` with a joined issue list, matching Raft's `action prepare` local validation.
+ * to `INVALID_ACTION` with a joined issue list.
  */
 export function toActionCardAction(json: unknown): ActionCardAction {
   const parsed = actionCardActionSchema.safeParse(json);

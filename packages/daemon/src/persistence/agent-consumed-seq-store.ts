@@ -15,33 +15,31 @@ import { escapePathIdentity, isSafePathScope } from "./path-scope";
 
 const logger = getLogger(["coforge", "daemon", "consumed-seqs"]);
 
-/** One Agent's consumed cursor for one target, after Raft's `targets[target]` record (1.0.32 bundle
- * 752736-752751): `seq` is the frontier the Agent has consumed (monotonic, never lower), `readOrder`
- * when the target was last reviewed, ordered against every other target's, and `reviewedSeq` the
- * newest message a review showed. `reviewedSeq` is CoForge's own addition: Raft folds it into `seq`,
- * but the two move apart here. A paged read reviews the target without moving the frontier a hold
- * is decided from; a sent send's advanced boundary moves the frontier without reviewing anything;
- * only a presented hold does both. */
+/** One Agent's consumed cursor for one target: `seq` is the frontier the Agent has consumed
+ * (monotonic, never lower), `readOrder` when the target was last reviewed, ordered against every
+ * other target's, and `reviewedSeq` the newest message a review showed. `seq` and `reviewedSeq`
+ * move apart: a paged read reviews the target without moving the frontier a hold is decided
+ * from; a sent send's advanced boundary moves the frontier without reviewing anything; only a
+ * presented hold does both. */
 export type AgentConsumedSeqEntry = Readonly<{
   seq?: number;
   readOrder?: number;
   reviewedSeq?: number;
-  /** Raft 1.0.38's `exactSeqs`: messages above `seq` the Agent was shown one by one (a `check`, an
-   * anchored `read`, a read the server did not call contiguous), ascending, at most
+  /** `exactSeqs`: messages above `seq` the Agent was shown one by one (a `check`, an anchored
+   * `read`, a read the server did not call contiguous), ascending, at most
    * `SEEN_EXACT_SEQS_LIMIT`. A send reports them as `seenExactSeqs` so its freshness check does
    * not count them as unreviewed. */
   exactSeqs?: readonly number[];
 }>;
 
-/** Raft 1.0.38's `consumed-seqs.json` shape, plus `reviewedSeq`: a `targets` map, the `aliases` map,
- * and the next `readOrder` to hand out. `nextReadOrder` is never trusted as a starting point on
- * read — `read` recomputes it from the orders it actually sees, exactly as Raft's `normalizeState`
- * does. */
+/** The `consumed-seqs.json` shape: a `targets` map, the `aliases` map, and the next `readOrder` to
+ * hand out. `nextReadOrder` is never trusted as a starting point on read — `read` recomputes it
+ * from the orders it actually sees. */
 export type AgentConsumedSeqState = Readonly<{
   targets: Readonly<Record<string, AgentConsumedSeqEntry>>;
-  /** Raft 1.0.38's `aliases`: another spelling of a target mapped to the spelling its cursor is
-   * kept under, so both share one consumed state. Chains are compressed on read: every value is a
-   * canonical target. */
+  /** `aliases`: another spelling of a target mapped to the spelling its cursor is kept under, so
+   * both share one consumed state. Chains are compressed on read: every value is a canonical
+   * target. */
   aliases: Readonly<Record<string, string>>;
   nextReadOrder: number;
 }>;
@@ -53,9 +51,9 @@ export type AgentConsumedSeqState = Readonly<{
  * sequences, aliases and read orders that operation touched.
  */
 export type AgentConsumedSeqPort = Readonly<{
-  /** Raft's `readState`: never throws, and a missing or unreadable file is an empty state. */
+  /** Never throws, and a missing or unreadable file is an empty state. */
   read(agentId: string): AgentConsumedSeqState;
-  /** Replaces the Agent's durable state with this snapshot, best-effort like Raft's `writeState`. */
+  /** Replaces the Agent's durable state with this snapshot, best-effort. */
   write(agentId: string, state: AgentConsumedSeqState): void;
 }>;
 
@@ -65,28 +63,27 @@ function positiveFiniteNumber(value: unknown): number | undefined {
 }
 
 /**
- * The daemon's durable copy of the consumed cursor, in Raft 1.0.38's file shape plus one field
+ * The daemon's durable copy of the consumed cursor, kept as one file
  * (`{ targets: { <target>: { seq, readOrder, reviewedSeq, exactSeqs } }, aliases, nextReadOrder }`).
  *
  * Why it has to be durable: the cursor decides whether a send is held (`modelSeenSequence`), which
  * frontier and exact sequences travel with a send, and whether a top-level send under a parent
  * whose newest read context is a thread needs confirming (and which threads a review showed
- * anything in). Raft keeps all of it in one file that outlives the process (`consumed-seqs.json`,
- * 1.0.32 bundle 752725-752800); the daemon used to keep it only in memory, so a restart silently
- * reset the Agent's read context to "never read anything".
+ * anything in). All of it lives in one file that outlives the process (`consumed-seqs.json`); the
+ * daemon used to keep it only in memory, so a restart silently reset the Agent's read context to
+ * "never read anything".
  *
- * Raft reads, modifies and writes the file per record, because each CLI process is its own writer.
- * Here the daemon is the file's only writer and keeps the state in memory once read, so it writes a
- * whole snapshot per operation instead, still synchronously and still with write errors swallowed:
- * a lost write costs one cursor position, not a failed send. The file name and every field but
- * `reviewedSeq` are Raft's; the location is CoForge's own state directory.
+ * The daemon is the file's only writer and keeps the state in memory once read, so it writes a
+ * whole snapshot per operation rather than reading, modifying and writing per record —
+ * synchronously and with write errors swallowed: a lost write costs one cursor position, not a
+ * failed send. The file lives in CoForge's own state directory.
  */
 export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
   readonly #root: string;
 
-  /** Raft's `SLOCK_CLI_CONSUMED_SEQ_STATE_DIR ?? os.tmpdir()`, under CoForge's own directory name,
-   * next to the draft store: this file belongs to the CLI's temporary state, not to the daemon's
-   * persistent state directory (task #58, Frank: "放 /tmp"). */
+  /** `COFORGE_CLI_CONSUMED_SEQ_STATE_DIR ?? os.tmpdir()`, next to the draft store: this file
+   * belongs to the CLI's temporary state, not to the daemon's persistent state directory
+   * (task #58, Frank: "放 /tmp"). */
   constructor(rootDirectory = process.env.COFORGE_CLI_CONSUMED_SEQ_STATE_DIR ?? tmpdir()) {
     if (!rootDirectory) throw new Error("consumed-sequence state directory is required");
     this.#root = rootDirectory;
@@ -125,15 +122,15 @@ export class AgentConsumedSeqStore implements AgentConsumedSeqPort {
     try {
       parsed = JSON.parse(readFileSync(path, "utf8"));
     } catch {
-      // Missing file, or one that a crash left half-written: Raft's `readState` starts over from an
-      // empty state rather than failing the read that needs the cursor.
+      // Missing file, or one that a crash left half-written: start over from an empty state
+      // rather than failing the read that needs the cursor.
       return { targets: {}, aliases: {}, nextReadOrder: 1 };
     }
     return normalizeState(parsed);
   }
 
-  /** Best-effort, like Raft's `writeState` inside `try { … } catch {}`: a cursor that cannot be
-   * written costs the next cold start a stale boundary, and nothing else. */
+  /** Best-effort: a cursor that cannot be written costs the next cold start a stale boundary, and
+   * nothing else. */
   write(agentId: string, state: AgentConsumedSeqState): void {
     const path = this.#path(agentId);
     const temporary = `${path}.${crypto.randomUUID()}.tmp`;
@@ -167,11 +164,12 @@ function encodeIdentity(identity: string): string {
 }
 
 /**
- * Raft's `normalizeState` (1.0.38 `normalizeState`): keep the entries that carry an order, a
- * sequence or exact sequences above that sequence, compress alias chains, and start from a `nextReadOrder` that is above every order in the file — so a cursor
- * written by an older build (or hand-edited) can never hand out an order it already used. A
- * `reviewedSeq` is kept only beside a `readOrder`, since it describes a review. A file written
- * before `reviewedSeq` existed has none, so no thread counts as read context until it is read again.
+ * Keeps the entries that carry an order, a sequence or exact sequences above that sequence,
+ * compresses alias chains, and starts from a `nextReadOrder` that is above every order in the
+ * file — so a cursor written by an older build (or hand-edited) can never hand out an order it
+ * already used. A `reviewedSeq` is kept only beside a `readOrder`, since it describes a review. A
+ * file written before `reviewedSeq` existed has none, so no thread counts as read context until
+ * it is read again.
  */
 function normalizeState(value: unknown): AgentConsumedSeqState {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -202,9 +200,9 @@ function normalizeState(value: unknown): AgentConsumedSeqState {
         ...(reviewedSeq !== undefined ? { reviewedSeq } : {}),
         ...(exactSeqs.length > 0 ? { exactSeqs } : {}),
       };
-      // Only a real order counts. Raft falls back to `seq` for files written before `readOrder`
-      // existed; this file never had that shape, and a frontier recorded without a review must not
-      // push the order counter up to its sequence.
+      // Only a real order counts. There is no fallback to `seq` (this file never had a shape
+      // without `readOrder`), and a frontier recorded without a review must not push the order
+      // counter up to its sequence.
       maxObservedOrder = Math.max(maxObservedOrder, readOrder ?? 0);
     }
   }
@@ -213,8 +211,8 @@ function normalizeState(value: unknown): AgentConsumedSeqState {
     for (const [spelling, canonical] of Object.entries(raw.aliases as Record<string, unknown>))
       if (spelling.length > 0 && typeof canonical === "string" && canonical.length > 0)
         if (spelling !== canonical) links.set(spelling, canonical);
-  // Raft's `canonicalTargetKey` walks a chain on every lookup; the chain is walked once here, so each
-  // spelling maps straight to its canonical target. A cycle names no canonical target and is dropped.
+  // A chain is walked once here rather than on every lookup, so each spelling maps straight to
+  // its canonical target. A cycle names no canonical target and is dropped.
   const aliases: Record<string, string> = {};
   for (const spelling of links.keys()) {
     let canonical = spelling;

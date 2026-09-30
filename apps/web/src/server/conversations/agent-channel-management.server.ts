@@ -45,8 +45,8 @@ export type AgentChannelInfo = {
   muted: boolean;
   memberCounts: { agents: number; humans: number };
   /** Present only when the acting Agent is currently an active member (its stored
-   * `ConversationMember.channelRole`); absent for a non-member, matching Raft's
-   * "each part only when present". */
+   * `ConversationMember.channelRole`); absent for a non-member, since each part shows only when
+   * present. */
   channelRole?: string;
   /** Present only when the acting Agent has channel-admin authority on this channel — either
    * basis. */

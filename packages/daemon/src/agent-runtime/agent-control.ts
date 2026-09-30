@@ -42,17 +42,16 @@ type Runtime = {
   ): void;
   /**
    * Rebinds an already-running process to a newer control scope without spawning a second one:
-   * a Start that finds `running(agentId)` true under an older, TERMINAL
-   * operation adopts the new request instead of being rejected, mirroring Raft's
-   * `rebindRunningStart`. `launchId` is the identity the running process adopts for every later
-   * daemon->server message about it (today always `intent.launchId`, the server-supplied id for
-   * this new operation) — re-points every place that remembers the previous launch's identity
-   * (session reference, activity launch/clientSeq, status, pending Activity/invalidate
-   * bookkeeping) and sends the immediate Session re-report and `agent:status(active)` under the
-   * new scope. Returns the running process's current Session identity, exactly like `launch`
-   * does for a fresh start, so the caller can report it in the rebind's `started` result. Never
-   * requests a new launch config/credential — the running process's existing Agent API key and
-   * local proxy token are kept.
+   * a Start that finds `running(agentId)` true under an older, TERMINAL operation adopts the
+   * new request instead of being rejected. `launchId` is the identity the running process
+   * adopts for every later daemon->server message about it (today always `intent.launchId`, the
+   * server-supplied id for this new operation) — re-points every place that remembers the
+   * previous launch's identity (session reference, activity launch/clientSeq, status, pending
+   * Activity/invalidate bookkeeping) and sends the immediate Session re-report and
+   * `agent:status(active)` under the new scope. Returns the running process's current Session
+   * identity, exactly like `launch` does for a fresh start, so the caller can report it in the
+   * rebind's `started` result. Never requests a new launch config/credential — the running
+   * process's existing Agent API key and local proxy token are kept.
    */
   rebind(intent: AgentStartIntent, launchId: string): Promise<SessionIdentity | undefined>;
   result(result: AgentControlResult): Promise<void>;
@@ -76,9 +75,9 @@ const systemLaunchRetryScheduler: LaunchRetryScheduler = {
 /** Owns separate stop, workspace reset, and start primitives. */
 export class AgentControl {
   readonly #known = new Set<string>();
-  /** Per-Agent launch-failure streaks and the cooldown each one owes (Raft's
-   * `SPAWN-FAIL BACKOFF`): counted here rather than derived from the control record, so a
-   * superseding Stop/Start cannot reset the limiter by rewriting that record. */
+  /** Per-Agent launch-failure streaks and the cooldown each one owes: counted here rather than
+   * derived from the control record, so a superseding Stop/Start cannot reset the limiter by
+   * rewriting that record. */
   readonly #launchFailures = new LaunchFailureBackoff();
   /** The one pending automatic launch retry per Agent, if any. */
   readonly #launchRetries = new Map<string, unknown>();
@@ -266,9 +265,9 @@ export class AgentControl {
       await this.store.write(scope.agentId, record);
       // A clear failure is non-fatal (liveness over durable receipts): it never latches the
       // Agent into a terminal state only an explicit reset retry could leave. The session
-      // association is still cleared locally and the chain still proceeds to Start. Matching
-      // Raft 1.0.32's resetWorkspace, this is logged only — there is no result field, state, or
-      // anything else that blocks a later agent:start.
+      // association is still cleared locally and the chain still proceeds to Start. The failure
+      // is only logged: there is no result field, state, or anything else that blocks a later
+      // agent:start.
       let workspaceClearError = false;
       try {
         await this.store.clearWorkspace(scope.agentId);
@@ -433,10 +432,10 @@ export class AgentControl {
   }
 
   /**
-   * One launch attempt for a managed Start, plus its retry bookkeeping (Raft 1.0.32's
-   * `SPAWN-FAIL BACKOFF`): a failed spawn does not end the operation with one `launch_failed`
-   * record any more — it counts, the next attempt waits an exponentially growing capped cooldown,
-   * and the attempt is retried automatically until it succeeds or the attempts run out.
+   * One launch attempt for a managed Start, plus its retry bookkeeping: a failed spawn does not
+   * end the operation with one `launch_failed` record any more — it counts, the next attempt
+   * waits an exponentially growing capped cooldown, and the attempt is retried automatically
+   * until it succeeds or the attempts run out.
    *
    * Extracted from `start()` so a retry can re-enter exactly this code under the same control
    * scope. That reuse is not an optimisation: the server only authorizes a daemon-side relaunch

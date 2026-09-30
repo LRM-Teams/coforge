@@ -1,5 +1,5 @@
 /**
- * Parses a Raft-style duration literal used by `coforge reminder` flags such as `snooze --by` and
+ * Parses a duration literal used by `coforge reminder` flags such as `snooze --by` and
  * `update --in`, and (as a fallback) `schedule`/`snooze --delay-seconds`: an unsigned integer with
  * an optional single-letter unit suffix (`s` seconds, `m` minutes, `h` hours, `d` days). No suffix
  * means seconds, matching the existing bare-integer `--delay-seconds` behavior.

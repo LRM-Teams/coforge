@@ -24,7 +24,7 @@ async function scratchDirectory(): Promise<string> {
   return directory;
 }
 
-/** Raft's window id: `w<index>_<first 12 hex of sha256(label)>`. */
+/** The window id: `w<index>_<first 12 hex of sha256(label)>`. */
 function windowId(label: string, index: number): string {
   return `w${index}_${createHash("sha256").update(label).digest("hex").slice(0, 12)}`;
 }

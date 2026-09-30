@@ -187,8 +187,8 @@ export function renderCliError(error: CliError): string {
 }
 
 /**
- * Raft-aligned guidance for a send failure raised AFTER the request was handed to the transport:
- * delivery state is unknown, and neither reading nor the absence of a message settles it. Do not
+ * Guidance for a send failure raised AFTER the request was handed to the transport: delivery
+ * state is unknown, and neither reading nor the absence of a message settles it. Do not
  * resend on this evidence alone.
  */
 export function unknownDeliveryNextAction(target: string): string {
@@ -207,7 +207,7 @@ export function unknownDeliveryNextAction(target: string): string {
 export const NO_MESSAGE_SENT_NEXT_ACTION =
   "No message was sent; fix the problem above, then run the command again.";
 
-/** Raft-aligned guidance for `coforge manual get|search` when the topic or query did not match:
- * retry narrower, or browse the generated catalog via the `index` topic. */
+/** Guidance for `coforge manual get|search` when the topic or query did not match: retry
+ * narrower, or browse the generated catalog via the `index` topic. */
 export const MANUAL_NOT_FOUND_NEXT_ACTION =
   "Retry with a close topic id or different keywords. Browse topics: coforge manual get index";

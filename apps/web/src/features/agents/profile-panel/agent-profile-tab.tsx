@@ -200,7 +200,7 @@ export function AgentProfileTab({
    * does not own the Agent. */
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   /** Opens the container's `AgentDeleteDialog`. Present only when the viewer holds
-   * Raft's `deleteAgents` capability and this Agent is a delete target at all. */
+   * the `deleteAgents` capability and this Agent is a delete target at all. */
   onStartDelete?: () => void;
   /** Owner-only read view of the Agent's launch environment overrides, masked; editing happens in
    * the Runtime config dialog's Advanced disclosure (`agent-runtime-config-dialog.tsx`).

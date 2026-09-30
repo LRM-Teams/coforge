@@ -54,7 +54,7 @@ test("unreviewed messages on the exact target are held locally, with the count a
   });
 });
 
-test("a target the Agent is caught up on forwards under Raft's model-seen-boundary reason", () => {
+test("a target the Agent is caught up on forwards under the model-seen-boundary reason", () => {
   expect(planAgentInboxFreshness({ ...base, modelSeenSequence: 7, pendingMaxSequence: 7 })).toEqual(
     {
       decision: "forward",

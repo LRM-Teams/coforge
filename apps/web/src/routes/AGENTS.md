@@ -5,7 +5,7 @@ These rules apply to `src/routes/`.
 - `__root.tsx` owns the document shell: HTML, global head, global providers,
   styles, `HeadContent`, and `Scripts`.
 - Every app page lives under `/w/$workspaceSlug` (`w.$workspaceSlug.tsx` owns
-  `AppShell` and renders `Outlet`), with Raft's page names: `channel/$channelId`,
+  `AppShell` and renders `Outlet`), with these page names: `channel/$channelId`,
   `saved`, `activity`, `tasks`, `search`, `members`, `agent/$agentId`,
   `computers`, `computer/$computerId`, `settings`, plus `projects` and
   `records`; a direct message is `dm/$dmId`, by its conversation id. Pathless layouts (`_chat`, `_computers`) share chrome between

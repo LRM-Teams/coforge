@@ -381,8 +381,8 @@ function operationFamily(prefix: string, fallback: string) {
     `${prefix}${typeof fields.operation === "string" ? fields.operation : fallback}`;
 }
 
-/** The Manual routes answer a domain error as JSON `{ ok: false, errorCode, error }`
- * (Raft-aligned), so an `AgentManualRequestError` is forwarded rather than classified. */
+/** The Manual routes answer a domain error as JSON `{ ok: false, errorCode, error }`, so an
+ * `AgentManualRequestError` is forwarded rather than classified. */
 function manualDomainFailure(error: unknown): Response | undefined {
   if (!(error instanceof AgentManualRequestError)) return undefined;
   return Response.json(

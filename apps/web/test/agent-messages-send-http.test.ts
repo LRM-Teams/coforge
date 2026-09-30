@@ -24,7 +24,7 @@ const pendingRepository = (rows: readonly AgentMessageRecord[]) => ({
   agentTargetFreshness: async () => ({ readPending: async () => rows }),
 });
 
-test("takes Raft's idempotencyKey as the request's key, with structured mentions forwarded", async () => {
+test("takes idempotencyKey as the request's key, with structured mentions forwarded", async () => {
   const mentions = [
     { type: "user" as const, id: "11111111-1111-4111-8111-111111111111", name: "ada" },
   ];
@@ -50,8 +50,8 @@ test("takes Raft's idempotencyKey as the request's key, with structured mentions
     },
   );
   expect(result.status).toBe(200);
-  // Raft's `idempotencyKey` is the key this request is deduplicated by (task #58 ④), and the
-  // response echoes it back as this route's own `idempotencyKey`.
+  // `idempotencyKey` is the key this request is deduplicated by (task #58 ④), and the response
+  // echoes it back as `idempotencyKey`.
   expect(await result.json()).toMatchObject({ idempotencyKey: "idem-1", state: "sent" });
   expect(receivedMentions).toEqual(mentions);
 });
@@ -110,7 +110,7 @@ test("a sent message reports the mentions it did not reach: pending actions and 
   });
 });
 
-test("tolerates Raft's declared `continue` field without inventing semantics for it", async () => {
+test("tolerates a declared `continue` field without inventing semantics for it", async () => {
   const result = await handleAgentMessagesPost(
     request({ target: "@ada", content: "hello", idempotencyKey: "idem-2", continue: true }),
     { workspaceId: "workspace-1", agentId: "agent-1" },
@@ -133,8 +133,8 @@ test("tolerates Raft's declared `continue` field without inventing semantics for
     },
   );
   expect(result.status).toBe(200);
-  // Raft's own CLI never sets `continue` (1.0.32) and its semantics are unverified, so it must not
-  // behave as the force-send flag: the only bypass is `continueAnyway`.
+  // The `continue` field's semantics are unverified, so it must not behave as the force-send
+  // flag: the only bypass is `continueAnyway`.
   expect(await result.json()).toMatchObject({ idempotencyKey: "idem-2", state: "held" });
 });
 
@@ -326,7 +326,7 @@ test("accepts two distinct attachmentIds and forwards them in order to the sende
   expect(received).toEqual(ids);
 });
 
-test("rejects seenExactSeqs that are not positive integers within Raft's 2500 limit with 400", async () => {
+test("rejects seenExactSeqs that are not positive integers within the 2500 limit with 400", async () => {
   for (const seenExactSeqs of [
     [0],
     [1.5],
@@ -548,7 +548,7 @@ test("a bypassed hold's sent response carries recentUnread; every other response
   const firstBody = await firstHeld.json();
   expect(firstBody.state).toBe("held");
   expect(firstBody.decision).toBe("local_hold");
-  // The first hold of a draft does not suggest `--anyway`; a re-held one does (Raft's rule).
+  // The first hold of a draft does not suggest `--anyway`; a re-held one does.
   expect(firstBody.continueAnywaySuggested).toBe(false);
   expect(firstBody.recentUnread).toEqual([]);
 

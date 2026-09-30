@@ -76,9 +76,9 @@ export type AgentMessage = {
 };
 
 /**
- * Which conversation a history read consumed (Raft 1.0.38's `consumption_scope`, whose `channel_id`
- * is CoForge's `conversationId`). Present for a direct conversation (`dm`) or a thread (`thread`),
- * whose target has more than one spelling; `target` is the spelling the server resolved it to.
+ * Which conversation a history read consumed. Present for a direct conversation (`dm`) or a
+ * thread (`thread`), whose target has more than one spelling; `target` is the spelling the server
+ * resolved it to.
  */
 export type AgentHistoryConsumptionScope = {
   agentId: string;
@@ -95,9 +95,9 @@ export type AgentHistoryResponse = {
   hasNewer: boolean;
   olderCursor?: string;
   newerCursor?: string;
-  /** Raft 1.0.38's `model_seen_up_to_seq`: the newest sequence up to which the Agent has now seen
-   * this target without a gap, or `null` when this page does not join what it had already read (an
-   * anchored `around` read never does). */
+  /** `model_seen_up_to_seq`: the newest sequence up to which the Agent has now seen this target
+   * without a gap, or `null` when this page does not join what it had already read (an anchored
+   * `around` read never does). */
   modelSeenUpToSeq: number | null;
   consumptionScope?: AgentHistoryConsumptionScope;
 };
@@ -109,8 +109,8 @@ export type AgentSearchResponse = {
 };
 
 /**
- * Response for the send route (POST /api/agent/v1/messages), Raft 1.0.38's send contract: a sent or
- * held send, or — for a `reconcileOnly` request — whether the idempotency key already committed.
+ * Response for the send route (POST /api/agent/v1/messages): a sent or held send, or — for a
+ * `reconcileOnly` request — whether the idempotency key already committed.
  */
 export type AgentSendResponse =
   | AgentSendDecisionResponse
@@ -147,7 +147,7 @@ export type AgentSendDecisionResponse = {
   reason?: string;
   producerFactId?: string;
   messageId?: string;
-  /** Held only: Raft's `available_actions` — `check_messages`, `send_draft`, `send_anyway`. */
+  /** Held only: the recovery actions — `check_messages`, `send_draft`, `send_anyway`. */
   availableActions?: string[];
   /** Held only: an already-re-held draft may be forced with `--send-draft --anyway`. */
   continueAnywaySuggested?: boolean;
@@ -157,7 +157,7 @@ export type AgentSendDecisionResponse = {
   shownMessageCount?: number;
   omittedMessageCount?: number;
   /** Held: the boundary the Agent should treat as reviewed after this hold. Sent: the boundary the
-   * server advanced over messages the Agent had already seen (Raft's consume effect), if any. */
+   * server advanced over messages the Agent had already seen, if any. */
   seenUpToSeq?: number;
   freshnessContextMode?: "inline" | "withheld";
   withheldMessageCount?: number;

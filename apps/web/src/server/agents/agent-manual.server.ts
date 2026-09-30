@@ -17,7 +17,7 @@ import {
   validateManualQuery,
 } from "#src/server/agents/manual/manual-validation.server";
 
-// The Raft-aligned "browse the index" guidance for a not-found topic/query is a CLI-side
+// The "browse the index" guidance for a not-found topic/query is a CLI-side
 // `suggestedNextAction` (see `packages/coforge/src/cli-error.ts`'s `MANUAL_NOT_FOUND_NEXT_ACTION`),
 // not part of this server's error body, which stays terse like the other Agent routes.
 

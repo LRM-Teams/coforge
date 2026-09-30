@@ -5,7 +5,7 @@ import {
 } from "#src/daemon-runtime/agent-inbox-freshness-activity";
 import { stableNormalizeFreshnessFact, freshnessDecisionFactId } from "@lrm/coforge-sdk/internal";
 
-test("a held send narrates Raft's working status row, title, count line and decision line", () => {
+test("a held send narrates a working status row, title, count line and decision line", () => {
   expect(
     heldFreshnessActivity({
       action: "send",
@@ -33,7 +33,7 @@ test("a held send narrates Raft's working status row, title, count line and deci
   });
 });
 
-test("a single message is counted in the singular, as Raft's notice does", () => {
+test("a single message is counted in the singular", () => {
   const activity = heldFreshnessActivity({
     action: "send",
     decision: "local_hold",
@@ -46,7 +46,7 @@ test("a single message is counted in the singular, as Raft's notice does", () =>
   });
 });
 
-test("a syncing hold uses Raft's own synced-context wording and both decision lines", () => {
+test("a syncing hold uses the synced-context wording and both decision lines", () => {
   const activity = heldFreshnessActivity({
     action: "send",
     decision: "syncing_hold",

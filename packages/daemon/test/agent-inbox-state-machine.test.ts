@@ -9,7 +9,7 @@ test("daemon retains the draft text and the count of holds it has taken", async 
     idempotencyKey: "key-1",
     reholdCount: 0,
   });
-  // Raft's held refresh: the same content, one hold later, remembering the reviewed frontier.
+  // A held refresh: the same content, one hold later, remembering the reviewed frontier.
   await inbox.replace("@ada", {
     content: "draft reply",
     idempotencyKey: "key-1",
@@ -45,7 +45,7 @@ test("daemon retains the draft text and the count of holds it has taken", async 
   expect(await inbox.draft("@ada")).toBeUndefined();
 });
 
-test("an in-memory draft keeps Raft's attachmentIds, mentions and seenUpToSeq", async () => {
+test("an in-memory draft keeps its attachmentIds, mentions and seenUpToSeq", async () => {
   const inbox = new AgentInboxStateMachine();
   const mentions = [{ type: "user" as const, id: "actor-1", name: "ada" }];
   await inbox.replace("@ada", {

@@ -20,7 +20,7 @@ export type ActivityEntry = {
   observedAtMs: number;
   entries?: ActivityTrajectoryEntry[];
   runtimeError?: { errorClass: string; errorReason: string; fingerprint: string };
-  /** Raft's freshness-decision lineage (`freshness_decision_fact:<sha256>`); set on a
+  /** The freshness-decision lineage (`freshness_decision_fact:<sha256>`); set on a
    * freshness-hold row only. */
   producerFactId?: string;
   createdAt?: Date;

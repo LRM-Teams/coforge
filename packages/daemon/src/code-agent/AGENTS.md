@@ -94,8 +94,7 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
 
 - `codex/provider.ts` owns retry classification. Structured `willRetry: true`
   notifications stay internal diagnostics. Numbered stderr reconnect lines
-  become informational `runtime_reconnecting` Activity, matching Raft Computer
-  1.0.32's `isCodexProviderReconnectLog`.
+  become informational `runtime_reconnecting` Activity.
 
 ## Antigravity (`agy`)
 

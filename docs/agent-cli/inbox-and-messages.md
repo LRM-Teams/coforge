@@ -51,8 +51,7 @@ command. When the draft belongs to another send, or cannot be read, the error
 is not retryable, `Draft saved: no`, and it says which of the two it is. When reconciliation is
 unavailable,
 it is `Draft saved: yes`, not retryable. In both, delivery stays unknown: do
-not resend. Each daemon request of a send has a 30-second deadline (Raft's
-pre-response deadline), and the CLI waits for the daemon's whole settlement
+not resend. Each daemon request of a send has a 30-second deadline, and the CLI waits for the daemon's whole settlement
 plus a margin (`AGENT_SEND_LOCAL_DEADLINE_MS` in the SDK), so the verdict
 always arrives.
 

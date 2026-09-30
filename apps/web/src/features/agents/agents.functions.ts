@@ -563,11 +563,11 @@ async function loadAgentProfileDetail(context: WorkspaceUserContext, agentId: st
     ? isAdminLike(viewerMembership.role as WorkspaceMemberRole)
     : false;
   // `findAuthorized` above already required current Workspace membership, so every viewer who
-  // reaches this point holds Raft's `controlAgentRuntime` capability (Restart/Reset session);
+  // reaches this point holds the `controlAgentRuntime` capability (Restart/Reset session);
   // `resetAgentWorkspace` (Full reset) is owner/admin only, same role check as agent-role
   // management. Server-side authorization lives in AgentControl.execute(); this is UI gating.
   const canFullResetAgent = canManageAgentRole;
-  // Raft's `deleteAgents` is owner/admin only, the same gate as `createAgents`. The
+  // `deleteAgents` is owner/admin only, the same gate as `createAgents`. The
   // weekly-report assistant is provisioned by Records on demand, so it is never a delete target
   // even for an owner/admin viewer. Server-side authorization lives in `AgentDeletion.delete()`.
   const canDeleteAgent = canManageAgentRole && !result.isWeeklyReportAssistant;
@@ -687,7 +687,7 @@ export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
   });
 
 /**
- * Deletes an Agent: Raft's `deleteAgents` capability, Workspace owner/admin only. The
+ * Deletes an Agent: the `deleteAgents` capability, Workspace owner/admin only. The
  * typed name is re-checked against the Agent's current `name` here, inside the same call that
  * performs the delete, so a concurrent rename cannot bypass confirmation — the same guard
  * `ProjectSettings.delete` uses. Deleting the Agent's own runtime credential is a separate

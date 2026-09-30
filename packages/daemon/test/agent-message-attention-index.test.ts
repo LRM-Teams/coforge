@@ -604,13 +604,13 @@ test("forgets the oldest deliveries so a long-lived Agent does not grow without 
   expect(notices).toBe(remembered + 2);
 });
 
-test("the consumed cursor survives a restart, in Raft's consumed-seqs file", () => {
+test("the consumed cursor survives a restart, in the consumed-seqs file", () => {
   const store = new AgentConsumedSeqStore(temporaryStateDirectory());
   const before = indexWithConsumedSeqs(store);
   before.recordModelSeen("agent-1", "@ada", 7);
   before.recordReadContext("agent-1", "#general:11111111", 2);
 
-  // A new daemon process: no deliveries, no reads, only the file Raft names.
+  // A new daemon process: no deliveries, no reads, only the consumed-seqs file.
   const after = indexWithConsumedSeqs(store);
   expect(after.modelSeenSequence("agent-1", "@ada")).toBe(7);
   expect(after.latestThreadReadUnderParent("agent-1", "#general")?.target).toBe(
@@ -627,8 +627,7 @@ test("a restart keeps the read context a thread-target confirmation is decided f
   const store = new AgentConsumedSeqStore(temporaryStateDirectory());
   const before = indexWithConsumedSeqs(store);
   // The Agent read a thread under the channel and never read the channel itself: exactly the shape
-  // that makes a top-level send to the channel ask for confirmation (Raft's
-  // `detectThreadContextParentSend`).
+  // that makes a top-level send to the channel ask for confirmation.
   before.recordReadContext("agent-1", "#general:11111111", 2);
   expect(before.readOrder("agent-1", "#general")).toBeUndefined();
 
@@ -1457,7 +1456,7 @@ test("a consumption scope settles in other spellings only the messages the read 
   await index.receive({ ...delivery("five"), target: upper, sequence: 5 });
   await index.receive({ ...delivery("six"), target: upper, sequence: 6 });
 
-  // The page showed message 5 and reports a boundary through 6: Raft suppresses a pending notice
+  // The page showed message 5 and reports a boundary through 6: a pending notice is suppressed
   // only for a message the history response carried, matched however its thread root is spelled.
   const canonical = "@agent:0f0e0d0c-0b0a-4908-8706-050403020100";
   index.recordHistoryRead("agent-1", {

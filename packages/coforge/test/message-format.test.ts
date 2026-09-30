@@ -335,7 +335,7 @@ test("formatSendSuccess appends a recentUnread section only when non-empty", () 
   expect(rendered).toContain("@frank: missed while held");
 });
 
-test("formatHeldSend renders Raft's held notice and offers the anyway escape only when suggested", () => {
+test("formatHeldSend renders the held notice and offers the anyway escape only when suggested", () => {
   const held = [
     message({ senderHandle: "ada", body: "first note", createdAt: "2026-09-07T10:01:00Z" }),
     message({ senderHandle: "bob", body: "second note", createdAt: "2026-09-07T10:02:00Z" }),

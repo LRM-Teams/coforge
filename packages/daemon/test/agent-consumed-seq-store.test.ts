@@ -18,10 +18,9 @@ const temporaryStateDirectory = () => {
   return path;
 };
 
-/** Raft's location for the cursor is `tmpdir()/slock-cli-consumed-seq/<agentId>/consumed-seqs.json`
- * (`SLOCK_CLI_CONSUMED_SEQ_STATE_DIR` overrides the root); CoForge's is the same idea with its own
- * directory name, next to the draft store — so a state directory is the root here, and the two
- * directory levels below it are the store's own. */
+/** The cursor lives at `<root>/coforge-cli-consumed-seq-<euid>/<agentId>/consumed-seqs.json`, next
+ * to the draft store — so a state directory is the root here, and the two directory levels below
+ * it are the store's own. */
 const storeDirectory = (root: string, agentId = "agent-1") =>
   join(
     root,
@@ -31,7 +30,7 @@ const storeDirectory = (root: string, agentId = "agent-1") =>
 const storePath = (root: string, agentId = "agent-1") =>
   join(storeDirectory(root, agentId), "consumed-seqs.json");
 
-test("writes one snapshot in Raft 1.0.38's consumed-seqs shape and reads it back", async () => {
+test("writes one snapshot in the consumed-seqs shape and reads it back", async () => {
   const stateDirectory = temporaryStateDirectory();
   const store = new AgentConsumedSeqStore(stateDirectory);
   const state = {
@@ -93,7 +92,7 @@ test("recomputes nextReadOrder from the orders the file holds, never trusting th
   const stateDirectory = temporaryStateDirectory();
   await mkdir(storeDirectory(stateDirectory), { recursive: true });
   // A file whose `nextReadOrder` is behind the orders it carries — an older build's write, or an
-  // edit. Raft's `normalizeState` starts the counter above everything it saw.
+  // edit. Reading starts the counter above every order the file holds.
   await writeFile(
     storePath(stateDirectory),
     JSON.stringify({ targets: { "@ada": { readOrder: 12 } }, nextReadOrder: 2 }),

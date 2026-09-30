@@ -67,7 +67,7 @@ const commands = {
 /** How many Agents `stopMany`/`startMany` change at once: each holds a runtime-lock connection
  * and a transaction, and both pools default to 10 connections for the whole process. */
 const CONTROL_MANY_CONCURRENCY = 4;
-/** Raft capability required for each user-initiated execute() action. Start and Stop need only
+/** The capability required for each user-initiated execute() action. Start and Stop need only
  * `controlAgentRuntime`, the same as Restart and Reset session. */
 const EXECUTE_CAPABILITY: Record<AgentControlAction, AgentControlCapability> = {
   start: "controlAgentRuntime",
@@ -398,7 +398,7 @@ export class AgentControl {
         input.agentId,
         input.action,
       );
-      // Raft: a Start that meets an Agent already starting joins that launch, it never issues
+      // A Start that meets an Agent already starting joins that launch, it never issues
       // a second one. Superseding here would publish Start at epoch + 1 while the Daemon is
       // still launching the previous epoch; the Daemon answers that with `agent_already_running`
       // and no result, and the running launch's own `started` result and Session snapshots are
@@ -583,10 +583,9 @@ export class AgentControl {
     // mid `clearing`) — exactly the same shape a terminal `old` was already superseded with:
     // epoch + 1, identity retained by the existing `computerId`/`provider` rule, `launchId`/
     // `launchIdentityBound` dropped because the new `state` literal never copies them forward.
-    // Raft Computer 1.0.32 keeps no operation-in-progress record at all — a newer start/stop/
-    // reset simply takes effect and epochs only cancel superseded work — so there is neither a
-    // "pending" rejection nor an "abandoned" concept to approximate here; supersede is normal
-    // behaviour, logged at info, once per occurrence.
+    // The latest command wins: a newer start/stop/reset simply takes effect and epochs only
+    // cancel superseded work — so there is neither a "pending" rejection nor an "abandoned"
+    // concept here; supersede is normal behaviour, logged at info, once per occurrence.
     if (old)
       console.info(
         JSON.stringify({

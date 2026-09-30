@@ -758,9 +758,8 @@ export type AgentActivity = {
   isHeartbeat?: boolean;
   /** Set only on the daemon's reply to an AgentActivityProbe; echoes its probeId. */
   probeId?: string;
-  /** Raft's freshness-decision lineage (`buildApmFreshnessDecisionProducerFactId`):
-   * `freshness_decision_fact:<sha256>` for the decision this row narrates. A freshness-hold row
-   * only; absent otherwise. */
+  /** The freshness-decision lineage: `freshness_decision_fact:<sha256>` for the decision this row
+   * narrates. A freshness-hold row only; absent otherwise. */
   producerFactId?: string;
   runtimeError?: {
     errorClass: string;
@@ -801,14 +800,14 @@ export type AgentMessageRequest = {
   continueAnyway?: boolean;
   /** `send` only: the boundary the sender has already reviewed. */
   seenUpToSeq?: number;
-  /** `send` only: Raft 1.0.38's `seenExactSeqs`, the messages above `seenUpToSeq` the sender was
-   * shown one by one, ascending, at most `SEEN_EXACT_SEQS_LIMIT`. */
+  /** `send` only: `seenExactSeqs`, the messages above `seenUpToSeq` the sender was shown one by
+   * one, ascending, at most `SEEN_EXACT_SEQS_LIMIT`. */
   seenExactSeqs?: number[];
   /** `send` only: how many times this draft has already been held (`continueAnywaySuggested`). */
   draftReholdCount?: number;
   /** `send` only: a normal send that replaced an already-held draft. */
   draftReplacedExisting?: boolean;
-  /** `send` only: this is the resend of a held draft (Raft's `sendDraft` in the v2 send body). */
+  /** `send` only: this is the resend of a held draft. */
   sendDraft?: boolean;
   before?: string;
   after?: string;
