@@ -114,6 +114,14 @@ test("documentation skips application checks, while shared and unknown inputs fa
     expect(selectChecks([path], "changes")).toEqual(["computer", "installer-crate"]);
   }
   expect(selectChecks(["crates/installer/AGENTS.md"], "changes")).toEqual([]);
+  // The installer's tests take the Computer's machine mutation lock through this very module.
+  expect(selectChecks(["packages/daemon/src/platform/process-lock.ts"], "changes")).toEqual([
+    "computer",
+    "daemon",
+    "installer-crate",
+    "macos-lifecycle",
+    "windows-release",
+  ]);
   expect(selectChecks(["infra/staging/caddy/Caddyfile"], "changes")).toEqual(["deploy", "web"]);
   expect(selectChecks(["scripts/ops/renew-cdn-certificates.sh"], "changes")).toEqual(["cdn-certs"]);
   expect(selectChecks(["scripts/release/compile-targets.ts"], "changes")).toEqual([

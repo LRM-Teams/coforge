@@ -372,6 +372,18 @@ pub struct PathCase {
     pub binary_directory: String,
 }
 
+/// Release version strings and whether the product accepts each (`release-versions.json`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseVersions {
+    pub cases: Vec<ReleaseVersionCase>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseVersionCase {
+    pub value: String,
+    pub valid: bool,
+}
+
 /// Upgrade error codes a receipt may name (`upgrade-error-codes.json`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpgradeErrorCodes {

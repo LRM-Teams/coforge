@@ -13,6 +13,16 @@ the crate's commands, toolchain, and gotchas.
 - `src/fetch.rs`: verified download. One HTTPS object, hashed as it arrives,
   optionally gunzipped under a byte cap, renamed into place only after every
   check passes. Tests in `src/fetch/tests.rs` (loopback HTTP, no network).
+- `src/lock.rs`: the machine mutation lock, an SQLite RESERVED lock on
+  `<install root>/machine-mutation-lock.sqlite` (rusqlite, bundled SQLite)
+  that excludes the Computer's own `acquireProcessLock`. Tests in
+  `src/lock/tests.rs` run that TypeScript function under Bun.
+- `src/paths.rs`: install root, supervisor state directory, and shim
+  directory, resolved from the home directory as the Computer does.
+- `src/paths/node_path.rs`: `path.posix.join` and `path.win32.join` ported from
+  Node's `lib/path.js` as Bun runs them, so `paths.rs` writes the same strings
+  as the Computer's `paths.ts`.
+- `src/version.rs`: which release version strings are acceptable.
 - `src/contract.rs`: serde types for every file and JSON shape shared with the
   product (manifests, `active.json`, `installation.json`, receipts,
   `__lifecycle` output, lock, service names, paths). Tests in
@@ -39,6 +49,11 @@ the crate's commands, toolchain, and gotchas.
   the files match byte for byte on Windows too.
 - A receipt is written once and its `exit_code` is 0, 1, or 3; exit status 2
   (held) exists only as the process's exit status.
+- A receipt's `errorCode` is one of the SDK's (`contract/upgrade-error-codes.json`).
+  A failure none of them describes carries no code; never add an
+  installer-only code.
+- `paths.rs` must equal Bun's `node:path` byte for byte; tests compare `to_str()`,
+  never `PathBuf`, which equates by component.
 
 The `fetch` subcommand is the download primitive exposed for tests and so the
 release build links the whole HTTPS/TLS/gzip stack. It is not a product command
@@ -51,8 +66,8 @@ release build links the whole HTTPS/TLS/gzip stack. It is not a product command
   They are deliberately not in the root `mise.toml`: the root `mise install`
   that every CI job and `.agents/setup` runs must never download Rust.
 - Run every command from `crates/installer/`. mise merges the root config there too, so
-  install only what you need: `mise install rust`, or the four tools above for
-  the supply-chain checks.
+  install only what you need: `mise install rust bun` (Bun runs the lock
+  tests), or the four tools above for the supply-chain checks.
 - Bumping a tool: change `crates/installer/mise.toml` (and `rust-version` in
   `crates/installer/Cargo.toml` for a Rust bump), then relock with
   `mise lock --platform linux-x64,macos-arm64`. Keep `lockfile_version = 1`:
@@ -65,6 +80,13 @@ release build links the whole HTTPS/TLS/gzip stack. It is not a product command
   output goes to the root `target/`.
 - Change dependencies with `cargo add` / `cargo remove`, commit the root `Cargo.lock`,
   and pass `--locked` to every cargo command so CI never resolves a new graph.
+  Add them with `default-features = false` and only the features used:
+  rusqlite's default statement cache pulls in a Zlib-licensed hasher, and
+  `deny.toml` allows only the licenses listed there.
+- `cargo test` needs Bun (the root `mise.toml` pins it): the lock tests import
+  `packages/daemon/src/platform/process-lock.ts` and fail, never skip, without
+  it. Set `BUN` to use another binary. A Bun child that hangs is killed after
+  `BUN_DEADLINE` and fails its test.
 - There is no mise task for this crate, and it is not part of the root
   `mise run test` / `check` / `build`.
 
@@ -73,7 +95,7 @@ release build links the whole HTTPS/TLS/gzip stack. It is not a product command
 ```sh
 mise exec -- cargo fmt --check
 mise exec -- cargo clippy --locked --all-targets -- -D warnings
-mise exec -- cargo test --locked
+mise exec rust bun -- cargo test --locked     # Bun runs the Computer's lock
 mise exec -- cargo build --locked --release     # ../../target/release/coforge-installer
 mise exec -- cargo deny --locked check licenses bans sources advisories
 mise exec -- cargo audit --deny warnings --file ../../Cargo.lock
@@ -84,9 +106,10 @@ mise exec -- cargo about generate --locked --fail --output-file THIRD_PARTY_NOTI
 
 - Job `installer-crate` in `.github/workflows/ci.yml`. `scripts/ci/selection.ts`
   selects it for any `crates/installer/` path, the root `Cargo.toml` and
-  `Cargo.lock`, and for the fail-open cases (CI,
-  toolchain, unclassified paths), but not for workspace `package.json` changes
-  or the Computer publication (`local`) track.
+  `Cargo.lock`, `packages/daemon/src/platform/process-lock.ts` (the lock tests
+  run it), and for the fail-open cases (CI, toolchain, unclassified paths), but
+  not for workspace `package.json` changes or the Computer publication
+  (`local`) track.
 - One matrix entry per release target, each on its native runner:
   `darwin-arm64` and `darwin-x64` on `macos-latest` (x64 cross-compiled),
   `linux-x64` / `linux-arm64` on `ubuntu-24.04` / `ubuntu-24.04-arm` (musl,

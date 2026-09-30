@@ -77,6 +77,7 @@ fn every_golden_is_covered_by_a_test() {
         "lock.json",
         "manifest.v2.json",
         "paths.json",
+        "release-versions.json",
         "receipt.rolled-back.json",
         "receipt.succeeded.json",
         "receipt.unresolved.json",
@@ -279,6 +280,13 @@ fn paths() {
             "{platform}"
         );
     }
+}
+
+#[test]
+fn release_versions() {
+    let versions: ReleaseVersions = golden("release-versions.json");
+    assert!(versions.cases.iter().any(|case| case.valid));
+    assert!(versions.cases.iter().any(|case| !case.valid));
 }
 
 #[test]

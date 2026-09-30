@@ -18,7 +18,11 @@ import {
   PROCESS_LOCK_CONTENTION_CODES,
   PROCESS_LOCK_STATEMENTS,
 } from "@lrm/coforge-daemon";
-import { UPGRADE_ERROR_CODE, UPGRADE_ERROR_CODE_PATTERN } from "@lrm/coforge-sdk/internal";
+import {
+  isValidReleaseVersion,
+  UPGRADE_ERROR_CODE,
+  UPGRADE_ERROR_CODE_PATTERN,
+} from "@lrm/coforge-sdk/internal";
 import { z } from "zod";
 
 import {
@@ -60,6 +64,32 @@ export const CONTRACT_DIRECTORY = join(
   "installer",
   "contract",
 );
+
+/** Version strings on both sides of every rule in `isValidReleaseVersion`. */
+const RELEASE_VERSION_SAMPLES = [
+  "0.1.0",
+  "0.1.1-dev.42",
+  "1.2.3+build.5",
+  "latest",
+  "A-Z_z",
+  "",
+  ".",
+  "..",
+  "1..2",
+  "1.2.",
+  ".1",
+  "-rc",
+  "rc-",
+  "1/2",
+  "1\\2",
+  "1 2",
+  " 1.0.0",
+  "1.0.0\n",
+  "v1.0.0",
+  "版本",
+  "1".repeat(100),
+  "1".repeat(101),
+];
 
 /** The request every example names; the Rust tests use the same one. */
 export const EXAMPLE_REQUEST_ID = "0f8b6d5e-2a41-4c3b-9e7d-1a2b3c4d5e6f";
@@ -120,6 +150,41 @@ function pathCase(
     binary_directory: resolveComputerBinaryDirectory(input),
   };
 }
+
+/**
+ * Homes and `XDG_BIN_HOME` values that `posix.join` and `win32.join` rewrite: the root, doubled or
+ * trailing separators, `.` and `..` segments, forward slashes on Windows, UNC and drive roots, and
+ * no home at all. The Rust installer reproduces each result byte for byte, so a string comparison
+ * against these is what proves it resolves the same directories as the Computer.
+ */
+const ADVERSARIAL_PATH_CASES = [
+  pathCase("linux", "/", {}),
+  pathCase("linux", "/home//example/", {}),
+  pathCase("linux", "/home/./example", {}),
+  pathCase("linux", "/home/example/../example", {}),
+  pathCase("linux", "/home/../../example", {}),
+  pathCase("linux", "../example", {}),
+  pathCase("linux", "", {}),
+  pathCase("darwin", "/Users/example/", {}),
+  // An absolute XDG_BIN_HOME is used as written, separators and all; an empty one is ignored.
+  pathCase("darwin", HOMES.darwin, { XDG_BIN_HOME: "/Users//example/./bin/" }),
+  pathCase("linux", HOMES.posix, { XDG_BIN_HOME: "" }),
+  pathCase("win32", "C:/Users/example", {}),
+  pathCase("win32", "C:\\Users\\example\\", {}),
+  pathCase("win32", "C:\\Users\\\\example", {}),
+  pathCase("win32", "\\\\server\\share\\example", {}),
+  pathCase("win32", "//server/share/example", {}),
+  pathCase("win32", "C:\\", {}),
+  pathCase("win32", "C:\\Users\\..\\..\\example", {}),
+  pathCase("win32", "\\home\\example", {}),
+  pathCase("win32", "..\\example", {}),
+  pathCase("win32", "", {}),
+  pathCase("linux", "/ab/../x", {}),
+  pathCase("win32", "/", {}),
+  pathCase("win32", "\\", {}),
+  pathCase("win32", "///x", {}),
+  pathCase("win32", "a:b", {}),
+];
 
 function receipt(fields: Record<string, unknown>) {
   return {
@@ -322,6 +387,7 @@ export function renderInstallerContract(): Map<string, string> {
           pathCase("darwin", HOMES.darwin, {}),
           pathCase("win32", HOMES.win32, {}),
           pathCase("win32", HOMES.win32, { XDG_BIN_HOME: "C:\\bin" }),
+          ...ADVERSARIAL_PATH_CASES,
         ],
       }),
     ],
@@ -384,6 +450,17 @@ export function renderInstallerContract(): Map<string, string> {
         exit_codes: LIFECYCLE_EXIT_CODE,
         error_codes: LIFECYCLE_ERROR_CODE,
         problem_codes: SUPERVISOR_PROBLEM_CODE,
+      }),
+    ],
+    // Which release version strings are valid (@lrm/coforge-sdk release-version.ts). A version is
+    // a URL segment and a directory under versions/, so both sides must agree on every edge.
+    [
+      "release-versions.json",
+      json({
+        cases: RELEASE_VERSION_SAMPLES.map((value) => ({
+          value,
+          valid: isValidReleaseVersion(value),
+        })),
       }),
     ],
     // Error codes the installer may report (@lrm/coforge-sdk).
