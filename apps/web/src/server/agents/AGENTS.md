@@ -5,9 +5,7 @@ these modules have their own rules in `src/server/centrifugo/AGENTS.md`.
 
 ## Create, edit, and delete
 
-- Creating an Agent requires Workspace owner/admin (`assertCanCreateAgents`),
-  including when a human commits an `agent:create` action card. Creating an
-  Agent starts it.
+- Creating an Agent requires Workspace owner/admin (`assertCanCreateAgents`), including when a human commits an `agent:create` action card, and starts it. Its name cannot be the username of a current member of the Workspace: `PrismaAgentRepository.create` refuses it as `agent-name-taken`, so `@name` never names a person and an Agent. A member who joins later can still share an existing Agent's name.
 - `manage-agents.server.ts` owns create/edit orchestration: runtime selection,
   credential-aware restart decisions, and public response redaction.
   `AgentRuntimeCredentials` owns Agent/provider-bound encryption; repositories

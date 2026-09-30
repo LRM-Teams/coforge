@@ -396,6 +396,77 @@ test.skipIf(!connectionString)(
   },
 );
 
+const pi = {
+  runtime: "pi",
+  provider: { kind: "default" },
+  model: "",
+  modelProvider: "",
+  reasoning: "",
+} as const;
+
+test.skipIf(!connectionString)(
+  "creating an Agent with a Workspace member's username is refused as a taken name",
+  async () => {
+    const { db, workspace, owner, member } = await setup();
+    try {
+      // `@<username>` would name both a person and an Agent, so the name is refused whether the
+      // member is another person or the Agent's own creator.
+      for (const taken of [member.username, owner.username]) {
+        await expect(
+          Promise.resolve(
+            new PrismaAgentRepository(db).create({
+              workspaceId: workspace.id,
+              name: taken,
+              displayName: "Twin",
+              ownerId: owner.id,
+              runtimeConfig: pi,
+            }),
+          ),
+        ).rejects.toMatchObject({ code: "CONFLICT", errorId: "agent-name-taken" });
+        expect(await db.agent.count({ where: { workspaceId: workspace.id, name: taken } })).toBe(0);
+      }
+    } finally {
+      await teardown(db, workspace.id, [owner.id, member.id]);
+    }
+  },
+);
+
+test.skipIf(!connectionString)(
+  "an Agent may take the username of someone who is not a member of its Workspace",
+  async () => {
+    const { db, workspace, owner, member } = await setup();
+    const outsider = await db.user.create({
+      data: { username: `del-outsider-${crypto.randomUUID().slice(0, 8)}` },
+    });
+    try {
+      // Usernames are global; only the Workspace's own members can clash with its Agents.
+      const created = await new PrismaAgentRepository(db).create({
+        workspaceId: workspace.id,
+        name: outsider.username,
+        displayName: "Outsider twin",
+        ownerId: owner.id,
+        runtimeConfig: pi,
+      });
+      expect(created.name).toBe(outsider.username);
+
+      // A person who left has no membership, so their username is free again.
+      await db.workspaceMembership.delete({
+        where: { workspaceId_userId: { workspaceId: workspace.id, userId: member.id } },
+      });
+      const afterLeaving = await new PrismaAgentRepository(db).create({
+        workspaceId: workspace.id,
+        name: member.username,
+        displayName: "Leaver twin",
+        ownerId: owner.id,
+        runtimeConfig: pi,
+      });
+      expect(afterLeaving.name).toBe(member.username);
+    } finally {
+      await teardown(db, workspace.id, [owner.id, member.id, outsider.id]);
+    }
+  },
+);
+
 test.skipIf(!connectionString)(
   "deletion revokes active Agent API keys and cancels scheduled Reminders",
   async () => {
