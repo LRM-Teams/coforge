@@ -48,7 +48,7 @@ The architecture invariants every change must respect are in
 | [docs/agents/testing.md](docs/agents/testing.md) | Testing guidance for agents |
 | [docs/agents/e2e-testing/](docs/agents/e2e-testing/README.md) | Live OpenRouter integration test |
 | [docs/agents/mise-tasks.md](docs/agents/mise-tasks.md) | Mise task policy |
-| [docs/agents/reference-cli-research.md](docs/agents/reference-cli-research.md) | Studying the Raft Computer 1.0.32 reference |
+| [docs/agents/reference-cli-research/](docs/agents/reference-cli-research/README.md) | Studying the reference Computer 1.0.38: recovering its binary, source tree, and installer |
 | [apps/web/README.md](apps/web/README.md) | Web app setup and scripts |
 | [apps/web/src/components/ui/README.md](apps/web/src/components/ui/README.md) | UI component inventory and exceptions |
 | [packages/computer/README.md](packages/computer/README.md) | `coforge-computer` package |
