@@ -386,6 +386,10 @@ export type AgentRuntimeProviderConfig =
  *   restored the previous version or could not (`upgrade-coordinator.ts`'s `switchRuntime`).
  * - `EXPIRED_WITHOUT_RECEIPT`: the job never left a receipt before the pending TTL passed
  *   (`computer-upgrade-receipts.ts`).
+ * - `INSTALLER_UNAVAILABLE` / `INSTALLER_INCOMPATIBLE`: `coforge-installer` never ran an
+ *   operation. It could not be fetched from the release feed (or its pointer was unusable), or a
+ *   protocol gate refused it (the release needs a newer installer protocol than the one fetched).
+ *   Both leave the installation untouched; an installer that ran reports them with exit 1.
  */
 export const UPGRADE_ERROR_CODE = {
   OPERATION_PENDING: "UPGRADE_OPERATION_PENDING",
@@ -399,6 +403,8 @@ export const UPGRADE_ERROR_CODE = {
   ROLLED_BACK: "UPGRADE_ROLLED_BACK",
   ROLLBACK_FAILED: "UPGRADE_ROLLBACK_FAILED",
   EXPIRED_WITHOUT_RECEIPT: "UPGRADE_EXPIRED_WITHOUT_RECEIPT",
+  INSTALLER_UNAVAILABLE: "UPGRADE_INSTALLER_UNAVAILABLE",
+  INSTALLER_INCOMPATIBLE: "UPGRADE_INSTALLER_INCOMPATIBLE",
 } as const;
 export type UpgradeErrorCode = (typeof UPGRADE_ERROR_CODE)[keyof typeof UPGRADE_ERROR_CODE];
 export const UPGRADE_ERROR_CODE_VALUES = Object.values(UPGRADE_ERROR_CODE) as [

@@ -3,6 +3,7 @@ import { decodeComputerUpgradeResult, encodeComputerUpgradeResult } from "./code
 import {
   decodeDaemonCommandResponse,
   encodeDaemonCommandResponse,
+  parseUpgradeErrorCode,
   UPGRADE_ERROR_CODE,
 } from "./index";
 
@@ -33,6 +34,14 @@ test("round-trips a Computer upgrade result carrying a known error code", () => 
 test("round-trips a well-formed but not-yet-known error code without rejecting it", () => {
   const value = { ...base, error: "future failure", errorCode: "UPGRADE_SOMETHING_NEW" };
   expect(decodeComputerUpgradeResult(encodeComputerUpgradeResult(value))).toEqual(value);
+});
+
+test("the installer's failure codes are known and round-trip on the wire", () => {
+  for (const errorCode of ["UPGRADE_INSTALLER_UNAVAILABLE", "UPGRADE_INSTALLER_INCOMPATIBLE"]) {
+    expect(parseUpgradeErrorCode(errorCode)).toBe(errorCode as never);
+    const value = { ...base, error: "the installer could not run", errorCode };
+    expect(decodeComputerUpgradeResult(encodeComputerUpgradeResult(value))).toEqual(value);
+  }
 });
 
 test("rejects a malformed error code shape on encode and decode", () => {

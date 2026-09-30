@@ -107,7 +107,10 @@ export {
   computerUpgradeTaskName,
   computerUpgradeUnitName,
 } from "#src/platform/computer-upgrade-launcher";
-export { readComputerUpgradeReceipt } from "#src/platform/computer-upgrade-receipts";
+export {
+  readComputerUpgradeReceipt,
+  UPGRADE_RECEIPT_MAX_BYTES,
+} from "#src/platform/computer-upgrade-receipts";
 export {
   acquireProcessLock,
   isLockContention,

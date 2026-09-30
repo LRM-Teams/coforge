@@ -6,12 +6,9 @@ import { readComputerUpgradeReceipt } from "@lrm/coforge-daemon";
 import { z } from "zod";
 
 import { buildReleaseTree } from "../../../scripts/release/build-release";
-import {
-  CONTRACT_DIRECTORY,
-  EXAMPLE_REQUEST_ID,
-  renderInstallerContract,
-} from "../scripts/installer-contract";
-import { InstallerReceiptSchema, INSTALLER_EXIT_CODE } from "#src/release/installer-contract";
+import { CONTRACT_DIRECTORY, renderInstallerContract } from "../scripts/installer-contract";
+import { ALLOWED_RECEIPTS } from "../scripts/installer-receipt-cases";
+import { InstallerReceiptSchema } from "#src/release/installer-contract";
 import {
   ActiveStateSchema,
   ComputerUpdater,
@@ -170,40 +167,28 @@ test("the updater accepts the version directories the installer installs", async
 });
 
 test("the Daemon reads every receipt the installer writes", async () => {
-  const expectations = {
-    "receipt.succeeded.json": {
-      status: "succeeded",
-      version: "0.2.0",
-      errorCode: undefined,
-      exit: INSTALLER_EXIT_CODE.SUCCEEDED,
-    },
-    "receipt.rolled-back.json": {
-      status: "failed",
-      version: undefined,
-      errorCode: "UPGRADE_ROLLED_BACK",
-      exit: INSTALLER_EXIT_CODE.FAILED,
-    },
-    "receipt.unresolved.json": {
-      status: "failed",
-      version: undefined,
-      errorCode: "UPGRADE_ROLLBACK_FAILED",
-      exit: INSTALLER_EXIT_CODE.UNRESOLVED,
-    },
-  } as const;
-  for (const [name, expected] of Object.entries(expectations)) {
+  // The Rust crate writes one receipt per allowed row, built through its own constructor.
+  const written = (await readdir(RUST_OUTPUT)).filter((name) => name.startsWith("receipt."));
+  expect(written.sort()).toEqual(ALLOWED_RECEIPTS.map(({ slug }) => `receipt.${slug}.json`).sort());
+  // The wire has no held status: the Daemon settles a held operation as a failed one.
+  const settled = { succeeded: "succeeded", failed: "failed", held: "failed" } as const;
+  for (const { slug, fields } of ALLOWED_RECEIPTS) {
+    const name = `receipt.${slug}.json`;
     const receipt = InstallerReceiptSchema.parse(
       JSON.parse(await readFile(join(RUST_OUTPUT, name), "utf8")),
     );
-    expect(receipt.exit_code).toBe(expected.exit);
+    expect(receipt.exit_code).toBe(fields.exit_code);
     const homeDirectory = await scratch();
     try {
       const results = join(homeDirectory, ".coforge", "computer", "install", "upgrade-results");
       await mkdir(results, { recursive: true });
-      await copyFile(join(RUST_OUTPUT, name), join(results, `${EXAMPLE_REQUEST_ID}.result.json`));
-      const read = await readComputerUpgradeReceipt(EXAMPLE_REQUEST_ID, { homeDirectory });
-      expect(read?.status).toBe(expected.status);
-      expect(read?.version).toBe(expected.version);
-      expect(read?.errorCode).toBe(expected.errorCode);
+      // Named by the receipt's own request id, whatever its case: the Daemon reads it by that id.
+      await copyFile(join(RUST_OUTPUT, name), join(results, `${receipt.request_id}.result.json`));
+      const read = await readComputerUpgradeReceipt(receipt.request_id, { homeDirectory });
+      expect(read?.status).toBe(settled[fields.status]);
+      expect(read?.version).toBe("version" in fields ? fields.version : undefined);
+      expect(read?.error).toBe("error" in fields ? fields.error : undefined);
+      expect(read?.errorCode).toBe("errorCode" in fields ? fields.errorCode : undefined);
     } finally {
       await rm(homeDirectory, { recursive: true, force: true });
     }

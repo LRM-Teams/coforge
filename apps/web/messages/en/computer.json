@@ -143,6 +143,8 @@
   "computer_upgrade_code_rolled_back": "The upgrade failed; the previous version was restored",
   "computer_upgrade_code_rollback_failed": "Neither the new nor the previous version could be confirmed healthy on that machine",
   "computer_upgrade_code_expired_without_receipt": "The upgrade job never reported back before this machine gave up waiting",
+  "computer_upgrade_code_installer_unavailable": "The installer for this upgrade could not be downloaded on that machine",
+  "computer_upgrade_code_installer_incompatible": "The installer that machine downloaded is not compatible with this version",
   "computer_upgrade_step_check_status": "Check the Computer's status",
   "computer_upgrade_step_check_logs": "Check the Computer's logs",
   "computer_upgrade_step_retry_upgrade": "Retry the upgrade",

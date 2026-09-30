@@ -52,7 +52,16 @@ export function computerUpgradeResultPath(requestId: string, homeDirectory = hom
   );
 }
 
-/** Reads one operation's receipt, or undefined while the job has not finished. */
+/** The largest receipt file a reader accepts. A larger one is treated as no receipt, so the job
+ * that writes it (the installer, see `InstallerReceiptSchema`) must stay under it. */
+export const UPGRADE_RECEIPT_MAX_BYTES = 64 * 1024;
+
+/**
+ * Reads one operation's receipt, or undefined while the job has not finished: no file, a file
+ * over `UPGRADE_RECEIPT_MAX_BYTES`, one that is not JSON, or one with no known status. The
+ * installer's "held" receipt means it stopped the operation on purpose, so it settles as a failed
+ * one, carrying the receipt's `error` and any `errorCode`; the wire has no held status.
+ */
 export async function readComputerUpgradeReceipt(
   requestId: string,
   options: ComputerUpgradeReceiptOptions = {},
@@ -62,7 +71,10 @@ export async function readComputerUpgradeReceipt(
   if (!(await file.exists())) return undefined;
   let value: unknown;
   try {
-    value = await file.json();
+    // One byte past the cap tells an oversized file apart without reading the rest of it.
+    const bytes = await file.slice(0, UPGRADE_RECEIPT_MAX_BYTES + 1).bytes();
+    if (bytes.byteLength > UPGRADE_RECEIPT_MAX_BYTES) return undefined;
+    value = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     return undefined;
   }
@@ -70,10 +82,11 @@ export async function readComputerUpgradeReceipt(
   const receipt = value as Record<string, unknown>;
   // A receipt that names a different operation belongs to someone else's file.
   if (typeof receipt.request_id === "string" && receipt.request_id !== requestId) return undefined;
-  if (receipt.status !== "succeeded" && receipt.status !== "failed") return undefined;
+  if (receipt.status !== "succeeded" && receipt.status !== "failed" && receipt.status !== "held")
+    return undefined;
   return {
     requestId,
-    status: receipt.status,
+    status: receipt.status === "held" ? "failed" : receipt.status,
     ...(typeof receipt.version === "string" && receipt.version ? { version: receipt.version } : {}),
     ...(typeof receipt.error === "string" && receipt.error ? { error: receipt.error } : {}),
     ...(typeof receipt.errorCode === "string" && receipt.errorCode

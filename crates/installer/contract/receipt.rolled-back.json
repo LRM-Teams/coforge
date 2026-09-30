@@ -7,6 +7,18 @@
   "error": "Computer supervisor did not report 0.2.0",
   "errorCode": "UPGRADE_ROLLED_BACK",
   "protocol": "coforge-installer/v1",
-  "exit_code": 1,
-  "installer_version": "0.1.0"
+  "installer_version": "0.1.0",
+  "deadProcessIdentities": [
+    {
+      "pid": 4242,
+      "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213337",
+      "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+    },
+    {
+      "pid": 4243,
+      "startedAt": "0d9a7e64-6e5f-4a1b-8c3d-2f4e6a8b0c1d:48213351",
+      "executable": "/home/example/.coforge/computer/install/versions/0.1.0/coforge-computer"
+    }
+  ],
+  "exit_code": 1
 }
