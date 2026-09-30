@@ -85,8 +85,8 @@ test("the deleted strings (caveat, refresh button, per-entry columns, directory 
 });
 
 test("the empty-group and group-label copy exists for both scopes", () => {
-  expect(m.agent_skills_global()).toBe("Global");
-  expect(m.agent_skills_workspace()).toBe("Workspace");
+  expect(String(m.agent_skills_global())).toBe("Global");
+  expect(String(m.agent_skills_workspace())).toBe("Workspace");
   expect(m.agent_skills_global_empty().length).toBeGreaterThan(0);
   expect(m.agent_skills_workspace_empty().length).toBeGreaterThan(0);
 });
