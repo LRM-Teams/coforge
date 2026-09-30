@@ -63,6 +63,15 @@ export const Route = createFileRoute("/w/$workspaceSlug/_chat")({
     return { workspaceId: currentWorkspaceId };
   },
   pendingComponent: MessagesPending,
+  // The loading screen is on screen from the first paint (the server sends it), and during
+  // hydration the router holds it for the minimum again even when Chat's data is ready (Start's
+  // selective-SSR guide: "this fallback will be displayed for at least minPendingMs"), which held a
+  // page opened from the browser's stored copy ~300 ms (painted at ~450 ms instead of ~150 ms).
+  // The same value governs entering Chat from another section while this layout is still loading:
+  // there a load that just crosses the delay shows the skeleton only briefly (the one exception to
+  // lib/pending-policy.ts, see docs/design/component-decisions.md).
+  // https://tanstack.com/start/latest/docs/framework/react/guide/selective-ssr
+  pendingMinMs: 0,
   errorComponent: PageLoadError,
   component: MessagesPage,
 });

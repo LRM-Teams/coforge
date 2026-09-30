@@ -7,7 +7,8 @@ import { Route as agentsRoute } from "#src/routes/w.$workspaceSlug/members";
 
 test("Members takes the shared pending policy instead of restating it", () => {
   // The delay and the minimum live once, in the router defaults (lib/pending-policy.ts); a route
-  // that writes its own number is how they drifted apart in the first place.
+  // that writes its own number is how they drifted apart in the first place. The one stated
+  // exception is Chat's layout (`pending-policy.test.ts`).
   expect(agentsRoute.options.pendingMs).toBeUndefined();
   expect(agentsRoute.options.pendingMinMs).toBeUndefined();
   expect(agentsRoute.options.pendingComponent).toBeDefined();
