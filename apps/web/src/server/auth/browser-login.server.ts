@@ -9,6 +9,9 @@ export type BrowserUser = {
   /** What the provider reported, trimmed and lower-cased. An account made with a phone number
    * alone has none; the user is identified by `(provider, sub)`, never by this. */
   email: string | null;
+  /** What the provider reported as the person's name (else its nickname), trimmed; empty when it
+   * reported neither. It only starts the first-sign-in name field: a person is named by their
+   * stored `fullName` (`humanLabel`), never by this. */
   name: string;
   authingSub: string;
   username: string;
@@ -21,7 +24,12 @@ export type InternalUserResolver = (input: {
   /** What the provider reported as the person's name, for a username when nothing better names them. */
   name?: string;
   nickname?: string;
-}) => Promise<{ id: string; username: string }>;
+}) => Promise<{
+  id: string;
+  username: string;
+  /** The person's stored full name; null until they have been asked for one. */
+  fullName: string | null;
+}>;
 
 export type AuthingConfig = {
   appId: string;
@@ -155,6 +163,9 @@ export async function completeBrowserLogin(input: {
   now?: () => number;
 }): Promise<{
   user: BrowserUser;
+  /** The person's stored full name, or null when they have none yet: sign-in then continues at the
+   * name step rather than creating anything for them. */
+  fullName: string | null;
   sessionCookie: string;
   clearStateCookie: string;
   /** Where sign-in started, when that was a page of this site. */
@@ -193,16 +204,13 @@ export async function completeBrowserLogin(input: {
     : {
         id: testOnlyStableInternalUserId("authing", profile.sub),
         username: `user-${testOnlyStableInternalUserId("authing", profile.sub).replaceAll("-", "")}`,
+        fullName: null,
       };
   const user: BrowserUser = {
     id: resolved.id,
     username: resolved.username,
     email,
-    // Never the phone number: without a name or an email, the name is the username.
-    name:
-      profile.name?.trim() ||
-      profile.nickname?.trim() ||
-      (email ? email.split("@")[0] || email : resolved.username),
+    name: profile.name?.trim() || profile.nickname?.trim() || "",
     authingSub: profile.sub,
   };
   const session: SignedSession = {
@@ -212,6 +220,7 @@ export async function completeBrowserLogin(input: {
   };
   return {
     user,
+    fullName: resolved.fullName,
     sessionCookie: serializeCookie(
       SESSION_COOKIE,
       sign("session", session, input.sessionSecret),

@@ -10,12 +10,16 @@ These rules apply to `src/routes/`.
   `computers`, `computer/$computerId`, `settings`, plus `projects` and
   `records`; a direct message is `dm/$dmId`, by its conversation id. Pathless layouts (`_chat`, `_computers`) share chrome between
   pages without adding a URL segment. Old URLs are not redirected.
-- Pages opened before someone is in a Workspace — `login`, `join/$token`,
+- Pages opened before someone is in a Workspace — `login`, `welcome`, `join/$token`,
   `oauth/verify`, `workspaces/new` — stay outside `/w/$workspaceSlug`; sign-in,
-  invite links, and creating a first Workspace share
+  the name step, invite links, and creating a first Workspace share
   `features/auth/auth-split-layout.tsx`. A signed-in User in no Workspace is sent
   from `/` and from a `/w/<slug>` they cannot open to `workspaces/new`. A page that needs sign-in sends
   people to `/login?returnTo=<its path>`.
+- A signed-in User with no `fullName` is asked for one once, at `welcome?returnTo=<page>`: sign-in
+  sends them there before it makes their personal Workspace, and `/w/$workspaceSlug` (its loader),
+  `workspaces/new` and `join/$token` send them there with `nameStepRedirect`, so every way in makes
+  that Workspace after the answer. `oauth/verify` is not gated: approving a Computer needs no name.
 - The page URL names the Workspace: server functions act on it
   (`workspaceUserMiddleware`), and a Workspace the User is not in is a 404
   (for a User in no Workspace at all, `workspaces/new`).

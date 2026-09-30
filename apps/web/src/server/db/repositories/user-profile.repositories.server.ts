@@ -29,6 +29,8 @@ export class PrismaUserProfileRepository {
       name: humanLabel(profile),
       username: profile.username,
       displayName: profile.displayName,
+      /** False until the person has been asked for their full name (first sign-in). */
+      named: profile.fullName !== null,
       description: profile.description,
       avatarUrl: avatarUrl(profile.avatarObjectKey),
     };

@@ -164,7 +164,7 @@ test("passes Authing preferred_username to first-identity resolution and stores 
     }),
     resolveUser: async (input) => {
       profile = input;
-      return { id: "00000000-0000-5000-8000-000000000002", username: "ada" };
+      return { id: "00000000-0000-5000-8000-000000000002", username: "ada", fullName: null };
     },
   });
   expect(profile).toEqual({
@@ -186,7 +186,11 @@ test("the profile's name and nickname reach user resolution, so a username can b
   let resolved: unknown;
   await signIn({ sub: "s", name: " Ada Lovelace ", nickname: "Ace" }, async (input) => {
     resolved = input;
-    return { id: "00000000-0000-5000-8000-000000000004", username: "ada-lovelace" };
+    return {
+      id: "00000000-0000-5000-8000-000000000004",
+      username: "ada-lovelace",
+      fullName: null,
+    };
   });
 
   expect(resolved).toEqual({
@@ -230,25 +234,48 @@ test("an account with no email reaches user resolution with a null email, and no
   let resolved: unknown;
   await signIn({ sub: "authing-phone-user" }, async (input) => {
     resolved = input;
-    return { id: "00000000-0000-5000-8000-000000000003", username: "user-0a1b2c3d" };
+    return {
+      id: "00000000-0000-5000-8000-000000000003",
+      username: "user-0a1b2c3d",
+      fullName: null,
+    };
   });
 
   expect(resolved).toEqual({ provider: "authing", subject: "authing-phone-user", email: null });
 });
 
-test("without an email the name is the profile name, then the nickname, then the username", async () => {
+// The session's `name` is what the provider reported (its name, else its nickname), kept only to
+// start the first-sign-in name field with. It is never a stand-in for a person's name: nothing is
+// derived from an email or the username.
+
+test("the session name is the provider's name, trimmed, else its nickname, else nothing", async () => {
   const resolveUser = async () => ({
     id: "00000000-0000-5000-8000-000000000003",
     username: "user-0a1b2c3d",
+    fullName: null,
+  });
+  const nameOf = async (profile: Omit<AuthingProfile, "sub">) =>
+    (await signIn({ sub: "s", ...profile }, resolveUser)).user.name;
+
+  expect(await nameOf({ name: " Ada ", nickname: "Ace" })).toBe("Ada");
+  expect(await nameOf({ nickname: " Ace " })).toBe("Ace");
+  expect(await nameOf({ name: "  ", nickname: "Ace" })).toBe("Ace");
+  expect(await nameOf({ name: "  ", nickname: "" })).toBe("");
+  // An email is not a name, and neither is the username the account was given.
+  expect(await nameOf({ email: "Grace@Example.com" })).toBe("");
+  expect(await nameOf({ preferred_username: "grace" })).toBe("");
+});
+
+test("sign-in reports the full name the person already has, or none", async () => {
+  const resolved = (fullName: string | null) => async () => ({
+    id: "00000000-0000-5000-8000-000000000003",
+    username: "ada",
+    fullName,
   });
 
-  expect((await signIn({ sub: "s", name: " Ada ", nickname: "Ace" }, resolveUser)).user.name).toBe(
-    "Ada",
-  );
-  expect((await signIn({ sub: "s", nickname: " Ace " }, resolveUser)).user.name).toBe("Ace");
-  expect((await signIn({ sub: "s", name: "  ", nickname: "" }, resolveUser)).user.name).toBe(
-    "user-0a1b2c3d",
-  );
+  expect((await signIn({ sub: "s", name: "Ada" }, resolved(null))).fullName).toBeNull();
+  // The provider's name is not the stored one: the stored one is what decides.
+  expect((await signIn({ sub: "s" }, resolved("Ada Lovelace"))).fullName).toBe("Ada Lovelace");
 });
 
 test("an email is trimmed and lower-cased, and a blank one counts as none", async () => {
@@ -257,10 +284,6 @@ test("an email is trimmed and lower-cased, and a blank one counts as none", asyn
 
   const blank = await signIn({ sub: "s", email: "   ", name: "Ada" });
   expect(blank.user.email).toBeNull();
-
-  // With an email and no name, the name is what comes before the @ (unchanged behaviour).
-  const unnamed = await signIn({ sub: "s", email: "Grace@Example.com" });
-  expect(unnamed.user.name).toBe("grace");
 });
 
 test("endBrowserLogin clears the session cookie and returns the Authing logout URL", () => {

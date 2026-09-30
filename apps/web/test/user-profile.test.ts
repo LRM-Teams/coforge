@@ -57,6 +57,21 @@ test("profile updates normalize editable names and reject an empty name", () => 
   ).toBeFalse();
 });
 
+test("the profile's name follows the same rule as the full name asked at first sign-in", () => {
+  const save = (name: string) => saveUserProfileInputSchema.safeParse({ name, description: "" });
+
+  expect(save("  Ada   Lovelace ")).toMatchObject({
+    success: true,
+    data: { name: "Ada Lovelace" },
+  });
+  // Counted in characters, not UTF-16 units: 41 emoji fit, 81 do not.
+  expect(save("\u{1F600}".repeat(41)).success).toBe(true);
+  expect(save("\u{1F600}".repeat(81)).success).toBe(false);
+  for (const refused of ["@ada", "System", "\u200b", "\u2800", "Ada\u202eLovelace", "Ada\u0000"]) {
+    expect(save(refused).success).toBe(false);
+  }
+});
+
 test("the profile names the person by the label teammates see, not by the sign-in name", async () => {
   const named = profileRepository({ username: "ada", displayName: "Ada Lovelace" });
   expect((await named.repository.get("user-1")).name).toBe("Ada Lovelace");
@@ -89,6 +104,15 @@ test("a person with a full name and no display name is named by the full name", 
     fullName: "Ada Lovelace",
   });
   expect((await nicknamed.repository.get("user-1")).name).toBe("Countess");
+});
+
+test("the profile says whether the person has been asked for a full name", async () => {
+  // A display name is a nickname: having one does not answer the first-sign-in question.
+  const unasked = profileRepository({ username: "ada", displayName: "Countess", fullName: null });
+  expect((await unasked.repository.get("user-1")).named).toBe(false);
+
+  const asked = profileRepository({ username: "ada", displayName: null, fullName: "Ada Lovelace" });
+  expect((await asked.repository.get("user-1")).named).toBe(true);
 });
 
 test("saving only the description does not freeze the full name into the display name", async () => {

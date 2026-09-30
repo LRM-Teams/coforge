@@ -2,8 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { getAuthenticationStatus } from "#src/features/auth/current-user.functions";
 import { LoginErrorPage } from "#src/features/auth/login-error-page";
-import { localizedReturnHref, safeReturnTo, signInHref } from "#src/features/auth/return-to";
-import { localizeHref } from "#src/paraglide/runtime";
+import { afterSignInHref, safeReturnTo, signInHref } from "#src/features/auth/return-to";
 
 /**
  * Sign-in has no page of its own: `/login` goes straight to Authing's hosted page through
@@ -20,7 +19,7 @@ export const Route = createFileRoute("/login")({
   beforeLoad: async ({ search }) => {
     const returnTo = safeReturnTo(search.returnTo);
     if (await getAuthenticationStatus()) {
-      throw redirect({ href: returnTo ? localizedReturnHref(returnTo) : localizeHref("/") });
+      throw redirect({ href: afterSignInHref(returnTo) });
     }
     // /auth/login is a server route, so the browser has to load it as a document.
     if (!search.error) throw redirect({ href: signInHref(returnTo), reloadDocument: true });

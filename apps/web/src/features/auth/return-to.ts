@@ -46,3 +46,17 @@ export function localizedReturnHref(path: string): string {
 export function signInHref(returnTo: string | undefined): string {
   return returnTo ? `/auth/login?returnTo=${encodeURIComponent(returnTo)}` : "/auth/login";
 }
+
+/** Where a person lands once a sign-in step is done: the page they were going to (a `safeReturnTo`
+ * path) with the locale prefix pages carry, else the app's own start page. */
+export function afterSignInHref(returnTo: string | undefined): string {
+  return returnTo ? localizedReturnHref(returnTo) : localizeHref("/");
+}
+
+/** The first-sign-in name step, coming back to `returnTo` (a `safeReturnTo` path) once the person
+ * has answered. Localized like any page, for a redirect that bypasses the router's rewrite. */
+export function welcomeHref(returnTo: string | undefined): string {
+  return localizedReturnHref(
+    returnTo ? `/welcome?returnTo=${encodeURIComponent(returnTo)}` : "/welcome",
+  );
+}

@@ -71,11 +71,15 @@ await db.user.upsert({
   create: {
     id: DEV_BROWSER_USER.id,
     username: DEV_BROWSER_USER.username,
-    displayName: DEV_BROWSER_USER.name,
+    fullName: DEV_BROWSER_USER.name,
   },
-  update: { username: DEV_BROWSER_USER.username, displayName: DEV_BROWSER_USER.name },
+  update: { username: DEV_BROWSER_USER.username, fullName: DEV_BROWSER_USER.name },
 });
-const workspaceId = await workspaceIdForUser(db, DEV_BROWSER_USER, "en");
+const workspaceId = await workspaceIdForUser(
+  db,
+  { ...DEV_BROWSER_USER, fullName: DEV_BROWSER_USER.name },
+  "en",
+);
 const workspace = await db.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
 console.log(`Workspace: ${workspace.slug} (${workspaceId})`);
 
@@ -88,18 +92,18 @@ const rileyId = stableId("user:riley-chen"); // not a member — invitee only
 
 await db.user.upsert({
   where: { id: jordanId },
-  create: { id: jordanId, username: "jordan-lee", displayName: "Jordan Lee" },
-  update: { displayName: "Jordan Lee" },
+  create: { id: jordanId, username: "jordan-lee", fullName: "Jordan Lee" },
+  update: { fullName: "Jordan Lee" },
 });
 await db.user.upsert({
   where: { id: caseyId },
-  create: { id: caseyId, username: "casey-morgan", displayName: "Casey Morgan" },
-  update: { displayName: "Casey Morgan" },
+  create: { id: caseyId, username: "casey-morgan", fullName: "Casey Morgan" },
+  update: { fullName: "Casey Morgan" },
 });
 await db.user.upsert({
   where: { id: rileyId },
-  create: { id: rileyId, username: "riley-chen", displayName: "Riley Chen" },
-  update: { displayName: "Riley Chen" },
+  create: { id: rileyId, username: "riley-chen", fullName: "Riley Chen" },
+  update: { fullName: "Riley Chen" },
 });
 
 await db.workspaceMembership.upsert({

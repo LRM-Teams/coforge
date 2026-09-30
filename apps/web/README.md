@@ -27,7 +27,10 @@ public origin with a trailing slash as a logout redirect URL, such as
 
 For local UI work without Authing, uncomment `COFORGE_DEV_SKIP_AUTH=1` in
 `apps/web/.env`. This returns a fixed dev user on the server and is ignored when
-`NODE_ENV=production`. Remove or disable it before validating real login flows.
+`NODE_ENV=production`. Remove or disable it before validating real login flows. The dev user
+needs a row in the database (`bun run seed:dev` creates it with a full name). A dev user with a
+row and no full name is asked for one at the first-sign-in name page like anyone else, and that
+works; with no row at all there is nothing to save a name on, and pages fail until it is seeded.
 
 Web Push uses one stable VAPID P-256 key pair. Set the URL-safe base64 public
 key in `COFORGE_WEB_PUSH_PUBLIC_KEY`, put the matching private key in a local

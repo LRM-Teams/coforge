@@ -104,7 +104,7 @@ responsibility.
 - `features/agents/` — Members page, Agent creation, profile panel, control buttons, and Agent status and Activity display.
 - `features/auth/` — the sign-in error page, the split shell of the pages before
   sign-in, `returnTo` handling, signing out (`signOut`) and the step `/` takes to resume sign-in
-  after signing out to switch account, and the auth middleware for server functions.
+  after signing out to switch account, the first-sign-in name step (`/welcome`), and the auth middleware for server functions.
 - `features/cache-persistence/` — the browser's copy of the Query cache in IndexedDB that Chat opens from (what is kept, per person, removed at sign-out).
 - `features/computers/` — Computer list/detail, setup, and Runtime Usage.
 - `features/conversations/` — channels, direct messages, threads, composer, message rendering, action cards, saved messages, and the sidebar lists.
@@ -116,7 +116,7 @@ responsibility.
 - `features/landing/` — the public homepage.
 - `features/notifications/` — browser push lifecycle and in-page notifications.
 - `features/panel-tabs/` — each member's saved panel tab order.
-- `features/profiles/` — current-user profile read and description update.
+- `features/profiles/` — current-user profile read and update, and the one rule for a person's name (`person-name.ts`).
 - `features/projects/` — Projects directory, project detail, file browser,
   and project settings page.
 - `features/realtime/` — the one browser Centrifuge connection.
@@ -130,7 +130,7 @@ responsibility.
   Activity (Computer lifecycle rows included), visibility, deletion, and the
   Agent HTTPS API.
 - `server/attachments/` — attachment upload sessions, claiming a sender's uploads for a new message, and delivery.
-- `server/auth/` — login, sessions, username allocation, the one-time rename of existing usernames (run by `scripts/rename-usernames.ts`: `username-rename-plan` the pure rules, `-text` the `@handle` rewrite, `-copies.repository` where a username is stored, `-dump` and `-dump-file` the way back and its file, `-violations` what a renamed database keeps, `username-rename` preview, apply and restore), device auth, API keys, and auth guards.
+- `server/auth/` — login, sessions, username allocation, the first-sign-in name step, the one-time rename of existing usernames (run by `scripts/rename-usernames.ts`: `username-rename-plan` the pure rules, `-text` the `@handle` rewrite, `-copies.repository` where a username is stored, `-dump` and `-dump-file` the way back and its file, `-violations` what a renamed database keeps, `username-rename` preview, apply and restore), device auth, API keys, and auth guards.
 - `server/centrifugo/` — Centrifugo proxies, RPC receivers, and short-lived
   result caches.
 - `server/computers/` — Computer registration, metadata, restart and upgrade

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { getSignedInAccount } from "#src/features/auth/current-user.functions";
+import { nameStepRedirect } from "#src/features/auth/name-step-redirect";
 import { inspectWorkspaceJoinLink } from "#src/features/workspaces/join-links.functions";
 import { JoinWorkspacePage } from "#src/features/workspaces/join-workspace-page";
 import { isAppError } from "#src/lib/app-error";
@@ -11,14 +12,18 @@ import { isAppError } from "#src/lib/app-error";
  */
 export const Route = createFileRoute("/join/$token")({
   loader: async ({ params }) => {
-    const [preview, viewerAccount] = await Promise.all([
+    const [preview, viewer] = await Promise.all([
       inspectWorkspaceJoinLink({ data: { token: params.token } }).catch((error: unknown) => {
         if (isAppError(error) && error.code === "NOT_FOUND") return null;
         throw error;
       }),
       getSignedInAccount(),
     ]);
-    return { preview, viewerAccount };
+    // Joining is a way in like any other: the person's personal Workspace is made the same way,
+    // with the name they give first, and the link is where they land after.
+    if (viewer && !viewer.named)
+      throw nameStepRedirect(`/join/${encodeURIComponent(params.token)}`);
+    return { preview, viewerAccount: viewer?.account ?? null };
   },
   // Whether the link still works, and who is looking, must never come from a cache.
   staleTime: 0,

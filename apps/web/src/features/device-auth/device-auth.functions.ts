@@ -1,10 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 
-import { accountLabel } from "#src/features/auth/account-label";
 import { authMiddleware } from "#src/features/auth/function-auth";
 import { userCodeInputSchema } from "./device-auth.schemas";
 import { approveUserCode, denyUserCode, lookupUserCode } from "#src/server/auth/device-auth.server";
 import { deviceAuthorizationStore } from "#src/server/auth/device-auth-store.server";
+import { signedInAccount } from "#src/server/auth/signed-in-account.server";
+import { requireDatabaseClient } from "#src/server/db/client.server";
 
 /**
  * The browser half of the device flow. Every one of these requires a signed-in user - the whole
@@ -21,7 +22,8 @@ export type DeviceCodeState = "ok" | "unknown" | "expired" | "settled" | "unavai
 export const getDeviceVerifyUser = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    return { account: accountLabel(context.user) };
+    const { account } = await signedInAccount(requireDatabaseClient(), context.user);
+    return { account };
   });
 
 /** Checks a typed code without settling it, so the page can name what is about to be approved

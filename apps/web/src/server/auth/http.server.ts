@@ -20,7 +20,7 @@ import { UserIdentityRepository } from "./user-identity.repository.server";
 import { getDatabaseClient } from "#src/server/db/client.server";
 import { publicOrigin } from "#src/server/http/public-origin.server";
 import { workspaceIdForUser } from "#src/server/workspaces/enrollment.server";
-import { localizedReturnHref } from "#src/features/auth/return-to";
+import { localizedReturnHref, welcomeHref } from "#src/features/auth/return-to";
 
 export function handleLoginStart(input: {
   config: AuthingConfig;
@@ -44,7 +44,7 @@ export async function handleLoginCallback(input: {
   sessionSecret: string;
   authing?: TokenExchanger;
   resolveUser?: Parameters<typeof completeBrowserLogin>[0]["resolveUser"];
-  enrollUser?: (userId: string) => Promise<void>;
+  enrollUser?: (user: { id: string; username: string; fullName: string }) => Promise<void>;
 }): Promise<Response> {
   const url = new URL(input.request.url);
   const code = url.searchParams.get("code") ?? "";
@@ -60,18 +60,25 @@ export async function handleLoginCallback(input: {
       authing: input.authing ?? createAuthingExchanger(input.config),
       resolveUser: input.resolveUser ?? persistedIdentityResolver(),
     });
+    const cookies = [completed.sessionCookie, completed.clearStateCookie];
+    const { fullName } = completed;
+    // A person who has not been asked for a name is signed in, but nothing is made for them until
+    // they answer: their personal Workspace is titled with it (`completeFirstSignIn`).
+    if (fullName === null) {
+      return redirect(welcomeHref(completed.returnTo), {
+        "set-cookie": cookies,
+        "cache-control": "no-store",
+      });
+    }
     await atLoginStage("enrollment", async () => {
-      if (input.enrollUser) return input.enrollUser(completed.user.id);
+      const enrolling = { id: completed.user.id, username: completed.user.username, fullName };
+      if (input.enrollUser) return input.enrollUser(enrolling);
       const db = getDatabaseClient();
       if (!db) throw new LoginCallbackError("enrollment", { reason: "database is unavailable" });
-      await workspaceIdForUser(
-        db,
-        completed.user,
-        input.request.headers.get("accept-language") ?? "",
-      );
+      await workspaceIdForUser(db, enrolling, input.request.headers.get("accept-language") ?? "");
     });
     return redirect(completed.returnTo ? localizedReturnHref(completed.returnTo) : "/", {
-      "set-cookie": [completed.sessionCookie, completed.clearStateCookie],
+      "set-cookie": cookies,
       "cache-control": "no-store",
     });
   } catch (error) {

@@ -3,6 +3,8 @@ import type { BrowserUser } from "./browser-login.server";
 export const DEV_BROWSER_USER: BrowserUser = {
   id: "00000000-0000-5000-8000-000000000001",
   email: "dev@coforge.local",
+  // Also the full name `seed:dev` stores, so the dev user is not asked for one at the first-sign-in
+  // name step. It could answer it (the step saves onto the user's row); only a missing row fails.
   name: "Dev User",
   authingSub: "dev-skip-auth",
   username: "dev-user",

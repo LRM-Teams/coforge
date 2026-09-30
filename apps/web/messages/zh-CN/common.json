@@ -45,5 +45,12 @@
   "error_reference": "错误编号：{errorId}",
   "navigation_open_menu": "打开菜单",
   "navigation_close_menu": "关闭菜单",
-  "navigation_activity": "动态"
+  "navigation_activity": "动态",
+  "welcome_title": "输入你的全名",
+  "welcome_full_name_label": "全名",
+  "welcome_continue": "继续",
+  "welcome_error_empty": "请输入你的全名。",
+  "welcome_error_too_long": "全名最多 {max} 个字符。",
+  "welcome_error_refused": "不能使用这个名字。",
+  "welcome_error_save_failed": "保存失败，请重试。"
 }
