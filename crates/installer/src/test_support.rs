@@ -43,8 +43,8 @@ impl Drop for Scratch {
 
 pub(crate) use loopback::{Response, Server};
 
-/// A loopback HTTP server that answers fixed responses by path, for tests of downloads. It
-/// speaks just enough HTTP/1.1 for `ureq`: one request per connection, then close.
+/// A loopback HTTP server that answers fixed responses by path, for tests of the release feed
+/// client. It speaks just enough HTTP/1.1 for `ureq`: one request per connection, then close.
 mod loopback {
     use std::collections::BTreeMap;
     use std::io::{BufRead, BufReader, Write};
@@ -252,14 +252,107 @@ mod loopback {
     }
 }
 
-/// Gzip of `bytes`.
-pub(crate) fn gzip(bytes: &[u8]) -> Vec<u8> {
+pub(crate) use release::{Release, gzip};
+
+/// A tiny release tree, for tests of everything that reads the feed.
+mod release {
+    use std::collections::BTreeMap;
     use std::io::Write;
 
     use flate2::Compression;
     use flate2::write::GzEncoder;
+    use serde_json::{Value, json};
 
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder.write_all(bytes).unwrap();
-    encoder.finish().unwrap()
+    use super::Response;
+    use crate::digest::measure_bytes;
+
+    pub(crate) struct Release {
+        pub(crate) version: String,
+        pub(crate) target: String,
+        /// What the feed serves for `<version>/<target>/coforge-computer.gz`, once expanded.
+        pub(crate) computer: Vec<u8>,
+        pub(crate) computer_gzip: Vec<u8>,
+        pub(crate) photon_wasm: Vec<u8>,
+    }
+
+    pub(crate) fn gzip(bytes: &[u8]) -> Vec<u8> {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    impl Release {
+        pub(crate) fn new(version: &str, target: &str) -> Self {
+            let computer = b"#!/bin/sh\necho a fake coforge-computer\n".to_vec();
+            Self {
+                version: version.to_owned(),
+                target: target.to_owned(),
+                computer_gzip: gzip(&computer),
+                computer,
+                photon_wasm: b"\0asm\x01\0\0\0a fake photon".to_vec(),
+            }
+        }
+
+        /// `<version>/manifest.json`, as the release build writes it.
+        pub(crate) fn manifest(&self) -> Value {
+            let computer = measure_bytes(&self.computer);
+            let gzip = measure_bytes(&self.computer_gzip);
+            let wasm = measure_bytes(&self.photon_wasm);
+            json!({
+                "schema_version": 2,
+                "version": self.version,
+                "commit": "0123456789abcdef0123456789abcdef01234567",
+                "buildDate": "2026-09-29T00:00:00.000Z",
+                "platforms": {
+                    self.target.clone(): {
+                        "computer": {
+                            "binary": "coforge-computer",
+                            "size": computer.size,
+                            "checksum": computer.checksum,
+                            "gzip": {
+                                "binary": "coforge-computer.gz",
+                                "size": gzip.size,
+                                "checksum": gzip.checksum,
+                            },
+                        },
+                    },
+                },
+                "photonWasm": {
+                    "file": "photon_rs_bg.wasm",
+                    "size": wasm.size,
+                    "checksum": wasm.checksum,
+                },
+            })
+        }
+
+        pub(crate) fn computer_path(&self) -> String {
+            format!("/{}/{}/coforge-computer.gz", self.version, self.target)
+        }
+
+        pub(crate) fn photon_wasm_path(&self) -> String {
+            format!("/{}/photon_rs_bg.wasm", self.version)
+        }
+
+        /// Every object of the release, plus a `latest` pointer naming it.
+        pub(crate) fn routes(&self) -> BTreeMap<String, Response> {
+            BTreeMap::from([
+                (
+                    "/latest".to_owned(),
+                    Response::ok(format!("{}\n", self.version)),
+                ),
+                (
+                    format!("/{}/manifest.json", self.version),
+                    Response::ok(format!("{:#}\n", self.manifest())),
+                ),
+                (
+                    self.computer_path(),
+                    Response::ok(self.computer_gzip.clone()),
+                ),
+                (
+                    self.photon_wasm_path(),
+                    Response::ok(self.photon_wasm.clone()),
+                ),
+            ])
+        }
+    }
 }
