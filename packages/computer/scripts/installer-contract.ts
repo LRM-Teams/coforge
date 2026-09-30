@@ -388,7 +388,8 @@ export function renderInstallerContract(): Map<string, string> {
         message: "The Computer supervisor is not running.",
       }),
     ],
-    // `__lifecycle` exit statuses and the codes it names itself (installer-contract.ts).
+    // `__lifecycle` exit statuses and error codes (installer-contract.ts) and status problem codes
+    // (release/supervisor-control.ts).
     [
       "lifecycle-codes.json",
       json({

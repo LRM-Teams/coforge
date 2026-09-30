@@ -96,14 +96,12 @@ export const LIFECYCLE_ERROR_CODE = {
 
 const lifecycleProtocol = z.number().int().positive();
 
-/** `__lifecycle protocol`: answered without contacting the Coordinator. */
+/** `__lifecycle protocol`: answered without contacting the supervisor or writing anything. */
 export const LifecycleProtocolSchema = z
   .looseObject({ lifecycle_protocol: lifecycleProtocol, version: z.string() })
   .meta({ title: "__lifecycle protocol" });
 
-/** One reason the runtime set is not healthy: `code` is one of `SUPERVISOR_PROBLEM_CODE`,
- * `message` a sentence for a person naming the command that fixes it, and `binding_id` is set
- * when the problem is one Workspace's. */
+/** One reason the runtime set is not healthy (`SupervisorProblem` in supervisor-control.ts). */
 export const LifecycleProblemSchema = z.looseObject({
   code: z.string().regex(UPGRADE_ERROR_CODE_PATTERN),
   binding_id: z.string().optional(),

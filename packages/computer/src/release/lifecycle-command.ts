@@ -27,30 +27,37 @@ import {
  * `LIFECYCLE_EXIT_CODE`.
  */
 export async function runLifecycleCommand(args: readonly string[]): Promise<number> {
-  // Logs go to the Computer's own file only, so `coforge-computer logs` shows the pause, hold,
-  // release, and resume the installer asked for; stdout carries nothing but the one JSON result.
-  const logging = await configureComputerLogger({
-    dataDirectory: resolveComputerConfigDirectory({
-      platform: process.platform,
-      homeDirectory: homedir(),
-      environment: process.env,
-    }),
-    version: COFORGE_COMPUTER_VERSION,
-  });
-  try {
-    return await runCommand(args, createSupervisorControl(resolveSupervisorPaths()));
-  } finally {
-    await logging.close();
-  }
+  return runCommand(args, createSupervisorControl(resolveSupervisorPaths()));
 }
+
+/** The verbs that change the running supervisor; only these are logged. */
+const LOGGED_COMMANDS = new Set(["pause", "hold", "release", "resume"]);
 
 async function runCommand(args: readonly string[], control: SupervisorControl): Promise<number> {
   const print = (value: object) => process.stdout.write(`${JSON.stringify(value)}\n`);
   const ack: LifecycleAck = { lifecycle_protocol: LIFECYCLE_PROTOCOL, ok: true };
+  // A machine interface: no help or version output, and every Commander failure is a usage error.
   const program = new Command()
     .name("coforge-computer __lifecycle")
+    .helpOption(false)
+    .helpCommand(false)
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} });
+  // Logs go to the Computer's own file only, so `coforge-computer logs` shows the pause, hold,
+  // release, and resume the installer asked for. `protocol` and `status` stay free of side
+  // effects: the installer probes a candidate binary that was never run.
+  let logging: { close(): Promise<void> } | undefined;
+  program.hook("preAction", async (_program, action) => {
+    if (!LOGGED_COMMANDS.has(action.name())) return;
+    logging = await configureComputerLogger({
+      dataDirectory: resolveComputerConfigDirectory({
+        platform: process.platform,
+        homeDirectory: homedir(),
+        environment: process.env,
+      }),
+      version: COFORGE_COMPUTER_VERSION,
+    });
+  });
   program.command("protocol").action(() => {
     print({ lifecycle_protocol: LIFECYCLE_PROTOCOL, version: COFORGE_COMPUTER_VERSION });
   });
@@ -67,7 +74,11 @@ async function runCommand(args: readonly string[], control: SupervisorControl): 
         process_id: binding.processId,
       })),
       healthy: status.problems.length === 0,
-      problems: status.problems,
+      problems: status.problems.map(({ code, bindingId, message }) => ({
+        code,
+        ...(bindingId ? { binding_id: bindingId } : {}),
+        message,
+      })),
     } satisfies LifecycleStatus);
   });
   for (const name of ["pause", "resume"] as const)
@@ -111,6 +122,8 @@ async function runCommand(args: readonly string[], control: SupervisorControl): 
       ),
     );
     return LIFECYCLE_EXIT_CODE.FAILED;
+  } finally {
+    await logging?.close();
   }
 }
 

@@ -11,7 +11,6 @@ import {
 } from "@lrm/coforge-daemon";
 
 import { resolveComputerStateDirectory, resolveDaemonSocketPath } from "#src/paths";
-import type { LifecycleProblem } from "./installer-contract";
 
 const logger = getLogger(["coforge", "computer", "upgrade"]);
 
@@ -22,15 +21,20 @@ export type SupervisorBinding = {
   processId: number | null;
 };
 
+/** One reason the runtime set is not healthy: `code` is one of `SUPERVISOR_PROBLEM_CODE`,
+ * `message` a sentence for a person naming the command that fixes it, and `bindingId` is set when
+ * the problem is one Workspace's. */
+export type SupervisorProblem = { code: string; bindingId?: string; message: string };
+
 /** What the Computer supervisor is running, and every reason its Workspace runtime set is not in
  * the state its bindings ask for. An upgrade refuses to start unless `problems` is empty. */
 export type SupervisorStatus = {
   supervisor: { running: false } | { running: true; id?: string; version?: string };
   bindings: SupervisorBinding[];
-  problems: LifecycleProblem[];
+  problems: SupervisorProblem[];
 };
 
-/** Why a runtime set is not healthy (`LifecycleProblem.code`, installer/contract/lifecycle-codes.json). */
+/** Why a runtime set is not healthy (`SupervisorProblem.code`; installer/contract/lifecycle-codes.json). */
 export const SUPERVISOR_PROBLEM_CODE = {
   /** Enabled Workspaces that are not parked, and no supervisor running them. */
   SUPERVISOR_NOT_RUNNING: "LIFECYCLE_SUPERVISOR_NOT_RUNNING",
@@ -55,7 +59,7 @@ export type SupervisorControlOptions = {
  * restart's runner hold (30 s), its stop, and its readiness (30 s), with room to spare. Work still
  * queued is refused by the pause, so only running work is waited for.
  */
-const LIFECYCLE_SETTLE: LifecycleSettle = { timeoutMs: 120_000, pollMs: 500 };
+export const LIFECYCLE_SETTLE: LifecycleSettle = { timeoutMs: 120_000, pollMs: 500 };
 
 /** Nothing listens on the supervisor socket: it is missing, or nothing accepts on it. */
 export class SupervisorNotRunningError extends Error {
@@ -134,7 +138,7 @@ export function createSupervisorControl(options: SupervisorControlOptions) {
     const persisted = (await file.exists())
       ? ((await file.json()) as { workspaceId: string; enabled: boolean }[])
       : [];
-    const problems: LifecycleProblem[] = [];
+    const problems: SupervisorProblem[] = [];
     for (const binding of persisted) {
       if (!binding.enabled) continue;
       const health = await new WorkspaceHealthJournal(
@@ -175,13 +179,13 @@ export function createSupervisorControl(options: SupervisorControlOptions) {
         running: runtime.processId > 0,
         processId: runtime.processId || null,
       })),
-      problems: runtimes.flatMap((runtime): LifecycleProblem[] => {
+      problems: runtimes.flatMap((runtime): SupervisorProblem[] => {
         const id = runtime.workspaceId;
         if (runtime.processId > 0 && !runtime.enabled)
           return [
             {
               code: SUPERVISOR_PROBLEM_CODE.WORKSPACE_STOPPED_BUT_RUNNING,
-              binding_id: id,
+              bindingId: id,
               message: `Workspace ${id} is stopped but still running. Run 'coforge-computer stop --workspace ${id}', then upgrade again.`,
             },
           ];
@@ -189,7 +193,7 @@ export function createSupervisorControl(options: SupervisorControlOptions) {
           return [
             {
               code: SUPERVISOR_PROBLEM_CODE.WORKSPACE_NOT_RUNNING,
-              binding_id: id,
+              bindingId: id,
               message: `Workspace ${id} is enabled but not running. Run 'coforge-computer start --workspace ${id}' (or 'coforge-computer stop --workspace ${id}' to leave it stopped), then upgrade again.`,
             },
           ];
@@ -247,7 +251,7 @@ export function createSupervisorControl(options: SupervisorControlOptions) {
     return outcome;
   }
 
-  /** Lifts the runner hold. Idempotent. */
+  /** Lifts the runner hold. Idempotent while the supervisor runs. */
   async function release(): Promise<void> {
     await reach(() => local.hold("release"));
     logger.info("Runner hold released", { event: "upgrade:runner_hold_released" });
