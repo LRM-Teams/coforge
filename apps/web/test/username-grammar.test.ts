@@ -48,7 +48,7 @@ test("every allocated shape is also a shape a stored username may have", () => {
 });
 
 test("a username stored before letter-first allocation is still a valid target shape", () => {
-  // Accounts created before this rule keep these names until they are renamed.
+  // Accounts created before this rule may still hold these names.
   for (const name of ["1049208871-2df895c9", "a", "9lives"]) {
     expect(STORED_USERNAME.test(name)).toBe(true);
     expect(USERNAME_PATTERN.test(name)).toBe(false);

@@ -995,9 +995,8 @@ model ThreadFollow {
 /// same transaction as the Message. Send-time resolution (grammar ∩ active membership) is the
 /// single source the stream highlight, directed Agent delivery, and Agent wake all read; the
 /// plain-text `@handle` in the body stays the canonical form for Agents and history. `handle`
-/// is denormalized from `agent.name` (fixed at creation) and `user.username` (which changes only
-/// through the one-time rename, `scripts/rename-usernames.ts`, which rewrites this column with it),
-/// so reads never join the member directory and a later member departure keeps the record intact.
+/// is denormalized from `agent.name` (fixed at creation) and `user.username` (not changed after it
+/// is allocated), so reads never join the member directory and a later member departure keeps the record intact.
 model MessageMention {
   messageId      String             @db.Uuid
   memberId       String             @db.Uuid
@@ -1008,8 +1007,8 @@ model MessageMention {
   /// The mentioned actor's stable UUID (`user.id` or `agent.id`) — the value embedded in the
   /// body's `<@human:uuid>`/`<@agent:uuid>` token, denormalized so renders never join.
   actorId        String             @db.Uuid
-  /// The handle as written: `user.username` or `agent.name`. An Agent's name is fixed; a username
-  /// changes only through the one-time rename, which rewrites this column with it.
+  /// The handle as written: `user.username` or `agent.name`. Neither changes once
+  /// allocated.
   handle         String
   createdAt      DateTime           @default(now())
   member         ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
@@ -1036,8 +1035,8 @@ model PendingMentionAction {
   /// Exactly one target is set (CHECK in the migration).
   targetUserId   String?            @db.Uuid
   targetAgentId  String?            @db.Uuid
-  /// The `@handle` as the sender wrote it (`user.username` or `agent.name`). An Agent's name is
-  /// fixed; a username changes only through the one-time rename, which rewrites this column.
+  /// The `@handle` as the sender wrote it (`user.username` or `agent.name`). Neither
+  /// changes once allocated.
   targetHandle   String
   expiresAt      DateTime
   /// When the sender acted on it, and how: "add" (CHECK in the migration). Null while pending.
