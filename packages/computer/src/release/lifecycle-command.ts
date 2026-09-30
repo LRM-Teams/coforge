@@ -1,41 +1,35 @@
-import { homedir } from "node:os";
 import { Command, CommanderError } from "commander";
 
-import { configureComputerLogger } from "#src/logging/computer-logger";
-import { resolveComputerConfigDirectory } from "#src/paths";
 import { COFORGE_COMPUTER_VERSION } from "#src/version";
 import {
   LIFECYCLE_ERROR_CODE,
   LIFECYCLE_EXIT_CODE,
   LIFECYCLE_PROTOCOL,
-  type LifecycleAck,
   type LifecycleError,
-  type LifecycleHold,
   type LifecycleStatus,
 } from "./installer-contract";
 import {
-  createSupervisorControl,
+  createSupervisorStatusReader,
   resolveSupervisorPaths,
-  SupervisorNotRunningError,
-  type SupervisorControl,
-} from "./supervisor-control";
+  type SupervisorStatusReader,
+} from "./supervisor-status";
 
 /**
  * `coforge-computer __lifecycle <command>`: the versioned JSON surface through which the
- * separately released installer controls this Computer. Every call prints exactly one JSON object
- * on stdout and nothing else, so the installer never parses human text; the exit status is one of
- * `LIFECYCLE_EXIT_CODE`.
+ * separately released installer reads this Computer. Every call prints exactly one JSON object on
+ * stdout and nothing else, so the installer never parses human text; the exit status is one of
+ * `LIFECYCLE_EXIT_CODE`. Both commands only read: the installer also probes a candidate binary
+ * that has never run.
  */
 export async function runLifecycleCommand(args: readonly string[]): Promise<number> {
-  return runCommand(args, createSupervisorControl(resolveSupervisorPaths()));
+  return runCommand(args, createSupervisorStatusReader(resolveSupervisorPaths()));
 }
 
-/** The verbs that change the running supervisor; only these are logged. */
-const LOGGED_COMMANDS = new Set(["pause", "hold", "release", "resume"]);
-
-async function runCommand(args: readonly string[], control: SupervisorControl): Promise<number> {
+async function runCommand(
+  args: readonly string[],
+  reader: SupervisorStatusReader,
+): Promise<number> {
   const print = (value: object) => process.stdout.write(`${JSON.stringify(value)}\n`);
-  const ack: LifecycleAck = { lifecycle_protocol: LIFECYCLE_PROTOCOL, ok: true };
   // A machine interface: no help or version output, and every Commander failure is a usage error.
   const program = new Command()
     .name("coforge-computer __lifecycle")
@@ -43,26 +37,11 @@ async function runCommand(args: readonly string[], control: SupervisorControl): 
     .helpCommand(false)
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} });
-  // Logs go to the Computer's own file only, so `coforge-computer logs` shows the pause, hold,
-  // release, and resume the installer asked for. `protocol` and `status` stay free of side
-  // effects: the installer probes a candidate binary that was never run.
-  let logging: { close(): Promise<void> } | undefined;
-  program.hook("preAction", async (_program, action) => {
-    if (!LOGGED_COMMANDS.has(action.name())) return;
-    logging = await configureComputerLogger({
-      dataDirectory: resolveComputerConfigDirectory({
-        platform: process.platform,
-        homeDirectory: homedir(),
-        environment: process.env,
-      }),
-      version: COFORGE_COMPUTER_VERSION,
-    });
-  });
   program.command("protocol").action(() => {
     print({ lifecycle_protocol: LIFECYCLE_PROTOCOL, version: COFORGE_COMPUTER_VERSION });
   });
   program.command("status").action(async () => {
-    const status = await control.status();
+    const status = await reader.status();
     print({
       lifecycle_protocol: LIFECYCLE_PROTOCOL,
       version: COFORGE_COMPUTER_VERSION,
@@ -81,30 +60,6 @@ async function runCommand(args: readonly string[], control: SupervisorControl): 
       })),
     } satisfies LifecycleStatus);
   });
-  for (const name of ["pause", "resume"] as const)
-    program
-      .command(name)
-      .requiredOption("--request-id <id>")
-      .action(async (options: { requestId: string }) => {
-        await control[name](options.requestId);
-        print(ack);
-      });
-  program
-    .command("hold")
-    .requiredOption("--request-id <id>")
-    .action(async (options: { requestId: string }) => {
-      const outcome = await control.hold(options.requestId);
-      print({
-        lifecycle_protocol: LIFECYCLE_PROTOCOL,
-        quiescent: outcome.quiescent,
-        elapsed_ms: outcome.elapsedMs,
-        busy_agent_count: outcome.busyAgents.length,
-      } satisfies LifecycleHold);
-    });
-  program.command("release").action(async () => {
-    await control.release();
-    print(ack);
-  });
   try {
     await program.parseAsync(args, { from: "user" });
     return LIFECYCLE_EXIT_CODE.OK;
@@ -115,15 +70,11 @@ async function runCommand(args: readonly string[], control: SupervisorControl): 
     }
     print(
       lifecycleError(
-        error instanceof SupervisorNotRunningError
-          ? LIFECYCLE_ERROR_CODE.SUPERVISOR_NOT_RUNNING
-          : LIFECYCLE_ERROR_CODE.FAILED,
+        LIFECYCLE_ERROR_CODE.FAILED,
         error instanceof Error ? error.message : String(error),
       ),
     );
     return LIFECYCLE_EXIT_CODE.FAILED;
-  } finally {
-    await logging?.close();
   }
 }
 

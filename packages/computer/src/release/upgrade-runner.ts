@@ -9,7 +9,7 @@ import {
   type UpgradeResult,
 } from "./upgrade-coordinator";
 import type { UpgradeOperation } from "./upgrade-operation";
-import { resolveSupervisorPaths } from "./supervisor-control";
+import { resolveSupervisorPaths } from "./supervisor-status";
 
 /** This machine's installation, release feed, and Coordinator locations, all resolved from
  * `os.homedir()`: HOME on POSIX (else the account's passwd entry), USERPROFILE on Windows (else

@@ -11,7 +11,6 @@ import {
   renderInstallerContract,
 } from "../scripts/installer-contract";
 import { InstallerReceiptSchema, INSTALLER_EXIT_CODE } from "#src/release/installer-contract";
-import { launchHoldContents } from "#src/release/upgrade-lifecycle";
 import {
   ActiveStateSchema,
   ComputerUpdater,
@@ -128,9 +127,4 @@ test("the Daemon reads every receipt the installer writes", async () => {
       await rm(homeDirectory, { recursive: true, force: true });
     }
   }
-});
-
-test("the installer's launch-hold names the request the Coordinator reads", async () => {
-  const text = await readFile(join(RUST_OUTPUT, "launch-hold.txt"), "utf8");
-  expect(text).toBe(launchHoldContents(EXAMPLE_REQUEST_ID));
 });

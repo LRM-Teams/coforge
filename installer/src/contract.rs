@@ -32,8 +32,8 @@ pub const LIFECYCLE_PROTOCOL: u32 = 1;
 pub const EXIT_SUCCEEDED: u8 = 0;
 /// Exit status: failed before any change, or rolled back to the previous version.
 pub const EXIT_FAILED: u8 = 1;
-/// Exit status: a receipt was committed but launches could not be resumed. Never in a receipt,
-/// which is written before launches resume.
+/// Exit status: the outcome is committed in a receipt, but the operation has not settled;
+/// `recover` finishes it. Never in a receipt.
 pub const EXIT_HELD: u8 = 2;
 /// Exit status: rollback failed, or no previous version existed to roll back to.
 pub const EXIT_UNRESOLVED: u8 = 3;
@@ -297,22 +297,6 @@ pub struct LifecycleBinding {
     pub process_id: Option<u32>,
 }
 
-/// `coforge-computer __lifecycle hold --request-id R`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LifecycleHold {
-    pub lifecycle_protocol: u32,
-    pub quiescent: bool,
-    pub elapsed_ms: u64,
-    pub busy_agent_count: u32,
-}
-
-/// `coforge-computer __lifecycle pause`, `release`, and `resume`: the operation completed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LifecycleAck {
-    pub lifecycle_protocol: u32,
-    pub ok: bool,
-}
-
 /// `__lifecycle` exit statuses, error codes, and status problem codes (`lifecycle-codes.json`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LifecycleCodes {
@@ -413,17 +397,6 @@ pub fn to_file_json<T: Serialize>(value: &T) -> String {
     let mut text = serde_json::to_string(value).expect("contract types always serialize");
     text.push('\n');
     text
-}
-
-/// `<state>/launch-hold`: the owning request ID and a newline.
-pub fn launch_hold_contents(request_id: &str) -> String {
-    format!("{request_id}\n")
-}
-
-/// The request ID a launch-hold file names, if any.
-pub fn parse_launch_hold(contents: &str) -> Option<String> {
-    let request_id = contents.trim();
-    (!request_id.is_empty()).then(|| request_id.to_owned())
 }
 
 /// The process ID in `<state>/supervisor.lock/owner`, if it names one.

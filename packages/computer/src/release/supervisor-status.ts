@@ -1,18 +1,13 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { getLogger } from "@logtape/logtape";
 import {
-  holdRunnersUntilQuiescent,
   LocalDaemonLauncher,
   WorkspaceHealthJournal,
   workspaceHealthJournalPath,
   workspaceStateDirectory,
-  type RunnerHoldOutcome,
 } from "@lrm/coforge-daemon";
 
 import { resolveComputerStateDirectory, resolveDaemonSocketPath } from "#src/paths";
-
-const logger = getLogger(["coforge", "computer", "upgrade"]);
 
 export type SupervisorBinding = {
   bindingId: string;
@@ -44,25 +39,13 @@ export const SUPERVISOR_PROBLEM_CODE = {
   WORKSPACE_STOPPED_BUT_RUNNING: "LIFECYCLE_WORKSPACE_STOPPED_BUT_RUNNING",
 } as const;
 
-/** How long a pause waits for Workspace lifecycle work already running, and how often it looks. */
-export type LifecycleSettle = { timeoutMs: number; pollMs: number };
-
-export type SupervisorControlOptions = {
+export type SupervisorStatusOptions = {
   supervisorSocketPath: string;
   supervisorStatePath: string;
-  /** Tests shorten it; production uses `LIFECYCLE_SETTLE`. */
-  lifecycleSettle?: LifecycleSettle;
 };
 
-/**
- * How long a pause waits for the Workspace lifecycle work already running to finish: one
- * restart's runner hold (30 s), its stop, and its readiness (30 s), with room to spare. Work still
- * queued is refused by the pause, so only running work is waited for.
- */
-export const LIFECYCLE_SETTLE: LifecycleSettle = { timeoutMs: 120_000, pollMs: 500 };
-
 /** Nothing listens on the supervisor socket: it is missing, or nothing accepts on it. */
-export class SupervisorNotRunningError extends Error {
+class SupervisorNotRunningError extends Error {
   constructor(options?: ErrorOptions) {
     super("The Computer supervisor is not running.", options);
     this.name = "SupervisorNotRunningError";
@@ -72,7 +55,7 @@ export class SupervisorNotRunningError extends Error {
 /** This machine's supervisor socket and state directory, resolved from `os.homedir()` as the
  * installer does (installer/contract/paths.json). */
 export function resolveSupervisorPaths(): Pick<
-  SupervisorControlOptions,
+  SupervisorStatusOptions,
   "supervisorSocketPath" | "supervisorStatePath"
 > {
   const supervisorStatePath = resolveComputerStateDirectory({
@@ -90,13 +73,11 @@ export function resolveSupervisorPaths(): Pick<
 }
 
 /**
- * Machine-level control of the running Computer supervisor over its local RPC socket: read its
- * state, pause and resume Workspace launches, and hold and release Agent runners. Shared by the
- * product's own upgrade and `__lifecycle`, through which the installer drives the same steps.
- * The `launch-hold` file is not written or removed here: whoever runs the upgrade transaction
- * owns it, and undoes a failed step by calling `resume`.
+ * Reads what the Computer supervisor is running: over its local RPC socket while it runs, from its
+ * persisted bindings while it does not. Shared by the product's own upgrade and `__lifecycle
+ * status`, through which the installer reads the same state. It never changes anything.
  */
-export function createSupervisorControl(options: SupervisorControlOptions) {
+export function createSupervisorStatusReader(options: SupervisorStatusOptions) {
   const local = new LocalDaemonLauncher({
     // Required by the type, never executed: this client only talks to a running supervisor.
     executablePath: process.execPath,
@@ -121,13 +102,6 @@ export function createSupervisorControl(options: SupervisorControlOptions) {
   async function identity(): Promise<{ id?: string; version?: string }> {
     const { daemonId, version } = await reach(() => local.identity());
     return { ...(daemonId ? { id: daemonId } : {}), ...(version ? { version } : {}) };
-  }
-
-  async function isRunning(): Promise<boolean> {
-    return identity().then(
-      () => true,
-      () => false,
-    );
   }
 
   /** The bindings the supervisor persisted, read while it is not running. A parked Workspace is
@@ -212,97 +186,7 @@ export function createSupervisorControl(options: SupervisorControlOptions) {
     }
   }
 
-  /** Stops new Workspace lifecycle work at once, then waits, bounded, for the work already
-   * running to finish. A failure leaves launches paused; the caller undoes it with `resume`. */
-  async function pause(requestId: string): Promise<void> {
-    await reach(() => local.control("pause", undefined, requestId));
-    logger.info("Workspace launches paused", {
-      event: "upgrade:launches_paused",
-      request_id: requestId,
-    });
-    await settleLifecycleWork(local, options.lifecycleSettle ?? LIFECYCLE_SETTLE);
-  }
-
-  /** Stops every Agent admitting new turns and waits, bounded, for in-flight work to finish. */
-  async function hold(requestId?: string): Promise<RunnerHoldOutcome> {
-    // The wait below treats a hold it cannot apply as nothing to wait for, so a supervisor that is
-    // not running has to be named before it starts.
-    await identity();
-    const outcome = await holdRunnersUntilQuiescent({
-      hold: async () => {
-        const response = await local.hold("hold", undefined, requestId);
-        if (!response.accepted) throw new Error("Supervisor did not accept the runner hold");
-        return response;
-      },
-      // The wait itself lives in the daemon package, shared with the supervisor's restart hold.
-      // Keep this path's own logger and `upgrade:` event names.
-      logger,
-      eventPrefix: "upgrade",
-    });
-    logger.info("Runner hold completed", {
-      event: outcome.quiescent ? "upgrade:runner_hold_quiescent" : "upgrade:runner_hold_expired",
-      operation: "hold",
-      request_id: requestId,
-      quiescent: outcome.quiescent,
-      elapsed_ms: outcome.elapsedMs,
-      busy_agent_count: outcome.busyAgents.length,
-      unreachable_workspace_ids: outcome.unreachableWorkspaceIds,
-    });
-    return outcome;
-  }
-
-  /** Lifts the runner hold. Idempotent while the supervisor runs. */
-  async function release(): Promise<void> {
-    await reach(() => local.hold("release"));
-    logger.info("Runner hold released", { event: "upgrade:runner_hold_released" });
-  }
-
-  /** Lifts the runner hold, then lets Workspace launches proceed. Releasing first is what lifts a
-   * hold on an upgrade aborted before the stop; on the success path the supervisor answering is a
-   * fresh process that was never held, and the release is a no-op. */
-  async function resume(requestId: string): Promise<void> {
-    await local.hold("release").catch(() => {});
-    await reach(() => local.control("resume", undefined, requestId));
-    logger.info("Workspace launches resumed", {
-      event: "upgrade:launches_resumed",
-      request_id: requestId,
-    });
-  }
-
-  return {
-    identity,
-    isRunning,
-    persistedStatus,
-    runningStatus,
-    status,
-    pause,
-    hold,
-    release,
-    resume,
-  };
+  return { persistedStatus, runningStatus, status };
 }
 
-export type SupervisorControl = ReturnType<typeof createSupervisorControl>;
-
-/**
- * Waits until no Workspace start, restart, or configure is under way (`lifecycleUnderWay` in the
- * supervisor's snapshot), or gives up naming them.
- */
-async function settleLifecycleWork(
-  local: LocalDaemonLauncher,
-  settle: LifecycleSettle,
-): Promise<void> {
-  const deadline = Date.now() + settle.timeoutMs;
-  while (true) {
-    const runtimes = await local.control("snapshot").catch(() => []);
-    const underWay = runtimes.filter((runtime) => runtime.lifecycleUnderWay);
-    if (!underWay.length) return;
-    if (Date.now() >= deadline) {
-      const ids = underWay.map((runtime) => runtime.workspaceId);
-      throw new Error(
-        `Workspace ${ids.join(", ")} ${ids.length === 1 ? "is" : "are"} still starting or restarting. Run 'coforge-computer status' to follow ${ids.length === 1 ? "it" : "them"}, then upgrade again.`,
-      );
-    }
-    await Bun.sleep(settle.pollMs);
-  }
-}
+export type SupervisorStatusReader = ReturnType<typeof createSupervisorStatusReader>;

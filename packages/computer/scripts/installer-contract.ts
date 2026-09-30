@@ -36,14 +36,11 @@ import {
   LIFECYCLE_ERROR_CODE,
   LIFECYCLE_EXIT_CODE,
   LIFECYCLE_PROTOCOL,
-  LifecycleAckSchema,
   LifecycleErrorSchema,
-  LifecycleHoldSchema,
   LifecycleProtocolSchema,
   LifecycleStatusSchema,
 } from "#src/release/installer-contract";
-import { SUPERVISOR_PROBLEM_CODE } from "#src/release/supervisor-control";
-import { launchHoldContents } from "#src/release/upgrade-lifecycle";
+import { SUPERVISOR_PROBLEM_CODE } from "#src/release/supervisor-status";
 import {
   ActiveStateSchema,
   agentCliLauncher,
@@ -230,7 +227,7 @@ export function renderInstallerContract(): Map<string, string> {
       }),
     ],
     // Upgrade receipts (upgrade-coordinator.ts, installer-contract.ts). No receipt is ever
-    // "held": it is committed before launches resume.
+    // "held": that is only the installer's process exit status.
     ["receipt.schema.json", jsonSchema(InstallerReceiptSchema)],
     [
       "receipt.succeeded.json",
@@ -271,9 +268,7 @@ export function renderInstallerContract(): Map<string, string> {
         }),
       ),
     ],
-    // Coordinator state files (upgrade-lifecycle.ts writes launch-hold; the Coordinator writes
-    // supervisor.lock/owner as its bare process ID).
-    ["launch-hold.txt", launchHoldContents(EXAMPLE_REQUEST_ID)],
+    // The Coordinator writes supervisor.lock/owner as its bare process ID.
     ["supervisor-lock-owner.txt", "4242"],
     // Machine mutation lock (updater.ts, @lrm/coforge-daemon process-lock.ts).
     [
@@ -363,33 +358,18 @@ export function renderInstallerContract(): Map<string, string> {
         ],
       }),
     ],
-    ["lifecycle.hold.schema.json", jsonSchema(LifecycleHoldSchema)],
-    [
-      "lifecycle.hold.json",
-      instance(LifecycleHoldSchema, {
-        lifecycle_protocol: LIFECYCLE_PROTOCOL,
-        quiescent: true,
-        elapsed_ms: 1250,
-        busy_agent_count: 0,
-      }),
-    ],
-    ["lifecycle.ack.schema.json", jsonSchema(LifecycleAckSchema)],
-    [
-      "lifecycle.ack.json",
-      instance(LifecycleAckSchema, { lifecycle_protocol: LIFECYCLE_PROTOCOL, ok: true }),
-    ],
     ["lifecycle.error.schema.json", jsonSchema(LifecycleErrorSchema)],
     [
       "lifecycle.error.json",
       instance(LifecycleErrorSchema, {
         lifecycle_protocol: LIFECYCLE_PROTOCOL,
         ok: false,
-        code: LIFECYCLE_ERROR_CODE.SUPERVISOR_NOT_RUNNING,
-        message: "The Computer supervisor is not running.",
+        code: LIFECYCLE_ERROR_CODE.FAILED,
+        message: "invalid process identity",
       }),
     ],
     // `__lifecycle` exit statuses and error codes (installer-contract.ts) and status problem codes
-    // (release/supervisor-control.ts).
+    // (release/supervisor-status.ts).
     [
       "lifecycle-codes.json",
       json({
