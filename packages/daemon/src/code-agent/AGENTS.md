@@ -127,7 +127,9 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   in-memory model runtime. Never write it to disk or pass it in process
   arguments.
 - Pi session files stay in the Agent's `.pi-sessions` directory. The built-in
-  CoForge Agent uses its isolated bundled resources and `.builtin-sessions`.
+  CoForge Agent uses its isolated bundled resources and `.builtin-sessions`;
+  for skills, the Pi SDK still loads the user's `~/.agents/skills`, so that is
+  the one Global root its Skills metadata reports.
 
 ## Skills metadata (`agent-skills.ts`)
 

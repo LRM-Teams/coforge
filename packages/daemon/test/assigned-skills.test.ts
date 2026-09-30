@@ -32,9 +32,11 @@ test("assigned skill packs install into provider-native workspace roots", async 
     expect(result.skipped).toEqual([]);
     expect(assignedSkillsDirectory("coforge", root)).toBe(join(root, ".pi", "skills"));
 
+    // Pin HOME: the built-in Agent's global scope is the host's `~/.agents/skills`.
     const listed = await listAgentSkills({
       provider: "coforge",
       agentWorkspaceDirectory: root,
+      environment: { HOME: root },
     });
     expect(listed.workspace.entries.map((entry) => entry.name).sort()).toEqual([
       "weekly-report-navigation",

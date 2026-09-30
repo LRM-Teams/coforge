@@ -66,22 +66,53 @@ export async function listAgentSkills(options: {
       if (home) globals = [native("KIRO_HOME", ".kiro", "skills")];
       break;
     case RUNTIME_PROVIDER.CURSOR:
-      locals = [local(".cursor/skills")];
-      if (home) globals = [personal(".cursor/skills")];
+      // https://cursor.com/docs/context/skills: its own and the agent roots, plus the Claude and
+      // Codex roots it reads for compatibility.
+      locals = [
+        local(".cursor/skills"),
+        local(".agents/skills"),
+        local(".claude/skills"),
+        local(".codex/skills"),
+      ];
+      if (home)
+        globals = [
+          personal(".cursor/skills"),
+          personal(".agents/skills"),
+          personal(".claude/skills"),
+          personal(".codex/skills"),
+        ];
       break;
     case RUNTIME_PROVIDER.OPENCODE:
-      // OpenCode discovers project skills natively from `.opencode/skills/` (Raft's
-      // `execenv/context.go` writes `{agentRoot}/.opencode/skills/{name}/SKILL.md` for the same
-      // reason). Its global skill directory is not something the installed CLI documents, so we
-      // claim no global scope rather than guess one.
-      locals = [local(".opencode/skills")];
+      // https://opencode.ai/docs/skills lists `.opencode/skills`, `.claude/skills` and
+      // `.agents/skills` in the workspace, and `~/.config/opencode/skills`, `~/.claude/skills`
+      // and `~/.agents/skills` globally. The config directories also accept the legacy singular
+      // `skill/` (https://opencode.ai/docs/config). OpenCode places its config directory under
+      // `$XDG_CONFIG_HOME` (observed in the 2.0.14 CLI, not documented).
+      locals = [
+        local(".opencode/skills"),
+        local(".opencode/skill"),
+        local(".claude/skills"),
+        local(".agents/skills"),
+      ];
+      if (home)
+        globals = [
+          native("XDG_CONFIG_HOME", ".config", "opencode/skills"),
+          native("XDG_CONFIG_HOME", ".config", "opencode/skill"),
+          personal(".claude/skills"),
+          personal(".agents/skills"),
+        ];
       break;
     case RUNTIME_PROVIDER.GROK:
-      // Grok Build discovers project skills from `.grok/skills/` in the workspace; Raft's
-      // execenv writes the same path, and its runtime home links the user's `~/.grok/skills` as
-      // the personal scope. Managed by the daemon before launch (ADR 0068).
-      locals = [local(".grok/skills")];
-      if (home) globals = [native("GROK_HOME", ".grok", "skills")];
+      // https://docs.x.ai/build/features/skills-plugins-marketplaces; Grok 1.0.41 was observed
+      // loading these roots. It reads the workspace roots only for a trusted workspace; the scan
+      // lists them regardless of trust.
+      locals = [local(".grok/skills"), local(".agents/skills"), local(".claude/skills")];
+      if (home)
+        globals = [
+          native("GROK_HOME", ".grok", "skills"),
+          personal(".agents/skills"),
+          personal(".claude/skills"),
+        ];
       break;
     case RUNTIME_PROVIDER.ANTIGRAVITY:
       // The Antigravity CLI loads workspace skills from `<workspace-root>/.agents/skills/`
@@ -101,7 +132,12 @@ export async function listAgentSkills(options: {
         ];
       break;
     case RUNTIME_PROVIDER.COFORGE:
+      // The built-in Agent's Pi session keeps its agent directory in the workspace's
+      // `.builtin-runtime`, so `~/.pi/agent/skills` is not read; the SDK's package manager still
+      // always adds `~/.agents/skills` (only an isolated memory-fence or eval session sets
+      // `noSkills`).
       locals = [local(".pi/skills", "pi"), local(".agents/skills")];
+      if (home) globals = [personal(".agents/skills")];
       break;
     default: {
       const unreachable: never = options.provider;
@@ -109,7 +145,7 @@ export async function listAgentSkills(options: {
     }
   }
   const deadline = Date.now() + 3_000;
-  if (options.provider === RUNTIME_PROVIDER.COFORGE || !home) {
+  if (!home) {
     return {
       global: { status: "unsupported", entries: [], directories: [] },
       workspace: await scan(locals, deadline),
