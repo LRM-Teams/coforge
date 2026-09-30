@@ -472,6 +472,7 @@ const RUNTIME_DISPLAY_NAME: Record<RuntimeProvider, string> = {
   [RUNTIME_PROVIDER.CURSOR]: "Cursor CLI",
   [RUNTIME_PROVIDER.OPENCODE]: "OpenCode",
   [RUNTIME_PROVIDER.GROK]: "Grok Build",
+  [RUNTIME_PROVIDER.ANTIGRAVITY]: "Antigravity CLI",
   [RUNTIME_PROVIDER.PI]: "Pi",
   [RUNTIME_PROVIDER.COFORGE]: "CoForge",
 };

@@ -68,6 +68,12 @@ test("assignedSkillsDirectory places Cursor packs under .cursor/skills", () => {
   );
 });
 
+test("assignedSkillsDirectory places Antigravity packs under .agents/skills", () => {
+  expect(assignedSkillsDirectory("antigravity", "/workspace")).toBe(
+    join("/workspace", ".agents", "skills"),
+  );
+});
+
 test("parseAssignedSkillPacks accepts only known packs", () => {
   expect(parseAssignedSkillPacks(["weekly-report", "weekly-report", "other"])).toEqual([
     "weekly-report",
