@@ -41,7 +41,8 @@ import { workspacePath } from "#src/features/workspaces/workspace-url";
 export type AppUser = {
   id: string;
   name: string;
-  email: string;
+  /** Null for an account made with a phone number alone. */
+  email: string | null;
   avatarUrl?: string | null;
 };
 
@@ -282,7 +283,7 @@ function UserMenuCard({
       <Dropdown.Popover placement={compact ? "right bottom" : "top left"} className="w-64">
         <div className="border-b border-secondary px-3.5 py-3">
           <p className="truncate text-sm font-semibold text-primary">{user.name}</p>
-          <p className="truncate text-xs text-tertiary">{user.email}</p>
+          {user.email ? <p className="truncate text-xs text-tertiary">{user.email}</p> : null}
         </div>
         <Dropdown.Menu
           onAction={(key) => {

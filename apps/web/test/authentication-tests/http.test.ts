@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 
 import { completeBrowserLogin, startBrowserLogin } from "#src/server/auth/browser-login.server";
 import {
@@ -111,6 +111,69 @@ test("login callback stores a host-only session cookie and returns home", async 
     ),
   ).toBe(true);
   expect(cookies.join("\n")).not.toContain("Domain=");
+});
+
+test("login callback signs in an Authing account that has no email, and /api/me says so", async () => {
+  const started = startBrowserLogin({ config, sessionSecret });
+  const state = new URL(started.authorizationUrl).searchParams.get("state");
+  if (!state) throw new Error("state missing");
+  const resolved: unknown[] = [];
+  const failures: string[] = [];
+  const spy = spyOn(console, "error").mockImplementation((line: unknown) => {
+    failures.push(String(line));
+  });
+  let response: Response;
+  try {
+    response = await handleLoginCallback({
+      request: new Request(`http://localhost:3000/auth/callback?code=valid-code&state=${state}`, {
+        headers: { cookie: started.stateCookie.split(";", 1)[0] ?? "" },
+      }),
+      config,
+      sessionSecret,
+      authing: {
+        async exchangeAuthorizationCode() {
+          return { accessToken: "authing-access" };
+        },
+        // A phone-number sign-up: Authing reports no email.
+        async fetchUserInfo() {
+          return { sub: "authing-phone-user", name: "Ada" };
+        },
+      },
+      resolveUser: async (input) => {
+        resolved.push(input);
+        return { id: persistedAda.id, username: "user-0a1b2c3d" };
+      },
+      enrollUser: async () => {},
+    });
+  } finally {
+    spy.mockRestore();
+  }
+
+  expect(failures).toEqual([]);
+  expect(response.status).toBe(302);
+  expect(response.headers.get("location")).toBe("/");
+  expect(resolved).toEqual([{ provider: "authing", subject: "authing-phone-user", email: null }]);
+  const sessionCookie = response.headers
+    .getSetCookie()
+    .find((cookie) => cookie.startsWith("coforge_session="));
+  expect(sessionCookie).toBeDefined();
+
+  const me = handleCurrentUser({
+    request: new Request("http://localhost:3000/api/me", {
+      headers: { cookie: sessionCookie?.split(";", 1)[0] ?? "" },
+    }),
+    sessionSecret,
+  });
+  expect(me.status).toBe(200);
+  expect(await me.json()).toEqual({
+    user: {
+      id: persistedAda.id,
+      email: null,
+      name: "Ada",
+      authingSub: "authing-phone-user",
+      username: "user-0a1b2c3d",
+    },
+  });
 });
 
 test("login callback enrolls the resolved user into a Workspace", async () => {

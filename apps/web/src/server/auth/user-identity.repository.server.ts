@@ -45,9 +45,14 @@ export class UserIdentityRepository {
 }
 
 const USERNAME = /^[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
+/** A `preferred_username` of digits only may be a phone number. The username is the personal
+ * Workspace's slug and every `@` mention, so such a value is never used as one. */
+const PHONE_LIKE = /^[0-9]+$/;
 function validUsername(value: string | null | undefined): string | undefined {
   const normalized = value?.trim().toLowerCase();
-  return normalized && USERNAME.test(normalized) ? normalized : undefined;
+  return normalized && USERNAME.test(normalized) && !PHONE_LIKE.test(normalized)
+    ? normalized
+    : undefined;
 }
 function normalizeUsername(value: string): string {
   return value

@@ -27,7 +27,7 @@ function Verify() {
   // convenience: the field stays editable and nothing is approved until the person confirms.
   return (
     <DeviceVerifyPage
-      email={user.email}
+      account={user.account}
       initialCode={userCode ? normalizeUserCode(userCode) : ""}
     />
   );

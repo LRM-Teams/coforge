@@ -63,11 +63,12 @@ function memberCounts({ memberCount, agentCount }: JoinLinkPreview): ReactNode[]
 export function JoinWorkspacePage({
   token,
   preview,
-  viewerEmail,
+  viewerAccount,
 }: {
   token: string;
   preview: JoinLinkPreview | null;
-  viewerEmail: string | null;
+  /** How the signed-in account is named (its email, or its @username); null when signed out. */
+  viewerAccount: string | null;
 }) {
   const router = useRouter();
   const [invalid, setInvalid] = useState(preview === null);
@@ -152,7 +153,7 @@ export function JoinWorkspacePage({
         </div>
 
         <div className="flex flex-col gap-4">
-          {viewerEmail === null || problem?.kind === "signed-out" ? (
+          {viewerAccount === null || problem?.kind === "signed-out" ? (
             <Button size="lg" className="w-full" onPress={signIn}>
               {problem ? m.login_retry() : m.workspace_join_sign_in()}
             </Button>
@@ -183,11 +184,11 @@ export function JoinWorkspacePage({
           ) : null}
         </div>
 
-        {viewerEmail === null ? null : (
+        {viewerAccount === null ? null : (
           <p className="flex flex-wrap items-center justify-center gap-x-1.5 text-center text-xs text-quaternary">
             <span className="break-all">
-              {emphasized({ email: viewerEmail }, (mark) =>
-                m.workspace_join_signed_in_as({ email: mark("email") }),
+              {emphasized({ account: viewerAccount }, (mark) =>
+                m.workspace_join_signed_in_as({ account: mark("account") }),
               )}
             </span>
             <span aria-hidden="true">·</span>

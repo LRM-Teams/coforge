@@ -4,14 +4,18 @@
 internal `username`. Public user targets are `@${User.username}`; provider
 subjects are never usernames. Existing users are deterministically backfilled
 as `user-` plus the full hyphenless UUID. On first identity creation a valid
-Authing `preferred_username` is preferred; otherwise the backend derives a
-normalized email local-part with a stable suffix from the already-generated
-User UUID. The username is not changed by later logins. `UserIdentity` maps
+Authing `preferred_username` is preferred, unless it is made only of digits
+(it may be a phone number); otherwise the backend derives a normalized email
+local-part with a stable suffix from the already-generated User UUID, or
+`user-` plus that suffix when the account has no email. The username is not
+changed by later logins. `UserIdentity` maps
 an external provider and subject to that User; provider subjects are never
 business foreign keys. Membership, Agent ownership, and Computer ownership use
 the internal User UUID. Existing rows are backfilled by the migration before
 the legacy external column is removed. `User.email` is the latest email the
 identity provider reported at login, nullable, not unique, not an identity key.
+An account registered with a phone number alone has none and signs in like any
+other; the signed session and every consumer of it treat the email as optional.
 
 `User.displayName` stores the user's optional editable name override; when it
 is null, the application displays the current identity-provider name.

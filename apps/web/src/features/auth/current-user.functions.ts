@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
+import { accountLabel } from "#src/features/auth/account-label";
 import { declareNoStore } from "#src/features/no-store-response.server";
 
 import { optionalBrowserUser } from "#src/server/auth/require-user.server";
@@ -9,10 +10,12 @@ export const getAuthenticationStatus = createServerFn({ method: "GET" }).handler
   return (await optionalBrowserUser(getRequest().headers.get("cookie") ?? undefined)) !== null;
 });
 
-/** The signed-in person's email, or null signed out: for pages that work either way. */
-export const getSignedInEmail = createServerFn({ method: "GET" }).handler(async () => {
+/**
+ * How the signed-in person's account is named (`accountLabel`), or null signed out: for pages that
+ * work either way. An account with no email is still signed in, so this is not an email.
+ */
+export const getSignedInAccount = createServerFn({ method: "GET" }).handler(async () => {
   declareNoStore();
-  return (
-    (await optionalBrowserUser(getRequest().headers.get("cookie") ?? undefined))?.email ?? null
-  );
+  const user = await optionalBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  return user ? accountLabel(user) : null;
 });

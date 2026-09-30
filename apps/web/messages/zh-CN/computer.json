@@ -100,7 +100,7 @@
   "device_verify_code_label": "设备代码",
   "device_verify_continue": "继续",
   "device_verify_checking": "正在校验…",
-  "device_verify_signed_in_as": "当前登录：{email}",
+  "device_verify_signed_in_as": "当前登录：{account}",
   "device_verify_confirm_title": "批准这台电脑？",
   "device_verify_confirm_description": "显示代码 {code} 的电脑将可以以你的身份行事，直到你移除它。",
   "device_verify_approve": "批准",

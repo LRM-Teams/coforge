@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 
+import { accountLabel } from "#src/features/auth/account-label";
 import { authMiddleware } from "#src/features/auth/function-auth";
 import { userCodeInputSchema } from "./device-auth.schemas";
 import { approveUserCode, denyUserCode, lookupUserCode } from "#src/server/auth/device-auth.server";
@@ -20,8 +21,7 @@ export type DeviceCodeState = "ok" | "unknown" | "expired" | "settled" | "unavai
 export const getDeviceVerifyUser = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    const user = context.user;
-    return { email: user.email };
+    return { account: accountLabel(context.user) };
   });
 
 /** Checks a typed code without settling it, so the page can name what is about to be approved
@@ -29,15 +29,11 @@ export const getDeviceVerifyUser = createServerFn({ method: "GET" })
 export const checkDeviceCode = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(userCodeInputSchema)
-  .handler(async ({ data, context }): Promise<{ state: DeviceCodeState; email: string }> => {
-    const user = context.user;
+  .handler(async ({ data }): Promise<{ state: DeviceCodeState }> => {
     const store = deviceAuthorizationStore();
-    if (!store) return { state: "unavailable", email: user.email };
+    if (!store) return { state: "unavailable" };
     const lookup = await lookupUserCode({ store, userCode: data.userCode });
-    return {
-      state: lookup.found ? "ok" : lookup.reason,
-      email: user.email,
-    };
+    return { state: lookup.found ? "ok" : lookup.reason };
   });
 
 export const approveDeviceCode = createServerFn({ method: "POST" })

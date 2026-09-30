@@ -6,7 +6,9 @@ import { safeReturnTo } from "#src/features/auth/return-to";
 import { atLoginStage, LoginCallbackError } from "./login-failure.server";
 export type BrowserUser = {
   id: string;
-  email: string;
+  /** What the provider reported, trimmed and lower-cased. An account made with a phone number
+   * alone has none; the user is identified by `(provider, sub)`, never by this. */
+  email: string | null;
   name: string;
   authingSub: string;
   username: string;
@@ -14,7 +16,7 @@ export type BrowserUser = {
 export type InternalUserResolver = (input: {
   provider: string;
   subject: string;
-  email: string;
+  email: string | null;
   preferredUsername?: string;
 }) => Promise<{ id: string; username: string }>;
 
@@ -172,8 +174,7 @@ export async function completeBrowserLogin(input: {
   const profile = await atLoginStage("userinfo", () =>
     input.authing.fetchUserInfo(tokens.accessToken),
   );
-  const email = profile.email?.trim().toLowerCase();
-  if (!email) throw new LoginCallbackError("email");
+  const email = profile.email?.trim().toLowerCase() || null;
   const { resolveUser } = input;
   const resolved = resolveUser
     ? await atLoginStage("user_resolution", () =>
@@ -192,7 +193,11 @@ export async function completeBrowserLogin(input: {
     id: resolved.id,
     username: resolved.username,
     email,
-    name: profile.name?.trim() || profile.nickname?.trim() || email.split("@")[0] || email,
+    // Never the phone number: without a name or an email, the name is the username.
+    name:
+      profile.name?.trim() ||
+      profile.nickname?.trim() ||
+      (email ? email.split("@")[0] || email : resolved.username),
     authingSub: profile.sub,
   };
   const session: SignedSession = {
@@ -433,9 +438,11 @@ function isSignedSession(value: SignedSession | null): value is SignedSession {
   return (
     value !== null &&
     typeof value.exp === "number" &&
-    [value.id, value.email, value.name, value.authingSub, value.username].every(
+    [value.id, value.name, value.authingSub, value.username].every(
       (field) => typeof field === "string",
     ) &&
+    // A session made before an email became optional carries a string; a new one may carry null.
+    (typeof value.email === "string" || value.email === null) &&
     value.id !== ""
   );
 }

@@ -11,7 +11,7 @@ import {
  * Where a signed-in person in no Workspace (they left or deleted their last one) lands: create one
  * and open it, or sign out. Creating it also makes it the Workspace `/` opens.
  */
-export function FirstWorkspacePage({ viewerEmail }: { viewerEmail: string }) {
+export function FirstWorkspacePage({ viewerAccount }: { viewerAccount: string }) {
   const createAndOpen = useCreateAndOpenWorkspace();
   return (
     <AuthSplitLayout>
@@ -31,7 +31,9 @@ export function FirstWorkspacePage({ viewerEmail }: { viewerEmail: string }) {
           actions={(submit) => <Button {...submit} size="lg" className="mt-6 w-full" />}
         />
         <p className="flex flex-wrap items-center justify-center gap-x-1.5 text-center text-xs text-quaternary">
-          <span className="break-all">{m.workspace_join_signed_in_as({ email: viewerEmail })}</span>
+          <span className="break-all">
+            {m.workspace_join_signed_in_as({ account: viewerAccount })}
+          </span>
           <span aria-hidden="true">·</span>
           {/* Signing out goes through Authing and lands on the homepage. */}
           <Button onPress={() => void signOut()} color="link-gray" size="sm">
