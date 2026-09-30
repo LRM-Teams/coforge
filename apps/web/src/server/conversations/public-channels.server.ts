@@ -9,7 +9,7 @@ import { windowPageFlags } from "#src/lib/conversation-window";
 import { ACTIVE_MEMBER_WHERE, VISIBLE_CONVERSATION_WHERE } from "./active-member.server";
 import {
   HUMAN_UNREAD_MESSAGE_SQL,
-  humanUnreadCount,
+  humanReadState,
   markHumanRead,
   markUnreadAnchor,
 } from "./human-unread.server";
@@ -565,7 +565,7 @@ export class PublicChannels {
           type: "channel.marked.v1",
           workspaceId,
           conversationId: channel.id,
-          unreadCount: await humanUnreadCount(this.db, channel.id, userId),
+          ...(await humanReadState(this.db, channel.id, userId)),
         },
       });
     return { unread: marker !== null };
@@ -1325,15 +1325,15 @@ export class PublicChannels {
     // A read that moved the cursor tells the reader's other pages the badge it leaves (Slack's
     // `channel_marked`); one that moved nothing says nothing, so an open channel reading along
     // with new messages announces only real moves.
-    const unreadCount = await markHumanRead(this.db, {
+    const state = await markHumanRead(this.db, {
       conversationId: channelId,
       userId,
       throughSequence,
     });
-    if (unreadCount === undefined) return;
+    if (state === undefined) return;
     await announceViewerEvent(this.realtime, {
       userIds: [userId],
-      event: { type: "channel.marked.v1", workspaceId, conversationId: channelId, unreadCount },
+      event: { type: "channel.marked.v1", workspaceId, conversationId: channelId, ...state },
     });
   }
 

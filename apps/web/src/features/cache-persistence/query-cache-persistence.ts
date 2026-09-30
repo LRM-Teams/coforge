@@ -365,6 +365,15 @@ export function installQueryCachePersistence(
     if (!stored) return;
     return storage.setItem(`${PERSISTER_KEY_PREFIX}-${queryHash}`, stored);
   };
+  /** Moves the cursor of a window held only in storage; nothing stored stays nothing. */
+  const storeReadThrough = async (queryHash: string, throughSequence: number) => {
+    const key = `${PERSISTER_KEY_PREFIX}-${queryHash}`;
+    const stored = await storage.getItem(key);
+    if (!stored) return;
+    const data = withReadThrough(stored.queryKey, stored.state.data, throughSequence);
+    if (data === stored.state.data) return;
+    await storage.setItem(key, { ...stored, state: { ...stored.state, data } });
+  };
   const schedulePageWrite = (queryHash: string) => {
     if (pageWrites.has(queryHash)) return;
     pageWrites.set(
@@ -426,7 +435,12 @@ export function installQueryCachePersistence(
       const queryHash = hashKey(queryKey);
       if ((readThrough.get(queryHash) ?? -1) >= throughSequence) return;
       readThrough.set(queryHash, throughSequence);
-      schedulePageWrite(queryHash);
+      // A window this page holds is stored from memory, with the cursor (`toStored`); one it holds
+      // only in storage (read on another page or device) is moved where it is stored, so the next
+      // open, here or after a reload, draws its divider where the person now is.
+      if (queryClient.getQueryCache().get(queryHash)?.state.status === "success")
+        schedulePageWrite(queryHash);
+      else void storeReadThrough(queryHash, throughSequence);
     },
     /**
      * Takes the cursor noted for `queryKey` into the page's own window: the person is leaving the

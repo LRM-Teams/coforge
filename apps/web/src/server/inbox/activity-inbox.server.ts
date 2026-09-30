@@ -18,7 +18,7 @@ import {
   HUMAN_UNREAD_MESSAGE_SQL,
   directThreadsSql,
   followedChannelThreadsSql,
-  humanUnreadCounts,
+  humanReadStates,
   humanUnreadReplySql,
   markConversationDoneSql,
   markConversationsReadSql,
@@ -190,7 +190,7 @@ export class ActivityInbox {
     moved: readonly { conversationId: string; channel: boolean }[],
   ) {
     if (moved.length === 0) return;
-    const counts = await humanUnreadCounts(
+    const states = await humanReadStates(
       this.db,
       userId,
       moved.map((row) => row.conversationId),
@@ -203,7 +203,7 @@ export class ActivityInbox {
             type: channel ? "channel.marked.v1" : "dm.marked.v1",
             workspaceId,
             conversationId,
-            unreadCount: counts.get(conversationId) ?? 0,
+            ...(states.get(conversationId) ?? { unreadCount: 0, readThroughSequence: 0 }),
           },
         }),
       ),

@@ -227,8 +227,9 @@ export function decodeChannelUpdatedEvent(value: unknown): ChannelUpdatedEvent {
  * channel). Published only on the viewer's own `chat:user:<user_id>` channel, the way Slack sends
  * `channel_marked`, `channel_joined`, `channel_left` and `pref_change` to every connection of one
  * user. Like the other signals it names ids only, except that `channel.marked.v1` carries the
- * channel's unread count after the move, as Slack's `channel_marked` does, so a read in the open
- * channel updates the sidebar without a list re-read per message.
+ * channel's unread count and read cursor after the move (Slack's `channel_marked` carries the
+ * cursor as its `ts`), so a read in the open channel updates the sidebar without a list re-read per
+ * message, and a page's stored window of that channel opens with the divider where it now is.
  *
  * - `channel.marked.v1`: the read cursor moved (read, marked unread, marked Done).
  * - `channel.joined.v1` / `channel.left.v1`: the viewer joined, was added, created, left or was removed.
@@ -245,6 +246,8 @@ const viewerEvent = z.discriminatedUnion("type", [
     type: z.enum(["channel.marked.v1", "dm.marked.v1"]),
     ...viewerEventIds,
     unreadCount: z.number().int().nonnegative(),
+    // Where the read cursor stands after the move, as Slack's `channel_marked` carries its `ts`.
+    readThroughSequence: z.number().int().nonnegative(),
   }),
   z.object({
     type: z.enum([

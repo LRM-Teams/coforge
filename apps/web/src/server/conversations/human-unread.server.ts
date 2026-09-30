@@ -20,26 +20,39 @@ export const HUMAN_UNREAD_MESSAGE_SQL = Prisma.sql`m."sequence" > LEAST(cm."read
   AND m."senderMemberId" IS NOT NULL
   AND m."senderMemberId" <> cm."id"`;
 
-/** How many top-level messages of a conversation are unread for the person `userId`, while they are
- * in it: one row's badge, by the same rule `PublicChannels.list` counts every row's with. */
-export async function humanUnreadCount(
+/** Where a person stands in one of their conversations: how many of its top-level messages are
+ * unread for them (the badge, by the same rule `PublicChannels.list` counts every row's with), and
+ * their read cursor (`readThroughSequence`), which a page's stored window draws its divider from. */
+export type HumanReadState = { unreadCount: number; readThroughSequence: number };
+
+/** `HumanReadState` of one conversation the person `userId` is in; nothing unread and nothing read
+ * when they are not in it. */
+export async function humanReadState(
   db: Pick<Prisma.TransactionClient, "$queryRaw">,
   conversationId: string,
   userId: string,
-): Promise<number> {
-  return (await humanUnreadCounts(db, userId, [conversationId])).get(conversationId) ?? 0;
+): Promise<HumanReadState> {
+  return (
+    (await humanReadStates(db, userId, [conversationId])).get(conversationId) ?? {
+      unreadCount: 0,
+      readThroughSequence: 0,
+    }
+  );
 }
 
-/** `humanUnreadCount` for several of the person's conversations in one read, by conversation id;
+/** `humanReadState` for several of the person's conversations in one read, by conversation id;
  * a conversation they are not in has no entry. */
-export async function humanUnreadCounts(
+export async function humanReadStates(
   db: Pick<Prisma.TransactionClient, "$queryRaw">,
   userId: string,
   conversationIds: readonly string[],
-): Promise<Map<string, number>> {
+): Promise<Map<string, HumanReadState>> {
   if (conversationIds.length === 0) return new Map();
-  const rows = await db.$queryRaw<{ conversationId: string; count: number }[]>`
-    SELECT cm."conversationId" AS "conversationId", unread."count" AS "count"
+  const rows = await db.$queryRaw<
+    { conversationId: string; count: number; readThroughSequence: number }[]
+  >`
+    SELECT cm."conversationId" AS "conversationId", unread."count" AS "count",
+      cm."readThroughSequence" AS "readThroughSequence"
     FROM "conversation_members" cm
     CROSS JOIN LATERAL (
       SELECT COUNT(*)::int AS "count"
@@ -51,20 +64,25 @@ export async function humanUnreadCounts(
     WHERE cm."userId" = ${userId}::uuid
       AND cm."conversationId" = ANY(${[...conversationIds]}::uuid[])
       AND cm."leftAt" IS NULL`;
-  return new Map(rows.map((row) => [row.conversationId, row.count]));
+  return new Map(
+    rows.map((row) => [
+      row.conversationId,
+      { unreadCount: row.count, readThroughSequence: row.readThroughSequence },
+    ]),
+  );
 }
 
 /**
  * Advances the person's top-level read cursor in a channel or DM they are in: monotone and clamped
  * to the conversation's newest message, so a stale client cannot move it back nor push it past the
- * conversation. Reading past a mark-as-unread marker consumes it. Returns the unread count the move
- * left (0 when it read through the newest message, else counted after the commit), or undefined
- * when nothing moved, so a caller announces only real moves.
+ * conversation. Reading past a mark-as-unread marker consumes it. Returns where the move left the
+ * person (`HumanReadState`; nothing unread when it read through the newest message, else counted
+ * after the commit), or undefined when nothing moved, so a caller announces only real moves.
  */
 export async function markHumanRead(
   db: PrismaClient,
   read: { conversationId: string; userId: string; throughSequence: number },
-): Promise<number | undefined> {
+): Promise<HumanReadState | undefined> {
   const { conversationId, userId } = read;
   const moved = await db.$transaction(async (tx) => {
     const latest = await tx.message.findFirst({
@@ -95,10 +113,12 @@ export async function markHumanRead(
       data: { unreadFromSequence: null },
     });
     if (advanced.count === 0 && consumed.count === 0) return undefined;
-    return { throughLatest: boundary === latest?.sequence };
+    return { throughLatest: boundary === latest?.sequence, boundary };
   });
   if (!moved) return undefined;
-  return moved.throughLatest ? 0 : humanUnreadCount(db, conversationId, userId);
+  // Through the newest message the cursor is at it, whether this read moved it or an earlier one.
+  if (moved.throughLatest) return { unreadCount: 0, readThroughSequence: moved.boundary };
+  return humanReadState(db, conversationId, userId);
 }
 
 /**

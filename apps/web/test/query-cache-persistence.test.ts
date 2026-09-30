@@ -1209,6 +1209,42 @@ describe("a conversation the person read through a message", () => {
   });
 });
 
+describe("a conversation read on another page or device, which this page holds only in storage", () => {
+  type CursorPage = Page & { readThroughSequence?: number };
+  const stored = (disk: ReturnType<typeof memoryStore>) =>
+    disk.rows.get('user-1/tanstack-query-["conversation","channel","c1"]') as
+      | { state: { data: { pages: CursorPage[] } } }
+      | undefined;
+
+  test("is stored with the cursor it was read through, so the next open draws the divider there", async () => {
+    const disk = memoryStore();
+    const earlier = pageLoad(disk.store);
+    await earlier.queryClient.fetchInfiniteQuery(
+      windowQuery("c1", async () => ({ ...page(["m"]), readThroughSequence: 100 })),
+    );
+    await disk.written(1);
+
+    // A later page load that has not opened the conversation hears it was read elsewhere.
+    const later = pageLoad(disk.store);
+    later.persistence.noteReadThrough(channelKey("c1"), 160);
+    await disk.written(2);
+    expect(stored(disk)?.state.data.pages[0]?.readThroughSequence).toBe(160);
+
+    // Never back: an older cursor leaves it as it is.
+    later.persistence.noteReadThrough(channelKey("c1"), 120);
+    await settle();
+    expect(stored(disk)?.state.data.pages[0]?.readThroughSequence).toBe(160);
+  });
+
+  test("stores nothing when nothing was stored for it", async () => {
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    load.persistence.noteReadThrough(channelKey("c1"), 160);
+    await settle();
+    expect(stored(disk)).toBeUndefined();
+  });
+});
+
 describe("what the page writes itself (realtime, a sent message, the sidebar's changes)", () => {
   test("is kept too, the newest state once per burst, so the next load opens where this one left off", async () => {
     const disk = memoryStore();

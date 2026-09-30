@@ -116,6 +116,7 @@ test.skipIf(!connectionString)(
             workspaceId: workspace.id,
             conversationId: team.id,
             unreadCount: 1,
+            readThroughSequence: root.sequence,
           },
         },
         {
@@ -125,6 +126,7 @@ test.skipIf(!connectionString)(
             workspaceId: workspace.id,
             conversationId: dm,
             unreadCount: 0,
+            readThroughSequence: inDm.sequence,
           },
         },
       ]);
@@ -139,7 +141,7 @@ test.skipIf(!connectionString)(
   async () => {
     const { workspace, ada, bob, team, dm, inbox, announced, post, teardown } = await setup();
     try {
-      await post(team.id, ada.id);
+      const inTeam = await post(team.id, ada.id);
       const shown = await post(dm, ada.id);
       // Posted after the page the person marked from: it stays unread.
       await post(dm, ada.id);
@@ -159,6 +161,7 @@ test.skipIf(!connectionString)(
             workspaceId: workspace.id,
             conversationId: team.id,
             unreadCount: 0,
+            readThroughSequence: inTeam.sequence,
           },
         },
         {
@@ -168,6 +171,7 @@ test.skipIf(!connectionString)(
             workspaceId: workspace.id,
             conversationId: dm,
             unreadCount: 1,
+            readThroughSequence: shown.sequence,
           },
         },
       ]);
@@ -221,6 +225,7 @@ test.skipIf(!connectionString)(
             workspaceId: workspace.id,
             conversationId: dm,
             unreadCount: 0,
+            readThroughSequence: inDm.sequence,
           },
         },
       ]);

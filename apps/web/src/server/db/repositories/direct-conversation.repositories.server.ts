@@ -1251,8 +1251,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return messages.map((message) => mapDirectBrowserMessage(message, workspaceId));
   }
 
-  /** Advances the person's DM read cursor (`markHumanRead`): the unread count it left, or
-   * undefined when nothing moved. */
+  /** Advances the person's DM read cursor (`markHumanRead`): where it left them, or undefined
+   * when nothing moved. */
   async markReadForUser(userId: string, conversationId: string, throughSequence: number) {
     if (!Number.isSafeInteger(throughSequence) || throughSequence < 1)
       throw new AppError("INVALID_INPUT");
