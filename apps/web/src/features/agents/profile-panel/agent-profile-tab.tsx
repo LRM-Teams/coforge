@@ -19,6 +19,7 @@ import { StatusDot } from "#src/components/ui/status-dot";
 import { Tooltip, TooltipTrigger } from "#src/components/base/tooltip/tooltip";
 import { avatarInitial, avatarToneClassName } from "#src/lib/avatar-tone";
 import { formatDateForDisplay } from "#src/lib/dates";
+import { humanLabel } from "#src/lib/human-label";
 import { useTimeFormat } from "#src/lib/time-format-context";
 import { m } from "#src/paraglide/messages";
 import { getLocale } from "#src/paraglide/runtime";
@@ -212,7 +213,7 @@ export function AgentProfileTab({
   const needsComputerSetup = canManage && !profile.computer;
   const runtimeLabel = runtimeProviderLabel(runtime);
   const runtimeIcon = <RuntimeProviderMark provider={runtime} className="size-3.5" />;
-  const creatorName = profile.owner.displayName?.trim() || profile.owner.username;
+  const creatorName = humanLabel(profile.owner);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [avatarError, setAvatarError] = useState("");
   const [avatarBusy, setAvatarBusy] = useState(false);

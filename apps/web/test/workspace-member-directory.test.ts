@@ -189,6 +189,29 @@ test("ordinary members can list peers but cannot invite", async () => {
   ).rejects.toBeInstanceOf(AppError);
 });
 
+test("members are listed in the order of the names they are shown by, not of their usernames", async () => {
+  const store = memoryStore();
+  store.seedMember({
+    workspaceId,
+    userId: ownerId,
+    role: "owner",
+    username: "ada",
+    displayName: "Zoe",
+  });
+  store.seedMember({
+    workspaceId,
+    userId: adminId,
+    role: "admin",
+    username: "zed",
+    displayName: "Alice",
+  });
+  store.seedMember({ workspaceId, userId: memberId, role: "member", username: "mia" });
+  const directory = new WorkspaceMemberDirectory(store);
+
+  const listed = await directory.listMembers({ workspaceId, actorUserId: ownerId });
+  expect(listed.map((row) => row.username)).toEqual(["zed", "mia", "ada"]);
+});
+
 function memoryStore(): WorkspaceMemberDirectoryStore & {
   members: Map<string, WorkspaceMemberRecord>;
   /** The channels each `${workspaceId}:${userId}` member is active in. */
@@ -200,6 +223,7 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
     userId: string;
     role: WorkspaceMemberRole;
     username: string;
+    displayName?: string;
     channelIds?: string[];
   }): void;
   seedUser(userId: string, username: string): void;
@@ -223,7 +247,7 @@ function memoryStore(): WorkspaceMemberDirectoryStore & {
         userId: input.userId,
         role: input.role,
         username: input.username,
-        displayName: null,
+        displayName: input.displayName ?? null,
         avatarUrl: null,
       });
     },

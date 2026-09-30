@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { AppError } from "#src/lib/app-error";
+import { humanLabel } from "#src/lib/human-label";
 import { VISIBLE_CONVERSATION_WHERE } from "#src/server/conversations/active-member.server";
 import { workspaceUserMiddleware } from "#src/features/auth/function-auth";
 import { attachmentView } from "#src/server/attachments/attachment-view.server";
@@ -65,12 +66,9 @@ export const loadConversationFiles = createServerFn({ method: "GET" })
         ...attachmentView(attachment),
         createdAt: attachment.createdAt.toISOString(),
         inlineImage: isInlineImage(attachment.contentType),
-        sender:
-          attachment.uploader?.displayName ||
-          attachment.uploader?.username ||
-          attachment.uploaderAgent?.displayName ||
-          attachment.uploaderAgent?.name ||
-          "",
+        sender: attachment.uploader
+          ? humanLabel(attachment.uploader)
+          : attachment.uploaderAgent?.displayName || attachment.uploaderAgent?.name || "",
         messageId: attachment.message?.id ?? null,
       })),
     };

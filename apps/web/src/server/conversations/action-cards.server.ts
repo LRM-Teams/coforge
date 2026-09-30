@@ -16,6 +16,7 @@ import {
 } from "#src/server/agents/agent-visibility.server";
 import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { AppError } from "#src/lib/app-error";
+import { humanLabel } from "#src/lib/human-label";
 import { ActionCardError } from "./action-card-error.server";
 import { lockConversation } from "./conversation-lock.server";
 import {
@@ -293,7 +294,7 @@ export class ActionCards {
           : Promise.resolve([]),
       ]);
 
-    const userName = new Map(users.map((u) => [u.id, u.displayName?.trim() || u.username]));
+    const userName = new Map(users.map((u) => [u.id, humanLabel(u)]));
     const agentName = new Map(agents.map((a) => [a.id, a.displayName?.trim() || a.name]));
     const channelName = new Map(channels.map((c) => [c.id, c.channelName ?? "unknown"]));
     const computerName = new Map(

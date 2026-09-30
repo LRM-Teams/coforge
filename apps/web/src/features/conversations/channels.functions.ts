@@ -6,6 +6,7 @@ import {
   type WorkspaceUserContext,
 } from "#src/features/auth/function-auth";
 import { AppError, isAppError } from "#src/lib/app-error";
+import { humanLabel } from "#src/lib/human-label";
 import { PublicChannels } from "#src/server/conversations/public-channels.server";
 import { ChannelAgentControl } from "#src/server/conversations/channel-agent-control.server";
 import { CHANNEL_AGENT_GUIDANCE_MAX_LENGTH } from "#src/lib/channel-agent-guidance";
@@ -459,7 +460,7 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       // The echo must read exactly like the same message after a reload: a display name, with
       // the handle carried separately (see `sender-display.server.ts`). `username` from the
       // session is the fallback when this person has set no display name.
-      senderName: message.sender?.user?.displayName?.trim() || username,
+      senderName: humanLabel({ displayName: message.sender?.user?.displayName, username }),
       senderHandle: username,
       // A human-sent echo never carries an Agent id, and a human sender is never deleted.
       senderAgentId: undefined,

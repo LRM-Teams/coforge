@@ -5,6 +5,7 @@ import type {
 } from "@lrm/coforge-sdk/agent";
 import { ACTIVE_AGENT_WHERE } from "./active-agent.server";
 import type { PrismaClient } from "#src/generated/prisma/client";
+import { humanLabel } from "#src/lib/human-label";
 import { AGENT_DISPLAY_NAME_MAX_LENGTH } from "#src/features/agents/agent.schemas";
 import {
   AGENT_NOT_VISIBLE,
@@ -74,7 +75,7 @@ async function creatorFor(db: PrismaClient, ownerId: string): Promise<AgentProfi
     select: { username: true, displayName: true },
   });
   if (!owner) return null;
-  return { name: owner.username, displayName: owner.displayName?.trim() || owner.username };
+  return { name: owner.username, displayName: humanLabel(owner) };
 }
 
 async function buildProfileView(

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { humanLabel } from "#src/lib/human-label";
 import { resolveAgentStatuses } from "#src/server/agents/agent-user-info.server";
 import { agentAuthMiddleware } from "#src/server/agents/agent-http-middleware.server";
 import { buildAgentRuntimeContext } from "#src/server/agents/agent-runtime-context.server";
@@ -93,7 +94,7 @@ export const Route = createFileRoute("/api/agent/v1/workspace")({
             workspace,
             humans: humans.map((human) => ({
               name: human.user.username,
-              displayName: human.user.displayName?.trim() || human.user.username,
+              displayName: humanLabel(human.user),
               role: human.role,
             })),
             agents: agentStatuses.map(({ agent, status, availability }) => ({

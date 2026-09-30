@@ -722,10 +722,7 @@ function Preferences({
             <p className="text-xs font-semibold tracking-wide text-tertiary uppercase">
               {m.preferences_preview()}
             </p>
-            <MessageFontSizePreview
-              senderName={profile.name || profile.username}
-              senderAvatarUrl={profile.avatarUrl}
-            />
+            <MessageFontSizePreview senderName={profile.name} senderAvatarUrl={profile.avatarUrl} />
           </div>
         </SettingsCard>
         <SettingsCard>

@@ -1,4 +1,5 @@
 import { AppError } from "#src/lib/app-error";
+import { compareHumanLabels } from "#src/lib/human-label";
 import {
   assertCanChangeMemberRole,
   assertCanInvite,
@@ -87,7 +88,9 @@ export class WorkspaceMemberDirectory {
 
   async listMembers(input: { workspaceId: string; actorUserId: string }) {
     await this.requireMembership(input.workspaceId, input.actorUserId);
-    return this.store.listMembers(input.workspaceId);
+    const members = await this.store.listMembers(input.workspaceId);
+    // By the name they are shown by; the store's order is not part of its contract.
+    return [...members].sort(compareHumanLabels);
   }
 
   async listPendingInvitations(input: { workspaceId: string; actorUserId: string }) {

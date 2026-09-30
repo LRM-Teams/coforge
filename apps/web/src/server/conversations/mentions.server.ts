@@ -1,5 +1,6 @@
 import type { Prisma } from "#src/generated/prisma/client";
 import { readableBody } from "@lrm/coforge-sdk/internal";
+import { humanLabel } from "#src/lib/human-label";
 
 /** The mention-row projection every body reader needs to resolve embedded tokens. */
 export type MessageMentionRef = { kind: string; actorId: string; handle: string };
@@ -45,13 +46,15 @@ export type BrowserMessageMentionRow = MessageMentionRef & {
 };
 
 export function browserMessageMention(row: BrowserMessageMentionRow) {
-  const displayName =
-    row.kind === "user" ? row.member.user?.displayName : row.member.agent?.displayName;
   return {
     kind: row.kind as "user" | "agent",
     actorId: row.actorId,
     handle: row.handle,
-    label: displayName?.trim() || row.handle,
+    // A person's handle is their username, so it is the fallback `humanLabel` names them by.
+    label:
+      row.kind === "user"
+        ? humanLabel({ displayName: row.member.user?.displayName, username: row.handle })
+        : row.member.agent?.displayName?.trim() || row.handle,
   };
 }
 

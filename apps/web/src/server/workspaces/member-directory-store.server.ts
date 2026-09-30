@@ -72,7 +72,6 @@ export class PrismaWorkspaceMemberDirectoryStore implements WorkspaceMemberDirec
         role: true,
         user: { select: { username: true, displayName: true, avatarObjectKey: true } },
       },
-      orderBy: { user: { username: "asc" } },
     });
     return rows.map((row) => ({
       workspaceId: row.workspaceId,

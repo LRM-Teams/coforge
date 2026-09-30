@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "#src/generated/prisma/client";
 import { ACTIVE_AGENT_WHERE } from "#src/server/agents/active-agent.server";
 import { agentAvatarUrl } from "#src/server/agents/agent-avatar.server";
 import { AGENT_VISIBILITY } from "#src/features/agents/agent-visibility";
+import { humanLabel } from "#src/lib/human-label";
 import { workspaceUserAvatarUrl } from "#src/server/db/repositories/user-profile.repositories.server";
 import { ACTIVE_MEMBER_WHERE } from "./active-member.server";
 import { leftoverMentionHandles } from "./unresolved-mentions.server";
@@ -210,8 +211,9 @@ function pendingMentionActionView(
     targetType: row.targetAgentId ? "agent" : "user",
     targetId,
     targetHandle: row.targetHandle,
-    targetLabel:
-      (agent ? agent.displayName : row.targetUser?.displayName)?.trim() || row.targetHandle,
+    targetLabel: agent
+      ? agent.displayName?.trim() || row.targetHandle
+      : humanLabel({ displayName: row.targetUser?.displayName, username: row.targetHandle }),
     targetAvatarUrl: agent
       ? agentAvatarUrl(workspaceId, targetId, agent.avatarObjectKey)
       : workspaceUserAvatarUrl(workspaceId, targetId, row.targetUser?.avatarObjectKey ?? null),
