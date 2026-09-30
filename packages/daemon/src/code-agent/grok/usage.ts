@@ -7,7 +7,7 @@ import { asRecord } from "#src/code-agent/json-record";
 import { maskEmail } from "#src/code-agent/mask-email";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
-/** Reads Grok's account billing endpoint through its ACP surface (Raft's account-usage reader). */
+/** Reads Grok's account billing endpoint through its ACP surface. */
 export async function readGrokUsage(
   workingDirectory: string,
   options: {
@@ -114,14 +114,15 @@ function projectBilling(value: unknown, accountLabel?: string): UsageSnapshot {
   }
   const period = asRecord(config.currentPeriod);
   const reset = instant(period?.end ?? config.billingPeriodEnd);
-  const primary = window(periodLabel(period?.type), percent, reset, 43200);
+  const minutes = periodMinutes(period?.type);
+  const primary = window(periodLabel(period?.type), percent, reset, minutes);
   const cap = quotaNumber(config.onDemandCap);
   const over =
     quotaNumber(config.onDemandUsed) ??
     (used !== undefined && limit !== undefined ? Math.max(0, used - limit) : 0);
   const secondary =
     cap !== undefined && cap > 0
-      ? window("Pay-as-you-go", (over / cap) * 100, reset, 43200)
+      ? window("Pay-as-you-go", (over / cap) * 100, reset, minutes)
       : undefined;
   const rateLimited =
     percent >= 100 && (secondary === undefined || (secondary.usedPercent ?? 0) >= 100);
@@ -148,6 +149,14 @@ function window(
     windowDurationMinutes: minutes,
     ...(resetsAt ? { resetsAt } : {}),
   };
+}
+const WEEK_MINUTES = 7 * 24 * 60;
+const MONTH_MINUTES = 30 * 24 * 60;
+/** How long a billing period lasts. Grok 1.0.41 names a unified-billing account's period
+ * `USAGE_PERIOD_TYPE_WEEKLY` (observed; the guide's 24-monitoring-usage.md names no period types),
+ * and every other period, `Monthly` included, is a month. */
+function periodMinutes(type: unknown): number {
+  return typeof type === "string" && /week/iu.test(type) ? WEEK_MINUTES : MONTH_MINUTES;
 }
 function periodLabel(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "Monthly";
