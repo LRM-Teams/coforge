@@ -33,7 +33,10 @@ import {
   INSTALLER_RECEIPT_PROTOCOL,
   InstallerManifestSchema,
   InstallerReceiptSchema,
+  LIFECYCLE_ERROR_CODE,
+  LIFECYCLE_EXIT_CODE,
   LIFECYCLE_PROTOCOL,
+  LifecycleAckSchema,
   LifecycleErrorSchema,
   LifecycleHoldSchema,
   LifecycleProtocolSchema,
@@ -339,6 +342,7 @@ export function renderInstallerContract(): Map<string, string> {
           { binding_id: "ws_stopped", enabled: false, running: false, process_id: null },
         ],
         healthy: true,
+        problems: [],
       }),
     ],
     [
@@ -349,6 +353,9 @@ export function renderInstallerContract(): Map<string, string> {
         supervisor: { running: false },
         bindings: [{ binding_id: "ws_example", enabled: true, running: false, process_id: null }],
         healthy: false,
+        problems: [
+          "configured running bindings have no healthy supervisor. Run 'coforge-computer start' to recover them, then upgrade again.",
+        ],
       }),
     ],
     ["lifecycle.hold.schema.json", jsonSchema(LifecycleHoldSchema)],
@@ -361,6 +368,11 @@ export function renderInstallerContract(): Map<string, string> {
         busy_agent_count: 0,
       }),
     ],
+    ["lifecycle.ack.schema.json", jsonSchema(LifecycleAckSchema)],
+    [
+      "lifecycle.ack.json",
+      instance(LifecycleAckSchema, { lifecycle_protocol: LIFECYCLE_PROTOCOL, ok: true }),
+    ],
     ["lifecycle.error.schema.json", jsonSchema(LifecycleErrorSchema)],
     [
       "lifecycle.error.json",
@@ -370,6 +382,11 @@ export function renderInstallerContract(): Map<string, string> {
         code: UPGRADE_ERROR_CODE.LAUNCHES_PAUSED,
         message: "Workspace launches are paused by another upgrade.",
       }),
+    ],
+    // `__lifecycle` exit statuses and the codes it names itself (installer-contract.ts).
+    [
+      "lifecycle-codes.json",
+      json({ exit_codes: LIFECYCLE_EXIT_CODE, error_codes: LIFECYCLE_ERROR_CODE }),
     ],
     // Error codes the installer may report (@lrm/coforge-sdk).
     [

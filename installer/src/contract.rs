@@ -267,6 +267,9 @@ pub struct LifecycleStatus {
     pub supervisor: SupervisorState,
     pub bindings: Vec<LifecycleBinding>,
     pub healthy: bool,
+    /// Why the runtime set is not healthy, each naming the command that fixes it; empty exactly
+    /// when `healthy` is true.
+    pub problems: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -293,6 +296,21 @@ pub struct LifecycleHold {
     pub quiescent: bool,
     pub elapsed_ms: u64,
     pub busy_agent_count: u32,
+}
+
+/// `coforge-computer __lifecycle pause`, `release`, and `resume`: the operation completed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleAck {
+    pub lifecycle_protocol: u32,
+    pub ok: bool,
+}
+
+/// `__lifecycle` exit statuses and the error codes it names itself (`lifecycle-codes.json`). A
+/// Coordinator refusal passes its own `UPGRADE_*` code through instead.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleCodes {
+    pub exit_codes: BTreeMap<String, u8>,
+    pub error_codes: BTreeMap<String, String>,
 }
 
 /// Any failed `__lifecycle` call, printed with a non-zero exit status.

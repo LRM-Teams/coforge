@@ -20,5 +20,6 @@
       "process_id": null
     }
   ],
-  "healthy": true
+  "healthy": true,
+  "problems": []
 }

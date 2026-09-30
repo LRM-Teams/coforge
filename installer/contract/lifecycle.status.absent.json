@@ -12,5 +12,8 @@
       "process_id": null
     }
   ],
-  "healthy": false
+  "healthy": false,
+  "problems": [
+    "configured running bindings have no healthy supervisor. Run 'coforge-computer start' to recover them, then upgrade again."
+  ]
 }

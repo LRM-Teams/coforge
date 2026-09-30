@@ -1,0 +1,12 @@
+{
+  "exit_codes": {
+    "OK": 0,
+    "FAILED": 1,
+    "USAGE": 2
+  },
+  "error_codes": {
+    "USAGE": "LIFECYCLE_USAGE",
+    "SUPERVISOR_NOT_RUNNING": "LIFECYCLE_SUPERVISOR_NOT_RUNNING",
+    "FAILED": "LIFECYCLE_FAILED"
+  }
+}

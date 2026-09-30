@@ -66,6 +66,12 @@
     },
     "healthy": {
       "type": "boolean"
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [
@@ -73,7 +79,8 @@
     "version",
     "supervisor",
     "bindings",
-    "healthy"
+    "healthy",
+    "problems"
   ],
   "additionalProperties": {},
   "title": "__lifecycle status"
