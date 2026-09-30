@@ -85,11 +85,10 @@ export const LIFECYCLE_EXIT_CODE = {
   USAGE: 2,
 } as const;
 
-/** The `code` values `__lifecycle` names itself. A Coordinator refusal passes its own
- * `UPGRADE_*` code through instead (for example `UPGRADE_LAUNCHES_PAUSED`). */
+/** The `code` of a failed `__lifecycle` call. */
 export const LIFECYCLE_ERROR_CODE = {
   USAGE: "LIFECYCLE_USAGE",
-  /** Nothing answered on the Coordinator socket. */
+  /** Nothing listens on the supervisor socket. */
   SUPERVISOR_NOT_RUNNING: "LIFECYCLE_SUPERVISOR_NOT_RUNNING",
   /** Any other failure; `message` says what happened. */
   FAILED: "LIFECYCLE_FAILED",
@@ -102,7 +101,17 @@ export const LifecycleProtocolSchema = z
   .looseObject({ lifecycle_protocol: lifecycleProtocol, version: z.string() })
   .meta({ title: "__lifecycle protocol" });
 
-/** `__lifecycle status --json`. With no supervisor running, bindings come from bindings.json. */
+/** One reason the runtime set is not healthy: `code` is one of `SUPERVISOR_PROBLEM_CODE`,
+ * `message` a sentence for a person naming the command that fixes it, and `binding_id` is set
+ * when the problem is one Workspace's. */
+export const LifecycleProblemSchema = z.looseObject({
+  code: z.string().regex(UPGRADE_ERROR_CODE_PATTERN),
+  binding_id: z.string().optional(),
+  message: z.string(),
+});
+export type LifecycleProblem = z.infer<typeof LifecycleProblemSchema>;
+
+/** `__lifecycle status`. With no supervisor running, bindings come from bindings.json. */
 export const LifecycleStatusSchema = z
   .looseObject({
     lifecycle_protocol: lifecycleProtocol,
@@ -121,9 +130,9 @@ export const LifecycleStatusSchema = z
       }),
     ),
     healthy: z.boolean(),
-    /** Why the runtime set is not healthy, each naming the command that fixes it; empty exactly
-     * when `healthy` is true. The installer quotes these when it refuses to upgrade. */
-    problems: z.array(z.string()),
+    /** Why the runtime set is not healthy; empty exactly when `healthy` is true. The installer
+     * quotes their messages when it refuses to upgrade. */
+    problems: z.array(LifecycleProblemSchema),
   })
   .meta({ title: "__lifecycle status" });
 export type LifecycleStatus = z.infer<typeof LifecycleStatusSchema>;

@@ -221,6 +221,11 @@ fn lifecycle_responses() {
     let absent: LifecycleStatus = golden("lifecycle.status.absent.json");
     assert!(!absent.supervisor.running && absent.supervisor.id.is_none());
     assert!(!absent.healthy && !absent.problems.is_empty());
+    let codes: LifecycleCodes = golden("lifecycle-codes.json");
+    assert_eq!(
+        absent.problems[0].code,
+        codes.problem_codes["SUPERVISOR_NOT_RUNNING"]
+    );
     assert!(
         absent
             .bindings
@@ -233,6 +238,7 @@ fn lifecycle_responses() {
     assert!(ack.ok);
     let error: LifecycleError = golden("lifecycle.error.json");
     assert!(!error.ok);
+    assert_eq!(error.code, codes.error_codes["SUPERVISOR_NOT_RUNNING"]);
 }
 
 #[test]

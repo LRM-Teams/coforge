@@ -13,12 +13,15 @@ import { UPGRADE_ERROR_CODE } from "@lrm/coforge-sdk/internal";
 import {
   LIFECYCLE_ERROR_CODE,
   LIFECYCLE_EXIT_CODE,
+  LIFECYCLE_PROTOCOL,
   LifecycleAckSchema,
+  type LifecycleAck,
   LifecycleErrorSchema,
   LifecycleHoldSchema,
   LifecycleProtocolSchema,
   LifecycleStatusSchema,
 } from "#src/release/installer-contract";
+import { SUPERVISOR_PROBLEM_CODE } from "#src/release/supervisor-control";
 
 /*
  * `coforge-computer __lifecycle` is the only way the separately released installer controls a
@@ -40,8 +43,13 @@ const FIXTURE_ROOT = process.platform === "darwin" ? "/tmp" : tmpdir();
 /** Compiling the executable takes several seconds on a cold cache. */
 const COMPILE_TIMEOUT_MS = 120_000;
 
-/** How long a freshly spawned Coordinator gets to answer on its socket. */
+/** How long a freshly spawned supervisor gets to answer on its socket. */
 const SUPERVISOR_READY_MS = 30_000;
+
+/** A test that starts a supervisor: its readiness bound plus the `__lifecycle` calls. */
+const SUPERVISOR_TEST_TIMEOUT_MS = SUPERVISOR_READY_MS + 10_000;
+
+const ACK: LifecycleAck = { lifecycle_protocol: LIFECYCLE_PROTOCOL, ok: true };
 
 beforeAll(async () => {
   root = await mkdtemp(join(await realpath(FIXTURE_ROOT), "cf-lifecycle-"));
@@ -93,19 +101,9 @@ async function startSupervisor(home: string) {
     executablePath: executable,
     socketPath,
     stateDirectory: state,
-    spawn: () => {},
+    timeoutMilliseconds: SUPERVISOR_READY_MS,
   });
-  const deadline = Date.now() + SUPERVISOR_READY_MS;
-  while (
-    !(await client.identity().then(
-      () => true,
-      () => false,
-    ))
-  ) {
-    if (supervisor.exitCode !== null) throw new Error("the supervisor exited before it answered");
-    if (Date.now() >= deadline) throw new Error("the supervisor did not answer on its socket");
-    await Bun.sleep(50);
-  }
+  await client.ensureRunning();
   return {
     client,
     async [Symbol.asyncDispose]() {
@@ -120,14 +118,10 @@ async function lifecycle(home: string, ...args: string[]) {
     env: { PATH: Bun.env.PATH, HOME: home },
     stdin: "ignore",
     stdout: "pipe",
-    stderr: "pipe",
+    stderr: "ignore",
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  return { exitCode, stdout, stderr, json: () => JSON.parse(stdout) as unknown };
+  const [stdout, exitCode] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  return { exitCode, json: () => JSON.parse(stdout) as unknown };
 }
 
 test("protocol answers with the lifecycle protocol and this build's version", async () => {
@@ -170,7 +164,12 @@ test("status without a running supervisor reports the persisted bindings as unhe
       { binding_id: "ws_off", enabled: false, running: false, process_id: null },
     ],
     healthy: false,
-    problems: [expect.stringContaining("coforge-computer start")],
+    problems: [
+      {
+        code: SUPERVISOR_PROBLEM_CODE.SUPERVISOR_NOT_RUNNING,
+        message: expect.stringContaining("coforge-computer start"),
+      },
+    ],
   });
 });
 
@@ -233,14 +232,14 @@ test(
 
     const paused = await lifecycle(home, "pause", "--request-id", requestId);
     expect(paused.exitCode).toBe(0);
-    expect(LifecycleAckSchema.parse(paused.json())).toEqual({ lifecycle_protocol: 1, ok: true });
+    expect(LifecycleAckSchema.parse(paused.json())).toEqual(ACK);
     const refusal = await supervisor.client.control("stop").catch((error: unknown) => error);
     expect(refusal).toBeInstanceOf(DaemonCommandRejectedError);
     expect((refusal as DaemonCommandRejectedError).code).toBe(UPGRADE_ERROR_CODE.LAUNCHES_PAUSED);
 
     const resumed = await lifecycle(home, "resume", "--request-id", requestId);
     expect(resumed.exitCode).toBe(0);
-    expect(LifecycleAckSchema.parse(resumed.json())).toEqual({ lifecycle_protocol: 1, ok: true });
+    expect(LifecycleAckSchema.parse(resumed.json())).toEqual(ACK);
     expect(await supervisor.client.control("stop")).toEqual([]);
   },
   SUPERVISOR_READY_MS + 10_000,
@@ -262,7 +261,7 @@ test(
 
     const released = await lifecycle(home, "release");
     expect(released.exitCode).toBe(0);
-    expect(LifecycleAckSchema.parse(released.json())).toEqual({ lifecycle_protocol: 1, ok: true });
+    expect(LifecycleAckSchema.parse(released.json())).toEqual(ACK);
   },
   SUPERVISOR_READY_MS + 10_000,
 );

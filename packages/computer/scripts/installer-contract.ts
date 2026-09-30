@@ -42,6 +42,7 @@ import {
   LifecycleProtocolSchema,
   LifecycleStatusSchema,
 } from "#src/release/installer-contract";
+import { SUPERVISOR_PROBLEM_CODE } from "#src/release/supervisor-control";
 import { launchHoldContents } from "#src/release/upgrade-lifecycle";
 import {
   ActiveStateSchema,
@@ -354,7 +355,11 @@ export function renderInstallerContract(): Map<string, string> {
         bindings: [{ binding_id: "ws_example", enabled: true, running: false, process_id: null }],
         healthy: false,
         problems: [
-          "configured running bindings have no healthy supervisor. Run 'coforge-computer start' to recover them, then upgrade again.",
+          {
+            code: SUPERVISOR_PROBLEM_CODE.SUPERVISOR_NOT_RUNNING,
+            message:
+              "configured running bindings have no healthy supervisor. Run 'coforge-computer start' to recover them, then upgrade again.",
+          },
         ],
       }),
     ],
@@ -379,14 +384,18 @@ export function renderInstallerContract(): Map<string, string> {
       instance(LifecycleErrorSchema, {
         lifecycle_protocol: LIFECYCLE_PROTOCOL,
         ok: false,
-        code: UPGRADE_ERROR_CODE.LAUNCHES_PAUSED,
-        message: "Workspace launches are paused by another upgrade.",
+        code: LIFECYCLE_ERROR_CODE.SUPERVISOR_NOT_RUNNING,
+        message: "The Computer supervisor is not running.",
       }),
     ],
     // `__lifecycle` exit statuses and the codes it names itself (installer-contract.ts).
     [
       "lifecycle-codes.json",
-      json({ exit_codes: LIFECYCLE_EXIT_CODE, error_codes: LIFECYCLE_ERROR_CODE }),
+      json({
+        exit_codes: LIFECYCLE_EXIT_CODE,
+        error_codes: LIFECYCLE_ERROR_CODE,
+        problem_codes: SUPERVISOR_PROBLEM_CODE,
+      }),
     ],
     // Error codes the installer may report (@lrm/coforge-sdk).
     [

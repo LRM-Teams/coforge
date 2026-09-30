@@ -49,16 +49,17 @@ relative to `src/`.
 | `updater.ts`                         | Verified installation, launchers, and version activation                      |
 | `release/`                           | Installer scripts and the independent upgrade/rollback coordinator            |
 | `release/installer-contract.ts`      | Shapes shared only with `coforge-installer` (manifest, receipt, lifecycle)    |
-| `release/coordinator-control.ts`     | Upgrade steps on the running Coordinator: status, pause, hold, resume         |
+| `release/supervisor-control.ts`      | Control of the running supervisor: status, pause/resume, runner hold          |
 | `release/lifecycle-command.ts`       | Hidden `__lifecycle` command: the installer's JSON control surface            |
 | `version.ts`                         | Build version                                                                 |
 
 `coforge-computer __lifecycle protocol|status|pause|hold|release|resume` is how
 the installer controls a running Computer. It prints exactly one JSON object on
 stdout (the `Lifecycle*` shapes) and exits with `LIFECYCLE_EXIT_CODE`; logs go to
-the Computer log file only. It never writes or removes `launch-hold`: the owner
-of the upgrade transaction does. Keep it and the product's own upgrade
-coordinator on the one `release/coordinator-control.ts`.
+the Computer log file only. A failed step is not undone for the caller: after
+any failure following `pause`, call `resume`. It never writes or removes
+`launch-hold`; the owner of the upgrade transaction does. The product's own
+upgrade and `__lifecycle` share `release/supervisor-control.ts`.
 
 `scripts/installer-contract.ts` (outside `src/`, never bundled) generates
 `installer/contract/`, the cross-language contract with the Rust installer:

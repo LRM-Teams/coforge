@@ -14,6 +14,9 @@
   ],
   "healthy": false,
   "problems": [
-    "configured running bindings have no healthy supervisor. Run 'coforge-computer start' to recover them, then upgrade again."
+    {
+      "code": "LIFECYCLE_SUPERVISOR_NOT_RUNNING",
+      "message": "configured running bindings have no healthy supervisor. Run 'coforge-computer start' to recover them, then upgrade again."
+    }
   ]
 }

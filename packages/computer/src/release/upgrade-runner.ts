@@ -1,11 +1,6 @@
 import { homedir } from "node:os";
 
-import {
-  resolveComputerBinaryDirectory,
-  resolveComputerInstallDirectory,
-  resolveComputerStateDirectory,
-  resolveDaemonSocketPath,
-} from "#src/paths";
+import { resolveComputerBinaryDirectory, resolveComputerInstallDirectory } from "#src/paths";
 import { currentComputerPlatform } from "#src/platform";
 import { COFORGE_RELEASE_FEED_URL } from "#src/release-channel";
 import {
@@ -14,17 +9,13 @@ import {
   type UpgradeResult,
 } from "./upgrade-coordinator";
 import type { UpgradeOperation } from "./upgrade-operation";
+import { resolveSupervisorPaths } from "./supervisor-control";
 
 /** This machine's installation, release feed, and Coordinator locations, all resolved from
  * `os.homedir()`: HOME on POSIX (else the account's passwd entry), USERPROFILE on Windows (else
  * the profile directory). The installer follows the same rule; see installer/contract/paths.json. */
 export function resolveUpgradeCoordinatorPaths(): LaunchUpgradeCoordinatorPaths {
   const homeDirectory = homedir();
-  const supervisorStatePath = resolveComputerStateDirectory({
-    platform: process.platform,
-    homeDirectory,
-    environment: process.env,
-  });
   return {
     installRoot: resolveComputerInstallDirectory({
       platform: process.platform,
@@ -38,11 +29,7 @@ export function resolveUpgradeCoordinatorPaths(): LaunchUpgradeCoordinatorPaths 
     }),
     target: currentComputerPlatform().releaseTarget,
     baseUrl: COFORGE_RELEASE_FEED_URL,
-    supervisorStatePath,
-    supervisorSocketPath: resolveDaemonSocketPath({
-      platform: process.platform,
-      stateDirectory: supervisorStatePath,
-    }),
+    ...resolveSupervisorPaths(),
   };
 }
 

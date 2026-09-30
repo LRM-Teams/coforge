@@ -1,6 +1,6 @@
 {
   "lifecycle_protocol": 1,
   "ok": false,
-  "code": "UPGRADE_LAUNCHES_PAUSED",
-  "message": "Workspace launches are paused by another upgrade."
+  "code": "LIFECYCLE_SUPERVISOR_NOT_RUNNING",
+  "message": "The Computer supervisor is not running."
 }

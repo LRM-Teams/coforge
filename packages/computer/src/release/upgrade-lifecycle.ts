@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 import { coordinatorServiceName, createDaemonHost } from "@lrm/coforge-daemon";
 
-import { createCoordinatorControl } from "./coordinator-control";
+import { createSupervisorControl, type SupervisorControlOptions } from "./supervisor-control";
 
 const logger = getLogger(["coforge", "computer", "upgrade"]);
 
@@ -103,16 +103,12 @@ export interface UpgradeLifecycle {
   resumeLaunches(requestId: string): Promise<void>;
 }
 
-export type SupervisorUpgradeIntegrationOptions = {
+export type SupervisorUpgradeIntegrationOptions = SupervisorControlOptions & {
   installRoot: string;
-  supervisorSocketPath: string;
-  supervisorStatePath: string;
   /** Internal host-adapter seam used by native integration tests. Production omits these values. */
   serviceName?: string;
   homeDirectory?: string;
   runtimeHomeDirectory?: string;
-  /** How long an upgrade waits for a start or restart already under way; tests shorten it. */
-  lifecycleSettle?: { timeoutMs: number; pollMs: number };
 };
 
 /** `<state>/launch-hold`: the owning request ID and a newline. The Coordinator refuses to launch
@@ -129,7 +125,7 @@ export function createSupervisorUpgradeLifecycle(
     "active",
     process.platform === "win32" ? "coforge-computer.exe" : "coforge-computer",
   );
-  const coordinator = createCoordinatorControl(options);
+  const supervisorControl = createSupervisorControl(options);
   const host = createDaemonHost({
     platform: process.platform,
     executablePath,
@@ -160,14 +156,14 @@ export function createSupervisorUpgradeLifecycle(
     restartsInPlace,
     async snapshot() {
       const status = supervisorWasRunning
-        ? await coordinator.runningStatus()
-        : await coordinator.persistedStatus();
-      if (status.problems.length)
+        ? await supervisorControl.runningStatus()
+        : await supervisorControl.persistedStatus();
+      if (status.problems.length) {
+        const messages = status.problems.map((problem) => problem.message).join(" ");
         throw new Error(
-          supervisorWasRunning
-            ? `Workspace runtime set is unhealthy: ${status.problems.join(" ")}`
-            : status.problems.join(" "),
+          supervisorWasRunning ? `Workspace runtime set is unhealthy: ${messages}` : messages,
         );
+      }
       if (status.supervisor.running) previousSupervisorId = status.supervisor.id;
       return {
         bindings: status.bindings.map(({ bindingId, running, processId }) => ({
@@ -181,17 +177,19 @@ export function createSupervisorUpgradeLifecycle(
     async pauseLaunches(requestId) {
       await mkdir(options.supervisorStatePath, { recursive: true, mode: 0o700 });
       await writeFile(holdPath, launchHoldContents(requestId), { mode: 0o600 });
-      supervisorWasRunning = await coordinator.isRunning();
+      supervisorWasRunning = await supervisorControl.isRunning();
       if (!supervisorWasRunning) return;
-      // A pause that fails has already resumed launches; the hold file goes with it.
-      await coordinator.pause(requestId).catch(async (error: unknown) => {
-        await rm(holdPath, { force: true });
+      try {
+        await supervisorControl.pause(requestId);
+      } catch (error) {
+        // This transaction owns the pause: undo it, hold file included, before reporting.
+        await this.resumeLaunches(requestId).catch(() => {});
         throw error;
-      });
+      }
     },
     async holdRunners() {
       if (!supervisorWasRunning) return;
-      await coordinator.hold();
+      await supervisorControl.hold();
     },
     async stop() {
       if (!supervisorWasRunning) return;
@@ -348,12 +346,12 @@ export function createSupervisorUpgradeLifecycle(
           throw new Error("activated executable version probe failed");
         return;
       }
-      const supervisor = await coordinator.identity();
+      const supervisor = await supervisorControl.identity();
       if (supervisor.id === previousSupervisorId || supervisor.version !== expected.version)
         throw new Error("supervisor replacement identity/version mismatch");
     },
     async resumeLaunches(requestId) {
-      if (supervisorWasRunning) await coordinator.resume(requestId);
+      if (supervisorWasRunning) await supervisorControl.resume(requestId);
       await rm(holdPath, { force: true });
     },
   };
