@@ -374,7 +374,7 @@ describe("external Code Agent inventory", () => {
     const inventory = await discoverCodeAgentInventory({
       probe: probeFor({
         codex: { path: "/bin/codex", version: "codex-cli 0.151.0\n" },
-        claude: { path: "/bin/claude", version: "2.1.284\n" },
+        claude: { path: "/bin/claude", version: "2.1.284 (Claude Code)\n" },
         pi: { path: "/bin/pi", version: "0.9.1\n" },
       }),
       commands: {
@@ -636,7 +636,7 @@ describe("Claude Code model catalog minimum versions", () => {
   for (const { version, listed } of cases) {
     test(`the live inventory of Claude Code ${version} lists ${listed.length} of the 3 minimum-gated models`, async () => {
       const inventory = await discoverCodeAgentInventory({
-        probe: probeFor({ claude: { path: "/bin/claude", version: `${version}\n` } }),
+        probe: probeFor({ claude: { path: "/bin/claude", version: `${version} (Claude Code)\n` } }),
         environment: { HOME: "/fixture/home", PATH: "", PI_OFFLINE: "1" },
       });
       expect(inventory.runtimes).toContainEqual({
@@ -681,6 +681,34 @@ describe("Claude Code model catalog minimum versions", () => {
       }),
     ])
       expect(ids(catalog).toSorted()).toEqual(full.toSorted());
+  });
+
+  test("a Claude Code upgrade re-reads the version through the probe cache and lists the new models", async () => {
+    const stateDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-catalog-state-"));
+    const binDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-catalog-bin-"));
+    const claudePath = join(binDirectory, "claude");
+    try {
+      await Bun.write(claudePath, "#!/bin/sh\necho old\n");
+      const installed = { claude: { path: claudePath, version: "2.1.100 (Claude Code)\n" } };
+      const inventory = () =>
+        discoverCodeAgentInventory({
+          probe: probeFor(installed),
+          environment: { HOME: "/fixture/home", PATH: "", PI_OFFLINE: "1" },
+          cacheDirectory: stateDirectory,
+        });
+      const claudeModelIds = async () =>
+        ids((await inventory()).catalogs.find((catalog) => catalog.provider === "claude-code"));
+
+      expectListed(await claudeModelIds(), []);
+
+      // A new binary has a new size, so the cache key changes and the probe runs again.
+      await Bun.write(claudePath, "#!/bin/sh\necho upgraded claude\n");
+      installed.claude.version = "2.1.285 (Claude Code)\n";
+      expectListed(await claudeModelIds(), [FABLE_5_1, OPUS_5_5, SONNET_5_5]);
+    } finally {
+      await rm(stateDirectory, { recursive: true, force: true });
+      await rm(binDirectory, { recursive: true, force: true });
+    }
   });
 
   test("the aliases are listed for every version, before the pinned models", () => {
