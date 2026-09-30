@@ -33,6 +33,7 @@ import { markShownWorkspace, shownWorkspace } from "#src/features/workspaces/sho
 import { LeaveDeletedWorkspace } from "#src/features/workspaces/leave-deleted-workspace";
 import { getStartPage } from "#src/features/workspaces/last-location.functions";
 import { rememberQueryCache } from "#src/features/cache-persistence/browser-query-cache";
+import { nameStepRedirect } from "#src/features/auth/name-step-redirect";
 import { signOut } from "#src/features/auth/sign-out";
 
 export const Route = createFileRoute("/w/$workspaceSlug")({
@@ -58,7 +59,7 @@ export const Route = createFileRoute("/w/$workspaceSlug")({
     if (shown) context.queryClient.clear();
     markShownWorkspace(context.queryClient, params.workspaceSlug);
   },
-  loader: async () => {
+  loader: async ({ location }) => {
     const [user, switcher, notifications, agents, preferences, tabOrders, recordsNav] =
       await Promise.all([
         getUserProfile(),
@@ -69,6 +70,9 @@ export const Route = createFileRoute("/w/$workspaceSlug")({
         getPanelTabOrders(),
         loadRecordsNavAttention().catch(() => ({ preview: false })),
       ]);
+    // A person who has not been asked for a full name is asked once, here for a session that
+    // predates the step, and comes back to this page.
+    if (!user.named) throw nameStepRedirect(location.href);
     return {
       user,
       workspaces: switcher.workspaces,

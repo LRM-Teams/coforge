@@ -89,6 +89,8 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
             create: {
               id: DEV_BROWSER_USER.id,
               username: DEV_BROWSER_USER.username,
+              // Without a full name the dev user is sent to the first-sign-in name step.
+              fullName: DEV_BROWSER_USER.name,
             },
           },
         },

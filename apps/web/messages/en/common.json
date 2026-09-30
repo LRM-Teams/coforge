@@ -45,5 +45,12 @@
   "error_reference": "Error reference: {errorId}",
   "navigation_open_menu": "Open menu",
   "navigation_close_menu": "Close menu",
-  "navigation_activity": "Activity"
+  "navigation_activity": "Activity",
+  "welcome_title": "Enter your full name",
+  "welcome_full_name_label": "Full name",
+  "welcome_continue": "Continue",
+  "welcome_error_empty": "Enter your full name.",
+  "welcome_error_too_long": "Use {max} characters or fewer.",
+  "welcome_error_refused": "You can't use this name.",
+  "welcome_error_save_failed": "Couldn't save. Try again."
 }

@@ -12,7 +12,8 @@ import {
 export type EnrollmentUser = {
   id: string;
   username: string;
-  displayName: string;
+  /** The stored full name, which titles the personal Workspace. */
+  fullName: string;
 };
 
 export type WorkspaceEnrollmentStore = {
@@ -31,7 +32,7 @@ export class WorkspaceEnrollment {
     const existing = await this.store.findMembership(user.id);
     if (existing) return { workspaceId: existing };
 
-    const name = workspaceDisplayName(user.displayName, acceptLanguage);
+    const name = workspaceDisplayName(user.fullName, acceptLanguage);
     const workspaceId = await this.createOwnedWorkspace(user.username, user.id, name);
     return { workspaceId };
   }
@@ -53,22 +54,37 @@ export class WorkspaceEnrollment {
     const slug = nameToWorkspaceSlug(username);
     if (isValidWorkspaceSlug(slug) && !isReservedWorkspaceSlug(slug)) {
       try {
-        return await this.store.createForUser({ slug, name, userId });
+        return await this.create({ slug, name, userId });
       } catch (error) {
         if (!isUniqueViolation(error)) throw error;
       }
     }
     const suffix = userId.replaceAll("-", "").slice(0, 8);
-    return this.store.createForUser({
-      slug: `${slug}-${suffix}`,
-      name,
-      userId,
-    });
+    return this.create({ slug: `${slug}-${suffix}`, name, userId });
+  }
+
+  /**
+   * Two enrollments of one new User at once (two sign-in callbacks, or a repeated submit) both
+   * find no membership and derive the same slugs, so the unique slug decides which one creates. A
+   * slug that is taken because the other enrollment made this User's Workspace is not a clash to
+   * work around with another slug, which would leave the User two Workspaces: that Workspace is
+   * the answer. A slug taken by anyone else's still throws the unique violation.
+   */
+  private async create(input: { slug: string; name: string; userId: string }): Promise<string> {
+    try {
+      return await this.store.createForUser(input);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        const concurrent = await this.store.findMembership(input.userId);
+        if (concurrent) return concurrent;
+      }
+      throw error;
+    }
   }
 }
 
-export function workspaceDisplayName(displayName: string, acceptLanguage: string): string {
-  const name = displayName.trim() || "User";
+export function workspaceDisplayName(fullName: string, acceptLanguage: string): string {
+  const name = fullName.trim() || "User";
   return prefersChinese(acceptLanguage) ? `${name}的工作空间` : `${name}'s Workspace`;
 }
 
@@ -117,11 +133,11 @@ export async function requireExistingWorkspaceId(
 
 export function workspaceIdForUser(
   db: PrismaClient,
-  user: { id: string; username: string; name: string },
+  user: EnrollmentUser,
   acceptLanguage: string,
 ): Promise<string> {
   return new WorkspaceEnrollment(new PrismaWorkspaceEnrollmentStore(db))
-    .ensureForUser({ id: user.id, username: user.username, displayName: user.name }, acceptLanguage)
+    .ensureForUser(user, acceptLanguage)
     .then((result) => result.workspaceId);
 }
 

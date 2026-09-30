@@ -8,17 +8,17 @@ import {
 const ada = {
   id: "11111111-1111-4111-8111-111111111111",
   username: "ada",
-  displayName: "Ada",
+  fullName: "Ada",
 };
 const grace = {
   id: "22222222-2222-4222-8222-222222222222",
   username: "grace",
-  displayName: "Grace",
+  fullName: "Grace",
 };
 const dong = {
   id: "33333333-3333-4333-8333-333333333333",
   username: "andong",
-  displayName: "安栋",
+  fullName: "安栋",
 };
 
 test("a user with no membership gets a Workspace of their own", async () => {
@@ -78,7 +78,7 @@ test("a taken username slug still creates a Workspace for that User", async () =
 
 test("a username that is a reserved Workspace slug does not become the slug", async () => {
   const store = memoryStore();
-  const admin = { id: ada.id, username: "admin", displayName: "Admin" };
+  const admin = { id: ada.id, username: "admin", fullName: "Admin" };
 
   const result = await new WorkspaceEnrollment(store).ensureForUser(admin, "en");
 
@@ -100,6 +100,39 @@ test("the slug is derived from the username, so an underscore becomes a hyphen",
   await new WorkspaceEnrollment(store).ensureForUser({ ...ada, username: "ada_lovelace" }, "en");
 
   expect(store.created).toEqual([{ slug: "ada-lovelace", name: "Ada's Workspace" }]);
+});
+
+test("two enrollments of the same new User at once make one Workspace, not two", async () => {
+  const store = memoryStore();
+  const enrollment = new WorkspaceEnrollment(store);
+
+  // Both find no membership before either has created one, and both derive the same slug: the
+  // unique slug decides which creates, and the other must return that Workspace instead of
+  // falling back to a suffixed slug of its own.
+  const [first, second] = await Promise.all([
+    enrollment.ensureForUser(ada, "en"),
+    enrollment.ensureForUser(ada, "en"),
+  ]);
+
+  expect(second.workspaceId).toBe(first.workspaceId);
+  expect(store.created).toEqual([{ slug: "ada", name: "Ada's Workspace" }]);
+});
+
+test("two concurrent enrollments still make one Workspace when the plain slug belongs to another", async () => {
+  const store = memoryStore();
+  store.reserveWorkspace({ slug: "ada", name: "Taken" });
+  const enrollment = new WorkspaceEnrollment(store);
+
+  const [first, second] = await Promise.all([
+    enrollment.ensureForUser(ada, "en"),
+    enrollment.ensureForUser(ada, "en"),
+  ]);
+
+  expect(second.workspaceId).toBe(first.workspaceId);
+  expect(store.created).toEqual([
+    { slug: "ada", name: "Taken" },
+    { slug: "ada-11111111", name: "Ada's Workspace" },
+  ]);
 });
 
 test("a membership failure does not leave a Workspace", async () => {

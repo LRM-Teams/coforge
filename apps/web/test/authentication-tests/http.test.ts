@@ -23,7 +23,10 @@ const config = {
 const persistedAda = {
   id: "11111111-1111-4111-8111-111111111111",
   username: "ada",
+  // Named: sign-in goes on to the person's Workspace. See `unnamedAda` for the name step.
+  fullName: "Ada Lovelace" as string | null,
 };
+const unnamedAda = { ...persistedAda, fullName: null };
 
 function fakeAuthing() {
   return {
@@ -141,7 +144,7 @@ test("login callback signs in an Authing account that has no email, and /api/me 
       },
       resolveUser: async (input) => {
         resolved.push(input);
-        return { id: persistedAda.id, username: "user-0a1b2c3d" };
+        return { id: persistedAda.id, username: "user-0a1b2c3d", fullName: "Ada Lovelace" };
       },
       enrollUser: async () => {},
     });
@@ -179,25 +182,60 @@ test("login callback signs in an Authing account that has no email, and /api/me 
   });
 });
 
-test("login callback enrolls the resolved user into a Workspace", async () => {
-  const started = startBrowserLogin({ config, sessionSecret });
-  const state = new URL(started.authorizationUrl).searchParams.get("state");
-  if (!state) throw new Error("state missing");
-  const enrolled: string[] = [];
-  const response = await handleLoginCallback({
-    request: new Request(`http://localhost:3000/auth/callback?code=valid-code&state=${state}`, {
-      headers: { cookie: started.stateCookie.split(";", 1)[0] ?? "" },
-    }),
-    config,
-    sessionSecret,
-    authing: fakeAuthing(),
-    resolveUser: async () => persistedAda,
-    enrollUser: async (userId) => {
-      enrolled.push(userId);
-    },
+test("login callback enrolls a named user into a Workspace titled with their stored full name", async () => {
+  const { state, cookie } = startSignIn(null);
+  const enrolled: unknown[] = [];
+  // The provider says "Ada"; the person's own answer is what titles their Workspace.
+  const response = await callbackFor(state, [cookie], async (user) => {
+    enrolled.push(user);
   });
   expect(response.status).toBe(302);
-  expect(enrolled).toEqual([persistedAda.id]);
+  expect(enrolled).toEqual([{ id: persistedAda.id, username: "ada", fullName: "Ada Lovelace" }]);
+});
+
+test("a user with no full name is sent to the name step, signed in, with nothing created for them", async () => {
+  const { state, cookie } = startSignIn(null);
+  const enrolled: unknown[] = [];
+  const response = await callbackFor(
+    state,
+    [cookie],
+    async (user) => {
+      enrolled.push(user);
+    },
+    unnamedAda,
+  );
+
+  expect(response.status).toBe(302);
+  expect(response.headers.get("location")).toBe("/en/welcome");
+  expect(enrolled).toEqual([]);
+  expect(
+    response.headers
+      .getSetCookie()
+      .some((cookie) => cookie.startsWith("coforge_session=") && !cookie.includes("Max-Age=0")),
+  ).toBe(true);
+  expect(clearedStateCookies(response)).toEqual([`coforge_oauth_state_${state}`]);
+});
+
+test("the name step carries the page sign-in started from, and the person goes there after it", async () => {
+  const returnTo = "/join/abc?x=1";
+  const unnamedSignIn = startSignIn(returnTo);
+  const enrolled: unknown[] = [];
+  const unnamed = await callbackFor(
+    unnamedSignIn.state,
+    [unnamedSignIn.cookie],
+    async (user) => {
+      enrolled.push(user);
+    },
+    unnamedAda,
+  );
+  expect(unnamed.headers.get("location")).toBe(
+    `/en/welcome?returnTo=${encodeURIComponent(returnTo)}`,
+  );
+  expect(enrolled).toEqual([]);
+
+  const namedSignIn = startSignIn(returnTo);
+  const named = await callbackFor(namedSignIn.state, [namedSignIn.cookie]);
+  expect(named.headers.get("location")).toBe("/en/join/abc?x=1");
 });
 
 test("login callback fails closed when the database is unavailable", async () => {
@@ -423,7 +461,7 @@ test("a failed sign-in goes back to /login with the page it started from", async
   expect(location.searchParams.get("returnTo")).toBe("/join/abc");
 });
 
-function startSignIn(returnTo: string) {
+function startSignIn(returnTo: string | null) {
   const started = handleLoginStart({ config, sessionSecret, returnTo });
   const state = new URL(started.headers.get("location") ?? "").searchParams.get("state") ?? "";
   const cookie = started.headers.getSetCookie()[0]?.split(";", 1)[0] ?? "";
@@ -433,7 +471,12 @@ function startSignIn(returnTo: string) {
 function callbackFor(
   state: string,
   cookies: string[],
-  enrollUser: () => Promise<void> = async () => {},
+  enrollUser: (user: {
+    id: string;
+    username: string;
+    fullName: string;
+  }) => Promise<void> = async () => {},
+  user: typeof persistedAda = persistedAda,
 ) {
   return handleLoginCallback({
     request: new Request(`http://localhost:3000/auth/callback?code=valid-code&state=${state}`, {
@@ -442,7 +485,7 @@ function callbackFor(
     config,
     sessionSecret,
     authing: fakeAuthing(),
-    resolveUser: async () => persistedAda,
+    resolveUser: async () => user,
     enrollUser,
   });
 }

@@ -7,8 +7,12 @@ if (!db) throw new Error("DATABASE_URL is required to seed development data");
 
 await db.user.upsert({
   where: { id: DEV_BROWSER_USER.id },
-  create: { id: DEV_BROWSER_USER.id, username: DEV_BROWSER_USER.username },
-  update: { username: DEV_BROWSER_USER.username },
+  create: {
+    id: DEV_BROWSER_USER.id,
+    username: DEV_BROWSER_USER.username,
+    fullName: DEV_BROWSER_USER.name,
+  },
+  update: { username: DEV_BROWSER_USER.username, fullName: DEV_BROWSER_USER.name },
 });
-await workspaceIdForUser(db, DEV_BROWSER_USER, "en");
+await workspaceIdForUser(db, { ...DEV_BROWSER_USER, fullName: DEV_BROWSER_USER.name }, "en");
 await db.$disconnect();

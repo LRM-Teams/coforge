@@ -59,6 +59,7 @@ import { isTimeFormat, localeTimeFormat, type TimeFormat } from "#src/lib/time-f
 import { cn } from "#src/lib/utils";
 import { isAppError } from "#src/lib/app-error";
 import { m } from "#src/paraglide/messages";
+import { PERSON_NAME_MAX_LENGTH } from "#src/features/profiles/person-name";
 
 type Locale = "en" | "zh-CN";
 type Theme = "system" | "light" | "dark";
@@ -496,7 +497,7 @@ function AccountSettings({
                 <Input
                   label={m.settings_display_name()}
                   value={name}
-                  maxLength={80}
+                  maxLength={PERSON_NAME_MAX_LENGTH}
                   isDisabled={saving}
                   hideRequiredIndicator
                   onChange={setName}
