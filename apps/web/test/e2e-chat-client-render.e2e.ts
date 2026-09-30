@@ -15,7 +15,7 @@ import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
  * conversation, whose loader read the conversation for the browser.
  *
  * Opt-in like the other browser E2Es: real local Web (a dev server, or a production build run with
- * `NODE_ENV=development` so the dev sign-in bypass is on) + `agent-browser`, and the dev user
+ * `NODE_ENV=development` and `COFORGE_DEV_SKIP_AUTH` set to `1`/`true`/`yes`, so the dev sign-in bypass is on) + `agent-browser`, and the dev user
  * an owner of its Workspace (seed-dev). Each run seeds two channels and a direct message with
  * uniquely named content, saves one message, and removes them afterwards. The server HTML of each
  * page, a screenshot of each page in the browser, and the sizes measured are written under

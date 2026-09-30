@@ -40,6 +40,12 @@ to add tests or run stress checks.
 - A file that needs more than the shared environment (Centrifugo, the worker key material, a provider key, a viewport) has its own runner and mise task; run it through that one. The shared runner sets `DATABASE_URL`, `REDIS_URL` and `COFORGE_E2E_WEB_URL` only.
 - A new browser e2e needs no wiring to become reachable: the runner lists the directory, so it is runnable the moment the file exists. Its prerequisite checks must throw with the missing value named, never skip silently, so that an unrun test is visibly unrun rather than green.
 
+## Integration suites
+
+- `apps/web/test/*.integration*.ts` are 88 files that CI never runs (its jobs have no PostgreSQL). Run them all through `mise run test:integration:web` with `INTEGRATION_DATABASE_URL` (and `INTEGRATION_REDIS_URL` for the Redis-backed ones). The runner exports the fifteen per-area `<AREA>_TEST_DATABASE_URL` names from that one variable, and `scripts/ci/integration-env.test.ts` guards that the list stays complete.
+- **A file run by name silently skips rather than failing.** Each integration file guards on its own variable, so with none set `bun test test/agent-events.integration.ts` prints `0 pass, 13 skip, 0 fail` - which reads like a pass and is not one. Use the runner, or set that file's own `<AREA>_TEST_DATABASE_URL`.
+- Eight of them are Centrifugo-backed, needing `COFORGE_CENTRIFUGO_API_URL`/`KEY`; one needs a built `.output/server`. Without those they fail as a group, and the failures look like product defects in the log (`conversation_realtime:*_failed`) while being environment. Classify by running the same runner on the base commit with the same database before concluding anything about a branch.
+
 ## General principles
 
 - Test observable behavior through the owning module's public contract rather than private implementation details.
