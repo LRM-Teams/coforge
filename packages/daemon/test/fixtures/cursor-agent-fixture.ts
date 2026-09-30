@@ -72,8 +72,9 @@ const sessionId = resumeId ?? Bun.env.COFORGE_CURSOR_SESSION_ID ?? crypto.random
 const mode = Bun.env.COFORGE_CURSOR_MODE ?? "text";
 
 if (mode === "replay") {
-  // Replays a trimmed real capture verbatim - used to prove the frame types this build
-  // observed but does not map (thinking, tool_call, connection, retry, user) produce no events.
+  // Replays a trimmed real capture verbatim - used to prove what the frames this build observed
+  // (thinking, tool_call) map to and that the ones it does not map (connection, retry, user)
+  // produce no events.
   const replayFile = Bun.env.COFORGE_CURSOR_REPLAY_FILE;
   if (!replayFile) throw new Error("COFORGE_CURSOR_REPLAY_FILE is required for replay mode");
   const contents = await Bun.file(replayFile).text();
