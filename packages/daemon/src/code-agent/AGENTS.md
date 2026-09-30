@@ -105,7 +105,7 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   `provider.ts`, which keeps discovery, catalog, usage, and the version gate. Never add a session copy.
 - Composition, not inheritance: a difference is a `TurnProtocol` field or a `TurnReader` hook. Each
   one (`instructionsTurn`, `resumedIdentity`, `repeatedSessionId`, `identityReports`,
-  `mintSessionId`, `lostResume`) records an observed CLI difference. Check the real CLI before adding
+  `mintSessionId`, `sanitizeEnvironment`, `lostResume`) records an observed CLI difference. Check the real CLI before adding
   one or making two providers agree; the fixtures do not prove a binary.
 - The session never parses provider output. A reader emits through the `TurnScope`, synchronously,
   so events keep the CLI's order. A turn's stdin mode is a CLI fact: `eof` where the CLI waits for

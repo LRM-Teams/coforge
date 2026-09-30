@@ -188,9 +188,10 @@ class PerTurnAgentSession implements AgentSession {
   #spawnTurn(prompt: string): void {
     const request: TurnRequest = { prompt, sessionId: this.#sessionId, creating: this.#creating };
     const command = this.#protocol.launch(request);
-    // Constructing the process is the one step that can throw (`Bun.spawn` throws synchronously
-    // for a working directory that no longer exists), so the session records the turn as running
-    // only once the process exists; a throw leaves it exactly as it was, and the caller reports it.
+    // Building the command (a protocol may refuse a request) and constructing the process can
+    // throw (`Bun.spawn` throws synchronously for a working directory that no longer exists), so
+    // the session records the turn as running only once the process exists; a throw leaves it
+    // exactly as it was, and the caller reports it.
     const turnProcess = new TurnProcess({
       provider: this.#protocol.provider,
       displayName: this.#protocol.displayName,
