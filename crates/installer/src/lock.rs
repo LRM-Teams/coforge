@@ -9,7 +9,7 @@
 use std::fmt;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, ErrorCode};
 
@@ -65,6 +65,9 @@ impl fmt::Display for LockError {
 #[derive(Debug)]
 #[must_use = "the lock is released as soon as this is dropped, so `acquire(..)?;` holds nothing"]
 pub struct MachineMutationLock {
+    /// The install root as the operating system spells it (symlinks resolved), so that it can be
+    /// compared with another spelling of the same directory.
+    install_root: PathBuf,
     _connection: Connection,
 }
 
@@ -73,6 +76,7 @@ impl MachineMutationLock {
     /// (0600) when missing. Never waits: a held lock is `LockError::Busy` at once.
     pub fn acquire(install_root: &Path) -> Result<Self, LockError> {
         create_private_directory(install_root).map_err(LockError::Io)?;
+        let canonical_root = fs::canonicalize(install_root).map_err(LockError::Io)?;
         let path = install_root.join(LOCK_FILE);
         let connection = Connection::open(&path).map_err(LockError::Sqlite)?;
         restrict_to_owner(&path).map_err(LockError::Io)?;
@@ -84,8 +88,20 @@ impl MachineMutationLock {
             while rows.next().map_err(classify)?.is_some() {}
         }
         Ok(Self {
+            install_root: canonical_root,
             _connection: connection,
         })
+    }
+
+    /// The install root this lock covers, symlinks resolved.
+    pub fn install_root(&self) -> &Path {
+        &self.install_root
+    }
+
+    /// Whether `install_root`, however it is spelled, is the directory this lock covers. A
+    /// directory that cannot be resolved (it does not exist) is not.
+    pub fn covers(&self, install_root: &Path) -> bool {
+        fs::canonicalize(install_root).is_ok_and(|root| root == self.install_root)
     }
 }
 

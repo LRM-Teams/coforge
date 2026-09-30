@@ -27,10 +27,19 @@ the crate's commands, toolchain, and gotchas.
 - `src/feed.rs`: the release feed client. Resolves `latest`, fetches and
   validates a manifest, downloads one version's binary and Pi image library
   into a directory through `fetch`, checked against the manifest.
+- `src/store.rs`: the version store under the install root. Stages a version in
+  `.staging/` (sweeping what a killed run left there), renames it to
+  `versions/<v>`, and verifies an installed version offline (`installation.json`
+  schemas 2, 3, and 4). What changes the install root takes the machine
+  mutation lock as a witness parameter and refuses a lock on another root.
+- `src/prepare.rs`: makes a release version present in the store: resolve,
+  download, verify, stage, install. The one place `feed` and `store` meet.
+  Tests in `src/prepare/tests.rs` run a loopback release feed.
 - `src/lock.rs`: the machine mutation lock, an SQLite RESERVED lock on
   `<install root>/machine-mutation-lock.sqlite` (rusqlite, bundled SQLite)
   that excludes the Computer's own `acquireProcessLock`. Tests in
-  `src/lock/tests.rs` run that TypeScript function under Bun.
+  `src/lock/tests.rs` run that TypeScript function under Bun. A lock knows the
+  install root it covers (`install_root`, `covers`).
 - `src/paths.rs`: install root, supervisor state directory, and shim
   directory, resolved from the home directory as the Computer does.
 - `src/paths/node_path.rs`: `path.posix.join` and `path.win32.join` ported from
@@ -58,11 +67,14 @@ the crate's commands, toolchain, and gotchas.
 - The Rust tests read every golden, round-trip it, and add an unknown field to
   prove it is ignored. Keep contract structs free of `deny_unknown_fields`, and
   mirror optional TypeScript fields with `skip_serializing_if`.
-- Anything the installer writes (receipts, `active.json`, `installation.json`)
-  is emitted by the tests into `contract/rust/`, which
-  `packages/computer/test/installer-contract.test.ts` reads with the zod
-  schemas and the product's own readers. `cargo test` rewrites those files;
+- Anything the installer writes (receipts, `active.json`, and a whole `versions/<v>`
+  directory per release target) is emitted by the tests into `contract/rust/`,
+  which `packages/computer/test/installer-contract.test.ts` reads with the zod
+  schemas and the product's own readers (the version directories go through
+  `ComputerUpdater`'s offline verification). `cargo test` rewrites those files;
   commit them.
+- The version directories go in one JSON file, `contract/rust/installed-versions.json`,
+  never as raw files: CRLF launchers fail `git diff --check` (CI's Plan checks).
 - CI regenerates both sides and fails on any difference: the Computer job
   after `generate:installer-contract`, this crate's native entries after
   `cargo test`. `contract/.gitattributes` turns off line-ending conversion so
@@ -144,16 +156,16 @@ mise exec -- cargo about generate --locked --fail --output-file THIRD_PARTY_NOTI
 
 ## Rules and gotchas
 
-- The feed is read as `scripts/release/install.sh` does when preparing for the
-  updater: no redirect is followed (any 3xx is an error), `latest` is at most
-  4096 bytes and a manifest at most 1 MiB, and every object a manifest names
-  must match its recorded size and checksum. The download and the expanded
-  executable are each capped at their recorded size (and both at 512 MiB), and a
-  gzip object may hold several members (as Bun's `DecompressionStream` accepts)
-  but nothing else may follow them.
+- The feed is read as `install.sh --prepare-directory` reads it: no redirects,
+  `latest` ≤ 4096 bytes, a manifest ≤ 1 MiB, every object capped at its recorded
+  size (≤ 512 MiB) on the wire and expanded. Several gzip members, nothing after
+  them. An installed version is verified and reused, never overwritten.
 - A transfer that receives nothing for `fetch::IDLE_TIMEOUT` (60 s) fails; there
   is deliberately no limit on the whole download, which is legitimate on a slow
-  link.
+  link. Anything that changes the install root (`prepare_version`,
+  `VersionStore::begin_staging`) takes `&MachineMutationLock` and checks it with
+  `VersionStore::require_lock`, which refuses a lock on a different root: keep it
+  that way for the next such function.
 - `crates/installer/Cargo.toml` keeps `publish = false` and no `license` field; the repository
   has no license. `deny.toml` and `about.toml` ignore the private crate itself.
 - `junction` (NTFS junctions, Windows only) is pinned `=1.2.0`. Its newer releases want
@@ -166,12 +178,9 @@ mise exec -- cargo about generate --locked --fail --output-file THIRD_PARTY_NOTI
   not print `source_path`: it is an absolute path on the build machine.
 - No new lint, test, or advisory exemptions (`#[allow]`, `deny.toml` `ignore`
   or `skip`, `cargo audit --ignore`) without Frank's prior approval.
-- `src/idle_timeout.rs` is built on ureq's `unversioned` transport API, which has no semver
-  guarantee: any ureq minor release may change it and break that file's compilation. ureq is
-  therefore pinned through `Cargo.lock` (every cargo command uses `--locked`); bump it only on
-  purpose, starting with `idle_timeout.rs`, and expect the stall test in `src/fetch/tests.rs`
-  to catch an update that compiles but stops bounding the wait. ureq itself has no per-read
-  timeout (`timeout_recv_body` is one budget for the whole body), which is why the file exists.
+- `src/idle_timeout.rs` uses ureq's `unversioned` transport API (no semver guarantee), so
+  ureq stays pinned in `Cargo.lock`. Bump it on purpose, starting there; the stall test in
+  `src/fetch/tests.rs` catches an update that compiles but no longer bounds the wait.
 - `ureq` runs with default features off: its `gzip` feature would decode
   `Content-Encoding` transparently, and the manifest checksum covers the exact
   wire bytes.

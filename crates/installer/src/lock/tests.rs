@@ -142,6 +142,32 @@ fn creates_the_install_root_and_an_owner_only_lock_file() {
     }
 }
 
+#[test]
+fn a_lock_knows_the_install_root_it_covers_however_that_is_spelled() {
+    let root = Scratch::new("covers");
+    let other = Scratch::new("covers-other");
+    let lock = MachineMutationLock::acquire(&root.0).unwrap();
+
+    assert!(lock.covers(&root.0));
+    assert!(lock.covers(&root.0.join(".")));
+    assert!(!lock.covers(&other.0));
+    // A root that does not exist is not the one that was locked.
+    assert!(!lock.covers(&root.0.join("absent")));
+    assert_eq!(
+        lock.install_root(),
+        fs::canonicalize(&root.0).unwrap().as_path()
+    );
+    #[cfg(unix)]
+    {
+        let link = other.0.join("link");
+        std::os::unix::fs::symlink(&root.0, &link).unwrap();
+        assert!(
+            lock.covers(&link),
+            "a symlink to the locked root is the locked root"
+        );
+    }
+}
+
 /// The Computer's own lock: `acquireProcessLock` from packages/daemon, run by Bun. The installer
 /// and every Computer before it must exclude each other on the same file, so these tests drive
 /// the product's real function rather than a copy of its statements.
