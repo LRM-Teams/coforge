@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { utf8Encoder, utf8Decoder } from "@lrm/coforge-sdk/internal";
 
 import { safeReturnTo } from "#src/features/auth/return-to";
+import { atLoginStage, LoginCallbackError } from "./login-failure.server";
 export type BrowserUser = {
   id: string;
   email: string;
@@ -157,25 +158,32 @@ export async function completeBrowserLogin(input: {
   const now = input.now ?? Date.now;
   const signedState = readPendingState(input);
   if (!signedState || signedState.exp * 1000 <= now()) {
-    throw new Error("invalid login state");
+    throw new LoginCallbackError("state");
   }
 
   const returnTo = pendingReturnTo(signedState);
-  const tokens = await input.authing.exchangeAuthorizationCode({
-    code: input.code,
-    redirectUri: input.config.redirectUri,
-    codeVerifier: signedState.codeVerifier,
-  });
-  const profile = await input.authing.fetchUserInfo(tokens.accessToken);
+  const tokens = await atLoginStage("token_exchange", () =>
+    input.authing.exchangeAuthorizationCode({
+      code: input.code,
+      redirectUri: input.config.redirectUri,
+      codeVerifier: signedState.codeVerifier,
+    }),
+  );
+  const profile = await atLoginStage("userinfo", () =>
+    input.authing.fetchUserInfo(tokens.accessToken),
+  );
   const email = profile.email?.trim().toLowerCase();
-  if (!email) throw new Error("email is required");
-  const resolved = input.resolveUser
-    ? await input.resolveUser({
-        provider: "authing",
-        subject: profile.sub,
-        email,
-        ...(profile.preferred_username ? { preferredUsername: profile.preferred_username } : {}),
-      })
+  if (!email) throw new LoginCallbackError("email");
+  const { resolveUser } = input;
+  const resolved = resolveUser
+    ? await atLoginStage("user_resolution", () =>
+        resolveUser({
+          provider: "authing",
+          subject: profile.sub,
+          email,
+          ...(profile.preferred_username ? { preferredUsername: profile.preferred_username } : {}),
+        }),
+      )
     : {
         id: testOnlyStableInternalUserId("authing", profile.sub),
         username: `user-${testOnlyStableInternalUserId("authing", profile.sub).replaceAll("-", "")}`,
@@ -367,13 +375,17 @@ export function createAuthingExchanger(config: AuthingConfig): TokenExchanger {
           code_verifier: input.codeVerifier,
         }),
       });
-      const body = (await response.json()) as {
+      // A gateway's HTML error page is not JSON; the status still says what happened.
+      const body = (await response.json().catch(() => ({}))) as {
         access_token?: string;
         id_token?: string;
-        error?: string;
+        error?: unknown;
       };
       if (!response.ok || !body.access_token) {
-        throw new Error(body.error ?? "failed to exchange authorization code");
+        throw new LoginCallbackError("token_exchange", {
+          status: response.status,
+          providerError: body.error,
+        });
       }
       return {
         accessToken: body.access_token,
@@ -384,7 +396,7 @@ export function createAuthingExchanger(config: AuthingConfig): TokenExchanger {
       const response = await fetch(config.userinfoEndpoint, {
         headers: { authorization: `Bearer ${accessToken}` },
       });
-      if (!response.ok) throw new Error("failed to fetch Authing user info");
+      if (!response.ok) throw new LoginCallbackError("userinfo", { status: response.status });
       return (await response.json()) as {
         sub: string;
         email?: string | null;
