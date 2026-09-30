@@ -13,28 +13,50 @@ import { CONVERSATION_WINDOW_PAGE_SIZE } from "#src/lib/conversation-window";
  * "around" a target (transient). Add a query only after checking its data holds none of those.
  */
 
-type StoredKind =
-  | "conversation-window"
-  | "sidebar-directs"
-  | "sidebar-channels"
-  | "channel-names"
-  | "saved-messages";
+/**
+ * The version of what kept queries hold in storage. A deploy keeps every stored row; a row written
+ * under another version is thrown away when it is read and by the daily sweep (its age, `maxAge`,
+ * is the other reason a row goes). The value is the persister's `buster`.
+ *
+ * Bump it when a row written by the previous version could no longer be opened as it is: a field of
+ * a kept kind removed, renamed or retyped, a required field added, or a field's meaning changed
+ * (including how a kept kind is cut for storage). Do not bump it for an optional field added or a
+ * kind added: rows without it still read, and every bump makes every person's first Chat open read
+ * the network. `test/query-cache-stored-shape.test.ts` fails on a change to a kept kind's shape
+ * until this is bumped and the new shape pinned there.
+ */
+export const STORED_SHAPE_VERSION = 1;
+export const storedShapeBuster = String(STORED_SHAPE_VERSION);
+
+export const STORED_KINDS = [
+  "conversation-window",
+  "sidebar-directs",
+  "sidebar-channels",
+  "channel-names",
+  "saved-messages",
+] as const;
+export type StoredKind = (typeof STORED_KINDS)[number];
 
 /** How many of the newest saved messages are kept: the list has no bound, and the read that
  * follows a restore brings the rest. */
 const SAVED_MESSAGES_KEPT = 100;
 
-/** A Saved list as a read of it holds it (`SavedList`): its entries beside the stream positions
- * it was read at. */
-function isSavedList(data: unknown): data is { entries: unknown[] } {
+/** Data whose `field` is the list a Chat list is rendered from: a Saved list's `entries` (beside
+ * the stream positions it was read at), a channel list's `rows`. */
+function hasList<Field extends string>(
+  data: unknown,
+  field: Field,
+): data is Record<Field, unknown[]> {
   return (
-    typeof data === "object" && data !== null && "entries" in data && Array.isArray(data.entries)
+    typeof data === "object" &&
+    data !== null &&
+    Array.isArray((data as Record<Field, unknown>)[field])
   );
 }
 
 /** The kept kind of a Query key (`features/conversations/conversation-query-keys.ts`,
  * `conversation-queries.ts`), or `undefined` for a query that is not kept. */
-function storedKindOf(queryKey: QueryKey): StoredKind | undefined {
+export function storedKindOf(queryKey: QueryKey): StoredKind | undefined {
   const [root, scope, id, list, ...rest] = queryKey;
   if (root === "saved-messages" && typeof scope === "string" && queryKey.length === 2)
     return "saved-messages";
@@ -152,7 +174,7 @@ function firstPaintOf(queryKey: QueryKey, data: unknown): unknown {
         : data;
     case "saved-messages":
       // Cut to the newest entries, so it is not the whole list and keeps no position claiming it.
-      return isSavedList(data)
+      return hasList(data, "entries")
         ? { streamPositions: {}, entries: data.entries.slice(0, SAVED_MESSAGES_KEPT) }
         : undefined;
     case "sidebar-channels":
@@ -160,6 +182,29 @@ function firstPaintOf(queryKey: QueryKey, data: unknown): unknown {
       return data;
     case undefined:
       return undefined;
+  }
+}
+
+/**
+ * Whether stored data is of the shape its kind holds, as far as opening a page from it needs: the
+ * list each kind renders from is a list. Deliberately shallow (no walk of a page's messages): it
+ * only keeps a row of a shape the app no longer reads (the channel names before they carried a
+ * stream position were a bare list) from reaching a component, which would throw. A row this
+ * rejects is dropped and read from the network; what the guard cannot see is the version's job.
+ */
+export function isStoredData(queryKey: QueryKey, data: unknown): boolean {
+  switch (storedKindOf(queryKey)) {
+    case "conversation-window":
+      return isConversationWindow(data) && data.pages.every((page) => hasList(page, "messages"));
+    case "sidebar-directs":
+    case "sidebar-channels":
+      return hasList(data, "rows");
+    case "channel-names":
+      return hasList(data, "names");
+    case "saved-messages":
+      return hasList(data, "entries");
+    case undefined:
+      return false;
   }
 }
 

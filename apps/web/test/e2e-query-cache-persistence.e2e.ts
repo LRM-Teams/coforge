@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { storedShapeBuster } from "#src/features/cache-persistence/persisted-queries";
 import { PrismaClient } from "#src/generated/prisma/client";
 import { DEV_BROWSER_USER } from "#src/server/auth/dev-skip-auth.server";
 
@@ -471,12 +472,14 @@ test("signing out removes what the browser kept", async () => {
 }, 120_000);
 
 test("another person on the same browser starts from nothing", async () => {
-  // What an earlier person left: a conversation under their own key, and a secret in it.
+  // What an earlier person left: a conversation under their own key, and a secret in it. The row is
+  // of the current stored-shape version and of a shape a restore opens, so only that it belongs to
+  // someone else keeps it from being read and removes it.
   const secret = `Someone else's secret ${process.pid}`;
   await browser("open", `${proxy.origin}/en/health`);
   const earlier = "11111111-1111-4111-8111-111111111111";
   await store(channelKey(earlier), {
-    buster: "any",
+    buster: storedShapeBuster,
     queryHash: JSON.stringify(["conversation", "channel", channelId]),
     queryKey: ["conversation", "channel", channelId],
     state: {

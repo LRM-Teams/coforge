@@ -60,9 +60,26 @@ because the API is experimental.
   load draws no divider over what was read. The Activity inbox's and other devices' mark-reads do
   not reach it yet.
 - A query the server answers `NOT_FOUND` (deleted, or access lost) is removed from storage.
-- `maxAge` is 7 days and a sweep removes older rows at most once a day. The buster is the build
-  (`__COFORGE_BUILD_ID__`, defined in `vite.config.ts`; `COFORGE_BUILD_ID` overrides it), so a
-  deploy never opens a page from the previous build's query shapes.
+- `maxAge` is 7 days and a sweep removes older rows at most once a day.
+- A deploy keeps every stored row: the copy is thrown away only when its shape can no longer be
+  read, never because the client changed, so the first Chat open after a deploy still starts from
+  it. What decides is `STORED_SHAPE_VERSION` (`persisted-queries.ts`), the persister's `buster`
+  ([docs](https://tanstack.com/query/latest/docs/framework/react/plugins/persistQueryClient): for
+  "changes to your application or data that immediately invalidate any and all cached data"); no
+  build id goes into it. Raise it when a row the previous version wrote could no longer be opened as
+  it is: a field of a kept kind removed, renamed or retyped, a required field added, or a field's
+  meaning or the cut applied to a kind changed. Do not raise it for an optional field or a new kind:
+  every raise makes everyone's next Chat open read the network. A shape-only change is caught by
+  `test/query-cache-stored-shape.test.ts` (each kind's fixture is typed as its query's real data, so
+  a change to the data fails `bun run typecheck` there; following it changes the shape pinned per
+  version, which fails the test until the version is raised and the new shape added under it; never
+  edit an earlier version's pin). It does not see a change of meaning without a change of shape,
+  nor a union member no fixture spells (`senderKind: "system"` is not in any): raise the version by
+  hand for those. A new kind adds a fixture and its pin.
+- A row that fails `isStoredData` (the list a kind renders from is not a list: the shallow guard
+  against a shape the app no longer reads, such as the channel names before they carried a stream
+  position) is a miss: the persister removes it on a restore and on the daily sweep, and the
+  network read serves. The guard does not replace the version; it never walks a page's messages.
 - Browser only. `installBrowserQueryCachePersistence` does nothing where there is no IndexedDB, so
   the server render's per-request QueryClient never sees a persister. Do not put persistence
   options in the QueryClient's `dehydrate` defaults: the SSR integration reads those too.

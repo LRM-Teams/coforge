@@ -3,6 +3,7 @@ import {
   InfiniteQueryObserver,
   QueryClient,
   QueryObserver,
+  hashKey,
   infiniteQueryOptions,
   queryOptions,
 } from "@tanstack/react-query";
@@ -14,7 +15,10 @@ import {
 } from "#src/features/conversations/conversation-query-keys";
 import { AppError } from "#src/lib/app-error";
 import { CONVERSATION_WINDOW_PAGE_SIZE } from "#src/lib/conversation-window";
-import { persistsQuery } from "#src/features/cache-persistence/persisted-queries";
+import {
+  persistsQuery,
+  storedShapeBuster,
+} from "#src/features/cache-persistence/persisted-queries";
 import {
   installQueryCachePersistence,
   type PersistedQueryStore,
@@ -91,10 +95,7 @@ const queryRows = (rows: Map<string, unknown>) =>
   [...rows.keys()].filter((key) => key.includes("tanstack-query-"));
 
 /** A page load: a fresh QueryClient (an empty memory) over the storage that outlives it. */
-function pageLoad(
-  store: PersistedQueryStore,
-  { viewerId = "user-1" as string | null, buster = "build-1" } = {},
-) {
+function pageLoad(store: PersistedQueryStore, { viewerId = "user-1" as string | null } = {}) {
   // The app's own defaults (`router.tsx`): a read is fresh for 30 s.
   const queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: 30_000, retry: false } },
@@ -102,7 +103,6 @@ function pageLoad(
   const persistence = installQueryCachePersistence(queryClient, {
     store,
     viewerId: () => viewerId ?? undefined,
-    buster,
   });
   return { queryClient, persistence };
 }
@@ -398,7 +398,7 @@ describe("a page that has signed out", () => {
 
     // What a query still in flight would have written after the purge.
     disk.rows.set('user-1/tanstack-query-["conversation","channel","c1"]', {
-      buster: "build-1",
+      buster: storedShapeBuster,
       queryHash: '["conversation","channel","c1"]',
       queryKey: channelKey("c1"),
       state: {
@@ -934,18 +934,23 @@ describe("the Chat sidebar", () => {
 });
 
 describe("what a stored query must still be to open a page", () => {
+  /** Stores a conversation, then opens it in a later page load, `rowBuster` being the version the
+   * row was written under when it was not the current one. */
   async function storedThenReopened(
-    reopen: { buster?: string; laterBy?: number },
+    reopen: { rowBuster?: string; laterBy?: number },
     { network = page(["from the network"]) } = {},
   ) {
     const disk = memoryStore();
-    const before = pageLoad(disk.store, { buster: "build-1" });
+    const before = pageLoad(disk.store);
     await before.queryClient.fetchInfiniteQuery(
       windowQuery("c1", async () => page(["from storage"])),
     );
     await disk.written(1);
+    if (reopen.rowBuster !== undefined)
+      for (const key of queryRows(disk.rows))
+        (disk.rows.get(key) as { buster: string }).buster = reopen.rowBuster;
     setSystemTime(new Date(Date.now() + (reopen.laterBy ?? 0)));
-    const after = pageLoad(disk.store, { buster: reopen.buster ?? "build-1" });
+    const after = pageLoad(disk.store);
     const gate = gatedRead<Page>();
     gate.release(network);
     const seen = await after.queryClient.ensureInfiniteQueryData(windowQuery("c1", gate.read));
@@ -953,14 +958,107 @@ describe("what a stored query must still be to open a page", () => {
   }
   afterEach(() => setSystemTime());
 
-  test("comes from the same build: another build's shape is discarded", async () => {
-    expect(await storedThenReopened({ buster: "build-2" })).toEqual(["from the network"]);
+  test("was written under the stored-shape version, however it got there, not under a build id", async () => {
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    await load.queryClient.fetchInfiniteQuery(windowQuery("read", async () => page(["read"])));
+    await disk.written(1);
+    load.queryClient.setQueryData(channelKey("written"), {
+      pages: [page(["written by the page"])],
+      pageParams: [undefined],
+    });
+    await load.persistence.flush();
+    await disk.written(2);
+    const busters = queryRows(disk.rows).map(
+      (key) => (disk.rows.get(key) as { buster: string }).buster,
+    );
+    expect(busters).toEqual([storedShapeBuster, storedShapeBuster]);
+  });
+
+  test("was written under the current stored-shape version: an earlier one's shape is discarded", async () => {
+    expect(await storedThenReopened({ rowBuster: "0" })).toEqual(["from the network"]);
+    // What every row held before the version replaced the per-build id: a commit's sha.
+    expect(
+      await storedThenReopened({ rowBuster: "b769ab2cbd2ee1fd0a05d3b6ee9e87a2f0f0f9a1" }),
+    ).toEqual(["from the network"]);
+  });
+
+  test("is still read after a deploy: the shape did not change, so the row stays", async () => {
+    // Every page load of every build shares the version; nothing else keys a row.
+    expect(await storedThenReopened({})).toEqual(["from storage"]);
   });
 
   test("is not older than a week", async () => {
     const day = 24 * 60 * 60 * 1000;
     expect(await storedThenReopened({ laterBy: 6 * day })).toEqual(["from storage"]);
     expect(await storedThenReopened({ laterBy: 8 * day })).toEqual(["from the network"]);
+  });
+});
+
+/** A row as the persister writes it, for a query never read in this test: what an earlier page
+ * load left behind, possibly of a shape the app no longer reads. */
+function storedRow(queryKey: readonly unknown[], data: unknown) {
+  return {
+    buster: storedShapeBuster,
+    queryHash: hashKey(queryKey),
+    queryKey,
+    state: { data, dataUpdatedAt: Date.now() },
+  };
+}
+const rowKeyOf = (queryKey: readonly unknown[]) => `user-1/tanstack-query-${hashKey(queryKey)}`;
+
+describe("a stored row of a shape the app no longer reads", () => {
+  const savedKey = savedMessagesQuery("w1").queryKey;
+  const cases = [
+    [
+      "a conversation window whose pages are not a list",
+      channelKey("c1"),
+      { pages: {}, pageParams: [] },
+    ],
+    [
+      "a conversation window page without its messages",
+      channelKey("c1"),
+      { pages: [{ conversationId: "c1" }], pageParams: [undefined] },
+    ],
+    [
+      "channel names as the bare list they were before they carried a stream position",
+      channelNamesQueryKey("w1"),
+      [{ id: "general", name: "general" }],
+    ],
+    [
+      "a Saved list as the bare list it was before it carried a stream position",
+      savedKey,
+      [{ message: { id: "m1" } }],
+    ],
+    ["a sidebar channel list without its rows", sidebarChannelsQueryKey("w1"), { fetchedAt: 1 }],
+    [
+      "a sidebar DM list whose rows are not a list",
+      sidebarDirectsQueryKey("w1"),
+      { fetchedAt: 1, rows: "none" },
+    ],
+  ] as const;
+
+  for (const [name, queryKey, stored] of cases) {
+    test(`is not opened from (${name}): the network read serves instead`, async () => {
+      const disk = memoryStore();
+      disk.rows.set(rowKeyOf(queryKey), storedRow(queryKey, stored));
+      const load = pageLoad(disk.store);
+      const network = gatedRead<unknown>();
+      network.release({ from: "the network" });
+      const seen = await load.queryClient.ensureQueryData({ queryKey, queryFn: network.read });
+      expect(seen).toEqual({ from: "the network" });
+    });
+  }
+
+  test("is removed by the daily sweep, as is a row of a query the app no longer keeps", async () => {
+    const disk = memoryStore();
+    const names = channelNamesQueryKey("w1");
+    const around = ["conversation", "around", "c1", "m1"];
+    disk.rows.set(rowKeyOf(names), storedRow(names, [{ id: "general", name: "general" }]));
+    disk.rows.set(rowKeyOf(around), storedRow(around, { pages: [], pageParams: [] }));
+    const load = pageLoad(disk.store);
+    await load.persistence.collectGarbage();
+    expect(queryRows(disk.rows)).toEqual([]);
   });
 });
 
