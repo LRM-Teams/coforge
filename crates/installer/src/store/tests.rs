@@ -270,6 +270,22 @@ fn two_stagings_of_one_version_do_not_collide() {
     assert_ne!(first.computer_path(), second.computer_path());
 }
 
+/// Process IDs repeat: in a container every run gets the same one. What lets the next run tell
+/// its own staging directories from a killed run's is that two processes with one pid still have
+/// different tokens. The second incarnation is a new process image with the same pid.
+#[cfg(unix)]
+#[test]
+fn a_process_token_differs_between_two_processes_that_had_one_pid() {
+    let name = "store::tests::a_process_token_differs_between_two_processes_that_had_one_pid";
+    let Some([first, second]) =
+        crate::test_support::in_two_incarnations(name, || process_token().to_owned())
+    else {
+        return;
+    };
+
+    assert_ne!(first, second);
+}
+
 #[test]
 fn a_lock_on_another_install_root_is_refused_and_nothing_is_created() {
     let root = Scratch::new("store-wrong-lock");

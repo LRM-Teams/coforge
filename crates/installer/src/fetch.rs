@@ -9,10 +9,9 @@
 //! A small metadata object (a pointer, a manifest) is read into memory under a byte cap instead.
 //! No request follows a redirect: the release feed is expected to answer with the object itself.
 
-use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use flate2::bufread::MultiGzDecoder;
 use serde::Serialize;
@@ -22,6 +21,7 @@ use ureq::unversioned::resolver::DefaultResolver;
 
 use crate::digest::hex;
 use crate::idle_timeout;
+use crate::private_fs::{self, FileMode, PendingFile};
 
 /// How long a transfer may receive nothing before it fails. It is not a limit on the whole
 /// download: a slow link that keeps delivering is never cut off.
@@ -180,7 +180,7 @@ pub fn install(
     request: &FetchRequest,
 ) -> Result<FetchReceipt, FetchError> {
     let mut wire = Measured::new(wire, request.max_wire_bytes, "download");
-    let temp = TempFile::create(&request.out)?;
+    let temp = create_partial_file(&request.out)?;
 
     let written = {
         let mut sink = Measured::new(temp.file(), request.max_written_bytes, "expanded file");
@@ -215,7 +215,8 @@ pub fn install(
         ));
     }
 
-    temp.commit(&request.out)?;
+    temp.commit(&request.out)
+        .map_err(|error| FetchError::new(FetchErrorCode::Write, error.to_string()))?;
     Ok(FetchReceipt {
         out: request.out.display().to_string(),
         gzip,
@@ -375,91 +376,21 @@ impl<T: Write> Write for Measured<T> {
     }
 }
 
-/// A uniquely named file in the destination's directory, removed on drop unless committed.
-struct TempFile {
-    path: PathBuf,
-    /// Closed before the rename or removal: Windows refuses both on an open handle.
-    file: Option<File>,
-}
-
-impl TempFile {
-    fn create(out: &Path) -> Result<Self, FetchError> {
-        let directory = match out.parent() {
-            Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
-            _ => PathBuf::from("."),
-        };
-        let name = out
-            .file_name()
-            .ok_or_else(|| {
-                FetchError::new(
-                    FetchErrorCode::Write,
-                    format!("{} names no file", out.display()),
-                )
-            })?
-            .to_string_lossy()
-            .into_owned();
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos())
-            .unwrap_or_default();
-        let path = directory.join(format!(".{name}.{}.{nonce}.partial", std::process::id()));
-
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o700);
-        }
-        let file = options.open(&path).map_err(|error| {
-            FetchError::new(
-                FetchErrorCode::Write,
-                format!("cannot create {}: {error}", path.display()),
-            )
-        })?;
-        Ok(Self {
-            path,
-            file: Some(file),
-        })
-    }
-
-    fn file(&self) -> &File {
-        self.file
-            .as_ref()
-            .expect("the temporary file is open until commit or drop")
-    }
-
-    fn commit(mut self, out: &Path) -> Result<(), FetchError> {
-        let write_error =
-            |error: io::Error| FetchError::new(FetchErrorCode::Write, error.to_string());
-        let file = self.file.take().expect("commit runs once");
-        #[cfg(unix)]
-        {
-            // The creation mode is filtered by the umask; set the final mode explicitly.
-            use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(fs::Permissions::from_mode(0o700))
-                .map_err(write_error)?;
-        }
-        file.sync_all().map_err(write_error)?;
-        drop(file);
-        fs::rename(&self.path, out).map_err(write_error)?;
-        self.path = PathBuf::new();
-        #[cfg(unix)]
-        if let Some(parent) = out.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-            // Persist the rename itself. Best effort: some filesystems refuse to fsync a directory.
-            let _ = File::open(parent).and_then(|directory| directory.sync_all());
-        }
-        Ok(())
-    }
-}
-
-impl Drop for TempFile {
-    fn drop(&mut self) {
-        drop(self.file.take());
-        if !self.path.as_os_str().is_empty() {
-            let _ = fs::remove_file(&self.path);
-        }
-    }
+/// A uniquely named file in the destination's directory, owner-only (`0700`, whatever the umask),
+/// removed on drop unless committed.
+fn create_partial_file(out: &Path) -> Result<PendingFile, FetchError> {
+    let path = private_fs::partial_sibling(out).ok_or_else(|| {
+        FetchError::new(
+            FetchErrorCode::Write,
+            format!("{} names no file", out.display()),
+        )
+    })?;
+    PendingFile::create(path.clone(), FileMode::Exact(0o700)).map_err(|error| {
+        FetchError::new(
+            FetchErrorCode::Write,
+            format!("cannot create {}: {error}", path.display()),
+        )
+    })
 }
 
 #[cfg(test)]

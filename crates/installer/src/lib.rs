@@ -16,6 +16,7 @@ pub mod lock;
 pub mod manifest;
 pub mod paths;
 pub mod prepare;
+mod private_fs;
 pub mod store;
 pub mod update_error;
 pub mod version;

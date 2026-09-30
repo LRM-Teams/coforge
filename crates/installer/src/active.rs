@@ -9,20 +9,17 @@
 //! Activation trusts its caller: the version's installed bytes must already have been verified
 //! (another module's job), and its directory must exist.
 
-use std::ffi::OsString;
 use std::fmt;
 use std::fs;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::process;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::io;
+use std::path::Path;
 
 use serde::Deserialize;
 
 use crate::contract::{
     ACTIVE_STATE_SCHEMA_VERSION, ActiveState, to_file_json, windows_computer_launcher,
 };
+use crate::private_fs::{self, FileMode};
 use crate::version::is_valid_release_version;
 
 /// The state file, relative to the install root.
@@ -124,11 +121,11 @@ pub fn read_active(install_root: &Path) -> Result<Option<ActiveState>, ActiveErr
 /// `current` or `previous` is refused here, before anything is written: both become paths.
 pub fn write_active_state(install_root: &Path, state: &ActiveState) -> Result<(), ActiveError> {
     validate(state)?;
-    create_directory(install_root, 0o700)?;
-    write_file_atomically(
+    private_fs::create_private_directories(install_root)?;
+    private_fs::replace_file(
         &install_root.join(ACTIVE_FILE),
         to_file_json(state).as_bytes(),
-        0o600,
+        FileMode::Umask(0o600),
     )?;
     Ok(())
 }
@@ -154,7 +151,7 @@ pub fn activate(
     // 0755, not the owner-only mode used below `~/.coforge`: the shim directory is a shared
     // conventional location (`~/.local/bin`) that other tools install into, and a recursive
     // create would otherwise leave `~/.local` itself owner-only for every one of them.
-    create_directory(binary_directory, 0o755)?;
+    private_fs::create_directories(binary_directory, 0o755)?;
     if target.starts_with("windows-") {
         write_windows_launcher(install_root, binary_directory)?;
         switch_junction(install_root, &state.current)?;
@@ -206,7 +203,7 @@ fn switch_posix_links(_: &Path, _: &Path, _: &str) -> io::Result<()> {
 /// replaces an existing symlink in one step.
 #[cfg(unix)]
 fn replace_symlink(target: &Path, link: &Path) -> io::Result<()> {
-    let temporary = temporary_sibling(link);
+    let temporary = private_fs::temporary_sibling(link);
     std::os::unix::fs::symlink(target, &temporary)?;
     fs::rename(&temporary, link).inspect_err(|_| {
         let _ = fs::remove_file(&temporary);
@@ -223,10 +220,10 @@ fn write_windows_launcher(install_root: &Path, binary_directory: &Path) -> io::R
         )
     })?;
     let launcher = windows_computer_launcher(root.trim_end_matches(['\\', '/']));
-    write_file_atomically(
+    private_fs::replace_file(
         &binary_directory.join(WINDOWS_SHIM_FILE),
         launcher.as_bytes(),
-        0o700,
+        FileMode::Umask(0o700),
     )
 }
 
@@ -235,18 +232,23 @@ fn write_windows_launcher(install_root: &Path, binary_directory: &Path) -> io::R
 /// is created under a temporary name first, so a failure to create it leaves the old one alone.
 fn switch_junction(install_root: &Path, current: &str) -> io::Result<()> {
     let active = install_root.join(ACTIVE_LINK);
-    let temporary = temporary_sibling(&active);
+    let temporary = private_fs::temporary_sibling(&active);
     // The crate creates the directory, then makes it a junction; the second step can fail.
-    create_junction(&install_root.join("versions").join(current), &temporary).inspect_err(
-        |_| {
-            let _ = remove_existing(&temporary);
-        },
-    )?;
+    create_junction(&install_root.join("versions").join(current), &temporary)
+        .inspect_err(|error| remove_what_creation_left(&temporary, error))?;
     remove_existing(&active)
         .and_then(|()| fs::rename(&temporary, &active))
         .inspect_err(|_| {
             let _ = remove_existing(&temporary);
         })
+}
+
+/// Removes what a failed creation left at `path`, unless it failed because something was already
+/// there: that is not ours to remove.
+fn remove_what_creation_left(path: &Path, error: &io::Error) {
+    if error.kind() != io::ErrorKind::AlreadyExists {
+        let _ = remove_existing(path);
+    }
 }
 
 #[cfg(windows)]
@@ -272,70 +274,6 @@ fn remove_existing(path: &Path) -> io::Result<()> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
-}
-
-/// Creates `path` and any missing parents. `mode` applies to what is created (through the
-/// umask) and never to a directory that already exists.
-#[cfg(unix)]
-fn create_directory(path: &Path, mode: u32) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(mode)
-        .create(path)
-}
-
-#[cfg(not(unix))]
-fn create_directory(path: &Path, _mode: u32) -> io::Result<()> {
-    fs::create_dir_all(path)
-}
-
-/// Writes `contents` to a new file beside `destination`, then renames it over `destination`.
-fn write_file_atomically(destination: &Path, contents: &[u8], mode: u32) -> io::Result<()> {
-    let temporary = temporary_sibling(destination);
-    let written = create_new_file(&temporary, mode).and_then(|mut file| {
-        file.write_all(contents)?;
-        // Without this a crash after the rename can leave an empty file under the final name.
-        file.sync_all()
-    });
-    written
-        .and_then(|()| fs::rename(&temporary, destination))
-        .inspect_err(|_| {
-            let _ = fs::remove_file(&temporary);
-        })
-}
-
-#[cfg(unix)]
-fn create_new_file(path: &Path, mode: u32) -> io::Result<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(mode)
-        .open(path)
-}
-
-#[cfg(not(unix))]
-fn create_new_file(path: &Path, _mode: u32) -> io::Result<fs::File> {
-    fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-}
-
-/// A name for a scratch file or link in `path`'s directory: `<name>.<unique>.tmp`.
-fn temporary_sibling(path: &Path) -> PathBuf {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_nanos());
-    let mut name: OsString = path.file_name().unwrap_or_default().to_owned();
-    name.push(format!(
-        ".{}-{nanos}-{}.tmp",
-        process::id(),
-        COUNTER.fetch_add(1, Ordering::Relaxed)
-    ));
-    path.with_file_name(name)
 }
 
 #[cfg(test)]

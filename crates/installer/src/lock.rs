@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, ErrorCode};
 
+use crate::private_fs;
+
 /// The lock file, relative to the install root.
 pub const LOCK_FILE: &str = "machine-mutation-lock.sqlite";
 
@@ -75,11 +77,11 @@ impl MachineMutationLock {
     /// Takes the lock in `install_root`, creating the directory (owner-only) and the lock file
     /// (0600) when missing. Never waits: a held lock is `LockError::Busy` at once.
     pub fn acquire(install_root: &Path) -> Result<Self, LockError> {
-        create_private_directory(install_root).map_err(LockError::Io)?;
+        private_fs::create_private_directories(install_root).map_err(LockError::Io)?;
         let canonical_root = fs::canonicalize(install_root).map_err(LockError::Io)?;
         let path = install_root.join(LOCK_FILE);
         let connection = Connection::open(&path).map_err(LockError::Sqlite)?;
-        restrict_to_owner(&path).map_err(LockError::Io)?;
+        private_fs::set_mode(&path, 0o600).map_err(LockError::Io)?;
         for statement in LOCK_STATEMENTS {
             // `PRAGMA busy_timeout` answers with a row, so every statement is stepped through a
             // query rather than `execute`, which refuses statements that return rows.
@@ -112,31 +114,6 @@ fn classify(error: rusqlite::Error) -> LockError {
         Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) => LockError::Busy,
         _ => LockError::Sqlite(error),
     }
-}
-
-#[cfg(unix)]
-fn create_private_directory(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)
-}
-
-#[cfg(not(unix))]
-fn create_private_directory(path: &Path) -> io::Result<()> {
-    fs::create_dir_all(path)
-}
-
-#[cfg(unix)]
-fn restrict_to_owner(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-}
-
-#[cfg(not(unix))]
-fn restrict_to_owner(_path: &Path) -> io::Result<()> {
-    Ok(())
 }
 
 #[cfg(test)]
