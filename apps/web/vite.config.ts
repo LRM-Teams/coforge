@@ -9,6 +9,10 @@ import { nitro } from "nitro/vite";
 
 import { paraglideOptions } from "./paraglide.config.ts";
 import { hoistTransitiveChunkImports } from "./scripts/hoist-transitive-chunk-imports.ts";
+import {
+  assertLibraryChunksDoNotImportAppChunks,
+  vendorChunkGroups,
+} from "./scripts/vendor-chunks.ts";
 
 // Workspace packages resolve through bun's symlinked node_modules, which
 // rolldown's native resolver fails to follow in some Linux environments
@@ -83,8 +87,20 @@ const config = defineConfig({
                 {
                   name: "icons",
                   test: /node_modules[\\/]@untitledui[\\/]icons[\\/]/,
+                  // Above the vendor groups, which would otherwise take the icons.
+                  priority: 40,
                   includeDependenciesRecursively: false,
                 },
+                // Library code goes to `vendor*` chunks (`scripts/vendor-chunks.ts` holds the
+                // groups, why each is shaped as it is, and a build check). The rule: a chunk holds
+                // library code or app code, never both, and a library chunk never imports an app
+                // chunk, so an app change leaves the library hashes alone and browsers keep them
+                // across a deploy. Rolldown recommends `strictExecutionOrder` with
+                // `includeDependenciesRecursively: false`; it is not set: the build check fails on
+                // any library-to-app chunk import, the cycle it guards against, and
+                // `strictExecutionOrder` wraps every module at a size cost. Do not add
+                // `entriesAwareMergeThreshold` or `minSize` to these groups (see the module).
+                ...vendorChunkGroups,
               ],
             },
           },
@@ -128,6 +144,7 @@ const config = defineConfig({
         client: { files: ["**/*.server.*", "**/src/server/**", "**/src/generated/**"] },
       },
     }),
+    assertLibraryChunksDoNotImportAppChunks(),
     ...hoistTransitiveChunkImports(),
     nitro({
       preset: "bun",
