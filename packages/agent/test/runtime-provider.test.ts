@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rmSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runtimeFetch } from "#src/runtime-provider";
@@ -42,48 +43,54 @@ test("session fetch uses proxy precedence and honors exact host, wildcard, and p
   }
 });
 
-test("session fetch trusts the Agent's NODE_EXTRA_CA_CERTS for a server that omits its intermediate", async () => {
-  // An internal model endpoint signed by a private CA presents only its leaf, so the file must
-  // carry the root and the intermediate. Bun applies the process's proxy and CA settings beside
-  // the per-request ones, so the host's values are cleared here and put back afterwards.
-  const hostEnv = clearHostEnv([
-    "HTTPS_PROXY",
-    "https_proxy",
-    "ALL_PROXY",
-    "all_proxy",
-    "NODE_EXTRA_CA_CERTS",
-  ]);
+test("session fetch trusts the Agent's NODE_EXTRA_CA_CERTS beside the daemon's, for servers that omit their intermediate", async () => {
+  // An internal model endpoint signed by a private CA presents only its leaf, so a file must carry
+  // the root and the intermediate. Bun applies the process's proxy settings beside the per-request
+  // ones, so the host's are cleared here and put back afterwards.
+  const hostEnv = clearHostEnv(["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]);
   const directory = await mkdtemp(join(tmpdir(), "coforge-extra-ca-"));
+  const servers: ReturnType<typeof Bun.serve>[] = [];
   try {
-    const caBundle = await writeCertificates(directory);
-    const serve = (name: string) =>
-      Bun.serve({
+    const serve = (chain: string, name: string) => {
+      const server = Bun.serve({
         port: 0,
         hostname: "127.0.0.1",
         tls: {
-          cert: Bun.file(join(directory, `${name}.pem`)),
-          key: Bun.file(join(directory, `${name}.key`)),
+          cert: Bun.file(join(chain, `${name}.pem`)),
+          key: Bun.file(join(chain, `${name}.key`)),
         },
-        fetch: () => new Response("private"),
+        fetch: () => new Response(`${name} of ${chain}`),
       });
-    const server = serve("leaf");
-    const other = serve("unrelated");
-    const url = `https://localhost:${server.port}/probe`;
-    try {
-      await expect(runtimeFetch({ NO_PROXY: "*" })(url)).rejects.toMatchObject({
-        code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
-      });
-      const trusted = runtimeFetch({ NO_PROXY: "*", NODE_EXTRA_CA_CERTS: caBundle });
-      expect(await (await trusted(url)).text()).toBe("private");
-      // The file adds trust for its own CA only; it does not turn verification off.
-      await expect(trusted(`https://localhost:${other.port}/probe`)).rejects.toMatchObject({
-        code: "DEPTH_ZERO_SELF_SIGNED_CERT",
-      });
-    } finally {
-      server.stop(true);
-      other.stop(true);
-    }
+      servers.push(server);
+      return `https://localhost:${server.port}/probe`;
+    };
+    const daemonChain = join(directory, "daemon");
+    const agentChain = join(directory, "agent");
+    const daemonBundle = await writeCertificates(daemonChain);
+    const agentBundle = await writeCertificates(agentChain);
+    const daemonServer = serve(daemonChain, "leaf");
+    const agentServer = serve(agentChain, "leaf");
+    const unrelated = serve(agentChain, "unrelated");
+    const text = async (response: Promise<Response>) => (await response).text();
+
+    await expect(runtimeFetch({ NO_PROXY: "*" }, {})(agentServer)).rejects.toMatchObject({
+      code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    });
+    const agentOnly = runtimeFetch({ NO_PROXY: "*", NODE_EXTRA_CA_CERTS: agentBundle }, {});
+    expect(await text(agentOnly(agentServer))).toBe(`leaf of ${agentChain}`);
+    // A file adds trust for its own CA only; it does not turn verification off.
+    await expect(agentOnly(unrelated)).rejects.toMatchObject({
+      code: "DEPTH_ZERO_SELF_SIGNED_CERT",
+    });
+    // A request's CA list replaces Bun's store, so the daemon's own extra CA must come along.
+    const both = runtimeFetch(
+      { NO_PROXY: "*", NODE_EXTRA_CA_CERTS: agentBundle },
+      { NODE_EXTRA_CA_CERTS: daemonBundle },
+    );
+    expect(await text(both(agentServer))).toBe(`leaf of ${agentChain}`);
+    expect(await text(both(daemonServer))).toBe(`leaf of ${daemonChain}`);
   } finally {
+    for (const server of servers) server.stop(true);
     await rm(directory, { recursive: true, force: true });
     restoreHostEnv(hostEnv);
   }
@@ -91,21 +98,22 @@ test("session fetch trusts the Agent's NODE_EXTRA_CA_CERTS for a server that omi
 
 test("an unreadable NODE_EXTRA_CA_CERTS names the variable and the path instead of a bare connection error", () => {
   const path = join(tmpdir(), `coforge-missing-ca-${crypto.randomUUID()}.pem`);
-  expect(() => runtimeFetch({ NODE_EXTRA_CA_CERTS: path })).toThrow(
+  expect(() => runtimeFetch({ NODE_EXTRA_CA_CERTS: path }, {})).toThrow(
     `NODE_EXTRA_CA_CERTS names ${path}, which could not be read`,
   );
 });
 
-test("a NODE_EXTRA_CA_CERTS the daemon process already has is left to Bun, which applied it at startup", () => {
-  // An Agent inherits the daemon's environment, so an unchanged value is not the Agent's own and
-  // must not fail every launch where Bun only warned.
-  const path = join(tmpdir(), `coforge-missing-ca-${crypto.randomUUID()}.pem`);
-  const hostEnv = clearHostEnv(["NODE_EXTRA_CA_CERTS"]);
-  process.env.NODE_EXTRA_CA_CERTS = path;
+test("the daemon's own NODE_EXTRA_CA_CERTS never fails a launch, as Bun only warns about it at startup", () => {
+  // An Agent inherits the daemon's environment, so an unchanged value is not the Agent's own.
+  const missing = join(tmpdir(), `coforge-missing-ca-${crypto.randomUUID()}.pem`);
+  const host = { NODE_EXTRA_CA_CERTS: missing };
+  expect(() => runtimeFetch({ NODE_EXTRA_CA_CERTS: missing }, host)).not.toThrow();
+  const agentFile = join(tmpdir(), `coforge-agent-ca-${crypto.randomUUID()}.pem`);
+  writeFileSync(agentFile, "");
   try {
-    expect(() => runtimeFetch({ NODE_EXTRA_CA_CERTS: path })).not.toThrow();
+    expect(() => runtimeFetch({ NODE_EXTRA_CA_CERTS: agentFile }, host)).not.toThrow();
   } finally {
-    restoreHostEnv(hostEnv);
+    rmSync(agentFile, { force: true });
   }
 });
 
@@ -116,6 +124,7 @@ test("a NODE_EXTRA_CA_CERTS the daemon process already has is left to Bun, which
 async function writeCertificates(directory: string) {
   const openssl = Bun.which("openssl");
   if (!openssl) throw new Error("openssl is required");
+  await mkdir(directory, { recursive: true });
   const issue = (name: string, extensions: string[], issuer?: string) => {
     const signing = issuer ? ["-CA", `${issuer}.pem`, "-CAkey", `${issuer}.key`] : [];
     const args = [

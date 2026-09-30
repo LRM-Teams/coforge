@@ -26,8 +26,11 @@ export const API_KEY_ENV_BY_PROVIDER = {
  * Bun applies proxy settings and extra CAs from the process env only, so a session's own values
  * (an Agent's overrides) reach Pi's model requests through here, per request.
  */
-export function runtimeFetch(environment: Readonly<Record<string, string>>): typeof fetch {
-  const ca = extraCertificateAuthorities(environment.NODE_EXTRA_CA_CERTS);
+export function runtimeFetch(
+  environment: Readonly<Record<string, string>>,
+  host: Readonly<Record<string, string | undefined>> = Bun.env,
+): typeof fetch {
+  const ca = extraCertificateAuthorities(environment.NODE_EXTRA_CA_CERTS, host.NODE_EXTRA_CA_CERTS);
   const request = (input: Request | string | URL, init?: RequestInit) => {
     const target = new URL(input instanceof Request ? input.url : input);
     const port = target.port || (target.protocol === "https:" ? "443" : "80");
@@ -71,20 +74,35 @@ export class SessionEnvironmentError extends Error {
 }
 
 /**
- * A request's `ca` replaces the trust store, so Bun's bundled roots stay alongside the file. The
- * daemon's own value was applied by Bun at startup, so only a session's different value is read,
- * at launch, so a bad path fails by name rather than as the SDK's bare "Connection error.".
+ * A request's `ca` replaces Bun's store, so its bundled roots and the daemon's own file (which Bun
+ * applied at startup, or only warned about) come along. Only a session's different value is the
+ * Agent's own; it is read at launch so a bad path fails by name, not as the SDK's bare
+ * "Connection error.".
  */
-function extraCertificateAuthorities(path: string | undefined): string[] | undefined {
-  if (!path || path === Bun.env.NODE_EXTRA_CA_CERTS) return undefined;
+function extraCertificateAuthorities(
+  path: string | undefined,
+  hostPath: string | undefined,
+): string[] | undefined {
+  if (!path || path === hostPath) return undefined;
+  let own: string;
   try {
-    return [...rootCertificates, readFileSync(path, "utf8")];
+    own = readFileSync(path, "utf8");
   } catch (error) {
     throw new SessionEnvironmentError(
       "NODE_EXTRA_CA_CERTS",
       `NODE_EXTRA_CA_CERTS names ${path}, which could not be read: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
+  }
+  const daemon = hostPath ? readOptional(hostPath) : undefined;
+  return [...rootCertificates, ...(daemon ? [daemon] : []), own];
+}
+
+function readOptional(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return undefined;
   }
 }
 
