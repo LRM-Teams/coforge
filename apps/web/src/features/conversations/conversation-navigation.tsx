@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { PageHeader } from "#src/components/layout/page-header";
 import { useBreakpoint } from "#src/hooks/use-breakpoint";
 import { ConversationListContext } from "./conversation-list-button";
@@ -25,7 +25,15 @@ import {
 } from "#src/features/agents/workspace-agents-realtime";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
 import { CreateChannelDialog } from "./create-channel-dialog";
-import { channelNamesQuery } from "./conversation-queries";
+import {
+  channelNamesQuery,
+  directConversationQuery,
+  publicChannelQuery,
+} from "./conversation-queries";
+import {
+  adoptReadThrough,
+  noteReadThrough,
+} from "#src/features/cache-persistence/browser-query-cache";
 import { projectsQuery } from "#src/features/projects/project-tree-queries";
 import { rememberConversation } from "./last-conversation";
 import {
@@ -132,6 +140,7 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
   );
   const refreshSidebar = useRefreshSidebar();
   const readPosition = useListReadPosition();
+  const queryClient = useQueryClient();
   const applyChannelSignal = useApplyChannelSignal();
   const knownAgentIds = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents]);
   // The Workspace layout's Agent roster only re-reads through the router: one re-read at a time.
@@ -160,6 +169,13 @@ export function ConversationNavigation({ children }: { children: ReactNode }) {
     // are stale.
     onSidebarListsChanged: (lists) => void refreshSidebar(lists),
     readPosition,
+    onReadCursorMoved: ({ kind, conversationId, throughSequence, adoptNow }) => {
+      const { queryKey } = (kind === "channel" ? publicChannelQuery : directConversationQuery)(
+        conversationId,
+      ).query;
+      noteReadThrough(queryClient, queryKey, throughSequence);
+      if (adoptNow) adoptReadThrough(queryClient, queryKey);
+    },
   });
   // Every server read of the lists carries the persisted counts; local arithmetic restarts from
   // them (sequence boundaries survive, so no event double-counts). Channels and DMs alike are

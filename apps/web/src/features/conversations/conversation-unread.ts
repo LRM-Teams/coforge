@@ -153,6 +153,21 @@ export function clearUnread(
 export type MarkedEvent = Extract<ViewerEvent, { unreadCount: number }>;
 
 /**
+ * Where a read-cursor move puts the conversation's window: its stored copy takes the cursor the
+ * move carries, so the next open draws the divider where the person now is (Slack's
+ * `channel_marked` `ts`), and so does the page's own window at once (`adoptNow`), except for the
+ * conversation on screen, which keeps the divider it opened with until the person leaves it.
+ */
+export function storedCursorMove(event: MarkedEvent, openConversationId: string | undefined) {
+  return {
+    kind: event.type === "channel.marked.v1" ? ("channel" as const) : ("direct" as const),
+    conversationId: event.conversationId,
+    throughSequence: event.readThroughSequence,
+    adoptNow: event.conversationId !== openConversationId,
+  };
+}
+
+/**
  * The viewer's read cursor in a channel or DM moved (`channel.marked.v1`, `dm.marked.v1`): read or
  * marked unread here, in another tab or on another device. The badge takes the count the move
  * left, as Slack's `channel_marked` and `im_marked` set `unread_count`; the sequence boundary
@@ -391,6 +406,7 @@ export function useChannelUnread({
   onChannelSignal,
   onSidebarListsChanged,
   readPosition,
+  onReadCursorMoved,
 }: {
   workspaceId?: string;
   /** The viewer, whose own direct-message signal channel carries their DM badges, and whose own
@@ -418,6 +434,8 @@ export function useChannelUnread({
     list: ChatList,
     channel: string,
   ) => Promise<StreamPosition | undefined> | undefined;
+  /** The viewer's read cursor in a conversation moved, here or elsewhere (`storedCursorMove`). */
+  onReadCursorMoved: (move: ReturnType<typeof storedCursorMove>) => void;
 }): UnreadState {
   const [counts, setCounts] = useState<UnreadCounts>({});
   const getWorkspaceToken = useServerFn(getWorkspaceConversationSubscriptionToken);
@@ -431,6 +449,7 @@ export function useChannelUnread({
     onChannelSignal,
     onSidebarListsChanged,
     readPosition,
+    onReadCursorMoved,
   });
   refs.current = {
     userId,
@@ -441,6 +460,7 @@ export function useChannelUnread({
     onChannelSignal,
     onSidebarListsChanged,
     readPosition,
+    onReadCursorMoved,
   };
   const rereadMissed = useCallback(
     (kind: "workspace" | "user", channel: string, recovery: SubscribedRecovery) =>
@@ -497,12 +517,11 @@ export function useChannelUnread({
     (publication: { data: unknown }) => {
       const event = decodeViewerEvent(publication.data);
       if (!event) return onPublication(publication);
-      if ("unreadCount" in event)
-        setCounts((current) =>
-          applyMarked(current, event, {
-            openConversationId: refs.current.openConversationId,
-          }),
-        );
+      if ("unreadCount" in event) {
+        const open = refs.current.openConversationId;
+        setCounts((current) => applyMarked(current, event, { openConversationId: open }));
+        refs.current.onReadCursorMoved(storedCursorMove(event, open));
+      }
       const lists = sidebarListsChangedBy(event);
       if (lists.length > 0) refs.current.onSidebarListsChanged(lists);
     },

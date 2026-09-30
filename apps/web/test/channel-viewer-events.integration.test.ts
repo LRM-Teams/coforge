@@ -103,6 +103,7 @@ test.skipIf(!connectionString)(
             workspaceId: workspace.id,
             conversationId: team.id,
             unreadCount: 1,
+            readThroughSequence: second.sequence,
           },
         },
       ]);
@@ -118,6 +119,7 @@ test.skipIf(!connectionString)(
           workspaceId: workspace.id,
           conversationId: team.id,
           unreadCount: 0,
+          readThroughSequence: third.sequence,
         },
       ]);
     } finally {
@@ -144,6 +146,8 @@ test.skipIf(!connectionString)(
             workspaceId: workspace.id,
             conversationId: team.id,
             unreadCount: 1,
+            // Marking unread leaves the read cursor where it was.
+            readThroughSequence: last.sequence,
           },
         },
       ]);

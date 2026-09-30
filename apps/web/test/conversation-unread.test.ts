@@ -8,6 +8,7 @@ import {
   channelSignalOf,
   listsMissedBySubscribe,
   rereadMissedBySubscribe,
+  storedCursorMove,
   clearUnread,
   closedConversationLists,
   seedUnreadCounts,
@@ -428,6 +429,7 @@ describe("the viewer's own channel events", () => {
     workspaceId: "workspace-a",
     conversationId,
     unreadCount,
+    readThroughSequence: 8,
   });
 
   test("a read elsewhere sets the channel's badge to the count it left, keeping its boundary", () => {
@@ -479,21 +481,28 @@ describe("the viewer's own DM events", () => {
     expect(
       applyMarked(
         { "dm-a": 5, "dm-a:seq": 7 },
-        { type: "dm.marked.v1", ...ids, unreadCount: 0 },
+        { type: "dm.marked.v1", ...ids, unreadCount: 0, readThroughSequence: 7 },
         {},
       ),
     ).toEqual({ "dm-a:seq": 7 });
     expect(
       applyMarked(
         {},
-        { type: "dm.marked.v1", ...ids, unreadCount: 1 },
+        { type: "dm.marked.v1", ...ids, unreadCount: 1, readThroughSequence: 6 },
         { openConversationId: "dm-a" },
       ),
     ).toEqual({});
   });
 
   test("a DM started, closed or brought back makes only the DM list stale", () => {
-    expect(sidebarListsChangedBy({ type: "dm.marked.v1", ...ids, unreadCount: 0 })).toEqual([]);
+    expect(
+      sidebarListsChangedBy({
+        type: "dm.marked.v1",
+        ...ids,
+        unreadCount: 0,
+        readThroughSequence: 7,
+      }),
+    ).toEqual([]);
     for (const type of ["dm.created.v1", "dm.opened.v1", "dm.closed.v1"] as const)
       expect(sidebarListsChangedBy({ type, ...ids })).toEqual(["dms"]);
   });
@@ -700,6 +709,32 @@ describe("rereadMissedBySubscribe", () => {
         ["channels"],
       ]);
     });
+  });
+});
+
+describe("a read cursor moved on another page or device", () => {
+  const ids = { workspaceId: "workspace-a", conversationId: "channel-a" };
+  const marked = {
+    type: "channel.marked.v1" as const,
+    ...ids,
+    unreadCount: 0,
+    readThroughSequence: 9,
+  };
+
+  test("moves the conversation's stored window there, and the page's own at once when it is not open", () => {
+    expect(storedCursorMove(marked, "channel-b")).toEqual({
+      kind: "channel",
+      conversationId: "channel-a",
+      throughSequence: 9,
+      adoptNow: true,
+    });
+    expect(
+      storedCursorMove({ ...marked, type: "dm.marked.v1", conversationId: "dm-a" }, undefined),
+    ).toEqual({ kind: "direct", conversationId: "dm-a", throughSequence: 9, adoptNow: true });
+  });
+
+  test("leaves the open conversation's divider where it opened until the person leaves it", () => {
+    expect(storedCursorMove(marked, "channel-a").adoptNow).toBe(false);
   });
 });
 

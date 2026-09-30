@@ -12,7 +12,7 @@ import {
 import { PrismaDirectConversationPreferences } from "#src/server/db/repositories/direct-conversation-preferences.repositories.server";
 import { announceViewerEvent, type ConversationRealtime } from "./conversation-realtime.server";
 import { SendDirectMessage } from "./direct-message.server";
-import { humanUnreadCount } from "./human-unread.server";
+import { humanReadState } from "./human-unread.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import { toggleUserMessageReaction } from "./user-message-reactions.server";
 import {
@@ -192,7 +192,7 @@ export class DirectConversations {
           type: "dm.marked.v1",
           workspaceId,
           conversationId,
-          unreadCount: await humanUnreadCount(this.db, conversationId, viewerId),
+          ...(await humanReadState(this.db, conversationId, viewerId)),
         },
       });
     return result;
@@ -263,15 +263,15 @@ export class DirectConversations {
     await this.authorize(workspaceId, viewerId, conversationId);
     // Like a channel read: a move tells the reader's other pages the badge it leaves (Slack's
     // `im_marked`); a read that moved nothing says nothing.
-    const unreadCount = await this.conversations.markReadForUser(
+    const state = await this.conversations.markReadForUser(
       viewerId,
       conversationId,
       throughSequence,
     );
-    if (unreadCount !== undefined)
+    if (state !== undefined)
       await announceViewerEvent(this.realtime, {
         userIds: [viewerId],
-        event: { type: "dm.marked.v1", workspaceId, conversationId, unreadCount },
+        event: { type: "dm.marked.v1", workspaceId, conversationId, ...state },
       });
   }
 

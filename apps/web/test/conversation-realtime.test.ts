@@ -46,9 +46,14 @@ describe("conversation realtime", () => {
     ).toThrow();
   });
 
-  test("decodes the viewer's own channel events, which name only ids and the unread count", () => {
+  test("decodes the viewer's own channel events, which name only ids, the unread count and the read cursor", () => {
     const ids = { workspaceId: "workspace-a", conversationId: "conversation-a" };
-    const marked = { type: "channel.marked.v1" as const, ...ids, unreadCount: 3 };
+    const marked = {
+      type: "channel.marked.v1" as const,
+      ...ids,
+      unreadCount: 3,
+      readThroughSequence: 12,
+    };
     expect(decodeViewerEvent(marked)).toEqual(marked);
     expect(decodeViewerEvent(new TextEncoder().encode(JSON.stringify(marked)))).toEqual(marked);
     for (const type of [
@@ -84,11 +89,18 @@ describe("conversation realtime", () => {
 
   test("decodes the viewer's own DM events alike", () => {
     const ids = { workspaceId: "workspace-a", conversationId: "dm-a" };
-    const marked = { type: "dm.marked.v1" as const, ...ids, unreadCount: 2 };
+    const marked = {
+      type: "dm.marked.v1" as const,
+      ...ids,
+      unreadCount: 2,
+      readThroughSequence: 4,
+    };
     expect(decodeViewerEvent(marked)).toEqual(marked);
     for (const type of ["dm.created.v1", "dm.opened.v1", "dm.closed.v1"] as const)
       expect(decodeViewerEvent({ type, ...ids })).toEqual({ type, ...ids });
     expect(decodeViewerEvent({ ...marked, unreadCount: -2 })).toBeUndefined();
+    // A move always says where the cursor stands.
+    expect(decodeViewerEvent({ type: "dm.marked.v1", ...ids, unreadCount: 2 })).toBeUndefined();
     expect(decodeViewerEvent({ type: "dm.joined.v1", ...ids })).toBeUndefined();
   });
 

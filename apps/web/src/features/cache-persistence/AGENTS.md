@@ -55,10 +55,12 @@ because the API is experimental.
   the stored copy alone.
 - A conversation's read cursor: the pane freezes its unread divider for the visit, so the live
   window keeps the cursor it opened with; when the server's cursor moves (`noteReadThrough`, called
-  after a successful mark-read), what is stored carries the new one, never moving back, and leaving
-  the conversation takes it into the window (`adoptReadThrough`) so coming back in the same page
-  load draws no divider over what was read. The Activity inbox's and other devices' mark-reads do
-  not reach it yet.
+  after a successful mark-read, and for every `channel.marked.v1`/`dm.marked.v1`, which carries the
+  cursor as Slack's `channel_marked` carries its `ts`: a read in the Activity inbox, another tab or
+  another device), what is stored carries the new one, never moving back, and leaving the
+  conversation takes it into the window (`adoptReadThrough`) so coming back in the same page load
+  draws no divider over what was read. A conversation not on screen takes it at once. A window
+  held only in storage is moved where it is stored.
 - A query the server answers `NOT_FOUND` (deleted, or access lost) is removed from storage.
 - `maxAge` is 7 days and a sweep removes older rows at most once a day.
 - A deploy keeps every stored row: the copy is thrown away only when its shape can no longer be

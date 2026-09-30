@@ -77,20 +77,21 @@ test.skipIf(!connectionString)(
       const second = await post(conversationId, ada.id);
       const third = await post(conversationId, ada.id);
       announced.length = 0;
-      const marked = (unreadCount: number) => ({
+      const marked = (unreadCount: number, readThroughSequence: number) => ({
         userIds: [bob.id],
         event: {
           type: "dm.marked.v1" as const,
           workspaceId: workspace.id,
           conversationId,
           unreadCount,
+          readThroughSequence,
         },
       });
 
       await dms.markRead(workspace.id, bob.id, conversationId, second.sequence);
       await dms.markRead(workspace.id, bob.id, conversationId, second.sequence);
       await dms.markRead(workspace.id, bob.id, conversationId, third.sequence);
-      expect(announced).toEqual([marked(1), marked(0)]);
+      expect(announced).toEqual([marked(1, second.sequence), marked(0, third.sequence)]);
     } finally {
       await teardown();
     }
@@ -115,7 +116,16 @@ test.skipIf(!connectionString)(
       await dms.setHidden(workspace.id, bob.id, conversationId, false);
       await dms.setHidden(workspace.id, bob.id, conversationId, false);
       expect(announced).toEqual([
-        { userIds: [bob.id], event: { type: "dm.marked.v1", ...ids, unreadCount: 1 } },
+        {
+          userIds: [bob.id],
+          // Marking unread leaves the read cursor where it was.
+          event: {
+            type: "dm.marked.v1",
+            ...ids,
+            unreadCount: 1,
+            readThroughSequence: last.sequence,
+          },
+        },
         // A close always stamps the time (see the next test), so each one is announced.
         { userIds: [bob.id], event: { type: "dm.closed.v1", ...ids } },
         { userIds: [bob.id], event: { type: "dm.closed.v1", ...ids } },
