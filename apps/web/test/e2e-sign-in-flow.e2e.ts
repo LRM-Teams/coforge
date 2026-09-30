@@ -216,6 +216,17 @@ test("signing in through the hosted page, from a Workspace invite link", async (
     if (code !== 0) throw new Error(`Browser ${args[0]} failed: ${stderr}`);
     return stdout;
   }
+  /** The tab the session is bound to, so a second tab can be left again. `tab` accepts a stable id
+   * like `t1`, a label, or a CDP target id - but not a positional integer, so the id is read rather
+   * than assumed. */
+  async function boundTabId(): Promise<string> {
+    const listed = JSON.parse(await browser("tab", "list", "--json")) as {
+      data: { tabs: Array<{ active: boolean; tabId: string }> };
+    };
+    const active = listed.data.tabs.find((tab) => tab.active);
+    if (!active) throw new Error("no active tab to return to");
+    return active.tabId;
+  }
   async function evaluate<T>(expression: string): Promise<T> {
     return JSON.parse(JSON.parse(await browser("eval", `JSON.stringify(${expression})`))) as T;
   }
@@ -485,12 +496,13 @@ test("signing in through the hosted page, from a Workspace invite link", async (
     await browser("cookies", "clear");
     await browser("open", `${origin}/auth/login?returnTo=${encodeURIComponent(joinPath)}`);
     await waitFor(onAuthingPage);
+    const firstTab = await boundTabId();
     await browser("tab", "new");
     await browser("open", `${origin}/auth/login?returnTo=${encodeURIComponent(joinPath)}`);
     await waitFor(onAuthingPage);
     await browser("click", "#as-bob");
     await waitFor(onJoinPageAs(people.bob.email));
-    await browser("tab", "0");
+    await browser("tab", firstTab);
     await waitFor(onAuthingPage);
     await browser("click", "#as-alice");
     await waitFor(onJoinPageAs(people.alice.email));
