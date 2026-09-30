@@ -19,4 +19,6 @@ export const executeAgentControl = createServerFn({ method: "POST" })
     declareNoStore();
     const result = await userAgentControl(db).execute({ ...data, userId: user.id, workspaceId });
     if (result.phase === "failed") throw new Error("Agent control failed");
+    if (result.error === "workspace_clear_failed")
+      throw new Error("Agent workspace files could not be fully deleted");
   });

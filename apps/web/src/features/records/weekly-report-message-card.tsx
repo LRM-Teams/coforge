@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "#src/components/base/buttons/button";
 import type { OpenAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
 import { useWorkspaceSlug } from "#src/features/workspaces/workspace-route";
+import { useRouter } from "@tanstack/react-router";
 import { m } from "#src/paraglide/messages";
 import type { WeeklyReportAssistantSuggestion } from "#src/server/records/weekly-report-assistant-suggestion.server";
 import { applyConfirmedWeeklyReportBody } from "./records.functions";
@@ -29,6 +30,7 @@ export function WeeklyReportMessageCard(props: {
 }) {
   const { suggestion } = props;
   const workspaceSlug = useWorkspaceSlug();
+  const router = useRouter();
   const cardKey = `${workspaceSlug}:${props.messageId}`;
   const applyBody = useServerFn(applyConfirmedWeeklyReportBody);
   const [runId, setRunId] = useState<string | null>(null);
@@ -56,6 +58,7 @@ export function WeeklyReportMessageCard(props: {
       await applyBody({ data: { reportId: suggestion.reportId, content: suggestion.content } });
       setApplied(true);
       writeAppliedSuggestionIds(cardKey, [props.messageId]);
+      await router.invalidate({ sync: true });
     } catch {
       setError(m.records_assistant_write_failed());
     } finally {

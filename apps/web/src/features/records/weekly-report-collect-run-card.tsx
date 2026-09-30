@@ -84,9 +84,32 @@ export function WeeklyReportCollectRunCard(props: {
     return <p className="text-sm text-tertiary">{m.records_collect_run_loading()}</p>;
   }
 
+  const terminalCount = run.slots.filter((slot) =>
+    ["ready", "failed", "empty", "stalled", "cancelled"].includes(slot.status),
+  ).length;
+  const readyCount = run.slots.filter((slot) => slot.status === "ready").length;
+  const runningCount = run.slots.filter((slot) => slot.status === "running").length;
+  const statusTone =
+    run.status === "collecting" || run.status === "synthesizing"
+      ? "border-brand/30 bg-brand-primary text-brand-secondary"
+      : run.status === "done" || run.status === "awaiting_confirm"
+        ? "border-success/30 bg-success-primary text-success-primary"
+        : "border-secondary bg-secondary text-tertiary";
+
   return (
     <div className="space-y-2">
-      <p className="text-xs text-tertiary">{collectRunStatusLabel(run.status)}</p>
+      <div
+        className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${statusTone}`}
+        role="status"
+        aria-live="polite"
+      >
+        <span className="font-medium">{collectRunStatusLabel(run.status)}</span>
+        <span className="text-xs tabular-nums">
+          {terminalCount}/{run.slots.length} computers
+          {readyCount > 0 ? ` · ${readyCount} ready` : ""}
+          {runningCount > 0 ? ` · ${runningCount} running` : ""}
+        </span>
+      </div>
       {run.slots.map((slot) => {
         const open = openIds.includes(slot.id);
         const failedLike =

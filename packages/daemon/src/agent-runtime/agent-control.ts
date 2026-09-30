@@ -269,9 +269,11 @@ export class AgentControl {
       // association is still cleared locally and the chain still proceeds to Start. Matching
       // Raft 1.0.32's resetWorkspace, this is logged only — there is no result field, state, or
       // anything else that blocks a later agent:start.
+      let workspaceClearError = false;
       try {
         await this.store.clearWorkspace(scope.agentId);
       } catch (error) {
+        workspaceClearError = true;
         logger.error("Agent workspace clear did not complete", {
           event: "agent_control:workspace_clear_failed",
           request_id: scope.requestId,
@@ -288,6 +290,7 @@ export class AgentControl {
         ...scope,
         phase: "workspace-reset",
         sequence: ++record.sequence,
+        ...(workspaceClearError ? { errorCode: "workspace_clear_failed" } : {}),
       };
       record.lastResult = record.workspaceResetResult;
       await this.store.write(scope.agentId, record);

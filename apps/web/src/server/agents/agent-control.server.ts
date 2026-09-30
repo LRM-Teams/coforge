@@ -1014,7 +1014,9 @@ export class AgentControl {
         ? { recovered: true }
         : {}),
       ...(identity ? { identity } : {}),
-      ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+      ...(result.errorCode || state.errorCode
+        ? { errorCode: result.errorCode ?? state.errorCode }
+        : {}),
     };
     if (!(await this.store.replace(agent, next))) throw new Error("Control result lost its fence");
     // A launch that started with its session binds the Agent's current identity, as an accepted
