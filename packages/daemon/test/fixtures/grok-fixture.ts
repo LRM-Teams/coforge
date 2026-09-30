@@ -233,77 +233,149 @@ if (mode === "crash") {
   console.error(Bun.env.COFORGE_GROK_CRASH_STDERR ?? "Error: could not reach the xAI API");
   process.exit(1);
 }
-// A turn that runs until it is interrupted. Grok's answer to SIGINT is not documented; the fixture
-// answers with the two frames a cancelled turn could plausibly carry, an `error` and an `end` with
-// `cancelled`, so the adapter is exercised against both.
+// A turn that runs until it is interrupted. Real grok 1.0.41, sent SIGINT mid-tool, dies at once by
+// the signal: no `error` frame, no `end` frame, nothing on stderr. The fixture installs no handler,
+// so it does the same, and only the first `text` frame precedes the interrupt.
 if (mode === "hang") {
-  process.on("SIGINT", () => {
-    write({ type: "error", message: "Request cancelled" });
-    endTurn("cancelled");
-    process.exit(0);
-  });
   announceCommands();
   write({ type: "text", data: "working" });
-  await new Promise(() => {});
+  await Bun.sleep(60_000);
 }
-// Tool calls in the shapes 14-headless-mode.md shows: `tool_call` opens a call and
-// `tool_call_update` reports its status. The guide gives an `in_progress` call and a `completed`
-// update whose `rawOutput` is an object; `failed` (an ACP status) and a string `rawOutput` are
-// the fixture's own extension, there to exercise the adapter's handling of them.
+// Tool calls in the shapes captured from grok 1.0.41 (a shell command that exits 1, a file read, a
+// read of a missing file): a `tool_call` opens the call `pending`; its `tool_call_update`s then
+// carry `status` `null`, `in_progress` and finally `completed` or `failed`. `rawOutput` is an
+// object (`Bash`, `ReadFile`), never text; the display text is in `content` as
+// `{type:"content", content:{type:"text", text}}` entries. The first update's `content` is the
+// command's description, and a shell command that exits 1 still ends `completed`.
 if (mode === "tools") {
+  const workspace = Bun.env.PWD ?? "";
+  const textContent = (text: string) => [{ type: "content", content: { type: "text", text } }];
+  const toolCall = (toolCallId: string, toolName: string, kind: string, rawInput: unknown) =>
+    write({
+      type: "tool_call",
+      toolCallId,
+      title: toolName,
+      kind,
+      status: "pending",
+      toolName,
+      rawInput,
+      content: [],
+      locations: [],
+    });
+  const update = (
+    toolCallId: string,
+    status: string | null,
+    content: unknown,
+    rawOutput: unknown,
+  ) => write({ type: "tool_call_update", toolCallId, status, content, rawOutput, locations: [] });
+  const bash = (command: string, output: string, exitCode: number, extra = {}) => ({
+    type: "Bash",
+    output: [...Buffer.from(output)],
+    output_for_prompt: output,
+    exit_code: exitCode,
+    command,
+    truncated: false,
+    signal: null,
+    timed_out: false,
+    description: null,
+    current_dir: workspace,
+    output_file: "/fixture-sessions/terminal/call.log",
+    total_bytes: output.length,
+    ...extra,
+  });
   announceCommands();
-  write({
-    type: "tool_call",
-    toolCallId: "call_1",
-    title: "Read",
-    kind: "read",
-    status: "in_progress",
-    toolName: "read_file",
-    rawInput: { path: "src/main.rs" },
-    content: [],
-    locations: [],
-  });
+
+  // A file read that succeeds.
+  const present = join(workspace, "present.txt");
+  toolCall("call-fixture-0", "read_file", "read", { target_file: present });
   write({
     type: "tool_call_update",
-    toolCallId: "call_1",
-    status: "completed",
+    toolCallId: "call-fixture-0",
+    status: null,
     content: [],
-    rawOutput: { lines: 42 },
-    locations: [],
+    rawOutput: null,
+    locations: [{ path: present }],
   });
-  write({
-    type: "tool_call",
-    toolCallId: "call_2",
-    title: "Run",
-    kind: "execute",
-    status: "in_progress",
-    toolName: "run_terminal_command",
-    rawInput: { command: "false" },
-    content: [],
-    locations: [],
+  update("call-fixture-0", "completed", textContent("1\u2192hello\n"), {
+    type: "ReadFile",
+    FileContent: {
+      content: "1\u2192hello\n",
+      content_concise: "1\u2192hello\n",
+      absolute_path: present,
+      offset: null,
+      raw_output: "hello\n",
+      total_lines: 2,
+    },
   });
+
+  // A shell command that exits 1 and still ends `completed`.
+  const failing = "echo probe-ok ; ls /definitely-missing-dir";
+  const failingOutput = "probe-ok\nls: /definitely-missing-dir: No such file or directory\n";
+  toolCall("call-fixture-1", "run_terminal_command", "execute", {
+    command: failing,
+    description: "Echo probe-ok then list missing dir",
+  });
+  update("call-fixture-1", null, textContent("Echo probe-ok then list missing dir"), null);
+  update("call-fixture-1", "in_progress", textContent(""), bash(failing, "", 0));
+  update(
+    "call-fixture-1",
+    "in_progress",
+    textContent(failingOutput),
+    bash(failing, failingOutput, 0),
+  );
+  update(
+    "call-fixture-1",
+    "completed",
+    textContent(failingOutput),
+    bash(failing, failingOutput, 1, { output_for_prompt: `exit: 1\n${failingOutput}` }),
+  );
+  // A repeated terminal update must not end the call twice (the fixture's own addition).
+  update(
+    "call-fixture-1",
+    "completed",
+    textContent(failingOutput),
+    bash(failing, failingOutput, 1),
+  );
+
+  // A read of a file that does not exist ends `failed`.
+  const missing = join(workspace, "missing.txt");
+  const notFound = `Error: ${missing} does not exist.\nNote: your current working directory is ${workspace}`;
+  toolCall("call-fixture-2", "read_file", "read", { target_file: missing });
   write({
     type: "tool_call_update",
-    toolCallId: "call_2",
-    status: "failed",
+    toolCallId: "call-fixture-2",
+    status: null,
     content: [],
-    rawOutput: "command exited with status 1",
-    locations: [],
+    rawOutput: null,
+    locations: [{ path: missing }],
   });
-  // A repeated terminal update must not end the call twice.
-  write({ type: "tool_call_update", toolCallId: "call_2", status: "failed", content: [] });
-  // A call that arrives already finished is announced and ended together.
-  write({
-    type: "tool_call",
-    toolCallId: "call_3",
-    title: "Search",
-    kind: "search",
-    status: "completed",
-    toolName: "grep",
-    rawInput: { pattern: "main" },
-    content: [],
-    locations: [],
+  update("call-fixture-2", "failed", textContent(notFound), {
+    type: "ReadFile",
+    FileNotFound: notFound,
   });
+
+  // A shell command that succeeds.
+  toolCall("call-fixture-3", "run_terminal_command", "execute", {
+    command: "echo hi",
+    description: "Say hi",
+  });
+  update("call-fixture-3", null, textContent("Say hi"), null);
+  update("call-fixture-3", "completed", textContent("hi\n"), bash("echo hi", "hi\n", 0));
+
+  // A shell command that timed out. The captures show `timed_out` only as `false`; the fixture's
+  // own data for it is `true` beside an exit code of 0, so the field is the only signal.
+  toolCall("call-fixture-4", "run_terminal_command", "execute", {
+    command: "sleep 999",
+    description: "Wait",
+  });
+  update("call-fixture-4", null, textContent("Wait"), null);
+  update(
+    "call-fixture-4",
+    "completed",
+    textContent("partial\n"),
+    bash("sleep 999", "partial\n", 0, { timed_out: true }),
+  );
+
   write({ type: "text", data: "done" });
   endResponse();
   endTurn();

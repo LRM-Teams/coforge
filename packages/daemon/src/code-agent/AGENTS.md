@@ -135,13 +135,19 @@ Rules for the provider seam and adapters in `src/code-agent/`. They extend
   and, per `10-hooks.md`, trusts that folder's hooks and MCP and LSP servers with it. Global skills
   (`$GROK_HOME/skills`) load without it. Folder trust is a security boundary: get Frank's approval
   before widening it past the Agent workspace or dropping it.
-- Tool events pass grok's `toolName` and `rawInput` through unchanged; canonical names and argument
-  summaries belong to `tool-activity.ts`. The guide shows no shape for a `content` element or a
-  non-string `rawOutput`, so neither is read as output text.
-- The missing-session stderr (`not found locally`, `Failed to restore session`), `--session-id`
-  refusing an existing id, and the session a failed first turn leaves behind are observed on grok
-  1.0.41, not documented. `--always-approve` and `--no-memory` are verified but absent from the
-  guide's flag table. Re-check them when raising the version gate.
+- Tool events pass grok's `toolName` and `rawInput` through, except that `read_file`'s `target_file`
+  is carried as the `file_path` the daemon core reads (`grok/tool-call.ts`); canonical names and
+  argument summaries belong to `tool-activity.ts`. The output text is the terminal update's `content`
+  text entries (`rawOutput` is an object, never text). A shell command that exits non-zero or times
+  out still ends `completed`, so the error comes from `rawOutput.exit_code` and `timed_out`; a call
+  grok could not run ends `failed`.
+- Observed on grok 1.0.41, not documented: the tool frame shapes above, `--session-id` refusing an
+  existing id, the session a failed first turn leaves behind, the missing-session stderr
+  (`not found locally`, `Failed to restore session`), and SIGINT, which kills grok at once by the
+  signal with no `error` or `end` frame (so `interrupt()` is reported by the exit, never by a frame).
+  `--trust` and `--no-memory` are hidden flags: absent from `grok --help`, accepted; the guide's
+  headless flag table also omits `--always-approve` (it lists `--yolo`). Re-check all of these when
+  raising the version gate.
 
 ## Pi and built-in CoForge Agent
 

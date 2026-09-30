@@ -327,19 +327,18 @@ test.each([
 );
 
 test(
-  "interrupt() ends the running turn as interrupted, without reporting grok's cancelled end as an error",
+  "interrupt() ends the running turn as interrupted when grok dies by the signal, with no error",
   async () => {
     await withSession({ environment: { COFORGE_GROK_MODE: "hang" } }, async ({ session }) => {
       const events = record(session);
       const working = firstText(session);
       const completed = nthCompleted(session, 1);
       await session.sendMessage("hi");
-      // The fake grok answers SIGINT once it has streamed its first text.
       await working;
+      // Grok 1.0.41 dies at once by SIGINT: no `error` frame, no `end`, nothing on stderr. The
+      // turn's exit reports the requested stop as interrupted, not as a failure.
       await session.interrupt!();
       await completed;
-      // The interrupt is the requested stop: neither the `cancelled` end nor the error frame that
-      // came with it is a runtime error.
       expect(events.filter((event) => event.type === "error")).toEqual([]);
       expect(events.at(-1)).toEqual({ type: "completed", status: "interrupted" });
     });
@@ -348,32 +347,77 @@ test(
 );
 
 test(
-  "tool_call and tool_call_update map to tool-start, tool-output and tool-end once per call",
+  "tool calls map to tool-start, tool-output and tool-end as grok reports them",
   async () => {
-    await withSession({ environment: { COFORGE_GROK_MODE: "tools" } }, async ({ session }) => {
-      const events = await runTurn(session, "use tools");
-      // The name is grok's own tool name and the input its `rawInput`: the daemon core decides
-      // what Activity a tool call is. Only a string `rawOutput` is output text; the guide shows an
-      // object (`{"lines":42}`) for a read and says nothing of the content array's elements.
-      expect(events.filter((event) => event.type.startsWith("tool-"))).toEqual([
-        { type: "tool-start", id: "call_1", name: "read_file", input: { path: "src/main.rs" } },
-        { type: "tool-end", id: "call_1", isError: false },
-        {
-          type: "tool-start",
-          id: "call_2",
-          name: "run_terminal_command",
-          input: { command: "false" },
-        },
-        { type: "tool-output", id: "call_2", text: "command exited with status 1" },
-        { type: "tool-end", id: "call_2", isError: true },
-        { type: "tool-start", id: "call_3", name: "grep", input: { pattern: "main" } },
-        { type: "tool-end", id: "call_3", isError: false },
-      ]);
-      expect(events.filter((event) => event.type === "text-delta")).toEqual([
-        { type: "text-delta", text: "done" },
-      ]);
-      expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
-    });
+    await withSession(
+      { environment: { COFORGE_GROK_MODE: "tools" } },
+      async ({ session, workspace }) => {
+        const events = await runTurn(session, "use tools");
+        const failing = "echo probe-ok ; ls /definitely-missing-dir";
+        const missing = join(workspace, "missing.txt");
+        // The name is grok's own tool name; the daemon core decides what Activity a call is. The
+        // shell's `rawInput` passes through, and a file read's `target_file` is carried as the
+        // `file_path` that core reads. The text is the terminal update's `content`, never its
+        // `rawOutput` (an object) or the first update's `content` (the command's description).
+        expect(events.filter((event) => event.type.startsWith("tool-"))).toEqual([
+          {
+            type: "tool-start",
+            id: "call-fixture-0",
+            name: "read_file",
+            input: { file_path: join(workspace, "present.txt") },
+          },
+          { type: "tool-output", id: "call-fixture-0", text: "1\u2192hello\n" },
+          { type: "tool-end", id: "call-fixture-0", isError: false },
+          {
+            type: "tool-start",
+            id: "call-fixture-1",
+            name: "run_terminal_command",
+            input: { command: failing, description: "Echo probe-ok then list missing dir" },
+          },
+          {
+            type: "tool-output",
+            id: "call-fixture-1",
+            text: "probe-ok\nls: /definitely-missing-dir: No such file or directory\n",
+          },
+          // The command exited 1 but the call still ended `completed`: that is an error.
+          { type: "tool-end", id: "call-fixture-1", isError: true },
+          {
+            type: "tool-start",
+            id: "call-fixture-2",
+            name: "read_file",
+            input: { file_path: missing },
+          },
+          {
+            type: "tool-output",
+            id: "call-fixture-2",
+            text: `Error: ${missing} does not exist.\nNote: your current working directory is ${workspace}`,
+          },
+          { type: "tool-end", id: "call-fixture-2", isError: true },
+          {
+            type: "tool-start",
+            id: "call-fixture-3",
+            name: "run_terminal_command",
+            input: { command: "echo hi", description: "Say hi" },
+          },
+          { type: "tool-output", id: "call-fixture-3", text: "hi\n" },
+          { type: "tool-end", id: "call-fixture-3", isError: false },
+          {
+            type: "tool-start",
+            id: "call-fixture-4",
+            name: "run_terminal_command",
+            input: { command: "sleep 999", description: "Wait" },
+          },
+          { type: "tool-output", id: "call-fixture-4", text: "partial\n" },
+          { type: "tool-end", id: "call-fixture-4", isError: true },
+        ]);
+        // Nothing of the shell's own bookkeeping (`output_file`, `current_dir`) is forwarded.
+        expect(JSON.stringify(events)).not.toContain("terminal/call.log");
+        expect(events.filter((event) => event.type === "text-delta")).toEqual([
+          { type: "text-delta", text: "done" },
+        ]);
+        expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
+      },
+    );
   },
   SESSION_BUDGET_MS,
 );

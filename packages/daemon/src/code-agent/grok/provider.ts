@@ -13,6 +13,7 @@ import { errorMessage } from "#src/code-agent/json-record";
 import { discoverExternalCodeAgents } from "#src/code-agent/runtime-inventory";
 import { GrokTurnProcess, type GrokTurnResult } from "./turn-process";
 import { assertGrokVersionSupported } from "./version";
+import { grokToolFailed, grokToolInput, grokToolOutputText } from "./tool-call";
 import { readGrokUsage } from "./usage";
 import type { UsageSnapshot } from "@coforge/agent";
 
@@ -249,8 +250,9 @@ class GrokAgentSession implements AgentSession {
   #buildArgv(prompt: string): string[] {
     // The one-shot headless surface (14-headless-mode.md): the prompt rides `-p`, and the process
     // exits when the turn ends. `--always-approve` and `--no-memory` are explicit: auto-approval, and
-    // daemon-owned memory isolation. Both are verified on the 1.0 CLI (1.0.40/1.0.41), but neither is
-    // in the guide's headless flag table, which lists `--yolo` for auto-approval.
+    // daemon-owned memory isolation. `--no-memory` and `--trust` are hidden flags (absent from
+    // `grok --help`) that the 1.0 CLI accepts (verified on 1.0.40/1.0.41), and the guide's headless
+    // flag table lists `--yolo` where this passes `--always-approve`.
     // `--trust` grants the Agent workspace folder trust for the turn. Headless startup loads
     // project skills and instructions only from a trusted folder (22-permissions-and-safety.md), and
     // the assigned skills are installed in the Agent workspace's `.grok/skills`. The grant is
@@ -311,9 +313,6 @@ class GrokAgentSession implements AgentSession {
         return;
       }
       case "error": {
-        // Whatever grok reports on its way out of an interrupt belongs to the stop that was asked
-        // for; the turn's exit reports it as interrupted.
-        if (this.#state === "interrupting") return;
         const message =
           (typeof record.message === "string" && record.message.trim()) || data || "Grok error";
         this.#failTurn(message);
@@ -343,37 +342,27 @@ class GrokAgentSession implements AgentSession {
     }
   }
 
-  /** A `tool_call` opens a call: its `toolName` and `rawInput` are grok's own, passed through for
-   * the daemon core to turn into Activity. A call that arrives already finished is ended at once. */
+  /** A `tool_call` opens a call. Its name is grok's own `toolName`, passed through for the daemon
+   * core to turn into Activity, and its input is `rawInput` (see `grokToolInput`). */
   #handleToolCall(record: Readonly<Record<string, unknown>>): void {
     const id = nonEmpty(record.toolCallId);
-    if (!id) return;
-    if (!this.#startedTools.has(id)) {
-      this.#startedTools.add(id);
-      const name = nonEmpty(record.toolName) ?? nonEmpty(record.title) ?? "unknown_tool";
-      this.#emit({ type: "tool-start", id, name, input: record.rawInput });
-    }
-    this.#endToolCall(id, record);
+    if (!id || this.#startedTools.has(id)) return;
+    this.#startedTools.add(id);
+    const name = nonEmpty(record.toolName) ?? nonEmpty(record.title) ?? "unknown_tool";
+    this.#emit({ type: "tool-start", id, name, input: grokToolInput(name, record.rawInput) });
   }
 
   /** A `tool_call_update` for a call this turn announced reports its status; the first terminal
-   * one ends it. */
+   * one (`completed` or `failed`) ends the call, and only its `content` is the call's output. */
   #handleToolCallUpdate(record: Readonly<Record<string, unknown>>): void {
     const id = nonEmpty(record.toolCallId);
-    if (id && this.#startedTools.has(id)) this.#endToolCall(id, record);
-  }
-
-  /** Ends a call once, when its status is terminal: `completed` (shown in the guide) or `failed`
-   * (an ACP status; the guide's leaf names follow ACP). The output text is a string `rawOutput`;
-   * the guide shows only an object there and documents no shape for the `content` elements, so
-   * nothing else is read as text. */
-  #endToolCall(id: string, record: Readonly<Record<string, unknown>>): void {
     const status = record.status;
-    if ((status !== "completed" && status !== "failed") || this.#endedTools.has(id)) return;
+    if (!id || !this.#startedTools.has(id) || this.#endedTools.has(id)) return;
+    if (status !== "completed" && status !== "failed") return;
     this.#endedTools.add(id);
-    const output = nonEmpty(record.rawOutput);
+    const output = grokToolOutputText(record.content);
     if (output) this.#emit({ type: "tool-output", id, text: output });
-    this.#emit({ type: "tool-end", id, isError: status === "failed" });
+    this.#emit({ type: "tool-end", id, isError: grokToolFailed(status, record.rawOutput) });
   }
 
   /** `end` is the last event of a turn, and its `stopReason` is one of `end_turn`, `max_tokens`,
@@ -382,9 +371,6 @@ class GrokAgentSession implements AgentSession {
   #handleEnd(stopReason: unknown): void {
     const reason = typeof stopReason === "string" ? stopReason.toLowerCase() : "";
     if (CANCELLED_STOP_REASONS.has(reason)) {
-      // An `interrupt()` sends SIGINT and grok ends the turn `cancelled`: that is the stop the
-      // caller asked for, not a failure.
-      if (this.#state === "interrupting") return;
       this.#failTurn(`Grok stopped: ${String(stopReason)}`);
     } else if (MAX_TURNS_STOP_REASONS.has(reason)) {
       this.#failTurn("Grok reached max turns");
