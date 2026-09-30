@@ -52,6 +52,12 @@ because the API is experimental.
   alone stores only after a read. The query is looked up when the write runs: one errored, dropped,
   or marked stale since is not stored, and a page write whose data is not one to open at leaves
   the stored copy alone.
+- A conversation's read cursor: the pane freezes its unread divider for the visit, so the live
+  window keeps the cursor it opened with; when the server's cursor moves (`noteReadThrough`, called
+  after a successful mark-read), what is stored carries the new one, never moving back, and leaving
+  the conversation takes it into the window (`adoptReadThrough`) so coming back in the same page
+  load draws no divider over what was read. The Activity inbox's and other devices' mark-reads do
+  not reach it yet.
 - A query the server answers `NOT_FOUND` (deleted, or access lost) is removed from storage.
 - `maxAge` is 7 days and a sweep removes older rows at most once a day. The buster is the build
   (`__COFORGE_BUILD_ID__`, defined in `vite.config.ts`; `COFORGE_BUILD_ID` overrides it), so a

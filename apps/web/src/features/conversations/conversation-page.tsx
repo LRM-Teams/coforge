@@ -1,7 +1,12 @@
 import { useEffect, useEffectEvent, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 
 import { useConversationAgentProfile } from "#src/features/agents/profile-panel/open-agent-profile";
+import {
+  adoptReadThrough,
+  noteReadThrough,
+} from "#src/features/cache-persistence/browser-query-cache";
 import { useLiveAgent } from "#src/features/agents/workspace-agents-realtime";
 import { ConversationTaskBoard } from "#src/features/tasks/conversation-task-board";
 import { markPublicChannelRead } from "./channels.functions";
@@ -13,6 +18,7 @@ import { useMarkConversationSeen } from "./conversation-navigation";
 import type { ConversationPageTarget } from "./conversation-page-loader";
 import type { ConversationPageSearch } from "./conversation-page-search";
 import type { DirectConversationView } from "./conversation-types";
+import { directConversationQuery, publicChannelQuery } from "./conversation-queries";
 import { latestTopLevelSequence, persistReadCursor } from "./conversation-unread";
 import { markDirectConversationRead } from "./conversations.functions";
 import { DirectConversation, DirectConversationHeader } from "./direct-conversation";
@@ -54,6 +60,8 @@ function ChannelConversationPage({
     useChannelConversation(channelId);
   const { conversation } = page;
   const advanceReadCursor = useServerFn(markPublicChannelRead);
+  const queryClient = useQueryClient();
+  useReadCursorAdoptedOnLeave("channel", channelId);
   return (
     <ConversationPageBody
       {...props}
@@ -66,7 +74,14 @@ function ChannelConversationPage({
       name={`#${conversation.name}`}
       readCursor={{
         key: `channel:${channelId}`,
-        advance: (throughSequence) => advanceReadCursor({ data: { channelId, throughSequence } }),
+        advance: async (throughSequence) => {
+          await advanceReadCursor({ data: { channelId, throughSequence } });
+          noteReadThrough(
+            queryClient,
+            publicChannelQuery(channelId).query.queryKey,
+            throughSequence,
+          );
+        },
       }}
       header={(tabs) => (
         <ChannelConversationHeader
@@ -177,6 +192,8 @@ function DirectConversationPageBody({
   }) {
   const { conversationId } = page.conversation;
   const advanceReadCursor = useServerFn(markDirectConversationRead);
+  const queryClient = useQueryClient();
+  useReadCursorAdoptedOnLeave("direct", conversationId);
   return (
     <ConversationPageBody
       {...props}
@@ -186,11 +203,32 @@ function DirectConversationPageBody({
       isMember
       readCursor={{
         key: `dm:${conversationId}`,
-        advance: (throughSequence) =>
-          advanceReadCursor({ data: { conversationId, throughSequence } }),
+        advance: async (throughSequence) => {
+          await advanceReadCursor({ data: { conversationId, throughSequence } });
+          noteReadThrough(
+            queryClient,
+            directConversationQuery(conversationId).query.queryKey,
+            throughSequence,
+          );
+        },
       }}
     />
   );
+}
+
+/**
+ * While the conversation is open its window keeps the read cursor it opened with (the pane freezes
+ * the unread divider for the visit); leaving it takes the cursor the server moved to into the
+ * window, so coming back in this page load draws no divider over what was read.
+ */
+function useReadCursorAdoptedOnLeave(kind: "channel" | "direct", id: string) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const { queryKey } = (kind === "channel" ? publicChannelQuery : directConversationQuery)(
+      id,
+    ).query;
+    return () => adoptReadThrough(queryClient, queryKey);
+  }, [queryClient, kind, id]);
 }
 
 type ConversationPageData =

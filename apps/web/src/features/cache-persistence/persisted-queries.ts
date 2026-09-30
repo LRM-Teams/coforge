@@ -47,6 +47,7 @@ type ConversationWindow = {
   pages: Array<{
     hasNewer?: boolean;
     hasOlder?: boolean;
+    readThroughSequence?: number;
     messages?: unknown[];
     threads?: Readonly<Record<string, unknown>>;
     threadReadThrough?: Readonly<Record<string, number>>;
@@ -149,4 +150,22 @@ function firstPaintOf(queryKey: QueryKey, data: unknown): unknown {
     case undefined:
       return undefined;
   }
+}
+
+/**
+ * A kept conversation window with its read cursor moved to `throughSequence`: the server's cursor
+ * moved there while the page kept the window's own (the pane freezes its unread divider for the
+ * visit). It never moves back, and a window without a cursor (a non-member's) keeps none.
+ */
+export function withReadThrough(queryKey: QueryKey, data: unknown, throughSequence: number) {
+  if (storedKindOf(queryKey) !== "conversation-window" || !isConversationWindow(data)) return data;
+  const behind = (page: ConversationWindow["pages"][number]) =>
+    page.readThroughSequence !== undefined && page.readThroughSequence < throughSequence;
+  if (!data.pages.some(behind)) return data;
+  return {
+    ...data,
+    pages: data.pages.map((page) =>
+      behind(page) ? { ...page, readThroughSequence: throughSequence } : page,
+    ),
+  };
 }

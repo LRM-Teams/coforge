@@ -1016,6 +1016,93 @@ describe("a page that already holds kept queries", () => {
   });
 });
 
+describe("a conversation the person read through a message", () => {
+  type CursorPage = Page & { readThroughSequence?: number };
+  const storedCursor = (disk: ReturnType<typeof memoryStore>) =>
+    (
+      disk.rows.get('user-1/tanstack-query-["conversation","channel","c1"]') as
+        | { state: { data: { pages: CursorPage[] } } }
+        | undefined
+    )?.state.data.pages[0]?.readThroughSequence;
+
+  test("is stored with that cursor, while the page's own window keeps the one it opened with", async () => {
+    // The pane freezes its unread divider for the visit; the next page load opens from storage.
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    await load.queryClient.fetchInfiniteQuery(
+      windowQuery("c1", async () => ({ ...page(["m"]), readThroughSequence: 100 })),
+    );
+    await disk.written(1);
+    load.persistence.noteReadThrough(channelKey("c1"), 160);
+    await load.persistence.flush();
+    await disk.written(2);
+    expect(storedCursor(disk)).toBe(160);
+    const live = load.queryClient.getQueryData<{ pages: CursorPage[] }>(channelKey("c1"));
+    expect(live?.pages[0]?.readThroughSequence).toBe(100);
+  });
+
+  test("keeps that cursor when a read that started before it stores the window again", async () => {
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    await load.queryClient.fetchInfiniteQuery(
+      windowQuery("c1", async () => ({ ...page(["m"]), readThroughSequence: 100 })),
+    );
+    await disk.written(1);
+    // A refetch is already on its way with the server's old cursor when the mark-read lands.
+    const network = gatedRead<CursorPage>();
+    const refetch = load.queryClient.fetchInfiniteQuery({
+      ...windowQuery("c1", network.read),
+      staleTime: 0,
+    });
+    await network.started;
+    load.persistence.noteReadThrough(channelKey("c1"), 160);
+    network.release({ ...page(["m", "n"]), readThroughSequence: 100 });
+    await refetch;
+    await disk.written(2);
+    await settle();
+    expect(storedCursor(disk)).toBe(160);
+  });
+
+  test("is taken into the page's own window when the page asks, as when the person leaves it", async () => {
+    // Coming back to the conversation in the same page load opens the window from memory.
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    await load.queryClient.fetchInfiniteQuery(
+      windowQuery("c1", async () => ({ ...page(["m"]), readThroughSequence: 100 })),
+    );
+    await load.queryClient.fetchInfiniteQuery(
+      windowQuery("c2", async () => ({ ...page(["m"]), readThroughSequence: 100 })),
+    );
+    load.persistence.noteReadThrough(channelKey("c1"), 160);
+    load.persistence.adoptReadThrough(channelKey("c1"));
+    load.persistence.adoptReadThrough(channelKey("c2"));
+    const cursor = (id: string) =>
+      load.queryClient.getQueryData<{ pages: CursorPage[] }>(channelKey(id))?.pages[0]
+        ?.readThroughSequence;
+    expect(cursor("c1")).toBe(160);
+    expect(cursor("c2")).toBe(100);
+  });
+
+  test("never moves the stored cursor back, and leaves a window without one as it was", async () => {
+    const disk = memoryStore();
+    const load = pageLoad(disk.store);
+    await load.queryClient.fetchInfiniteQuery(
+      windowQuery("c1", async () => ({ ...page(["m"]), readThroughSequence: 100 })),
+    );
+    await load.queryClient.fetchInfiniteQuery(windowQuery("c2", async () => page(["m"])));
+    await disk.written(2);
+    load.persistence.noteReadThrough(channelKey("c1"), 90);
+    load.persistence.noteReadThrough(channelKey("c2"), 160);
+    await load.persistence.flush();
+    await settle();
+    expect(storedCursor(disk)).toBe(100);
+    const other = disk.rows.get('user-1/tanstack-query-["conversation","channel","c2"]') as {
+      state: { data: { pages: CursorPage[] } };
+    };
+    expect(other.state.data.pages[0]?.readThroughSequence).toBeUndefined();
+  });
+});
+
 describe("what the page writes itself (realtime, a sent message, the sidebar's changes)", () => {
   test("is kept too, the newest state once per burst, so the next load opens where this one left off", async () => {
     const disk = memoryStore();

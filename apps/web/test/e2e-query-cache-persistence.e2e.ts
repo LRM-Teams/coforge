@@ -194,6 +194,15 @@ const waitFor = (condition: string, ms = 20_000) =>
       setTimeout(() => reject(new Error(`timed out waiting for ${condition}`)), ms),
     ),
   ]);
+/** Waits for an asynchronous condition in the page: `wait --fn` takes a Promise as truthy at once,
+ * so it is polled through `evaluate`, which awaits it. */
+async function until(condition: string, ms = 20_000) {
+  const deadline = Date.now() + ms;
+  while (!(await evaluate<boolean>(condition))) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${condition}`);
+    await Bun.sleep(100);
+  }
+}
 /** Runs an async expression in the page and parses the JSON it returns. */
 async function evaluate<T>(expression: string): Promise<T> {
   const printed = (
@@ -290,7 +299,7 @@ test("Chat opens from the browser's copy while its reads are outstanding, then t
   // stores what it read.
   await browser("open", `${proxy.origin}${workspacePath}/channel/${channelId}`);
   await waitFor(visible(first), 60_000);
-  await waitFor(pageIsUp);
+  await until(pageIsUp);
   expect(await storedKeys()).toContain(channelKey(DEV_BROWSER_USER.id));
 
   // Something new arrives while nobody has the channel open.
@@ -309,7 +318,7 @@ test("Chat opens from the browser's copy while its reads are outstanding, then t
 
   // A new page load away from Chat: nothing of the conversation is in memory.
   await browser("open", `${proxy.origin}${workspacePath}/members`);
-  await waitFor(pageIsUp);
+  await until(pageIsUp);
   proxy.hold();
   await browser("eval", "window.__stayedInThisDocument = true");
   await browser(
@@ -331,10 +340,119 @@ test("Chat opens from the browser's copy while its reads are outstanding, then t
   await browser("screenshot", join(artifacts, "brought-up-to-date.png"));
 }, 300_000);
 
+test("a conversation read in one page load opens from the browser's copy without a divider over what was read", async () => {
+  // Something new arrives; opening the channel reads it (the server's cursor moves past it).
+  const third = `Third message ${process.pid}`;
+  const member = await db.conversationMember.findFirstOrThrow({
+    where: { conversationId: channelId, userId: DEV_BROWSER_USER.id },
+  });
+  await db.message.create({
+    data: {
+      workspaceId,
+      conversationId: channelId,
+      senderMemberId: member.id,
+      sequence: 3,
+      body: third,
+    },
+  });
+  await browser("open", `${proxy.origin}${workspacePath}/channel/${channelId}`);
+  await waitFor(visible(third), 60_000);
+  await until(pageIsUp);
+  const readThroughThird = async () =>
+    (
+      await db.conversationMember.findFirstOrThrow({
+        where: { id: member.id },
+        select: { readThroughSequence: true },
+      })
+    ).readThroughSequence === 3;
+  const deadline = Date.now() + 30_000;
+  while (!(await readThroughThird())) {
+    if (Date.now() > deadline) throw new Error("the channel was not marked read through message 3");
+    await Bun.sleep(200);
+  }
+  // What the browser keeps for the channel carries the cursor the server moved to (the page's
+  // writes wait for their burst to end).
+  const storedCursor = `(async () => (await ${withStore(
+    "readonly",
+    `return new Promise((r) => { const q = store.get(${JSON.stringify(channelKey(DEV_BROWSER_USER.id))}); q.onsuccess = () => r(q.result); });`,
+  )})?.state.data.pages[0]?.readThroughSequence)()`;
+  await until(`${storedCursor}.then((cursor) => cursor === 3)`);
+  await browser("open", `${proxy.origin}${workspacePath}/members`);
+  await until(pageIsUp);
+
+  // A new page load opens the channel from storage, with its reads held.
+  proxy.hold();
+  try {
+    await browser(
+      "eval",
+      `[...document.querySelectorAll("a")].find((a) => a.textContent.trim() === "Chat").click()`,
+    );
+    await waitFor(visible(third));
+    expect(proxy.held()).toBeGreaterThan(0);
+    expect(
+      await evaluate<boolean>(
+        `document.querySelector('[role="separator"][aria-label="New messages"]') !== null`,
+      ),
+    ).toBe(false);
+    await browser("screenshot", join(artifacts, "read-then-reopened.png"));
+  } finally {
+    proxy.release();
+  }
+}, 300_000);
+
+test("a conversation read and left, then opened again in the same page load, shows no divider over what was read", async () => {
+  const fourth = `Fourth message ${process.pid}`;
+  const member = await db.conversationMember.findFirstOrThrow({
+    where: { conversationId: channelId, userId: DEV_BROWSER_USER.id },
+  });
+  await db.message.create({
+    data: {
+      workspaceId,
+      conversationId: channelId,
+      senderMemberId: member.id,
+      sequence: 4,
+      body: fourth,
+    },
+  });
+  await browser("open", `${proxy.origin}${workspacePath}/channel/${channelId}`);
+  await waitFor(visible(fourth), 60_000);
+  const readBy = Date.now() + 30_000;
+  while (
+    (
+      await db.conversationMember.findFirstOrThrow({
+        where: { id: member.id },
+        select: { readThroughSequence: true },
+      })
+    ).readThroughSequence !== 4
+  ) {
+    if (Date.now() > readBy) throw new Error("the channel was not marked read through message 4");
+    await Bun.sleep(200);
+  }
+  // Away and back without a page load: the window comes from memory, not storage.
+  await browser("eval", "window.__stayedInThisDocument = true");
+  await browser(
+    "eval",
+    `[...document.querySelectorAll("a")].find((a) => a.textContent.trim() === "Members").click()`,
+  );
+  await waitFor(`location.pathname.endsWith("/members")`);
+  await browser(
+    "eval",
+    `[...document.querySelectorAll("a")].find((a) => a.textContent.trim() === "Chat").click()`,
+  );
+  await waitFor(visible(fourth));
+  expect(await evaluate<boolean>("window.__stayedInThisDocument === true")).toBe(true);
+  expect(
+    await evaluate<boolean>(
+      `document.querySelector('[role="separator"][aria-label="New messages"]') !== null`,
+    ),
+  ).toBe(false);
+  await browser("screenshot", join(artifacts, "read-left-and-back.png"));
+}, 300_000);
+
 test("signing out removes what the browser kept", async () => {
   await browser("open", `${proxy.origin}${workspacePath}/channel/${channelId}`);
   await waitFor(visible(first), 60_000);
-  await waitFor(pageIsUp);
+  await until(pageIsUp);
   expect((await storedKeys()).some((key) => key.includes("tanstack-query-"))).toBe(true);
 
   await browser("eval", `document.querySelector('button[aria-label^="Current user"]').click()`);
@@ -373,7 +491,7 @@ test("another person on the same browser starts from nothing", async () => {
 
   await browser("open", `${proxy.origin}${workspacePath}/channel/${channelId}`);
   await waitFor(visible(first), 60_000);
-  await waitFor(pageIsUp);
+  await until(pageIsUp);
   expect((await storedKeys()).filter((key) => key.startsWith(`${earlier}/`))).toEqual([]);
   expect(await evaluate<boolean>(visible(secret))).toBe(false);
 }, 120_000);
