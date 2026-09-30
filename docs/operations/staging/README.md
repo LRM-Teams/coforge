@@ -15,3 +15,4 @@ intentionally unreachable — no plaintext, not even redirects.
 - [GitHub Environment secrets (repository `staging` environment)](github-environment.md): GitHub Environment secrets and variables, bulk configuration, and when each kind of value takes effect.
 - [触发 Computer 本地分发发布](computer-release-trigger.md): Triggering a local Computer distribution release to staging, and why published versions are immutable.
 - [Personal GitHub connection](github-connection.md): The staging GitHub App configuration, its Environment values, and manual acceptance.
+- [Renaming existing usernames](rename-usernames.md): The one-time script that renames existing usernames to readable ones: dry run, apply with a dump, verify, and restore.

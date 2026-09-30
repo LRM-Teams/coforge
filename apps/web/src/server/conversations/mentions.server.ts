@@ -6,7 +6,8 @@ import { humanLabel } from "#src/lib/human-label";
 export type MessageMentionRef = { kind: string; actorId: string; handle: string };
 
 /** The one select for a message's `MessageMentionRef` rows: stable mention identity for
- * Agent-facing text, which always reads the immutable handle. */
+ * Agent-facing text, which always reads the stored handle (an Agent's name is fixed; a username
+ * changes only through the one-time rename, which rewrites the stored handle with it). */
 export const MESSAGE_MENTIONS_SELECT = {
   select: { kind: true, actorId: true, handle: true },
 } satisfies NonNullable<Prisma.MessageSelect["mentions"]>;
@@ -37,7 +38,7 @@ export const BROWSER_MESSAGE_MENTIONS_SELECT = {
 
 /** A browser mention keeps the stable handle for identity/self matching and adds the current
  * profile label for display. The relation survives ordinary channel leave because membership is
- * soft-deleted; an absent/blank display name falls back to the immutable handle. */
+ * soft-deleted; an absent/blank display name falls back to the stored handle. */
 export type BrowserMessageMentionRow = MessageMentionRef & {
   member: {
     user: { displayName: string | null; fullName: string | null } | null;

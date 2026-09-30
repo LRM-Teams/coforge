@@ -39,23 +39,34 @@ const RESERVED_USERNAMES = new Set([
   "you",
 ]);
 
+/** Which of a profile's fields a base name came from. */
+export type UsernameBaseSource = "preferred_username" | "email" | "name" | "nickname" | "fallback";
+
 /**
  * The readable base name for a new account: the first of the person's `preferred_username`, the
  * local part of their email, and their name or nickname that yields a name the grammar allows,
  * else `user`. It is a pure function of the profile, so the same rule holds for every source.
  */
 export function usernameBase(profile: UsernameProfile): string {
-  const candidates = [
-    strictName(profile.preferredUsername),
-    normalizedName(emailLocalPart(profile.email)),
-    asciiSlug(profile.name),
-    asciiSlug(profile.nickname),
+  return resolveUsernameBase(profile).base;
+}
+
+/** `usernameBase`, and which field produced it (`fallback` when none did). */
+export function resolveUsernameBase(profile: UsernameProfile): {
+  base: string;
+  source: UsernameBaseSource;
+} {
+  const candidates: [UsernameBaseSource, string | undefined][] = [
+    ["preferred_username", strictName(profile.preferredUsername)],
+    ["email", normalizedName(emailLocalPart(profile.email))],
+    ["name", asciiSlug(profile.name)],
+    ["nickname", asciiSlug(profile.nickname)],
   ];
-  for (const candidate of candidates) {
+  for (const [source, candidate] of candidates) {
     const base = candidate && allowedBase(candidate);
-    if (base) return base;
+    if (base) return { base, source };
   }
-  return FALLBACK_BASE;
+  return { base: FALLBACK_BASE, source: "fallback" };
 }
 
 /**
@@ -89,7 +100,7 @@ export class UsernameAllocator {
 
 /** The base, else `base-2`, `base-3`, ...: only these count as taken, so `ada3x` and an older
  * `ada3-d9956ab1` never block `ada3`. */
-function smallestFree(base: string, taken: string[]): string {
+export function smallestFree(base: string, taken: readonly string[]): string {
   const numbers = new Set<number>();
   let baseTaken = false;
   for (const name of taken) {

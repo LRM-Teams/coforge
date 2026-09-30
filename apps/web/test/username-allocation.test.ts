@@ -1,9 +1,45 @@
 import { expect, test } from "bun:test";
 
 import { USERNAME_PATTERN } from "#src/lib/username-grammar";
-import { UsernameAllocator, usernameBase } from "#src/server/auth/username-allocation.server";
+import {
+  UsernameAllocator,
+  resolveUsernameBase,
+  smallestFree,
+  usernameBase,
+} from "#src/server/auth/username-allocation.server";
 
 const uniqueViolation = () => Object.assign(new Error("unique"), { code: "P2002" });
+
+// --- Which source a base came from ---
+
+test("the resolved base says which source produced it", () => {
+  const all = {
+    preferredUsername: "grace",
+    email: "ada@example.com",
+    name: "Alan Turing",
+    nickname: "Ace",
+  };
+  expect(resolveUsernameBase(all)).toEqual({ base: "grace", source: "preferred_username" });
+  expect(resolveUsernameBase({ ...all, preferredUsername: null })).toEqual({
+    base: "ada",
+    source: "email",
+  });
+  expect(resolveUsernameBase({ ...all, preferredUsername: null, email: null })).toEqual({
+    base: "alan-turing",
+    source: "name",
+  });
+  expect(
+    resolveUsernameBase({ ...all, preferredUsername: null, email: null, name: "安栋" }),
+  ).toEqual({ base: "ace", source: "nickname" });
+  expect(resolveUsernameBase({})).toEqual({ base: "user", source: "fallback" });
+});
+
+test("the free name for a base is the base itself, else the smallest free -N", () => {
+  expect(smallestFree("ada", [])).toBe("ada");
+  expect(smallestFree("ada", ["ada"])).toBe("ada-2");
+  expect(smallestFree("ada", ["ada", "ada-2", "ada-4"])).toBe("ada-3");
+  expect(smallestFree("ada", ["ada-9", "ada3", "ada-x", "ada-2-2"])).toBe("ada");
+});
 
 // --- The base name a sign-in profile yields ---
 
