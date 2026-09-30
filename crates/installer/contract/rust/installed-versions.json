@@ -1,0 +1,54 @@
+{
+  "linux-x64": {
+    "versions/0.2.0/coforge": {
+      "encoding": "utf8",
+      "content": "#!/bin/sh\nexec \"${0%/*}/coforge-computer\" __agent-cli \"$@\"\n"
+    },
+    "versions/0.2.0/coforge-computer": {
+      "encoding": "utf8",
+      "content": "#!/bin/sh\necho a fake coforge-computer\n"
+    },
+    "versions/0.2.0/gh": {
+      "encoding": "utf8",
+      "content": "#!/bin/sh\nexec \"${0%/*}/coforge-computer\" __agent-cli github gh \"$@\"\n"
+    },
+    "versions/0.2.0/installation.json": {
+      "encoding": "utf8",
+      "content": "{\"schema_version\":4,\"version\":\"0.2.0\",\"computer\":{\"size\":39,\"checksum\":\"432b0ac9f9df096e038c9a181641c918bfe855622b858586b094c2c3acdf394c\"},\"agentCli\":{\"size\":59,\"checksum\":\"06368472ee65b7c4424625712f77dcd6c68e17ba1975d5a070ab3562aef2c0ce\"},\"githubCli\":{\"size\":69,\"checksum\":\"008c1e40992f1b955c9e2cc686d424d1535365a7b7bbda9f8da4de055e988372\"},\"photonWasm\":{\"size\":21,\"checksum\":\"2061300a337848198e23c427b6a6d9b8fa321149b9ecd1d109d6dd2d17378ae3\"}}\n"
+    },
+    "versions/0.2.0/photon_rs_bg.wasm": {
+      "encoding": "base64",
+      "content": "AGFzbQEAAABhIGZha2UgcGhvdG9u"
+    },
+    "versions/0.2.0/version": {
+      "encoding": "utf8",
+      "content": "0.2.0\n"
+    }
+  },
+  "windows-x64": {
+    "versions/0.2.0/coforge-computer.exe": {
+      "encoding": "utf8",
+      "content": "#!/bin/sh\necho a fake coforge-computer\n"
+    },
+    "versions/0.2.0/coforge.cmd": {
+      "encoding": "utf8",
+      "content": "@echo off\r\n\"%~dp0coforge-computer.exe\" __agent-cli %*\r\n"
+    },
+    "versions/0.2.0/gh.cmd": {
+      "encoding": "utf8",
+      "content": "@echo off\r\n\"%~dp0coforge-computer.exe\" __agent-cli github gh %*\r\n"
+    },
+    "versions/0.2.0/installation.json": {
+      "encoding": "utf8",
+      "content": "{\"schema_version\":4,\"version\":\"0.2.0\",\"computer\":{\"size\":39,\"checksum\":\"432b0ac9f9df096e038c9a181641c918bfe855622b858586b094c2c3acdf394c\"},\"agentCli\":{\"size\":55,\"checksum\":\"3a48dd7a8e3afa31b01f58688afbd476cd1da16ebd77077a7194bebba05dfca9\"},\"githubCli\":{\"size\":65,\"checksum\":\"dce2be8073edbae565cceef951a5a39b6cc0b250e6c5863cad9030ec61c4cc50\"},\"photonWasm\":{\"size\":21,\"checksum\":\"2061300a337848198e23c427b6a6d9b8fa321149b9ecd1d109d6dd2d17378ae3\"}}\n"
+    },
+    "versions/0.2.0/photon_rs_bg.wasm": {
+      "encoding": "base64",
+      "content": "AGFzbQEAAABhIGZha2UgcGhvdG9u"
+    },
+    "versions/0.2.0/version": {
+      "encoding": "utf8",
+      "content": "0.2.0\n"
+    }
+  }
+}

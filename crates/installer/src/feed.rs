@@ -6,7 +6,7 @@
 //! `#verifyPhotonWasm` (packages/computer/src/updater.ts). Nothing follows a redirect, every
 //! object has a size ceiling, and a downloaded object must match its manifest entry exactly, in
 //! size and checksum. Downloads are written as ordinary files and never touch `versions/`; the
-//! caller places them.
+//! version store places them.
 
 use std::fs;
 use std::path::Path;
