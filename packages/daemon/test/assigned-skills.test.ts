@@ -37,6 +37,9 @@ test("assigned skill packs install into provider-native workspace roots", async 
       "weekly-report-writing",
     ]);
     expect(JSON.stringify(listed)).not.toContain("Progressive loading");
+    const navigation = await Bun.file(join(root, ".pi", "skills", "weekly-report-navigation", "SKILL.md")).text();
+    expect(navigation).toContain("DM and Records");
+    expect(navigation).toContain("body-edit");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
